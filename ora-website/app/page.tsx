@@ -14,6 +14,7 @@ import { AIChatDemo } from "@/components/ai-chat-demo";
 import { ProductName } from "@/components/ora-logo";
 import { DemoSection } from "@/components/demo-section";
 import { AnimatedWidgets } from "@/components/animated-widgets";
+import { AutomationPlayground } from "@/components/automation-playground";
 
 export default function HomePage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -382,6 +383,9 @@ export default function HomePage() {
 
       {/* ═══════════ INTERACTIVE DEMO ═══════════ */}
       <DemoSection />
+
+      {/* ═══════════ AUTOMATION PLAYGROUND ═══════════ */}
+      <AutomationPlayground />
 
       {/* ═══════════ CTA ═══════════ */}
       <section className="py-32 lg:py-40 border-t border-border/10 relative overflow-hidden">

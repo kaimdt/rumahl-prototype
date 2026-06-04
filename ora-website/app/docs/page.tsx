@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, BookOpen, FileText, Code2, Terminal, Github, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { QuickstartSteps } from "@/components/quickstart-steps";
 
 export const metadata: Metadata = {
   title: "Documentation",
@@ -43,6 +44,41 @@ export default function DocsPage() {
                 Learn more <ArrowRight className="h-3.5 w-3.5" />
               </span>
             </Link>
+          ))}
+        </div>
+
+        <div className="text-center mb-10">
+          <h2 className="text-2xl font-bold text-foreground">Quickstart in one command</h2>
+          <p className="text-sm text-muted-foreground mt-2 max-w-xl mx-auto">
+            Pick your preferred platform and copy the install command directly from here.
+          </p>
+        </div>
+
+        <QuickstartSteps />
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-10 mb-16">
+          {[
+            {
+              title: "System Requirements",
+              value: "2GB RAM minimum",
+              details: "4GB+ recommended for local AI assistants",
+            },
+            {
+              title: "Supported Platforms",
+              value: "Linux, Windows, macOS",
+              details: "Raspberry Pi, mini PCs, VMs and NAS systems",
+            },
+            {
+              title: "Community",
+              value: "Open-source support",
+              details: "Community forum, GitHub issues and Discord",
+            },
+          ].map((item) => (
+            <div key={item.title} className="glass-card p-5 text-left">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{item.title}</p>
+              <p className="text-sm font-semibold text-foreground mt-2">{item.value}</p>
+              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{item.details}</p>
+            </div>
           ))}
         </div>
 

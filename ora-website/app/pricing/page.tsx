@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PricingCalculator } from "@/components/pricing-calculator";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -71,6 +72,30 @@ export default function PricingPage() {
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
+            </div>
+          ))}
+        </div>
+
+        <PricingCalculator />
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-10 max-w-4xl mx-auto">
+          {[
+            {
+              title: "No lock-in",
+              body: "Move, export, and self-host at any time. Your automations remain yours.",
+            },
+            {
+              title: "Transparent updates",
+              body: "All releases are public, changelog-driven, and versioned on GitHub.",
+            },
+            {
+              title: "Local-first by default",
+              body: "No mandatory cloud account, no forced telemetry, no hidden paid features.",
+            },
+          ].map((item) => (
+            <div key={item.title} className="glass-card p-5">
+              <p className="text-sm font-semibold text-foreground">{item.title}</p>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">{item.body}</p>
             </div>
           ))}
         </div>

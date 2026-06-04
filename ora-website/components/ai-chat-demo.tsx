@@ -31,12 +31,18 @@ export function AIChatDemo() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    if (composerRef.current && input === "" && composerRef.current.textContent !== "") {
+      composerRef.current.textContent = "";
+    }
+  }, [input]);
 
   const getResponse = (text: string): string => {
     const lower = text.toLowerCase();
@@ -62,8 +68,15 @@ export function AIChatDemo() {
     }, 800 + Math.random() * 600);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleSend();
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
+    setInput(e.currentTarget.textContent ?? "");
   };
 
   const handleSuggestion = (text: string) => {
@@ -79,7 +92,7 @@ export function AIChatDemo() {
       }, 800 + Math.random() * 600);
     }, 100);
     setHasStarted(true);
-    inputRef.current?.focus();
+    composerRef.current?.focus();
   };
 
   return (
@@ -165,14 +178,16 @@ export function AIChatDemo() {
         {/* Input */}
         <div className="px-3 pb-3">
           <div className="flex items-center gap-2 rounded-full border border-border/20 bg-muted/20 px-3 py-2 focus-within:border-primary/30 transition-colors">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={e => setInput(e.target.value)}
+            <div
+              ref={composerRef}
+              role="textbox"
+              aria-label="Ask ORA something"
+              contentEditable
+              suppressContentEditableWarning
+              onInput={handleInput}
               onKeyDown={handleKeyDown}
-              placeholder="Ask ORA something..."
-              className="flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/40"
+              data-placeholder="Ask ORA something..."
+              className="flex-1 bg-transparent text-xs text-foreground outline-none min-h-[16px] max-h-20 overflow-y-auto empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/40"
             />
             <button
               onClick={handleSend}
