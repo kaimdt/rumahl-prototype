@@ -65,6 +65,16 @@ pub async fn try_authenticate(
         }
         // Otherwise treat as JWT
         if let Ok(claims) = auth::verify_token(token) {
+            // Check if this JWT has been blacklisted (logout/revoke)
+            if state
+                .config_repo
+                .is_jwt_blacklisted(&claims.jti)
+                .await
+                .unwrap_or(false)
+            {
+                warn!("Rejected blacklisted JWT (jti={})", &claims.jti[..8]);
+                return None;
+            }
             return Some(AuthIdentity::Jwt(claims));
         }
     }
@@ -91,6 +101,16 @@ pub async fn try_authenticate(
                 return try_api_key_auth(token, state).await;
             }
             if let Ok(claims) = auth::verify_token(token) {
+                // Check if this JWT has been blacklisted
+                if state
+                    .config_repo
+                    .is_jwt_blacklisted(&claims.jti)
+                    .await
+                    .unwrap_or(false)
+                {
+                    warn!("Rejected blacklisted JWT from query param (jti={})", &claims.jti[..8]);
+                    return None;
+                }
                 return Some(AuthIdentity::Jwt(claims));
             }
         }
@@ -277,5 +297,72 @@ pub async fn require_authenticated(
             warn!("Authenticated access rejected: not authenticated");
             Err(StatusCode::UNAUTHORIZED)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_jwt_claims(sub: &str, is_admin: bool) -> auth::Claims {
+        auth::Claims {
+            sub: sub.to_string(),
+            jti: "test-jti".to_string(),
+            username: "testuser".to_string(),
+            is_admin,
+            exp: 9999999999,
+        }
+    }
+
+    #[test]
+    fn test_auth_identity_jwt_user_id() {
+        let identity = AuthIdentity::Jwt(make_jwt_claims("user_123", false));
+        assert_eq!(identity.user_id(), "user_123");
+        assert!(!identity.is_admin());
+        assert!(identity.has_permission("read"));
+        assert!(identity.has_permission("anything"));
+    }
+
+    #[test]
+    fn test_auth_identity_jwt_admin() {
+        let identity = AuthIdentity::Jwt(make_jwt_claims("admin_001", true));
+        assert_eq!(identity.user_id(), "admin_001");
+        assert!(identity.is_admin());
+    }
+
+    #[test]
+    fn test_auth_identity_api_key_read_only() {
+        let identity = AuthIdentity::ApiKey {
+            user_id: "user_456".to_string(),
+            key_id: "key_001".to_string(),
+            permissions: vec!["read".to_string()],
+        };
+        assert_eq!(identity.user_id(), "user_456");
+        assert!(!identity.is_admin());
+        assert!(identity.has_permission("read"));
+        assert!(!identity.has_permission("write"));
+    }
+
+    #[test]
+    fn test_auth_identity_api_key_wildcard() {
+        let identity = AuthIdentity::ApiKey {
+            user_id: "user_789".to_string(),
+            key_id: "key_002".to_string(),
+            permissions: vec!["*".to_string()],
+        };
+        assert!(identity.has_permission("read"));
+        assert!(identity.has_permission("write"));
+        assert!(identity.has_permission("admin"));
+    }
+
+    #[test]
+    fn test_auth_identity_api_key_no_permissions() {
+        let identity = AuthIdentity::ApiKey {
+            user_id: "user_000".to_string(),
+            key_id: "key_000".to_string(),
+            permissions: vec![],
+        };
+        assert!(!identity.has_permission("read"));
+        assert!(!identity.has_permission("write"));
     }
 }

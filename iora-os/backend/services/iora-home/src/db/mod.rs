@@ -154,6 +154,10 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
             "031_system_events",
             include_str!("../../migrations/031_system_events.sql"),
         ),
+        (
+            "032_refresh_tokens",
+            include_str!("../../migrations/032_refresh_tokens.sql"),
+        ),
     ];
 
     // Apply each migration if not already applied

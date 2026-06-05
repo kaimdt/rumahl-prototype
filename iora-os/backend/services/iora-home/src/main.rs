@@ -87,6 +87,7 @@ use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use uuid::Uuid;
 use zigbee_client::ZigbeeClient;
 use zwave_client::ZwaveClient;
 
@@ -2477,6 +2478,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/auth/users", get(list_all_users))
         .route("/api/auth/pin", post(set_user_pin))
         .route("/api/auth/pin", delete(remove_user_pin))
+        .route("/api/auth/refresh", post(auth_refresh))
+        .route("/api/auth/logout", post(auth_logout))
         .route("/api/uploads/background", post(upload_background_image))
         // Public media proxy (thumbnails should render even without frontend auth session)
         .route("/api/hass_agent/*path", get(proxy_hass_agent_media))
@@ -11384,15 +11387,41 @@ async fn auth_pin_login(
         return Err(ErrorResponse::unauthorized("Ungültiger PIN"));
     }
 
-    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, 30) {
-        Ok(token) => token,
+    // Generate JWT + refresh token pair
+    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin) {
+        Ok(v) => v,
         Err(e) => {
             warn!("Failed to generate token: {}", e);
             return Err(ErrorResponse::internal("Token-Erstellung fehlgeschlagen"));
         }
     };
 
-    Ok(Json(db::models::AuthResponse { token, user }))
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires = chrono::Utc::now()
+        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            None,
+            None,
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store refresh token after PIN login: {}", e);
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
 }
 
 // ── Set/remove user PIN ────────────────────────────────────────────
@@ -11677,9 +11706,9 @@ async fn auth_register(
         info!("First user '{}' auto-promoted to admin", user.username);
     }
 
-    // Generate JWT token
-    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, 30) {
-        Ok(token) => token,
+    // Generate JWT + refresh token pair
+    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin) {
+        Ok(v) => v,
         Err(e) => {
             warn!("Failed to generate token: {}", e);
             return Err(ErrorResponse::internal(
@@ -11688,7 +11717,32 @@ async fn auth_register(
         }
     };
 
-    Ok(Json(db::models::AuthResponse { token, user }))
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires = chrono::Utc::now()
+        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            None, // device_id
+            None, // user_agent
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store refresh token after registration: {}", e);
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
 }
 
 /// Login an existing user
@@ -11749,13 +11803,10 @@ async fn auth_login(
         return Err(ErrorResponse::unauthorized("Invalid username or password"));
     }
 
-    // Generate JWT token
-    let remember_me = request.remember_me.unwrap_or(false);
-    let expiration_days = if remember_me { 30 } else { 1 };
-
-    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, expiration_days)
+    // Generate JWT + refresh token pair
+    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin)
     {
-        Ok(token) => token,
+        Ok(v) => v,
         Err(e) => {
             warn!("Failed to generate token: {}", e);
             return Err(ErrorResponse::internal(
@@ -11764,7 +11815,172 @@ async fn auth_login(
         }
     };
 
-    Ok(Json(db::models::AuthResponse { token, user }))
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires = chrono::Utc::now()
+        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            request.device_id.as_deref(),
+            None, // user_agent — could add from headers later
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store refresh token: {}", e);
+        // Non-fatal: user can still use the access token
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
+}
+
+/// Exchange a refresh token for a new access token (+ optionally rotate the refresh token)
+async fn auth_refresh(
+    State(state): State<AppState>,
+    Json(request): Json<db::models::RefreshRequest>,
+) -> Result<Json<db::models::RefreshTokenResponse>, ErrorResponse> {
+    let refresh_hash = auth::sha256_hex(&request.refresh_token);
+
+    // Look up the stored refresh token
+    let stored = match state
+        .config_repo
+        .get_refresh_token_by_hash(&refresh_hash)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return Err(ErrorResponse::unauthorized("Invalid refresh token"));
+        }
+        Err(e) => {
+            warn!("Failed to look up refresh token: {}", e);
+            return Err(ErrorResponse::internal("Token validation failed"));
+        }
+    };
+
+    // Check if revoked
+    if stored.revoked_at.is_some() {
+        warn!("Refresh token already revoked (id={})", &stored.id[..8]);
+        return Err(ErrorResponse::unauthorized("Refresh token has been revoked"));
+    }
+
+    // Check if expired
+    if stored.expires_at < chrono::Utc::now() {
+        return Err(ErrorResponse::unauthorized("Refresh token has expired"));
+    }
+
+    // Fetch the user
+    let user = match state.config_repo.get_user_by_id(&stored.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            warn!("Refresh token user not found (user_id={})", &stored.user_id[..8]);
+            return Err(ErrorResponse::unauthorized("User not found"));
+        }
+        Err(e) => {
+            warn!("Failed to fetch user for refresh: {}", e);
+            return Err(ErrorResponse::internal("Token validation failed"));
+        }
+    };
+
+    // Revoke the old refresh token (rotation)
+    if let Err(e) = state
+        .config_repo
+        .revoke_refresh_token(&refresh_hash, "reissue")
+        .await
+    {
+        warn!("Failed to revoke old refresh token: {}", e);
+        // Non-fatal: continue with new tokens
+    }
+
+    // Generate a new token pair
+    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("Failed to generate token: {}", e);
+            return Err(ErrorResponse::internal("Failed to generate token"));
+        }
+    };
+
+    let (raw_refresh, new_refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires = chrono::Utc::now()
+        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &new_refresh_hash,
+            stored.device_id.as_deref(),
+            stored.user_agent.as_deref(),
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store new refresh token: {}", e);
+    }
+
+    Ok(Json(db::models::RefreshTokenResponse {
+        access_token: token,
+        refresh_token: raw_refresh,
+        expires_in,
+        token_type: "Bearer".to_string(),
+    }))
+}
+
+/// Logout: revoke the provided refresh token and/or all tokens, and blacklist the current JWT
+async fn auth_logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<db::models::LogoutRequest>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    // Get user identity from the Authorization header
+    let claims = extract_claims(&headers)?;
+
+    // Blacklist the current JWT
+    let now = chrono::Utc::now();
+    let jwt_exp = chrono::Duration::seconds(auth::ACCESS_TOKEN_TTL_SECS);
+    if let Err(e) = state
+        .config_repo
+        .add_to_jwt_blacklist(&claims.jti, &claims.sub, &(now + jwt_exp), "logout")
+        .await
+    {
+        warn!("Failed to blacklist JWT: {}", e);
+    }
+
+    // Revoke a specific refresh token if provided
+    if let Some(ref raw) = request.refresh_token {
+        let hash = auth::sha256_hex(raw);
+        if let Err(e) = state.config_repo.revoke_refresh_token(&hash, "logout").await {
+            warn!("Failed to revoke refresh token: {}", e);
+        }
+    }
+
+    // Revoke all refresh tokens for this user if requested
+    if request.revoke_all.unwrap_or(false) {
+        let revoked = state
+            .config_repo
+            .revoke_all_user_refresh_tokens(&claims.sub, "logout")
+            .await
+            .unwrap_or(0);
+        info!(
+            "Revoked {} refresh tokens for user {} during logout",
+            revoked, &claims.sub[..8]
+        );
+    }
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 #[derive(Debug, Serialize)]
@@ -11955,7 +12171,7 @@ async fn auth_verify(
     // If admin status changed in DB, issue a fresh token
     let mut response = serde_json::to_value(&user).unwrap_or_default();
     if user.is_admin != claims.is_admin {
-        if let Ok(new_token) = auth::generate_token(&user.id, &user.username, user.is_admin, 30) {
+        if let Ok((new_token, _new_jti, _expires_in)) = auth::generate_token(&user.id, &user.username, user.is_admin) {
             response["refreshed_token"] = serde_json::Value::String(new_token);
         }
     }

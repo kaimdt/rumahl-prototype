@@ -1,32 +1,37 @@
-# MDT HOME Dashboard
+# ORA — Home Assistant Dashboard
 
-A modern, fully-featured **Home Assistant Dashboard** with real-time entity control, weather forecasts, history charts, drag-and-drop page design, and multi-user/multi-device support.
+[![CI](https://github.com/kaimdt/ora/actions/workflows/ci.yml/badge.svg)](https://github.com/kaimdt/ora/actions/workflows/ci.yml)
+[![Buildroot Release](https://github.com/kaimdt/ora/actions/workflows/buildroot-release.yml/badge.svg)](https://github.com/kaimdt/ora/actions/workflows/buildroot-release.yml)
+[![Release](https://img.shields.io/github/v/release/kaimdt/ora?sort=semver)](https://github.com/kaimdt/ora/releases)
+[![License](https://img.shields.io/github/license/kaimdt/ora)](LICENSE)
 
-Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + SQLite** (backend).
+A modern, fully-featured **Home Assistant Dashboard** with real-time entity control, weather forecasts, history charts, drag-and-drop page design, multi-user/multi-device support, and an embedded appliance OS.
+
+Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + SQLite** (backend microservices).
 
 ---
 
 ## Features
 
 ### Entity Control
-- **Lights** -- brightness, color temperature, RGB/RGBW/RGBWW, effects, 2-zone sync
-- **Climate** -- HVAC mode, target temperature, fan modes
-- **Switches / Input Booleans** -- toggle with visual feedback
-- **Covers** -- open/close/stop with position control
-- **Fans** -- speed, direction, oscillation
-- **Media Players** -- play/pause, volume, source selection
+- **Lights** — brightness, color temperature, RGB/RGBW/RGBWW, effects, 2-zone sync
+- **Climate** — HVAC mode, target temperature, fan modes
+- **Switches / Input Booleans** — toggle with visual feedback
+- **Covers** — open/close/stop with position control
+- **Fans** — speed, direction, oscillation
+- **Media Players** — play/pause, volume, source selection
 - **Locks, Timers, Counters, Vacuums, Humidifiers, Alarms**
-- **Automations, Scripts, Scenes, Buttons** -- trigger and monitor
-- **Sensors & Binary Sensors** -- live state with smart date/time formatting
-- **Input Number, Select, Text, DateTime** -- interactive controls
-- **Person / Device Tracker** -- presence with avatar display
+- **Automations, Scripts, Scenes, Buttons** — trigger and monitor
+- **Sensors & Binary Sensors** — live state with smart date/time formatting
+- **Input Number, Select, Text, DateTime** — interactive controls
+- **Person / Device Tracker** — presence with avatar display
 
 ### Dashboard Design
 - **Drag-and-drop page designer** with widget palette
-- **Widget groups** -- collapsible containers for organizing entities
-- **Custom pages** -- unlimited pages with icons and navigation
-- **Dynamic overview** -- time/entity-triggered view switching
-- **Layout templates** -- quick-start dashboard layouts
+- **Widget groups** — collapsible containers for organizing entities
+- **Custom pages** — unlimited pages with icons and navigation
+- **Dynamic overview** — time/entity-triggered view switching
+- **Layout templates** — quick-start dashboard layouts
 
 ### Weather
 - **Current conditions** with large icon display
@@ -42,44 +47,51 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + 
 ### UI/UX
 - **Glassmorphism design** with ambient glow effects
 - **Night mode** with automatic scheduling
-- **Dynamic backgrounds** -- static images, slideshows, gradients
+- **Dynamic backgrounds** — static images, slideshows, gradients
 - **Screensaver** with configurable idle timeout
 - **Haptic feedback** on interactions
-- **Responsive** -- tablet, desktop, mobile
-- **PWA support** -- installable as standalone app
-- **German locale** -- date/time formatting in de-DE
+- **Responsive** — tablet, desktop, mobile
+- **PWA support** — installable as standalone app
+- **German locale** — date/time formatting in de-DE
 
 ### Desktop App
-- **IORA Desktop** — Tauri shell for remote IORA Home rendering, local system integration and tray control
-- **Glass titlebar** — semi-transparent, borderless desktop titlebar with clean taskbar integration and no opaque background
-- **Remote home embedding** — show the live IORA Home page with desktop-sized viewport and reload/settings actions
-- **Desktop-only settings** — separate settings UI for tray, system, proxy and platform-specific desktop features
-- **System controls** — brightness, always-on-top, kiosk mode, screensaver, notifications and background startup
-- **Proxy management** — automatically start local proxy, configure ports, and keep LM Studio connected
-- **Remote Home URL** — configure the embedded IORA Home instance used by the desktop shell
-- **Advanced desktop diagnostics** — live CPU/RAM/disk/battery metrics, network status and system health in the desktop settings
-- **Fileshare backend** — secure file sharing with `iora-files`, public share links and upload/download support
+- **ORA Desktop** — Tauri shell for remote ORA Home rendering, local system integration and tray control
+- **Glass titlebar** — semi-transparent, borderless desktop titlebar with clean taskbar integration
+- **Remote home embedding** — live ORA Home page with desktop-sized viewport
+- **Desktop-only settings** — tray, system, proxy, platform-specific features
+- **System controls** — brightness, always-on-top, kiosk mode, screensaver
+- **Proxy management** — automatically start local proxy, configure ports
+- **Advanced desktop diagnostics** — live CPU/RAM/disk/battery metrics, network status
 
 ### Admin Control Center
-- **Sidebar navigation** for fast access to system, users, HA integration, network, logs and more
-- **Service & task monitoring** — inspect running services, queue state and control background jobs
-- **Control mode** — switch between autonomous, manual or supervised operation modes
-- **Home Assistant integration** — HA config, connection status, entity explorer, scenes, automations and logbook
-- **Device networks** — MQTT, Zigbee, Z-Wave, Matter, BLE and HomeKit diagnostics and status
-- **API keys & webhooks** — manage external access, rate limits and webhook subscriptions
-- **Network, backup and database tools** — monitor connectivity, export/import backups and inspect SQLite health
-- **Realtime streams** — SSE/WebSocket diagnostics and event stream inspection for debugging
+- **Sidebar navigation** — system, users, HA integration, network, logs, and more
+- **Service & task monitoring** — inspect running services, queue state
+- **Control mode** — autonomous, manual, or supervised operation
+- **Home Assistant integration** — HA config, entity explorer, scenes, automations, logbook
+- **Device networks** — MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit diagnostics
+- **API keys & webhooks** — manage external access, rate limits
+- **Network, backup and database tools** — connectivity, export/import, SQLite health
+- **Realtime streams** — SSE/WebSocket diagnostics and event stream inspection
 - **Full admin feature set** — services, users, API keys, webhooks, integrations, entities, scenes, automations, scheduler, analytics, backups, network, logs, logbook, calendars, realtime, database, warnings, system notifications
 
-### Backend
-- **Rust + Axum** -- fast, memory-safe backend
-- **SQLite** -- zero-config database with WAL mode
+### Backend (Microservice Architecture)
+- **Rust + Axum** — fast, memory-safe backend microservices
+- **SQLite** — zero-config database with WAL mode (per-service)
+- **PostgreSQL** — for the App Store (iora-appstore)
 - **Persistent WebSocket** to Home Assistant for real-time state sync
-- **Entity state cache** -- instant responses, no HA round-trips
-- **Service call buffer** -- coalesces rapid slider/dial changes
+- **Entity state cache** — instant responses, no HA round-trips
+- **Service call buffer** — coalesces rapid slider/dial changes
 - **JWT authentication** with bcrypt password hashing
 - **Multi-user & multi-device** configuration profiles
-- **Background media proxy** -- serves HA camera/agent images
+- **Background media proxy** — serves HA camera/agent images
+
+### IORA OS (Embedded Appliance)
+- **Buildroot-based** embedded OS for dedicated hardware
+- **Systemd services** — all microservices run natively (no Docker)
+- **RAUC-based OTA updates** — dual-copy A/B partition scheme
+- **Web-based installer** with guided setup
+- **SPARK runtime** — sandboxed plugin execution (JS/TS)
+- **App Store** — install community apps via `ora app install`
 
 ---
 
@@ -93,16 +105,16 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + 
 ### 1. Clone & Install
 
 ```bash
-git clone <repo-url> && cd home-assistant-dashb
-npm install
+git clone https://github.com/kaimdt/ora.git && cd ora
+cd frontend && npm install
 ```
 
 ### 2. Configure Environment
 
 ```bash
 # Backend configuration
-cp backend/.env.example backend/.env
-# Edit backend/.env:
+cp iora-os/backend/services/iora-home/.env.example iora-os/backend/services/iora-home/.env
+# Edit .env:
 #   HA_URL=http://homeassistant.local:8123
 #   HA_TOKEN=your_long_lived_access_token
 #   DATABASE_URL=sqlite:./data/ha-dashboard.db
@@ -112,13 +124,13 @@ cp backend/.env.example backend/.env
 
 ```bash
 # Build frontend
-npm run build
+cd frontend && npm run build
 
-# Build backend
-cd backend && cargo build --release
+# Build backend (iora-home service)
+cd iora-os/backend && cargo build -p iora-home --release
 
-# Run (from backend/ directory)
-./target/release/ha-dashboard-backend
+# Run
+./target/release/iora-home
 ```
 
 The dashboard is available at **http://localhost:3001**.
@@ -126,11 +138,11 @@ The dashboard is available at **http://localhost:3001**.
 ### Development Mode
 
 ```bash
-# Terminal 1 -- Backend
-cd backend && cargo run
+# Terminal 1 — Backend (with auto-reload)
+cd iora-os/backend && cargo run -p iora-home
 
-# Terminal 2 -- Frontend (with hot reload)
-npm run dev
+# Terminal 2 — Frontend (with hot reload)
+cd frontend && npm run dev
 # -> http://localhost:5173 (proxies API to :3001)
 ```
 
@@ -138,14 +150,16 @@ npm run dev
 
 ## Docker
 
+### Standard Deployment
+
 ```bash
-docker build -t mdt-home-dashboard .
-docker run -d \
-  -p 3001:3001 \
-  -e HA_URL=http://homeassistant.local:8123 \
-  -e HA_TOKEN=your_token \
-  -v dashboard-data:/app/backend/data \
-  mdt-home-dashboard
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+### Minimal Deployment
+
+```bash
+docker compose -f deploy/docker-compose.minimal.yml up -d
 ```
 
 ---
@@ -154,15 +168,50 @@ docker run -d \
 
 ```
 +-------------+     WebSocket      +------------------+     WebSocket     +---------------+
-|   Browser   |<------------------>|  Rust Backend    |<----------------->| Home Assistant|
+|   Browser   |<------------------>|  iora-home       |<----------------->| Home Assistant|
 |  React SPA  |     REST API       |  (Axum + SQLite) |     REST API     |   Instance    |
 +-------------+                    +------------------+                   +---------------+
+                                           |
+                                    +------+------+
+                                    |             |
+                              iora-core    iora-appstore
+                           (Service Disc.)   (PostgreSQL)
+                                    |
+                              iora-supervisor
+                           (Docker Container)
+                                    |
+                              iora-gateway
+                           (Messaging/Webhooks)
 ```
 
 - **Frontend**: React 19 + TypeScript + Tailwind CSS v4 + Radix UI + Recharts
-- **Backend**: Rust + Axum 0.7 + SQLx + SQLite + tokio-tungstenite
+- **Backend**: Rust + Axum + SQLx + SQLite + tokio-tungstenite (per-service DB)
 - **State sync**: Persistent WebSocket to HA, entity cache, 60s safety-net polling
-- **Database**: SQLite with 5 migrations (users, devices, profiles, pages, widgets, history, preferences, weather cache)
+- **Database**: SQLite with migrations (users, devices, profiles, pages, widgets, history, preferences, weather cache) + PostgreSQL for App Store
+
+---
+
+## Project Structure
+
+```
+ora/
+├── iora-os/backend/          # 🏠 MAIN BACKEND (Rust Workspace, 20+ Crates)
+│   ├── shared/iora-shared/   # Shared types, traits, permissions
+│   └── services/             # Microservices
+│       ├── iora-home/        # Main API (Axum, Port 3001/8126)
+│       ├── iora-core/        # Service discovery & plugin registry
+│       ├── iora-appstore/    # App Store (PostgreSQL)
+│       ├── iora-supervisor/  # Docker container management
+│       └── ... (iora-files, iora-secrets, iora-security, etc.)
+├── frontend/                 # React SPA (Vite + Tailwind)
+├── desktop/                  # Tauri desktop app
+├── sdks/                     # SDKs (JS, Go, Rust, C++, Python, PHP)
+├── apps/                     # Example apps & configs
+├── docs/                     # Documentation
+├── deploy/                   # Docker Compose files
+├── custom_components/        # Home Assistant integration
+└── iora-os/                  # Buildroot-based embedded OS
+```
 
 ---
 
@@ -182,33 +231,7 @@ docker run -d \
 | GET | `/api/weather/forecast/:id/:type` | Cached weather forecast |
 | GET | `/ws` | WebSocket for real-time updates |
 | GET | `/api/config/*` | Configuration CRUD |
-
----
-
-## Project Structure
-
-```
-src/                        # React frontend
-  components/
-    widgets/                # 40+ entity widgets
-    ui/                     # Radix-based UI primitives
-    PageDesigner/           # Drag-and-drop editor
-  contexts/                 # React context providers
-  hooks/                    # Custom hooks
-  lib/                      # Utilities, HA client, types
-backend/                    # Rust backend
-  src/
-    main.rs                 # Routes, handlers, app state
-    ha_client.rs            # HA REST client
-    ha_websocket.rs         # Persistent HA WebSocket
-    websocket.rs            # Frontend WebSocket manager
-    db/                     # SQLite models & repositories
-    auth.rs                 # JWT + bcrypt auth
-    entity_cache.rs         # In-memory state cache
-  migrations/               # SQL migration files
-dist/                       # Built frontend (served by backend)
-package.json
-```
+| POST | `/api/appstore/install` | Install app from ZIP |
 
 ---
 

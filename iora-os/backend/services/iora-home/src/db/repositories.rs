@@ -1223,4 +1223,128 @@ impl ConfigRepository {
 
         Ok(true) // Within limit
     }
+
+    // ── Refresh Token operations ──
+
+    /// Store a new refresh token hash for a user.
+    pub async fn store_refresh_token(
+        &self,
+        id: &str,
+        user_id: &str,
+        token_hash: &str,
+        device_id: Option<&str>,
+        user_agent: Option<&str>,
+        expires_at: &DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"INSERT INTO refresh_tokens (id, user_id, token_hash, device_id, user_agent, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(token_hash)
+        .bind(device_id)
+        .bind(user_agent)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Look up a refresh token by its SHA-256 hash (for validation during refresh).
+    pub async fn get_refresh_token_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> anyhow::Result<Option<RefreshToken>> {
+        let token = sqlx::query_as::<_, RefreshToken>(
+            "SELECT * FROM refresh_tokens WHERE token_hash = $1",
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(token)
+    }
+
+    /// Revoke a specific refresh token.
+    pub async fn revoke_refresh_token(
+        &self,
+        token_hash: &str,
+        revoked_by: &str,
+    ) -> anyhow::Result<bool> {
+        let rows = sqlx::query(
+            "UPDATE refresh_tokens SET revoked_at = NOW(), revoked_by = $1 WHERE token_hash = $2 AND revoked_at IS NULL",
+        )
+        .bind(revoked_by)
+        .bind(token_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(rows.rows_affected() > 0)
+    }
+
+    /// Revoke ALL refresh tokens for a user (e.g. "log out everywhere").
+    pub async fn revoke_all_user_refresh_tokens(
+        &self,
+        user_id: &str,
+        revoked_by: &str,
+    ) -> anyhow::Result<u64> {
+        let rows = sqlx::query(
+            "UPDATE refresh_tokens SET revoked_at = NOW(), revoked_by = $1 WHERE user_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(revoked_by)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(rows.rows_affected())
+    }
+
+    /// Clean up expired (and past their natural TTL) refresh tokens.
+    pub async fn cleanup_expired_refresh_tokens(&self) -> anyhow::Result<u64> {
+        let rows = sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < NOW()")
+            .execute(&self.pool)
+            .await?;
+        Ok(rows.rows_affected())
+    }
+
+    // ── JWT Blacklist operations ──
+
+    /// Add a JWT to the blacklist so it can't be used even before expiry.
+    pub async fn add_to_jwt_blacklist(
+        &self,
+        jti: &str,
+        user_id: &str,
+        expires_at: &DateTime<Utc>,
+        reason: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"INSERT INTO jwt_blacklist (jti, user_id, expires_at, reason)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (jti) DO NOTHING"#,
+        )
+        .bind(jti)
+        .bind(user_id)
+        .bind(expires_at)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Check whether a JWT with the given id has been blacklisted.
+    pub async fn is_jwt_blacklisted(&self, jti: &str) -> anyhow::Result<bool> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT COUNT(*) as cnt FROM jwt_blacklist WHERE jti = $1",
+        )
+        .bind(jti)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.0 > 0).unwrap_or(false))
+    }
+
+    /// Purge blacklist entries whose `expires_at` has passed.
+    pub async fn cleanup_expired_jwt_blacklist(&self) -> anyhow::Result<u64> {
+        let rows = sqlx::query("DELETE FROM jwt_blacklist WHERE expires_at < NOW()")
+            .execute(&self.pool)
+            .await?;
+        Ok(rows.rows_affected())
+    }
 }

@@ -20,7 +20,7 @@ import { SensorWidget } from '@/components/widgets/SensorWidget'
 import { MediaPlayerWidget } from '@/components/widgets/MediaPlayerWidget'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
-import { LoginModal } from '@/components/LoginModal'
+import { LoginPage } from '@/components/LoginPage'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
 // Heavy admin/editor routes: lazy-loaded to keep the initial bundle small.
@@ -444,7 +444,7 @@ function DashboardContent() {
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center">
           <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">IORA</p>
         </div>
-        <LoginModal open onOpenChange={() => {}} />
+        <LoginPage />
       </div>
     )
   }

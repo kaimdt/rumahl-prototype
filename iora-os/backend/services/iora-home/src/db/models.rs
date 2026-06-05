@@ -237,6 +237,8 @@ pub struct LoginRequest {
     pub username: String,
     pub password: String,
     pub remember_me: Option<bool>,
+    #[serde(default)]
+    pub device_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,6 +251,8 @@ pub struct RegisterRequest {
 #[derive(Debug, Serialize)]
 pub struct AuthResponse {
     pub token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,
     pub user: User,
 }
 
@@ -373,6 +377,39 @@ pub struct UpdateApiKeyRequest {
     pub permissions: Option<Vec<String>>,
     pub rate_limit: Option<i32>,
     pub is_active: Option<bool>,
+}
+
+// Refresh Token models
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct RefreshToken {
+    pub id: String,
+    pub user_id: String,
+    pub token_hash: String,
+    pub device_id: Option<String>,
+    pub user_agent: Option<String>,
+    pub expires_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub revoked_by: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefreshTokenResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,       // seconds until access_token expires
+    pub token_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RefreshRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogoutRequest {
+    pub refresh_token: Option<String>,
+    pub revoke_all: Option<bool>,
 }
 
 // Admin DTOs
