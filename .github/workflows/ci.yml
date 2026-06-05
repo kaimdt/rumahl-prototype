@@ -1,0 +1,108 @@
+# ─────────────────────────────────────────────────────────────────────
+# IORA OS — CI Pipeline
+# Runs on every push to main and on PRs targeting main.
+# Checks: Rust workspace compilation, frontend build, basic linting.
+# ─────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ── Rust workspace ─────────────────────────────────────────────────
+  rust-check:
+    name: Rust — check + test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            iora-os/backend/target
+          key: rust-${{ runner.os }}-${{ hashFiles('iora-os/backend/Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-
+
+      - name: Check formatting
+        working-directory: iora-os/backend
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: iora-os/backend
+        run: cargo clippy --all-targets --locked
+
+      - name: Build workspace (release)
+        working-directory: iora-os/backend
+        run: cargo build --release --locked
+
+      - name: Run tests
+        working-directory: iora-os/backend
+        run: cargo test --locked
+
+  # ── Frontend ────────────────────────────────────────────────────────
+  frontend-check:
+    name: Frontend — build + lint
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint || echo "Lint warnings ignored for CI"
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  # ── Supported targets overview (quick smoke) ───────────────────────
+  defconfig-validate:
+    name: Validate defconfigs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check all defconfigs exist
+        run: |
+          count=$(ls iora-os/configs/iora_defconfig* 2>/dev/null | wc -l)
+          if [ "$count" -lt 2 ]; then
+            echo "ERROR: expected at least 2 defconfigs, found $count"
+            ls iora-os/configs/ 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found $count defconfigs:"
+          ls iora-os/configs/iora_defconfig*

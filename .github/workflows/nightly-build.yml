@@ -1,0 +1,238 @@
+# ─────────────────────────────────────────────────────────────────────
+# IORA OS — Nightly Build
+# Scheduled build of the default (pc) target to catch regressions early.
+# Runs daily at 03:00 UTC with minimal artifacts to save time/space.
+# On failure, files a GitHub Issue for triage.
+# ─────────────────────────────────────────────────────────────────────
+
+name: Nightly Build
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Build target"
+        type: choice
+        options:
+          - pc
+          - rpi4
+          - rpi5
+        default: pc
+      artifacts:
+        description: "Artifact profile"
+        type: choice
+        options:
+          - minimal
+          - all
+        default: minimal
+
+concurrency:
+  group: nightly-buildroot
+  cancel-in-progress: false
+
+env:
+  IORA_OS_DIR: iora-os
+  IORA_CACHE_DIR: ~/.iora-cache
+  BR2_CCACHE_DIR: ~/.iora-cache/ccache
+  BR2_DL_DIR: ~/.iora-cache/dl
+
+jobs:
+  nightly-build:
+    name: Nightly IORA OS (${{ inputs.target || 'pc' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    outputs:
+      version: ${{ steps.tag-version.outputs.version }}
+      build-status: ${{ steps.build.outcome }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Version ───────────────────────────────────────────────────
+      - name: Derive version
+        id: tag-version
+        run: |
+          version="nightly-${{ github.run_number }}-$(date +%Y%m%d)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      # ── Cache: Buildroot tarball ──────────────────────────────────
+      - name: Cache Buildroot tarball
+        id: cache-buildroot
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.IORA_OS_DIR }}/buildroot-2024.02.tar.gz
+          key: buildroot-2024.02-tar
+          lookup-only: true
+
+      - name: Pre-download Buildroot tarball (cache miss)
+        if: steps.cache-buildroot.outputs.cache-hit != 'true'
+        working-directory: ${{ env.IORA_OS_DIR }}
+        run: |
+          wget -q "https://buildroot.org/downloads/buildroot-2024.02.tar.gz" \
+            -O "buildroot-2024.02.tar.gz"
+
+      # ── Cache: Buildroot source downloads ─────────────────────────
+      - name: Cache Buildroot source downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.iora-cache/dl
+            ~/.iora-cache/ccache
+          key: br2-dl-nightly-${{ hashFiles('iora-os/configs/iora_*') }}
+          restore-keys: |
+            br2-dl-nightly-
+            br2-dl-
+
+      # ── Cache: Cargo registry ─────────────────────────────────────
+      - name: Cache Cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.IORA_OS_DIR }}/backend/target
+          key: cargo-nightly-${{ runner.os }}-${{ hashFiles('iora-os/backend/Cargo.lock') }}
+          restore-keys: |
+            cargo-nightly-${{ runner.os }}-
+          continue-on-error: true
+
+      # ── Install build dependencies ────────────────────────────────
+      - name: Install system build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git wget curl tar gzip xz-utils cpio unzip rsync bc \
+            libncurses-dev libssl-dev libelf-dev python3 python3-pip \
+            pkg-config ca-certificates file jq musl-tools \
+            qemu-utils zip xorriso grub-common grub-pc-bin grub-efi-amd64-bin \
+            mtools dosfstools parted ccache
+
+      # ── Rust toolchain ────────────────────────────────────────────
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl, x86_64-unknown-linux-gnu
+
+      # ── Cache dirs ────────────────────────────────────────────────
+      - name: Create cache directories
+        run: |
+          mkdir -p ~/.iora-cache/{dl,ccache}
+          ccache --max-size=10G
+
+      # ── Build ─────────────────────────────────────────────────────
+      - name: Build IORA OS image (nightly)
+        id: build
+        working-directory: ${{ env.IORA_OS_DIR }}
+        env:
+          IORA_TARGET: ${{ inputs.target || 'pc' }}
+        run: |
+          artifact_opts="--minimal-artifacts"
+          if [[ "${{ inputs.artifacts || 'minimal' }}" == "all" ]]; then
+            artifact_opts=""
+          fi
+
+          bash ./build.sh all --target "${IORA_TARGET}" ${artifact_opts} \
+            --unattended --progress \
+            --jobs "$(nproc)" \
+            2>&1 | tee build.log
+
+          release_dir=$(ls -dt releases/*/ 2>/dev/null | head -1)
+          if [ -n "$release_dir" ]; then
+            echo "artifacts-dir=$(realpath "$release_dir")" >> "${GITHUB_OUTPUT}"
+          else
+            echo "ERROR: No release directory found!"
+            exit 1
+          fi
+
+      # ── List artifacts ────────────────────────────────────────────
+      - name: List built artifacts
+        run: |
+          echo "=== Built artifacts ==="
+          find "${{ steps.build.outputs.artifacts-dir }}" -type f -ls 2>/dev/null \
+            || echo "(not found)"
+          echo ""
+          echo "=== Size ==="
+          du -sh "${{ steps.build.outputs.artifacts-dir }}" 2>/dev/null || true
+
+      # ── Upload artifacts (30-day retention) ───────────────────────
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: iora-os-nightly-${{ steps.tag-version.outputs.version }}
+          path: ${{ steps.build.outputs.artifacts-dir }}
+          retention-days: 30
+          compression-level: 0
+
+      # ── Build summary ─────────────────────────────────────────────
+      - name: Print build summary
+        run: |
+          echo "================================================"
+          echo "  IORA OS Nightly Build Complete"
+          echo "  Version : ${{ steps.tag-version.outputs.version }}"
+          echo "  Target  : ${{ inputs.target || 'pc' }}"
+          echo "================================================"
+
+  # ── Alert on failure ──────────────────────────────────────────────
+  alert-on-failure:
+    name: Alert on failure
+    needs: nightly-build
+    if: ${{ failure() }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Issue on build failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ needs.nightly-build.outputs.version }}';
+            const title = `🌙 Nightly build failed — ${version}`;
+            const body = [
+              '## Nightly Build Failure',
+              '',
+              `**Version:** ${version}`,
+              `**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+              '',
+              '### Possible causes',
+              '- Buildroot upstream source changes / broken download',
+              '- Rust dependency incompatibility',
+              '- System package conflict on the runner',
+              '- Disk space exhaustion',
+              '',
+              '### Next steps',
+              '1. Inspect the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})',
+              '2. Determine if this is transient (retry) or a real regression',
+              '3. If a real regression, unassign the issue and tag the relevant contributor',
+              '',
+              '---',
+              '_Auto-generated by the Nightly Build workflow_',
+            ].join('\n');
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-build',
+            });
+
+            const alreadyFiled = issues.some(i => i.title === title);
+            if (alreadyFiled) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.find(i => i.title === title).number,
+                body: `⏰ Another failure at ${new Date().toISOString()}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['nightly-build', 'bug'],
+              });
+            }
