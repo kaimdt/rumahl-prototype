@@ -63,7 +63,7 @@ sysinfo = "0.30"
 rumqttc = "0.24"
 
 # API documentation
-utoipa = { version = "4", features = ["axum_extras"] }
+utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 
 # Local app-store: extract uploaded ZIPs without depending on iora-appstore
