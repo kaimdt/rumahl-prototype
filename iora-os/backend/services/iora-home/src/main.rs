@@ -2815,7 +2815,7 @@ fn is_virtual_ip(ip: &Ipv4Addr) -> bool {
         // Docker default bridge: 172.17.0.0/16
         [172, 17, _, _] => true,
         // Docker user-defined bridges often use 172.18-172.31
-        [172, n, _, _] if n >= 18 && n <= 31 => true,
+        [172, n, _, _] if (18..=31).contains(&n) => true,
         // Docker host mode / internal: 10.x.x.x overlaps with LAN, but
         // if the interface is docker*, br-*, veth* it's caught below.
         _ => false,
@@ -4860,7 +4860,7 @@ async fn integration_analytics_history(
     match sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, i32, i32, i32, i32, Option<String>, i32)>(
         "SELECT recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes FROM entity_analytics_snapshots WHERE recorded_at > $1 ORDER BY recorded_at DESC LIMIT $2"
     )
-        .bind(&cutoff)
+        .bind(cutoff)
         .bind(limit)
         .fetch_all(&state.db_pool)
         .await
@@ -6334,7 +6334,7 @@ async fn proxy_intelligence_overview(State(state): State<AppState>) -> Json<Valu
 
     match state
         .http_client
-        .get(&format!("{}/api/intelligence/overview", intel_url))
+        .get(format!("{}/api/intelligence/overview", intel_url))
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
@@ -6359,7 +6359,7 @@ async fn proxy_intelligence_maintenance_run(
 
     match state
         .http_client
-        .get(&format!(
+        .get(format!(
             "{}/api/intelligence/maintenance/run/{}",
             intel_url, task
         ))
@@ -6904,7 +6904,7 @@ async fn forward_reqwest_request(
             }
             if is_event_stream {
                 let stream = resp.bytes_stream().map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("Assist stream error: {e}"))
+                    std::io::Error::other(format!("Assist stream error: {e}"))
                 });
                 return builder.body(Body::from_stream(stream)).unwrap_or_else(|_| {
                     (StatusCode::BAD_GATEWAY, "proxy stream build failed").into_response()
@@ -7136,7 +7136,7 @@ async fn local_appstore_install(
     // Tolerate `data:application/zip;base64,…` prefixes from some browsers.
     let payload = zip_b64
         .split(',')
-        .last()
+        .next_back()
         .unwrap_or(&zip_b64)
         .trim()
         .to_string();
@@ -7568,7 +7568,7 @@ async fn supervisor_apps_install(
         use base64::Engine as _;
         let payload = zip_data
             .split(',')
-            .last()
+            .next_back()
             .unwrap_or(zip_data)
             .trim()
             .to_string();
@@ -12294,7 +12294,7 @@ async fn save_cached_forecast(
     .bind(&entity_id)
     .bind(&forecast_type)
     .bind(&data_str)
-    .bind(&now)
+    .bind(now)
     .execute(&state.db_pool)
     .await
     .map_err(|e| {
@@ -13409,7 +13409,7 @@ async fn background_analytics_aggregation(entity_cache: Arc<EntityStateCache>, d
         match sqlx::query(
             "INSERT INTO entity_analytics_snapshots (recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes) VALUES ($1, $2, $3, $4, $5, $6, $7)"
         )
-            .bind(&now)
+            .bind(now)
             .bind(total_entities)
             .bind(unavailable)
             .bind(stale)
@@ -13431,7 +13431,7 @@ async fn background_analytics_aggregation(entity_cache: Arc<EntityStateCache>, d
         // Clean up snapshots older than 30 days
         let cutoff = chrono::Utc::now() - chrono::Duration::days(30);
         let _ = sqlx::query("DELETE FROM entity_analytics_snapshots WHERE recorded_at < $1")
-            .bind(&cutoff)
+            .bind(cutoff)
             .execute(&db_pool)
             .await;
     }
@@ -14844,7 +14844,7 @@ async fn admin_ha_supervisor(State(state): State<AppState>) -> Result<Json<Value
                                     arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
                                 })
                                 .unwrap_or_default();
-                            let has_hassio = components.iter().any(|c| *c == "hassio");
+                            let has_hassio = components.contains(&"hassio");
                             if has_hassio {
                                 Ok(Json(serde_json::json!({
                                     "supervisor_available": true,
@@ -15670,7 +15670,7 @@ async fn admin_database_info(State(state): State<AppState>) -> Result<Json<Value
     let db_url = system_config::database_url();
     let db_host = db_url
         .split('@')
-        .last()
+        .next_back()
         .and_then(|s| s.split('/').next())
         .unwrap_or("localhost")
         .to_string();
@@ -15785,7 +15785,7 @@ async fn admin_create_temp_user(
             "Passwort muss mindestens 8 Zeichen haben",
         ));
     }
-    if expires_in_days < 1 || expires_in_days > 31 {
+    if !(1..=31).contains(&expires_in_days) {
         return Err(ErrorResponse::bad_request(
             "Ablauf muss zwischen 1 und 31 Tagen liegen",
         ));
@@ -16198,7 +16198,7 @@ async fn get_active_warnings(State(state): State<AppState>) -> Json<Value> {
         }
         // Check if the warning is active
         let is_active = matches!(entity.state.as_str(), "on" | "On")
-            || entity.state.parse::<u64>().map_or(false, |n| n > 0);
+            || entity.state.parse::<u64>().is_ok_and(|n| n > 0);
 
         if !is_active {
             continue;
@@ -18425,9 +18425,8 @@ async fn sse_event_stream(
                             let domain = e.entity_id.split('.').next().unwrap_or("");
                             if !domain_filter.iter().any(|d| d == domain) { return false; }
                         }
-                        if !entity_filter.is_empty() {
-                            if !entity_filter.contains(&e.entity_id) { return false; }
-                        }
+                        if !entity_filter.is_empty()
+                            && !entity_filter.contains(&e.entity_id) { return false; }
                         true
                     }).collect();
 
@@ -18577,11 +18576,10 @@ async fn handle_realtime_socket(socket: axum::extract::ws::WebSocket, state: App
                                         return false;
                                     }
                                 }
-                                if !filter.entity_ids.is_empty() {
-                                    if !filter.entity_ids.contains(&e.entity_id) {
+                                if !filter.entity_ids.is_empty()
+                                    && !filter.entity_ids.contains(&e.entity_id) {
                                         return false;
                                     }
-                                }
                                 true
                             })
                             .collect();
@@ -20217,7 +20215,7 @@ async fn handle_theme_zip_install(
             ))
         }
     };
-    let payload = zip_data.split(',').last().unwrap_or(zip_data).trim();
+    let payload = zip_data.split(',').next_back().unwrap_or(zip_data).trim();
     let padded_payload;
     let decode_payload = if payload.len() % 4 == 0 {
         payload

@@ -344,24 +344,22 @@ async fn handle_system(cmd: SystemCommands) -> Result<()> {
             println!("  {}", String::from_utf8_lossy(&output.stdout));
         }
         SystemCommands::Reboot { force } => {
-            if !force {
-                if !dialoguer::Confirm::new()
+            if !force
+                && !dialoguer::Confirm::new()
                     .with_prompt("Are you sure you want to reboot?")
                     .interact()? {
                     return Ok(());
                 }
-            }
             println!("{}", "Rebooting system...".bright_yellow());
             StdCommand::new("systemctl").arg("reboot").spawn()?;
         }
         SystemCommands::Shutdown { force } => {
-            if !force {
-                if !dialoguer::Confirm::new()
+            if !force
+                && !dialoguer::Confirm::new()
                     .with_prompt("Are you sure you want to shutdown?")
                     .interact()? {
                     return Ok(());
                 }
-            }
             println!("{}", "Shutting down system...".bright_yellow());
             StdCommand::new("systemctl").arg("poweroff").spawn()?;
         }
@@ -719,7 +717,7 @@ async fn handle_security(base_url: &str, cmd: SecurityCommands) -> Result<()> {
                 buffer
             } else {
                 dialoguer::Password::new()
-                    .with_prompt(&format!("Enter value for secret '{}'", name))
+                    .with_prompt(format!("Enter value for secret '{}'", name))
                     .interact()?
             };
 
@@ -854,7 +852,7 @@ async fn handle_system_update(check_only: bool, assume_yes: bool, channel: &str)
     let hw = detect_hardware();
     let current_version = std::fs::read_to_string("/etc/iora-version")
         .ok()
-        .map(|s| s.trim().split_whitespace().last().unwrap_or("unknown").to_string())
+        .map(|s| s.split_whitespace().last().unwrap_or("unknown").to_string())
         .unwrap_or_else(|| "unknown".to_string());
     let device_id = std::fs::read_to_string("/etc/machine-id")
         .ok()

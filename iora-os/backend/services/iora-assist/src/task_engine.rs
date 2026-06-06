@@ -106,7 +106,7 @@ impl TaskEngine {
             // Record execution
             let success = result.is_ok();
             let error_message = result.as_ref().err().map(|e| e.to_string());
-            let result_data = result.unwrap_or_else(|_| Value::Null);
+            let result_data = result.unwrap_or(Value::Null);
 
             if let Err(e) = db_tasks::record_execution(
                 db,
@@ -125,7 +125,7 @@ impl TaskEngine {
             // Disable one-shot tasks after execution.
             // For recurring tasks, calculate the next execution time and update the DB.
             if task.is_one_shot || task.recurrence_type == "once" {
-                if let Err(e) = db_tasks::set_enabled(&db, task.id, false).await {
+                if let Err(e) = db_tasks::set_enabled(db, task.id, false).await {
                     tracing::error!("Failed to disable one-shot task {}: {}", task.id, e);
                 }
             } else {
@@ -147,13 +147,13 @@ impl TaskEngine {
                         task.occurrence_limit,
                         end_reached
                     );
-                    if let Err(e) = db_tasks::set_enabled(&db, task.id, false).await {
+                    if let Err(e) = db_tasks::set_enabled(db, task.id, false).await {
                         tracing::error!("Failed to disable completed recurring task {}: {}", task.id, e);
                     }
                 } else {
                     // Advance to next trigger using the schedule engine
                     let next_at = compute_next_trigger_for_task(&task, now);
-                    if let Err(e) = db_tasks::update_next_execution(&db, task.id, next_at).await {
+                    if let Err(e) = db_tasks::update_next_execution(db, task.id, next_at).await {
                         tracing::error!("Failed to advance recurring task {}: {}", task.id, e);
                     } else {
                         tracing::debug!(

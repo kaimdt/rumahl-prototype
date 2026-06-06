@@ -27,8 +27,8 @@ impl ConfigRepository {
         .bind(&id)
         .bind(&req.username)
         .bind(&req.display_name)
-        .bind(&now)
-        .bind(&now)
+        .bind(now)
+        .bind(now)
         .fetch_one(&self.pool)
         .await?;
 
@@ -92,7 +92,7 @@ impl ConfigRepository {
         )
         .bind(&target_username)
         .bind(&target_display_name)
-        .bind(&now)
+        .bind(now)
         .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
@@ -116,8 +116,8 @@ impl ConfigRepository {
         .bind(&req.device_name)
         .bind(&req.device_type)
         .bind(&req.user_agent)
-        .bind(&now)
-        .bind(&now)
+        .bind(now)
+        .bind(now)
         .fetch_one(&self.pool)
         .await?;
 
@@ -137,7 +137,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now();
 
         sqlx::query("UPDATE devices SET last_seen = $1 WHERE id = $2")
-            .bind(&now)
+            .bind(now)
             .bind(device_id)
             .execute(&self.pool)
             .await?;
@@ -220,8 +220,8 @@ impl ConfigRepository {
         .bind(&req.name)
         .bind(&req.profile_type)
         .bind(&req.owner_id)
-        .bind(&now)
-        .bind(&now)
+        .bind(now)
+        .bind(now)
         .fetch_one(&self.pool)
         .await?;
 
@@ -311,8 +311,8 @@ impl ConfigRepository {
             .bind(page_req.display_mode.as_deref().unwrap_or("page"))
             .bind(&page_req.parent_page_id)
             .bind(page_req.modal_settings.as_ref().map(|s| s.to_string()))
-            .bind(&now)
-            .bind(&now)
+            .bind(now)
+            .bind(now)
             .execute(&mut *tx)
             .await?;
 
@@ -336,8 +336,8 @@ impl ConfigRepository {
                 .bind(widget_req.width)
                 .bind(widget_req.height)
                 .bind(config_json)
-                .bind(&now)
-                .bind(&now)
+                .bind(now)
+                .bind(now)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -391,7 +391,7 @@ impl ConfigRepository {
         .bind(req.sleep_mode)
         .bind(req.auto_theme)
         .bind(&req.selected_theme)
-        .bind(&now)
+        .bind(now)
         .bind(profile_id)
         .execute(&self.pool)
         .await?;
@@ -412,8 +412,8 @@ impl ConfigRepository {
             .bind(req.sleep_mode)
             .bind(req.auto_theme)
             .bind(&req.selected_theme)
-            .bind(&now)
-            .bind(&now)
+            .bind(now)
+            .bind(now)
             .fetch_one(&self.pool)
             .await?;
 
@@ -470,8 +470,8 @@ impl ConfigRepository {
         .bind(profile_id)
         .bind(&req.background_type)
         .bind(&config_json)
-        .bind(&now)
-        .bind(&now)
+        .bind(now)
+        .bind(now)
         .fetch_one(&self.pool)
         .await?;
 
@@ -511,7 +511,7 @@ impl ConfigRepository {
             "#,
         )
         .bind(&value_json)
-        .bind(&now)
+        .bind(now)
         .bind(user_id)
         .bind(device_id)
         .bind(&req.preference_key)
@@ -534,8 +534,8 @@ impl ConfigRepository {
             .bind(device_id)
             .bind(&req.preference_key)
             .bind(&value_json)
-            .bind(&now)
-            .bind(&now)
+            .bind(now)
+            .bind(now)
             .fetch_one(&self.pool)
             .await?;
 
@@ -605,7 +605,7 @@ impl ConfigRepository {
             "#,
         )
         .bind(&value_json)
-        .bind(&now)
+        .bind(now)
         .bind(&req.preference_key)
         .execute(&self.pool)
         .await?;
@@ -623,8 +623,8 @@ impl ConfigRepository {
             .bind(&id)
             .bind(&req.preference_key)
             .bind(&value_json)
-            .bind(&now)
-            .bind(&now)
+            .bind(now)
+            .bind(now)
             .fetch_one(&self.pool)
             .await?;
 
@@ -708,7 +708,7 @@ impl ConfigRepository {
         .bind(table_name)
         .bind(record_id)
         .bind(operation)
-        .bind(&now)
+        .bind(now)
         .bind(device_id)
         .execute(&self.pool)
         .await?;
@@ -740,7 +740,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET pin_hash = $1, updated_at = $2 WHERE id = $3")
             .bind(pin_hash)
-            .bind(&now)
+            .bind(now)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -750,7 +750,7 @@ impl ConfigRepository {
     pub async fn remove_user_pin(&self, user_id: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET pin_hash = NULL, updated_at = $1 WHERE id = $2")
-            .bind(&now)
+            .bind(now)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -761,7 +761,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET avatar_url = $1, updated_at = $2 WHERE id = $3")
             .bind(avatar_url)
-            .bind(&now)
+            .bind(now)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -798,7 +798,7 @@ impl ConfigRepository {
         .bind(req.cols)
         .bind(req.rows)
         .bind(req.gap)
-        .bind(&now)
+        .bind(now)
         .bind(profile_id)
         .bind(&req.page_id)
         .execute(&self.pool)
@@ -815,8 +815,8 @@ impl ConfigRepository {
             .bind(req.cols)
             .bind(req.rows)
             .bind(req.gap)
-            .bind(&now)
-            .bind(&now)
+            .bind(now)
+            .bind(now)
             .execute(&self.pool)
             .await?;
         }
@@ -887,7 +887,7 @@ impl ConfigRepository {
             .bind(req.custom_css.as_deref().or(ex.custom_css.as_deref()))
             .bind(req.hide_header.unwrap_or(ex.hide_header))
             .bind(req.padding.or(ex.padding))
-            .bind(&now)
+            .bind(now)
             .bind(&ex.id)
             .execute(&self.pool)
             .await?;
@@ -905,8 +905,8 @@ impl ConfigRepository {
             .bind(&req.custom_css)
             .bind(req.hide_header.unwrap_or(false))
             .bind(req.padding.unwrap_or(16))
-            .bind(&now)
-            .bind(&now)
+            .bind(now)
+            .bind(now)
             .execute(&self.pool)
             .await?;
         }
@@ -978,7 +978,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET is_admin = $1, updated_at = $2 WHERE id = $3")
             .bind(is_admin)
-            .bind(&now)
+            .bind(now)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -989,7 +989,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET role = $1, updated_at = $2 WHERE id = $3")
             .bind(role)
-            .bind(&now)
+            .bind(now)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -1004,7 +1004,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3")
             .bind(password_hash)
-            .bind(&now)
+            .bind(now)
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -1076,8 +1076,8 @@ impl ConfigRepository {
         .bind(permissions)
         .bind(rate_limit)
         .bind(expires_at)
-        .bind(&now)
-        .bind(&now)
+        .bind(now)
+        .bind(now)
         .execute(&self.pool)
         .await?;
 
@@ -1118,7 +1118,7 @@ impl ConfigRepository {
     pub async fn update_api_key_last_used(&self, key_id: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
-            .bind(&now)
+            .bind(now)
             .bind(key_id)
             .execute(&self.pool)
             .await?;
@@ -1157,7 +1157,7 @@ impl ConfigRepository {
         .bind(&permissions)
         .bind(rate_limit)
         .bind(is_active)
-        .bind(&now)
+        .bind(now)
         .bind(key_id)
         .execute(&self.pool)
         .await?;

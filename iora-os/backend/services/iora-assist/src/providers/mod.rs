@@ -181,6 +181,7 @@ pub fn create_provider(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ProviderConfig {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
@@ -188,13 +189,3 @@ pub struct ProviderConfig {
     pub api_version: Option<String>,
 }
 
-impl Default for ProviderConfig {
-    fn default() -> Self {
-        Self {
-            api_key: None,
-            base_url: None,
-            model: None,
-            api_version: None,
-        }
-    }
-}

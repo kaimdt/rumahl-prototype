@@ -17,11 +17,10 @@ use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
 use axum::{
@@ -77,7 +76,7 @@ struct MonitoringConfig {
 // ─── Network Monitoring ─────────────────────────────────────────────────────
 
 /// Scan ARP table to discover devices
-async fn scan_arp_table(state: &AppState) -> Result<Vec<NetworkDevice>> {
+async fn scan_arp_table(_state: &AppState) -> Result<Vec<NetworkDevice>> {
     info!("Scanning ARP table for network devices...");
 
     let mut devices = Vec::new();
@@ -163,15 +162,15 @@ async fn update_device_in_db(pool: &PgPool, device: &NetworkDevice) -> Result<()
             is_active = EXCLUDED.is_active
         "#,
     )
-    .bind(&device.id)
+    .bind(device.id)
     .bind(&device.ip_address)
     .bind(&device.mac_address)
     .bind(&device.hostname)
     .bind(&device.vendor)
     .bind(&device.device_type)
-    .bind(&device.first_seen)
-    .bind(&device.last_seen)
-    .bind(&device.is_active)
+    .bind(device.first_seen)
+    .bind(device.last_seen)
+    .bind(device.is_active)
     .execute(pool)
     .await
     .context("Failed to update device in database")?;

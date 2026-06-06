@@ -87,9 +87,9 @@ pub async fn try_authenticate(
     // 3. Try token query parameter
     if let Some(query) = query_string.as_deref() {
         if let Some(token) = query.split('&').find_map(|pair| {
-            let mut parts = pair.splitn(2, '=');
-            let key = parts.next()?;
-            let value = parts.next()?;
+            let (key, value) = pair.split_once('=')?;
+            
+            
             if key == "token" {
                 Some(value)
             } else {
@@ -209,12 +209,11 @@ pub async fn require_auth(
             }
 
             // Check write permission for API keys
-            if !id.has_permission("write") && !id.has_permission("*") {
-                if matches!(id, AuthIdentity::ApiKey { .. }) {
+            if !id.has_permission("write") && !id.has_permission("*")
+                && matches!(id, AuthIdentity::ApiKey { .. }) {
                     warn!("Service call rejected: API key lacks write permission");
                     return Err(StatusCode::FORBIDDEN);
                 }
-            }
 
             request.extensions_mut().insert(id);
             Ok(next.run(request).await)

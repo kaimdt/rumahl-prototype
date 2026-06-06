@@ -48,7 +48,7 @@ impl CodeReadTool {
             let path = entry.path();
             
             if path.is_file() {
-                if extension.map_or(true, |ext| path.extension().map_or(false, |e| e == ext)) {
+                if extension.is_none_or(|ext| path.extension().is_some_and(|e| e == ext)) {
                     files.push(path);
                 }
             } else if path.is_dir() {
@@ -369,12 +369,12 @@ impl RunTestsTool {
         
         for line in full_output.lines() {
             if line.contains("test result: ok") {
-                if let Some(count_str) = line.split('(').last().and_then(|s| Some(s.trim_end_matches(')').trim())) {
+                if let Some(count_str) = line.split('(').next_back().map(|s| s.trim_end_matches(')').trim()) {
                     passed += count_str.parse::<usize>().unwrap_or(0);
                 }
             } else if line.contains("test result: FAILED") {
                 if let Some(parts) = line.split('(').next() {
-                    failed += parts.split(':').last().and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(0);
+                    failed += parts.split(':').next_back().and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(0);
                 }
             }
         }

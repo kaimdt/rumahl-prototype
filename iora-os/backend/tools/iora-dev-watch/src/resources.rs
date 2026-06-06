@@ -90,7 +90,7 @@ pub async fn ssh_collect(
 ) -> Result<String> {
     let mut command = tokio::process::Command::new("ssh");
     command
-        .args(&ssh_args(host, port, ssh_key))
+        .args(ssh_args(host, port, ssh_key))
         .arg(cmd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -200,7 +200,7 @@ df -B1 / 2>/dev/null | tail -1
         }
 
         // Count CPU cores (cpu0, cpu1, ... lines)
-        if line.starts_with("cpu") && line.chars().nth(3).map_or(false, |c| c.is_ascii_digit()) {
+        if line.starts_with("cpu") && line.chars().nth(3).is_some_and(|c| c.is_ascii_digit()) {
             data.cpu_cores_total += 1;
         }
 

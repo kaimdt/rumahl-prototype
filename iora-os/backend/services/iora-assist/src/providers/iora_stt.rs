@@ -115,15 +115,7 @@ impl AIProvider for IoraSttProvider {
     ) -> Result<AudioTranscription, ProviderError> {
         let base_url = self.base_url();
 
-        let extension = match format {
-            "webm" => "webm",
-            "wav" => "wav",
-            "mp3" => "mp3",
-            "ogg" => "ogg",
-            "flac" => "flac",
-            "m4a" => "m4a",
-            other => other,
-        };
+        let extension = format;
 
         let part = reqwest::multipart::Part::bytes(audio_data)
             .file_name(format!("audio.{}", extension))

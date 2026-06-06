@@ -69,7 +69,7 @@ impl MigrationRunner {
         let mut pending: Vec<&Migration> = service_migrations
             .iter()
             .filter(|m| !applied_names.contains(&m.name))
-            .filter(|m| target.map_or(true, |t| m.number <= t))
+            .filter(|m| target.is_none_or(|t| m.number <= t))
             .collect();
 
         pending.sort_by_key(|m| m.number);

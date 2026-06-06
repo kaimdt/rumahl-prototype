@@ -531,7 +531,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
             }
 
             // Create and dispatch instant task if the AI requested one
-            let instant_task_id: Option<Uuid> = if let (Some(_ite), Some(ref spec)) =
+            let instant_task_id: Option<Uuid> = if let (Some(_ite), Some(spec)) =
                 (state.instant_task_engine.as_ref(), maybe_instant.as_ref())
             {
                 if let Some(ref db) = state.db {
@@ -2182,7 +2182,7 @@ async fn create_agent_task(
     let provider = req.get("provider").and_then(|v| v.as_str()).unwrap_or("openai");
     
     // Parse steering config
-    let config = req.get("config").map(|c| serde_json::from_value(c.clone()).ok()).flatten();
+    let config = req.get("config").and_then(|c| serde_json::from_value(c.clone()).ok());
 
     let task = match state.sandbox_manager.create_task(workspace_id, name, description, model, provider, config).await {
         Ok(t) => t,
@@ -2792,16 +2792,16 @@ async fn github_auth_set(
 ) -> impl IntoResponse {
     let auth = GitHubAuth {
         auth_type: req.auth_type.clone().unwrap_or_else(|| "pat".to_string()),
-        pat: req.pat.clone().or_else(|| system_config::github_token()),
-        app_id: req.app_id.clone().or_else(|| system_config::github_app_id()),
+        pat: req.pat.clone().or_else(system_config::github_token),
+        app_id: req.app_id.clone().or_else(system_config::github_app_id),
         installation_id: req
             .installation_id
             .clone()
-            .or_else(|| system_config::github_installation_id()),
+            .or_else(system_config::github_installation_id),
         private_key: req
             .private_key
             .clone()
-            .or_else(|| system_config::github_private_key()),
+            .or_else(system_config::github_private_key),
         is_configured: true,
         ..Default::default()
     };
@@ -5213,7 +5213,7 @@ async fn get_briefing_history(State(state): State<AppState>) -> Json<Vec<Briefin
 }
 
 async fn get_next_briefing(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let next = state.company.next_briefing.read().clone();
+    let next = *state.company.next_briefing.read();
     Json(serde_json::json!({"next_briefing": next.map(|d| d.to_rfc3339())}))
 }
 

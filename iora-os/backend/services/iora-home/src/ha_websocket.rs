@@ -663,8 +663,8 @@ async fn check_warning_state_change(
     let was_active = matches!(old_state, "on" | "On");
 
     // Also check numeric states (some integrations use warning count as state)
-    let is_active = is_active || entity.state.parse::<u64>().map_or(false, |n| n > 0);
-    let was_active = was_active || old_state.parse::<u64>().map_or(false, |n| n > 0);
+    let is_active = is_active || entity.state.parse::<u64>().is_ok_and(|n| n > 0);
+    let was_active = was_active || old_state.parse::<u64>().is_ok_and(|n| n > 0);
 
     let (level, title, message) = extract_warning_info(entity);
 

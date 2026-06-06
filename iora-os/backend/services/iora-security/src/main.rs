@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
@@ -9,7 +9,7 @@ use axum::{
     extract::{Path as AxumPath, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use chrono::Utc;
@@ -19,7 +19,7 @@ use iora_shared::system_config;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{Pool, Postgres, Row, Sqlite, SqlitePool};
+use sqlx::{Pool, Postgres, Row, SqlitePool};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
@@ -256,7 +256,7 @@ async fn check_database_connections(state: &AppState) -> Result<()> {
         let app_name: Option<String> = row.try_get("application_name").ok();
 
         // Known IORA service users are always authorized – never block ourselves
-        let is_known_service_user = username.as_deref().map_or(false, |u| {
+        let is_known_service_user = username.as_deref().is_some_and(|u| {
             matches!(u, "iora" | "postgres") || u.starts_with("iora_")
         });
 
@@ -725,7 +725,7 @@ async fn get_resource_usage() -> Json<serde_json::Value> {
         // approximate with /proc/mounts + std::fs::metadata.
         let disk_pct = read_root_disk_percent().unwrap_or(0.0);
 
-        return Json(serde_json::json!({
+        Json(serde_json::json!({
             "available": true,
             "cpu_percent": cpu_pct,
             "memory_percent": mem_pct,
@@ -734,7 +734,7 @@ async fn get_resource_usage() -> Json<serde_json::Value> {
             "memory_available_kb": avail_kb,
             "load_avg_1m": load1,
             "cpu_count": cpu_count,
-        }));
+        }))
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -1081,7 +1081,7 @@ async fn main() -> Result<()> {
     // In production the iora user already has the required privileges.
     // POSTGRES_ADMIN_URL is accepted as an optional override.
     let postgres_url = system_config::postgres_admin_url()
-        .unwrap_or_else(|| system_config::database_url());
+        .unwrap_or_else(system_config::database_url);
     if postgres_url.is_empty() {
         anyhow::bail!("DATABASE_URL must be set");
     }

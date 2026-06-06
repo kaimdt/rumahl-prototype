@@ -245,15 +245,12 @@ impl AgentTaskExecutor {
                 if matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" | "eot") {
                     continue;
                 }
-                match sandbox.read_file(&wid, &f.path).await {
-                    Ok(content) => {
-                        if content.len() > 100_000 {
-                            file_contents.push((f.path.clone(), format!("[File too large: {} bytes]", content.len())));
-                        } else {
-                            file_contents.push((f.path.clone(), content));
-                        }
+                if let Ok(content) = sandbox.read_file(&wid, &f.path).await {
+                    if content.len() > 100_000 {
+                        file_contents.push((f.path.clone(), format!("[File too large: {} bytes]", content.len())));
+                    } else {
+                        file_contents.push((f.path.clone(), content));
                     }
-                    Err(_) => {}
                 }
             }
 

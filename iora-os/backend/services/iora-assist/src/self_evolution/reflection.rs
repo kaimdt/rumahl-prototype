@@ -210,18 +210,12 @@ impl ReflectionEngine {
                  retry logic with exponential backoff.", 
                 category
             ),
-            "authentication" => format!(
-                "Implement credential rotation and validation checks before task execution. \
-                 Add pre-flight authentication verification."
-            ),
-            "connectivity" => format!(
-                "Add connection health checks and fallback endpoints. Implement circuit breaker \
-                 pattern for external service calls."
-            ),
-            "provider_error" => format!(
-                "Implement provider failover mechanism. Cache responses where possible to \
-                 reduce API dependency. Add rate limit awareness."
-            ),
+            "authentication" => "Implement credential rotation and validation checks before task execution. \
+                 Add pre-flight authentication verification.".to_string(),
+            "connectivity" => "Add connection health checks and fallback endpoints. Implement circuit breaker \
+                 pattern for external service calls.".to_string(),
+            "provider_error" => "Implement provider failover mechanism. Cache responses where possible to \
+                 reduce API dependency. Add rate limit awareness.".to_string(),
             _ => format!(
                 "Review and improve error handling in {} scenarios. Consider adding more \
                  specific error types and recovery strategies.", 

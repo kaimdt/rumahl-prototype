@@ -12,12 +12,11 @@
 use anyhow::Result;
 use axum::{
     extract::State,
-    http::StatusCode,
     routing::get,
     Json, Router,
 };
 use chrono::{DateTime, Duration, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use iora_shared::system_config;
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::sync::Arc;
@@ -287,24 +286,24 @@ async fn gather_intelligence(state: &AppState) -> anyhow::Result<()> {
 
     // 1. Fetch service status from watchdog
     let watchdog_data: serde_json::Value = state.http_client
-        .get(&format!("{}/api/watchdog/status", state.watchdog_url))
+        .get(format!("{}/api/watchdog/status", state.watchdog_url))
         .send().await?.json().await?;
 
     let services = watchdog_data["services"].as_array().cloned().unwrap_or_default();
 
     // 2. Fetch system metrics
     let metrics: serde_json::Value = state.http_client
-        .get(&format!("{}/api/watchdog/metrics", state.watchdog_url))
+        .get(format!("{}/api/watchdog/metrics", state.watchdog_url))
         .send().await?.json().await?;
 
     // 3. Fetch disk info from supervisor
     let disk_info: serde_json::Value = state.http_client
-        .get(&format!("{}/api/supervisor/system/info", state.supervisor_url))
+        .get(format!("{}/api/supervisor/system/info", state.supervisor_url))
         .send().await?.json().await?;
 
     // 4. Fetch recovery history from watchdog
     let recovery: serde_json::Value = state.http_client
-        .get(&format!("{}/api/watchdog/recovery", state.watchdog_url))
+        .get(format!("{}/api/watchdog/recovery", state.watchdog_url))
         .send().await?.json().await?;
 
     // 5. Compute health scores for each service
@@ -371,7 +370,7 @@ async fn gather_intelligence(state: &AppState) -> anyhow::Result<()> {
     let mem_percent = metrics["memory_percent"].as_f64().unwrap_or(0.0) as f32;
 
     // Disk metrics from supervisor
-    let disks = disk_info["disks"].as_array().map(|d| d.clone()).unwrap_or_default();
+    let disks = disk_info["disks"].as_array().cloned().unwrap_or_default();
     let disk_total: f64 = disks.iter().filter_map(|d| d["total_space"].as_u64()).sum::<u64>() as f64 / 1_073_741_824.0;
     let disk_used: f64 = disks.iter().filter_map(|d| d["used_space"].as_u64()).sum::<u64>() as f64 / 1_073_741_824.0;
     let disk_percent = if disk_total > 0.0 { (disk_used / disk_total) * 100.0 } else { 0.0 };
@@ -676,7 +675,7 @@ async fn run_scheduled_maintenance(state: &AppState) {
     let tasks = get_maintenance_tasks(state).await;
     for task in tasks {
         if task.auto_enabled && task.status == "pending" {
-            let now = Utc::now().to_rfc3339();
+            let _now = Utc::now().to_rfc3339();
             // Check if it's time to run
             if let Some(ref last) = task.last_run {
                 if let Ok(last_time) = DateTime::parse_from_rfc3339(last) {
@@ -692,7 +691,7 @@ async fn run_scheduled_maintenance(state: &AppState) {
                 "disk_check" => {
                     // Check disk space via supervisor
                     if let Ok(resp) = state.http_client
-                        .get(&format!("{}/api/supervisor/system/info", state.supervisor_url))
+                        .get(format!("{}/api/supervisor/system/info", state.supervisor_url))
                         .send().await
                     {
                         if let Ok(data) = resp.json::<serde_json::Value>().await {

@@ -419,7 +419,7 @@ impl LocalAppStore {
     pub async fn list(&self) -> Vec<InstalledApp> {
         let inner = self.inner.read().await;
         let mut v: Vec<InstalledApp> = inner.apps.values().cloned().collect();
-        v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        v.sort_by_key(|a| a.name.to_lowercase());
         v
     }
 

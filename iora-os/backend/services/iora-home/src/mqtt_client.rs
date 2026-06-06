@@ -24,7 +24,7 @@ impl Default for MqttConfig {
             password: None,
             client_id: format!(
                 "mdt-dashboard-{}",
-                uuid::Uuid::new_v4().to_string()[..8].to_string()
+                &uuid::Uuid::new_v4().to_string()[..8]
             ),
             use_tls: false,
         }
@@ -177,7 +177,7 @@ impl MqttClient {
                     Err(e) => {
                         let err_msg = format!("{}", e);
                         // Only log connection errors, not routine polling
-                        if mqtt_ref.connected.read().await.clone() {
+                        if *mqtt_ref.connected.read().await {
                             warn!("MQTT: Connection error: {}", err_msg);
                         }
                         *mqtt_ref.connected.write().await = false;
@@ -252,7 +252,7 @@ impl MqttClient {
             .read()
             .await
             .as_ref()
-            .map(|c| MqttConfigSafe::from(c));
+            .map(MqttConfigSafe::from);
         MqttStatus {
             connected: *self.connected.read().await,
             config: config_safe,

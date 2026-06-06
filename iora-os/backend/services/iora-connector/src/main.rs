@@ -818,7 +818,7 @@ async fn create_pairing_token(
     let user_id = extract_admin_user(&headers, &state.jwt_secret)?;
 
     let token_id = Uuid::new_v4().to_string();
-    let raw_token = format!("iora-{}", Uuid::new_v4().to_string().replace('-', "")[..32].to_string());
+    let raw_token = format!("iora-{}", &Uuid::new_v4().to_string().replace('-', "")[..32]);
     let token_hash = hash_string(&raw_token);
     let hours = body.expires_in_hours.unwrap_or(24);
     let expires_at = (Utc::now() + chrono::Duration::hours(hours)).to_rfc3339();

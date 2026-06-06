@@ -396,13 +396,13 @@ struct CreateUserRequest {
 async fn get_ssh_status() -> Json<serde_json::Value> {
     // Check if SSH service is enabled and running
     let enabled = Command::new("systemctl")
-        .args(&["is-enabled", "ssh"])
+        .args(["is-enabled", "ssh"])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
 
     let running = Command::new("systemctl")
-        .args(&["is-active", "ssh"])
+        .args(["is-active", "ssh"])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
@@ -424,7 +424,7 @@ async fn set_ssh_enabled(Json(req): Json<EnableSSHRequest>) -> impl IntoResponse
 
     // Enable/disable SSH service
     let enable_result = Command::new("systemctl")
-        .args(&[action, "ssh"])
+        .args([action, "ssh"])
         .output();
 
     match enable_result {
@@ -432,7 +432,7 @@ async fn set_ssh_enabled(Json(req): Json<EnableSSHRequest>) -> impl IntoResponse
             // Start/stop the service
             let start_action = if req.enabled { "start" } else { "stop" };
             let start_result = Command::new("systemctl")
-                .args(&[start_action, "ssh"])
+                .args([start_action, "ssh"])
                 .output();
 
             match start_result {
@@ -514,8 +514,7 @@ async fn list_ssh_users() -> Json<serde_json::Value> {
             let shell = parts[6];
 
             // Only include real users (UID >= 1000, has valid shell, has /home dir)
-            if uid >= 1000
-                && uid < 65000
+            if (1000..65000).contains(&uid)
                 && home.starts_with("/home")
                 && !shell.contains("nologin")
                 && !shell.contains("false")
@@ -558,7 +557,7 @@ async fn create_ssh_user(Json(req): Json<CreateUserRequest>) -> impl IntoRespons
 
     // Create user with useradd
     let mut cmd = Command::new("useradd");
-    cmd.args(&[
+    cmd.args([
         "-m",  // Create home directory
         "-s", "/bin/bash",  // Set shell to bash
         &req.username,
@@ -615,15 +614,15 @@ async fn create_ssh_user(Json(req): Json<CreateUserRequest>) -> impl IntoRespons
 
                 // Set permissions
                 let _ = Command::new("chown")
-                    .args(&["-R", &format!("{}:{}", req.username, req.username), &ssh_dir])
+                    .args(["-R", &format!("{}:{}", req.username, req.username), &ssh_dir])
                     .output();
 
                 let _ = Command::new("chmod")
-                    .args(&["700", &ssh_dir])
+                    .args(["700", &ssh_dir])
                     .output();
 
                 let _ = Command::new("chmod")
-                    .args(&["600", &authorized_keys])
+                    .args(["600", &authorized_keys])
                     .output();
             }
 
@@ -675,7 +674,7 @@ async fn delete_ssh_user(Path(username): Path<String>) -> impl IntoResponse {
 
     // Delete user with userdel
     let result = Command::new("userdel")
-        .args(&["-r", &username])  // -r removes home directory
+        .args(["-r", &username])  // -r removes home directory
         .output();
 
     match result {
@@ -952,7 +951,7 @@ async fn set_hostname(Json(req): Json<HostnameRequest>) -> impl IntoResponse {
 
 fn schedule_power_command(action: &str, delay_seconds: u32) -> bool {
     // shutdown -r +<min>  or  shutdown -h +<min>
-    let mins = std::cmp::max(1, (delay_seconds + 59) / 60);
+    let mins = std::cmp::max(1, delay_seconds.div_ceil(60));
     let flag = match action {
         "reboot" => "-r",
         _ => "-h",

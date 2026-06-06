@@ -247,7 +247,7 @@ Output format: Return ONLY valid JSON matching this schema:
                         step_id: step.id.clone(),
                         success: false,
                         output: String::new(),
-                        summary: Some(format!("Step failed")),
+                        summary: Some("Step failed".to_string()),
                         error: Some(e),
                         tokens_used: None,
                     }

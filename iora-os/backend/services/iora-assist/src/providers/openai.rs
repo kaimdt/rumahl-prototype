@@ -44,7 +44,7 @@ impl OpenAIProvider {
     }
 
     fn base_url(&self) -> Option<&str> {
-        self.config.base_url.as_deref().or_else(|| {
+        self.config.base_url.as_deref().or({
             if self.default_base_url.is_empty() {
                 None
             } else {

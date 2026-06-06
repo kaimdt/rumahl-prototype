@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
 
     // Get database URL - try service-specific credentials first
     let database_url = cli.database_url
-        .or_else(|| load_service_db_url())
+        .or_else(load_service_db_url)
         .or_else(|| std::env::var("POSTGRES_ADMIN_URL").ok())
         .or_else(|| std::env::var("DATABASE_URL").ok())
         .context("No database URL provided. Set DATABASE_URL or POSTGRES_ADMIN_URL")?;

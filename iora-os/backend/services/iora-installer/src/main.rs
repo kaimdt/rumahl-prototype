@@ -5,7 +5,6 @@ use dialoguer::{Confirm, Input};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::process::Command;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn, error};
 
 /// Services managed by the installer, with the HTTP port each exposes for
 /// health checks.  Keep this list in sync with [`create_systemd_services`].
@@ -82,14 +81,13 @@ fn install(non_interactive: bool) -> Result<()> {
     check_permissions()?;
     check_disk_space()?;
 
-    if !non_interactive {
-        if !Confirm::new()
+    if !non_interactive
+        && !Confirm::new()
             .with_prompt("Continue with installation?")
             .interact()? {
             println!("Installation cancelled.");
             return Ok(());
         }
-    }
 
     // Install dependencies
     println!();
@@ -235,12 +233,12 @@ fn install_dependencies() -> Result<()> {
     ];
 
     Command::new("apt-get")
-        .args(&["update", "-qq"])
+        .args(["update", "-qq"])
         .status()
         .context("Failed to update package lists")?;
 
     Command::new("apt-get")
-        .args(&["install", "-y", "-qq"])
+        .args(["install", "-y", "-qq"])
         .args(&packages)
         .status()
         .context("Failed to install dependencies")?;
@@ -253,17 +251,17 @@ fn setup_postgresql() -> Result<()> {
     let pb = create_progress_bar("Installing PostgreSQL");
 
     Command::new("apt-get")
-        .args(&["install", "-y", "-qq", "postgresql", "postgresql-contrib"])
+        .args(["install", "-y", "-qq", "postgresql", "postgresql-contrib"])
         .status()
         .context("Failed to install PostgreSQL")?;
 
     Command::new("systemctl")
-        .args(&["start", "postgresql"])
+        .args(["start", "postgresql"])
         .status()
         .context("Failed to start PostgreSQL")?;
 
     Command::new("systemctl")
-        .args(&["enable", "postgresql"])
+        .args(["enable", "postgresql"])
         .status()
         .context("Failed to enable PostgreSQL")?;
 
@@ -280,7 +278,7 @@ fn create_iora_user() -> Result<()> {
 
     if !exists {
         Command::new("useradd")
-            .args(&["-r", "-s", "/bin/false", "-d", "/opt/iora", "iora"])
+            .args(["-r", "-s", "/bin/false", "-d", "/opt/iora", "iora"])
             .status()
             .context("Failed to create iora user")?;
         println!("  ✓ Created system user 'iora'");
@@ -316,7 +314,7 @@ fn setup_databases() -> Result<()> {
     for db in databases {
         let create_db = format!("CREATE DATABASE {} WITH ENCODING 'UTF8';", db);
         Command::new("sudo")
-            .args(&["-u", "postgres", "psql", "-c", &create_db])
+            .args(["-u", "postgres", "psql", "-c", &create_db])
             .status()
             .ok(); // Ignore errors if database already exists
     }
@@ -370,7 +368,7 @@ fn generate_configuration(non_interactive: bool) -> Result<()> {
     for (path, content) in configs {
         std::fs::write(path, content)?;
         Command::new("chmod")
-            .args(&["600", path])
+            .args(["600", path])
             .status()?;
     }
 

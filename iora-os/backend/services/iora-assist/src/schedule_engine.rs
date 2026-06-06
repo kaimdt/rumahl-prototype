@@ -252,7 +252,7 @@ fn parse_hhmm(text: &str) -> Option<NaiveTime> {
         let before = &text[..colon_pos];
         let h_str = before
             .split(|c: char| !c.is_ascii_digit())
-            .last()
+            .next_back()
             .unwrap_or("");
         if h_str.is_empty() {
             continue;
@@ -361,11 +361,10 @@ fn detect_recurrence(lower: &str) -> (RecurrenceType, Vec<u8>) {
         ("so ",       "sun ",      7),
     ];
     for &(de, en, num) in day_names {
-        if lower.contains(de) || lower.contains(en) {
-            if !days.contains(&num) {
+        if (lower.contains(de) || lower.contains(en))
+            && !days.contains(&num) {
                 days.push(num);
             }
-        }
     }
     if days.len() == 1 {
         return (RecurrenceType::Weekly, days);
@@ -517,7 +516,7 @@ fn next_occurrence_of_time(
 
     // If that time has already passed today, start from tomorrow
     if candidate <= after {
-        candidate = candidate + Duration::days(1);
+        candidate += Duration::days(1);
     }
 
     if days_of_week.is_empty() {
@@ -530,7 +529,7 @@ fn next_occurrence_of_time(
         if days_of_week.contains(&dow) {
             return candidate;
         }
-        candidate = candidate + Duration::days(1);
+        candidate += Duration::days(1);
     }
 
     candidate // fallback (should not happen)

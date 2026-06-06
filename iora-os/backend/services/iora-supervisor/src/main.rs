@@ -150,10 +150,10 @@ async fn check_developer_mode_access(
     match installation_source.map(|s| s.as_str()) {
         Some("app_store") => {
             // App Store apps NEVER have access to Developer Mode, regardless of settings
-            return Err(HttpResponse::Forbidden().json(serde_json::json!({
+            Err(HttpResponse::Forbidden().json(serde_json::json!({
                 "error": "Access denied",
                 "message": "App Store apps cannot access Developer Mode features"
-            })));
+            })))
         }
         Some("manual_upload") | Some("developer_app") => {
             // Manual uploads and Developer App CAN use Developer Mode
@@ -180,10 +180,10 @@ async fn check_developer_mode_access(
         }
         _ => {
             // Unknown or missing installation source - deny access
-            return Err(HttpResponse::Forbidden().json(serde_json::json!({
+            Err(HttpResponse::Forbidden().json(serde_json::json!({
                 "error": "Invalid installation source",
                 "message": "App installation source is not valid for Developer Mode access"
-            })));
+            })))
         }
     }
 }

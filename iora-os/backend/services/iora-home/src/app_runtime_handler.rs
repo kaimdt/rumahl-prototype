@@ -64,16 +64,13 @@ pub struct AppRuntimeAuditEntry {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AppRunMode {
+    #[default]
     Queued,
     Parallel,
 }
 
-impl Default for AppRunMode {
-    fn default() -> Self {
-        Self::Queued
-    }
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

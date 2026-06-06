@@ -11,7 +11,6 @@
 //! - Rate limiting and security headers
 
 use anyhow::{Context, Result};
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
 use sqlx::{PgPool, Row};
@@ -22,7 +21,6 @@ use tera::{Tera, Context as TeraContext};
 use tokio::signal;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -115,7 +113,7 @@ fn write_nginx_config(config: &str) -> Result<()> {
 /// Test NGINX configuration
 fn test_nginx_config() -> Result<bool> {
     let output = Command::new("nginx")
-        .args(&["-t"])
+        .args(["-t"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -134,7 +132,7 @@ fn test_nginx_config() -> Result<bool> {
 /// Reload NGINX configuration
 fn reload_nginx() -> Result<()> {
     let output = Command::new("nginx")
-        .args(&["-s", "reload"])
+        .args(["-s", "reload"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -171,7 +169,7 @@ fn start_nginx() -> Result<()> {
 /// Stop NGINX process
 fn stop_nginx() -> Result<()> {
     let output = Command::new("nginx")
-        .args(&["-s", "quit"])
+        .args(["-s", "quit"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

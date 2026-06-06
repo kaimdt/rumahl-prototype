@@ -61,17 +61,16 @@ pub struct ImpactAssessment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum EffortLevel {
     Trivial,      // < 10 minutes
     Small,        // 10-30 minutes  
+    #[default]
     Medium,       // 30 min - 2 hours
     Large,        // 2-8 hours
     Extensive,    // Multiple days
 }
 
-impl Default for EffortLevel {
-    fn default() -> Self { EffortLevel::Medium }
-}
 
 /// Code generation engine that allows ORA to modify its own source code
 pub struct CodeGenerationEngine {
@@ -388,10 +387,8 @@ impl CodeGenerationEngine {
                 
                 if let Ok(current_content) = std::fs::read_to_string(&full_path) {
                     if !current_content.contains(old_code.trim()) {
-                        result.issues.push(format!(
-                            "Old code no longer matches file content. \
-                             The target code may have been modified since proposal was created."
-                        ));
+                        result.issues.push("Old code no longer matches file content. \
+                             The target code may have been modified since proposal was created.".to_string());
                         result.passed = false;
                     }
                 } else {
@@ -583,7 +580,7 @@ impl CodeGenerationEngine {
     fn create_git_commit(&self, proposal: &CodeChangeProposal) -> Result<(), String> {
         let output = std::process::Command::new("git")
             .current_dir(&self.project_root)
-            .args(&["add", &proposal.file_path])
+            .args(["add", &proposal.file_path])
             .output()
             .map_err(|e| format!("Git add failed: {}", e))?;
 
@@ -600,7 +597,7 @@ impl CodeGenerationEngine {
 
         let output = std::process::Command::new("git")
             .current_dir(&self.project_root)
-            .args(&["commit", "-m", &commit_msg])
+            .args(["commit", "-m", &commit_msg])
             .output()
             .map_err(|e| format!("Git commit failed: {}", e))?;
 
@@ -619,7 +616,7 @@ impl CodeGenerationEngine {
     fn rollback_git_commit(&self, proposal: &CodeChangeProposal) -> Result<(), String> {
         let output = std::process::Command::new("git")
             .current_dir(&self.project_root)
-            .args(&["reset", "--hard", "HEAD~1"])
+            .args(["reset", "--hard", "HEAD~1"])
             .output()
             .map_err(|e| format!("Git reset failed: {}", e))?;
 

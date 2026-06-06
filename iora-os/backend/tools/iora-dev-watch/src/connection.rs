@@ -164,7 +164,7 @@ pub async fn bridge_status(host: &str, port: u16) -> Result<BridgeStatus> {
     if !resp.status().is_success() {
         anyhow::bail!("status returned {}", resp.status());
     }
-    Ok(resp.json().await.context("parsing status")?)
+    resp.json().await.context("parsing status")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -186,11 +186,10 @@ async fn connection_loop(
 
     loop {
         // Check if we should stop
-        if cancel.borrow().clone() || cancel.has_changed().unwrap_or(false) {
-            if *cancel.borrow() {
+        if (*cancel.borrow() || cancel.has_changed().unwrap_or(false))
+            && *cancel.borrow() {
                 return;
             }
-        }
 
         // Attempt to connect to the SSE stream
         match connect_sse_stream(&url).await {

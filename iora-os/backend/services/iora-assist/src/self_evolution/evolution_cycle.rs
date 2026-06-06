@@ -455,7 +455,7 @@ impl SelfEvolutionOrchestrator {
         };
 
         let output = tokio::process::Command::new("cargo")
-            .args(&["check"])
+            .args(["check"])
             .current_dir(&self.code_generation.project_root)
             .output()
             .await

@@ -231,7 +231,7 @@ impl PromptOptimizationEngine {
         .bind(success)
         .bind(tokens_used as i32)
         .bind(duration_ms as i64)
-        .bind(user_rating.map(|r| r as f64))
+        .bind(user_rating.map(|r| r))
         .execute(&self.db_pool)
         .await
         .map(|_| ())
@@ -535,13 +535,12 @@ impl PromptOptimizationEngine {
                     structured.push_str("\n\n## Output Format\n");
                     current_section = "Output Format";
                 }
-            } else if lower.contains("constraint") || lower.contains("rule") 
-                       || lower.contains("requirement") {
-                if current_section != "Constraints" {
+            } else if (lower.contains("constraint") || lower.contains("rule") 
+                       || lower.contains("requirement"))
+                && current_section != "Constraints" {
                     structured.push_str("\n\n## Constraints\n");
                     current_section = "Constraints";
                 }
-            }
 
             structured.push_str(line);
             structured.push('\n');

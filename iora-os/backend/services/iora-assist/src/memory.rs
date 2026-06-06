@@ -613,7 +613,7 @@ fn extract_name(text: &str) -> Option<String> {
         if let Some(pos) = text.find(pattern) {
             let after = &text[pos + pattern.len()..];
             let name: String = after
-                .split(|c: char| c == ',' || c == '.' || c == '\n' || c == '!')
+                .split([',', '.', '\n', '!'])
                 .next()
                 .unwrap_or("")
                 .split_whitespace()
@@ -642,7 +642,7 @@ fn extract_preference(text: &str) -> Option<String> {
         if let Some(pos) = lower.find(pattern) {
             let after = &text[pos + pattern.len()..];
             let pref: String = after
-                .split(|c: char| c == ',' || c == '.' || c == '\n')
+                .split([',', '.', '\n'])
                 .next()
                 .unwrap_or("")
                 .trim()

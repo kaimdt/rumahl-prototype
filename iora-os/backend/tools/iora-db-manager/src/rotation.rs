@@ -25,7 +25,7 @@ impl PasswordRotation {
         .fetch_optional(&self.pool)
         .await?;
 
-        let (username, database, old_password_hash) = match user_info {
+        let (username, database, _old_password_hash) = match user_info {
             Some(info) => info,
             None => {
                 tracing::warn!("Service {} not found in tracking database", service);

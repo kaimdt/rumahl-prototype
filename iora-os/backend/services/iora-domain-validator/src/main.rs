@@ -20,7 +20,6 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
 use sqlx::{PgPool, Row};
@@ -30,7 +29,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use trust_dns_resolver::TokioAsyncResolver;
 use trust_dns_resolver::config::*;
 use uuid::Uuid;
@@ -111,15 +110,13 @@ fn domain_matches_pattern(domain: &str, pattern: &str) -> bool {
     }
 
     // Handle wildcard patterns like *.example.com
-    if pattern.starts_with("*.") {
-        let pattern_suffix = &pattern[2..];
+    if let Some(pattern_suffix) = pattern.strip_prefix("*.") {
         // Match exact suffix or subdomain
         return domain == pattern_suffix || domain.ends_with(&format!(".{}", pattern_suffix));
     }
 
     // Handle wildcard at end like example.*
-    if pattern.ends_with(".*") {
-        let pattern_prefix = &pattern[..pattern.len() - 2];
+    if let Some(pattern_prefix) = pattern.strip_suffix(".*") {
         return domain.starts_with(&format!("{}.", pattern_prefix)) || domain == pattern_prefix;
     }
 

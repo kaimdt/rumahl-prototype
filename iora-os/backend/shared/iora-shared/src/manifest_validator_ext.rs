@@ -307,8 +307,8 @@ pub fn validate_security_policy(
     }
 
     // Check network access requirements
-    if policy.require_network_whitelist {
-        if manifest
+    if policy.require_network_whitelist
+        && manifest
             .get("permissions")
             .and_then(|p| p.as_array())
             .map(|perms| perms.iter().any(|p| p.as_str() == Some("NetworkAccess")))
@@ -337,7 +337,6 @@ pub fn validate_security_policy(
                 );
             }
         }
-    }
 
     // Check for untrusted source
     if !policy.allow_untrusted_apps {

@@ -907,11 +907,10 @@ impl AppState {
         for sanitized in sanitize_log(&line.into()) {
             // Skip duplicate [HEAL] lines — self-heal runs periodically and
             // would otherwise flood the log with identical restart messages.
-            if sanitized.starts_with("[HEAL]") {
-                if self.log_buf.back().map_or(false, |last| last == &sanitized) {
+            if sanitized.starts_with("[HEAL]")
+                && self.log_buf.back() == Some(&sanitized) {
                     continue;
                 }
-            }
             if self.log_buf.len() >= LOG_BUFFER_CAP { self.log_buf.pop_front(); }
             self.log_buf.push_back(sanitized);
         }
@@ -998,7 +997,7 @@ fn selected_status_service(state: &AppState) -> Option<String> {
 /// bytes as visible garbage and adjacent rendered cells appear corrupted.
 fn sanitize_log(raw: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for chunk in raw.split(|c: char| c == '\r' || c == '\n') {
+    for chunk in raw.split(['\r', '\n']) {
         let mut cleaned = String::with_capacity(chunk.len());
         let mut chars = chunk.chars().peekable();
         while let Some(c) = chars.next() {
@@ -1479,15 +1478,14 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 state.stop_service_log();
                 state.view = View::Status;
             }
-            return;
         }
-        KeyCode::Up if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(1); return; }
-        KeyCode::Down if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(1); return; }
-        KeyCode::PageUp if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(6); return; }
-        KeyCode::PageDown if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(6); return; }
-        KeyCode::Home if state.show_help => { state.help_scroll = 0; return; }
-        KeyCode::End if state.show_help => { state.help_scroll = usize::MAX; return; }
-        KeyCode::Char('0') if state.show_help => { state.help_scroll = 0; return; }
+        KeyCode::Up if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(1);}
+        KeyCode::Down if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(1);}
+        KeyCode::PageUp if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(6);}
+        KeyCode::PageDown if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(6);}
+        KeyCode::Home if state.show_help => { state.help_scroll = 0;}
+        KeyCode::End if state.show_help => { state.help_scroll = usize::MAX;}
+        KeyCode::Char('0') if state.show_help => { state.help_scroll = 0;}
         KeyCode::Char('q') | KeyCode::Char('Q') => state.should_quit = true,
         KeyCode::Char('?') => { state.show_help = !state.show_help; state.help_scroll = 0; }
         KeyCode::Char('/') => state.mode = Mode::Command { input: String::new() },
@@ -1507,7 +1505,6 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             if state.view == View::Status && state.vm_online && !state.building {
                 spawn_fetch_status(state, tx.clone());
             }
-            return;
         }
         KeyCode::BackTab => {
             state.view = match state.view {
@@ -1520,27 +1517,24 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 View::Deploy => View::Resources,
             };
             state.log_scroll = 0;
-            return;
         }
         // Deploy view keys
         KeyCode::Char(' ') if state.view == View::Deploy => {
             if state.deploy_selected.contains(&state.deploy_cursor) {
                 state.deploy_selected.remove(&state.deploy_cursor);
             } else { state.deploy_selected.insert(state.deploy_cursor); }
-            return;
         }
         KeyCode::Char('a') | KeyCode::Char('A') if state.view == View::Deploy => {
             let n = state.backend.services.len();
             if state.deploy_selected.len() == n { state.deploy_selected.clear(); }
             else { for i in 0..n { state.deploy_selected.insert(i); } }
-            return;
         }
         KeyCode::Up if state.view == View::Deploy => {
-            state.deploy_cursor = state.deploy_cursor.saturating_sub(1); return;
+            state.deploy_cursor = state.deploy_cursor.saturating_sub(1);
         }
         KeyCode::Down if state.view == View::Deploy => {
             let n = state.backend.services.len();
-            state.deploy_cursor = (state.deploy_cursor + 1).min(n.saturating_sub(1)); return;
+            state.deploy_cursor = (state.deploy_cursor + 1).min(n.saturating_sub(1));
         }
         KeyCode::Enter if state.view == View::Deploy => {
             if !state.deploy_selected.is_empty() {
@@ -1549,40 +1543,34 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 state.push_log(format!("[DEPLOY] {} services", svcs.len()));
                 spawn_deploy_selected(state, svcs, tx.clone());
             }
-            return;
         }
         KeyCode::Char('n') | KeyCode::Char('N') => {
             state.notify_on_ready = !state.notify_on_ready;
             state.push_log(format!("[CONFIG] Notify on ready: {}", if state.notify_on_ready {"ON"} else {"OFF"}));
-            return;
         }
         KeyCode::Char('r') if state.view == View::Status => {
             if let Some(svc) = selected_status_service(state) {
                 state.push_log(format!("[RESTART] {svc}"));
                 spawn_restart(state, svc, tx.clone());
             }
-            return;
         }
         KeyCode::Char('u') | KeyCode::Char('U') if state.view == View::Status => {
             if let Some(svc) = selected_status_service(state) {
                 state.push_log(format!("[SERVICE] start {svc}"));
                 spawn_service_action(state, svc, "start", tx.clone());
             }
-            return;
         }
         KeyCode::Char('k') | KeyCode::Char('K') if state.view == View::Status => {
             if let Some(svc) = selected_status_service(state) {
                 state.push_log(format!("[SERVICE] stop {svc}"));
                 spawn_service_action(state, svc, "stop", tx.clone());
             }
-            return;
         }
         KeyCode::Char('d') if state.view == View::Status => {
             if let Some(svc) = selected_status_service(state) {
                 state.push_log(format!("[DEPLOY] {svc}"));
                 spawn_deploy_selected(state, vec![svc], tx.clone());
             }
-            return;
         }
         KeyCode::Enter if state.view == View::Status => {
             if let Some(svc) = selected_status_service(state) {
@@ -1593,7 +1581,6 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 state.view = View::ServiceLog;
                 state.push_service_log("[LIVE] No service selected");
             }
-            return;
         }
         // L on Status/Deploy: view live journal for selected service
         KeyCode::Char('l') if state.view == View::Status => {
@@ -1601,7 +1588,6 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 state.push_log(format!("[JOURNAL] {} — last 80 lines:", svc));
                 spawn_journal_one(state, &svc, tx.clone());
             }
-            return;
         }
         KeyCode::Char('l') if state.view == View::Deploy => {
             if state.deploy_cursor < state.backend.services.len() {
@@ -1609,44 +1595,40 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 state.push_log(format!("[JOURNAL] {} — last 80 lines:", svc));
                 spawn_journal_one(state, &svc, tx.clone());
             }
-            return;
         }
         // X: export log buffer to file
         KeyCode::Char('x') | KeyCode::Char('X') => {
             export_log(state);
             state.push_log("[EXPORT] Log written to iora-os/.cache/dev-watch-log.txt");
-            return;
         }
         KeyCode::Up if state.view == View::Status => {
             let row = selected_status_row(state).saturating_sub(1);
             set_status_cursor(state, row);
-            return;
         }
         KeyCode::Down if state.view == View::Status => {
             let row = selected_status_row(state).saturating_add(1);
             set_status_cursor(state, row);
-            return;
         }
         KeyCode::Up if state.view == View::ServiceLog => {
-            state.service_log_scroll = state.service_log_scroll.saturating_add(1); return;
+            state.service_log_scroll = state.service_log_scroll.saturating_add(1);
         }
         KeyCode::Down if state.view == View::ServiceLog => {
-            state.service_log_scroll = state.service_log_scroll.saturating_sub(1); return;
+            state.service_log_scroll = state.service_log_scroll.saturating_sub(1);
         }
         KeyCode::PageUp if state.view == View::ServiceLog => {
-            state.service_log_scroll = state.service_log_scroll.saturating_add(10); return;
+            state.service_log_scroll = state.service_log_scroll.saturating_add(10);
         }
         KeyCode::PageDown if state.view == View::ServiceLog => {
-            state.service_log_scroll = state.service_log_scroll.saturating_sub(10); return;
+            state.service_log_scroll = state.service_log_scroll.saturating_sub(10);
         }
         KeyCode::Home if state.view == View::ServiceLog => {
-            state.service_log_scroll = state.service_log_buf.len().saturating_sub(1); return;
+            state.service_log_scroll = state.service_log_buf.len().saturating_sub(1);
         }
         KeyCode::End if state.view == View::ServiceLog => {
-            state.service_log_scroll = 0; return;
+            state.service_log_scroll = 0;
         }
         KeyCode::Char('0') if state.view == View::ServiceLog => {
-            state.service_log_scroll = 0; return;
+            state.service_log_scroll = 0;
         }
         KeyCode::Up => state.log_scroll = state.log_scroll.saturating_add(1),
         KeyCode::Down => state.log_scroll = state.log_scroll.saturating_sub(1),
@@ -1705,7 +1687,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
 }
 
 fn run_command(state: &mut AppState, input: &str, tx: &mpsc::UnboundedSender<AppEvent>) {
-    let parts: Vec<&str> = input.trim().split_whitespace().collect();
+    let parts: Vec<&str> = input.split_whitespace().collect();
     if parts.is_empty() { return; }
     match parts[0] {
         "build" | "b" => {
@@ -1736,7 +1718,7 @@ fn run_command(state: &mut AppState, input: &str, tx: &mpsc::UnboundedSender<App
         "resources" => { state.view = View::Resources; state.log_scroll = 0; }
         "connect" | "c" => spawn_check_vm(state, tx.clone()),
         "watch" => {
-            state.do_watch = parts.get(1).map_or(true, |&w| w != "off");
+            state.do_watch = parts.get(1).is_none_or(|&w| w != "off");
             let s = format!("[CMD] Watch: {}", if state.do_watch {"ON"} else {"OFF"});
             state.push_log(s);
         }

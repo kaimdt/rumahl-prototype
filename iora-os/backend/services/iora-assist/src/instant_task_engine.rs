@@ -196,7 +196,7 @@ async fn process_task(
         let tool_executor2 = tool_executor.clone();
         let task2 = task_ref.clone();
         tokio::spawn(async move {
-            let output = run_tool(&tool_executor2, &*task2).await;
+            let output = run_tool(&tool_executor2, &task2).await;
             let _ = result_tx.send(output);
         });
     }

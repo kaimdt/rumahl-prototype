@@ -198,7 +198,7 @@ Füge diesen Block immer am **Ende** der Antwort ein, und **nur einmal**.
         let mut best: Option<(f64, &AutonomousTask)> = None;
         for task in tasks {
             let score = score_task_match(&lower, task);
-            if best.as_ref().map_or(true, |(b, _)| score > *b) {
+            if best.as_ref().is_none_or(|(b, _)| score > *b) {
                 best = Some((score, task));
             }
         }
@@ -297,14 +297,13 @@ fn score_task_match(lower: &str, task: &AutonomousTask) -> f64 {
     }
 
     // ── Task type keywords ────────────────────────────────────────────────────
-    if task.task_type == "reminder" || task.task_type == "alarm" {
-        if lower.contains("wecker") || lower.contains("alarm")
+    if (task.task_type == "reminder" || task.task_type == "alarm")
+        && (lower.contains("wecker") || lower.contains("alarm")
             || lower.contains("wake") || lower.contains("wecken")
-            || lower.contains("reminder") || lower.contains("erinnern")
+            || lower.contains("reminder") || lower.contains("erinnern"))
         {
             score += 0.15;
         }
-    }
 
     score.min(1.0)
 }

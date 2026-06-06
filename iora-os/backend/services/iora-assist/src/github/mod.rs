@@ -820,7 +820,7 @@ impl GitHubClient {
         if let Some(ref content) = item.content {
             use base64::Engine;
             let decoded = base64::engine::general_purpose::STANDARD
-                .decode(content.replace('\n', "").replace('\r', ""))
+                .decode(content.replace(['\n', '\r'], ""))
                 .map_err(|e| format!("Base64 decode error: {}", e))?;
             Ok(String::from_utf8_lossy(&decoded).to_string())
         } else {

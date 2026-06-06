@@ -322,8 +322,7 @@ pub async fn handle_stream_ingest(socket: WebSocket, manager: Arc<StreamManager>
                         let _ = ws_tx
                             .send(Message::Text(
                                 serde_json::json!({"type":"auth_failed","message":"Invalid token"})
-                                    .to_string()
-                                    .into(),
+                                    .to_string(),
                             ))
                             .await;
                         return;
@@ -334,7 +333,7 @@ pub async fn handle_stream_ingest(socket: WebSocket, manager: Arc<StreamManager>
                     };
                     let _ = ws_tx
                         .send(Message::Text(
-                            serde_json::json!({"type":"auth_ok"}).to_string().into(),
+                            serde_json::json!({"type":"auth_ok"}).to_string(),
                         ))
                         .await;
                     (auth.stream_id, tx, init_store)
@@ -343,8 +342,7 @@ pub async fn handle_stream_ingest(socket: WebSocket, manager: Arc<StreamManager>
                     let _ = ws_tx
                         .send(Message::Text(
                             serde_json::json!({"type":"error","message":"Invalid auth message"})
-                                .to_string()
-                                .into(),
+                                .to_string(),
                         ))
                         .await;
                     return;
@@ -417,8 +415,7 @@ pub async fn handle_stream_watch(socket: WebSocket, manager: Arc<StreamManager>)
                                     "type": "watching",
                                     "stream_id": watch.stream_id
                                 })
-                                .to_string()
-                                .into(),
+                                .to_string(),
                             ))
                             .await;
                         (watch.stream_id, rx, counter, init)
@@ -430,8 +427,7 @@ pub async fn handle_stream_watch(socket: WebSocket, manager: Arc<StreamManager>)
                                     "type": "error",
                                     "message": "Stream not found"
                                 })
-                                .to_string()
-                                .into(),
+                                .to_string(),
                             ))
                             .await;
                         return;
@@ -453,7 +449,7 @@ pub async fn handle_stream_watch(socket: WebSocket, manager: Arc<StreamManager>)
     //    (init segment + all subsequent frames since last MediaRecorder restart).
     //    This ensures no gap in the decode chain — viewer starts from a keyframe.
     for chunk in buffered_chunks {
-        if ws_tx.send(Message::Binary(chunk.into())).await.is_err() {
+        if ws_tx.send(Message::Binary(chunk)).await.is_err() {
             viewer_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             return;
         }
@@ -466,7 +462,7 @@ pub async fn handle_stream_watch(socket: WebSocket, manager: Arc<StreamManager>)
             frame = relay_rx.recv() => {
                 match frame {
                     Ok(data) => {
-                        if ws_tx.send(Message::Binary(data.into())).await.is_err() {
+                        if ws_tx.send(Message::Binary(data)).await.is_err() {
                             break; // Viewer disconnected
                         }
                     }
@@ -478,7 +474,7 @@ pub async fn handle_stream_watch(socket: WebSocket, manager: Arc<StreamManager>)
                         // Stream ended
                         let _ = ws_tx
                             .send(Message::Text(
-                                serde_json::json!({"type":"stream_ended"}).to_string().into(),
+                                serde_json::json!({"type":"stream_ended"}).to_string(),
                             ))
                             .await;
                         break;

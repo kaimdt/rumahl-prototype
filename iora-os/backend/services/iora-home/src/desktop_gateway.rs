@@ -224,7 +224,7 @@ pub async fn register_desktop(
         "#,
     )
     .bind(&req.device_id)
-    .bind(&user_id)
+    .bind(user_id)
     .bind(&req.device_name)
     .bind(&req.os)
     .execute(&state.db_pool)

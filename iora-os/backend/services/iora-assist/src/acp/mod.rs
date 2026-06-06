@@ -421,14 +421,14 @@ impl AcpRouter {
         agents
             .values()
             .filter(|a| {
-                let q_match = query.map_or(true, |q| {
+                let q_match = query.is_none_or(|q| {
                     a.name.to_lowercase().contains(&q.to_lowercase())
                         || a.description.to_lowercase().contains(&q.to_lowercase())
                 });
-                let c_match = capability.map_or(true, |c| {
+                let c_match = capability.is_none_or(|c| {
                     a.capabilities.iter().any(|cap| cap.name == c)
                 });
-                let t_match = agent_type.map_or(true, |t| a.agent_type == t);
+                let t_match = agent_type.is_none_or(|t| a.agent_type == t);
                 q_match && c_match && t_match
             })
             .cloned()

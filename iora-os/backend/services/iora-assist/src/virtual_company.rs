@@ -328,7 +328,7 @@ impl VirtualCompany {
                         let result = next.with_hour(*hour)?.with_minute(0)?.with_second(0)?;
                         if result > now { return Some(result); }
                     }
-                    next = next + chrono::Duration::days(1);
+                    next += chrono::Duration::days(1);
                 }
                 None
             }
@@ -344,7 +344,7 @@ impl VirtualCompany {
             }
             BriefingSchedule::Daily { hour } => {
                 let mut next = now.with_hour(*hour)?.with_minute(0)?;
-                if next <= now { next = next + chrono::Duration::days(1); }
+                if next <= now { next += chrono::Duration::days(1); }
                 Some(next)
             }
             BriefingSchedule::Manual => None,
@@ -500,7 +500,7 @@ impl VirtualCompany {
                     if let Some(dl) = a.deadline {
                         s.push_str(&format!(" – Deadline: {}", dl.format("%d.%m.%Y")));
                     }
-                    s.push_str("\n");
+                    s.push('\n');
                 }
                 s
             }

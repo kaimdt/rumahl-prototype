@@ -156,7 +156,7 @@ impl MessagingManager {
 
         // Try to send via the configured SMTP server's API or direct
         match self.http
-            .post(format!("https://api.sendgrid.com/v3/mail/send"))
+            .post("https://api.sendgrid.com/v3/mail/send".to_string())
             .bearer_auth(&cfg.password)
             .json(&payload)
             .send()

@@ -366,18 +366,15 @@ async fn upload_file(
         (StatusCode::BAD_REQUEST, format!("Multipart error: {}", e))
     })? {
         let name = field.name().unwrap_or("").to_string();
-        match name.as_str() {
-            "file" => {
-                let original_name = field
-                    .file_name()
-                    .unwrap_or("unnamed")
-                    .to_string();
-                let data = field.bytes().await.map_err(|e| {
-                    (StatusCode::BAD_REQUEST, format!("Read error: {}", e))
-                })?;
-                file_data = Some((original_name, data.to_vec()));
-            }
-            _ => {}
+        if name.as_str() == "file" {
+            let original_name = field
+                .file_name()
+                .unwrap_or("unnamed")
+                .to_string();
+            let data = field.bytes().await.map_err(|e| {
+                (StatusCode::BAD_REQUEST, format!("Read error: {}", e))
+            })?;
+            file_data = Some((original_name, data.to_vec()));
         }
     }
 

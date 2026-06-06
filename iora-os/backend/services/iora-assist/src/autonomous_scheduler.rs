@@ -134,7 +134,7 @@ impl AutonomousScheduler {
             let due_tasks: Vec<ScheduledTask> = {
                 self.tasks.read()
                     .values()
-                    .filter(|t| t.enabled && t.next_run.map_or(false, |nr| nr <= now))
+                    .filter(|t| t.enabled && t.next_run.is_some_and(|nr| nr <= now))
                     .cloned()
                     .collect()
             };

@@ -507,7 +507,7 @@ impl LspClient {
 
             Ok(Some(HoverInfo {
                 contents: content_str,
-                range: response.get("range").and_then(|r| parse_range(r)),
+                range: response.get("range").and_then(parse_range),
             }))
         } else {
             Ok(None)
@@ -560,7 +560,7 @@ impl LspClient {
         let response = self.send_request("textDocument/documentSymbol", Some(params)).await?;
 
         let symbols: Vec<Symbol> = if let Some(arr) = response.as_array() {
-            arr.iter().filter_map(|s| parse_symbol(s)).collect()
+            arr.iter().filter_map(parse_symbol).collect()
         } else {
             Vec::new()
         };
@@ -863,11 +863,7 @@ fn parse_diagnostic(value: &serde_json::Value, file_path: &str) -> Option<Diagno
         code: value.get("code").and_then(|c| {
             if let Some(s) = c.as_str() {
                 Some(s.to_string())
-            } else if let Some(n) = c.as_i64() {
-                Some(n.to_string())
-            } else {
-                None
-            }
+            } else { c.as_i64().map(|n| n.to_string()) }
         }),
     })
 }

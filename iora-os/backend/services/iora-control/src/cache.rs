@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use parking_lot::RwLock;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     sync::Arc,

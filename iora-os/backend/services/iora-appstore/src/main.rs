@@ -229,7 +229,7 @@ async fn list_installed(data: web::Data<AppState>) -> impl Responder {
         let port_assignments = sqlx::query_as::<_, PortAssignment>(
             "SELECT * FROM port_assignments WHERE app_id = $1"
         )
-        .bind(&app.id)
+        .bind(app.id)
         .fetch_all(&data.db)
         .await
         .unwrap_or_default();
@@ -364,7 +364,7 @@ async fn install_app(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#
     )
-    .bind(&app_uuid)
+    .bind(app_uuid)
     .bind(&manifest.id)
     .bind(&manifest.name)
     .bind(&manifest.version)
@@ -402,7 +402,7 @@ async fn install_app(
             "#
         )
         .bind(Uuid::new_v4())
-        .bind(&app_uuid)
+        .bind(app_uuid)
         .bind(assignment.internal_port as i32)
         .bind(assignment.external_port as i32)
         .bind(assignment.protocol.to_string())
@@ -456,25 +456,25 @@ async fn uninstall_app(
 
     // Delete port assignments from DB
     let _ = sqlx::query("DELETE FROM port_assignments WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await;
 
     // Delete app settings
     let _ = sqlx::query("DELETE FROM app_settings WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await;
 
     // Delete app permissions
     let _ = sqlx::query("DELETE FROM app_permissions WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await;
 
     // Delete app
     match sqlx::query("DELETE FROM apps WHERE id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await
     {
@@ -524,7 +524,7 @@ async fn grant_permissions(
             "#
         )
         .bind(Uuid::new_v4())
-        .bind(&app.id)
+        .bind(app.id)
         .bind(permission)
         .bind(true)
         .bind(Utc::now())
@@ -569,7 +569,7 @@ async fn update_settings(
         "#
     )
     .bind(Uuid::new_v4())
-    .bind(&app.id)
+    .bind(app.id)
     .bind(&req.settings)
     .bind(Utc::now())
     .execute(&data.db)
@@ -614,7 +614,7 @@ async fn get_settings(
 
     // Get settings
     match sqlx::query_as::<_, AppSettings>("SELECT * FROM app_settings WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .fetch_one(&data.db)
         .await
     {

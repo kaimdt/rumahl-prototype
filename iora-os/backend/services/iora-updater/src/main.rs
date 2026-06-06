@@ -286,7 +286,7 @@ async fn should_redownload(path: &Path, expected_sha: &str) -> bool {
 }
 
 async fn download(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> {
-    let mut resp = client
+    let resp = client
         .get(url)
         .send()
         .await
@@ -358,7 +358,7 @@ fn validate_download_url(url: &str) -> Result<()> {
         .next()
         .unwrap_or("")
         .split('@')
-        .last()
+        .next_back()
         .unwrap_or("")
         .split(':')
         .next()

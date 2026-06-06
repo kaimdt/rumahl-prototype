@@ -106,7 +106,7 @@ impl SystemGuard {
         match &*self.state.read() {
             SystemState::Running => true,
             SystemState::Paused | SystemState::EmergencyStop => false,
-            SystemState::PartialPause { paused_agents } => agent_id.map_or(true, |id| !paused_agents.contains(&id.to_string())),
+            SystemState::PartialPause { paused_agents } => agent_id.is_none_or(|id| !paused_agents.contains(&id.to_string())),
         }
     }
 
