@@ -75,7 +75,7 @@ jobs:
       # ── Cache: Buildroot tarball (avoids re-download) ──────────────
       - name: Cache Buildroot tarball
         id: cache-buildroot
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.IORA_OS_DIR }}/buildroot-2024.02.tar.gz
           key: buildroot-2024.02-tar
@@ -89,7 +89,7 @@ jobs:
 
       # ── Cache: Buildroot downloads (dl/) — CRITICAL, saves GB ─────
       - name: Cache Buildroot source downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.iora-cache/dl
@@ -101,7 +101,7 @@ jobs:
 
       # ── Cache: Cargo registry (Rust workspace) ─────────────────────
       - name: Cache Cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
