@@ -1055,6 +1055,7 @@ fn find_repo_root() -> Result<PathBuf> {
     anyhow::bail!("no repo root")
 }
 
+#[allow(clippy::ptr_arg)]
 fn find_workspace(r: &PathBuf) -> Result<PathBuf> {
     for c in &[r.join("iora-os/backend"), r.join("backend")] {
         if c.join("Cargo.toml").exists() { return Ok(c.clone()); }
@@ -1062,6 +1063,7 @@ fn find_workspace(r: &PathBuf) -> Result<PathBuf> {
     anyhow::bail!("no workspace")
 }
 
+#[allow(clippy::ptr_arg)]
 fn find_frontend(r: &PathBuf) -> Option<PathBuf> {
     for d in &["frontend", "desktop"] {
         let p = r.join(d);
@@ -1070,6 +1072,7 @@ fn find_frontend(r: &PathBuf) -> Option<PathBuf> {
     None
 }
 
+#[allow(clippy::ptr_arg)]
 fn discover_services(w: &PathBuf) -> Vec<String> {
     let mut v = Vec::new();
     // Only long-running IORA OS systemd targets belong here. CLI/tools crates
@@ -1863,6 +1866,7 @@ fn render_logs(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     f.render_widget(list, area);
 }
 
+#[allow(clippy::if_same_then_else)]
 fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     use ratatui::layout::{Constraint, Direction, Layout};
 

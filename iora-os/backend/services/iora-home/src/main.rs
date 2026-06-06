@@ -2783,10 +2783,7 @@ async fn detect_setup_wizard() -> (Option<String>, bool) {
     // Helper: try connecting to addr:port.
     async fn try_connect(host: &str, port: u16) -> bool {
         let addr = format!("{}:{}", host, port);
-        match tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await {
-            Ok(Ok(_)) => true,
-            _ => false,
-        }
+        matches!(tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await, Ok(Ok(_)))
     }
 
     // Try localhost first (fastest, no network needed).
@@ -2866,6 +2863,7 @@ async fn get_lan_ip() -> Option<String> {
                         // by checking /proc/net/fib_trie for the interface name.
                         let mut is_docker_iface = false;
                         // Look ahead for the device name in following lines
+                        #[allow(clippy::needless_range_loop)]
                         for j in (i.saturating_sub(5))..(i + 5).min(lines.len()) {
                             let l = lines[j].trim();
                             if l.starts_with("DEV")
@@ -2900,7 +2898,7 @@ async fn get_lan_ip() -> Option<String> {
                 name if name.starts_with("tun") => continue,
                 name if name.starts_with("tap") => continue,
                 name if name.starts_with("virbr") => continue,
-                name if name.is_empty() => continue,
+                "" => continue,
                 _ => {}
             }
             // If we got here, it's likely a physical interface.
@@ -5866,13 +5864,15 @@ async fn client_system_event_ingest(
     };
     // Reject absurdly long messages so a runaway client can't bloat the DB.
     let message: String = body.message.chars().take(2000).collect();
-    let mut meta = system_events::EventMeta::default();
-    meta.user_id = Some(auth.user_id().to_string());
-    meta.file = body.file;
-    meta.line = body.line;
-    meta.request_path = body.request_path;
-    meta.error_chain = body.error_chain;
-    meta.extra = body.extra;
+    let meta = system_events::EventMeta {
+        user_id: Some(auth.user_id().to_string()),
+        file: body.file,
+        line: body.line,
+        request_path: body.request_path,
+        error_chain: body.error_chain,
+        extra: body.extra,
+        ..Default::default()
+    };
     state
         .system_events
         .report_from_client(severity, &source, message, meta)
@@ -12363,7 +12363,7 @@ async fn get_entity_counts(State(state): State<AppState>) -> impl IntoResponse {
         *domain_counts.entry(domain.to_string()).or_default() += 1;
     }
     let mut sorted: Vec<(String, usize)> = domain_counts.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     Json(serde_json::json!({
         "total": all.len(),
@@ -12595,6 +12595,7 @@ fn push_log_entry(level: &str, target: &str, message: &str, fields: Option<Value
 struct IoraLogLayer;
 
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for IoraLogLayer {
+    #[allow(clippy::field_reassign_with_default)]
     fn on_event(
         &self,
         event: &tracing::Event<'_>,
@@ -12958,6 +12959,7 @@ async fn get_system_stats(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// Get Home Assistant system information
+#[allow(clippy::unnecessary_sort_by)]
 async fn get_ha_info(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let ha_connected = state.entity_cache.is_ha_connected();
     let ha_ws_connected = state.ha_ws.is_connected();
@@ -15705,6 +15707,7 @@ async fn admin_database_info(State(state): State<AppState>) -> Result<Json<Value
 // ── Temp DB Users ─────────────────────────────────────────────
 
 /// Admin: list active temporary database users
+#[allow(clippy::type_complexity)]
 async fn admin_list_temp_users(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
@@ -16457,6 +16460,7 @@ async fn get_nina_settings(State(state): State<AppState>) -> Json<Value> {
 }
 
 /// Save NINA settings
+#[allow(clippy::manual_clamp)]
 async fn save_nina_settings(
     State(state): State<AppState>,
     Json(body): Json<Value>,
@@ -17289,6 +17293,7 @@ async fn create_webhook(
 }
 
 /// List webhooks for the current user
+#[allow(clippy::type_complexity)]
 async fn list_webhooks(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<middleware::AuthIdentity>,
@@ -17466,6 +17471,7 @@ async fn test_webhook(
 }
 
 /// Get webhook delivery log
+#[allow(clippy::type_complexity)]
 async fn get_webhook_deliveries(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<middleware::AuthIdentity>,
@@ -17514,6 +17520,7 @@ async fn get_webhook_deliveries(
 }
 
 /// Admin: list all webhooks across all users
+#[allow(clippy::type_complexity)]
 async fn admin_list_all_webhooks(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
@@ -18802,6 +18809,7 @@ fn default_limit() -> i64 {
 }
 
 /// Get location history points from our own database (long-term storage)
+#[allow(clippy::type_complexity)]
 async fn get_location_history(
     State(state): State<AppState>,
     Path(entity_id): Path<String>,

@@ -53,6 +53,7 @@ impl BackupEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn backup_dir(&self) -> &Path {
         &self.backup_dir
     }

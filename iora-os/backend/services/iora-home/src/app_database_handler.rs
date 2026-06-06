@@ -265,16 +265,14 @@ pub async fn database_status(
                     .map(|t| t.is_file())
                     .unwrap_or(false)
                 {
-                    if let Ok(modified) = entry.metadata().await.map(|m| m.modified().ok()) {
-                        if let Some(time) = modified {
-                            let datetime: chrono::DateTime<Utc> = time.into();
-                            backups.push((datetime, entry.file_name()));
-                        }
+                    if let Ok(Some(time)) = entry.metadata().await.map(|m| m.modified().ok()) {
+                        let datetime: chrono::DateTime<Utc> = time.into();
+                        backups.push((datetime, entry.file_name()));
                     }
                 }
             }
         }
-        backups.sort_by(|a, b| b.0.cmp(&a.0));
+        backups.sort_by_key(|b| std::cmp::Reverse(b.0));
         backups.first().map(|(dt, _)| dt.to_rfc3339())
     } else {
         None

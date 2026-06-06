@@ -144,6 +144,7 @@ pub struct HealthHistoryPoint {
 
 // ─── App State ──────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct AppState {
     db: SqlitePool,
@@ -487,7 +488,7 @@ fn compute_service_score(name: &str, status: &str, failures: u32, response_time:
         score = score.max(10); // never below 10 for core visibility
     }
 
-    score.max(0).min(100) as u8
+    score.clamp(0, 100) as u8
 }
 
 async fn compute_trend(db: &SqlitePool, service: &str, current_score: u8) -> TrendDirection {

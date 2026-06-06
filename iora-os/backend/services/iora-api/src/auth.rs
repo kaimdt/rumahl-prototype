@@ -3,6 +3,7 @@
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
@@ -11,6 +12,7 @@ pub struct Claims {
     pub exp: usize,
 }
 
+#[allow(dead_code)]
 pub fn verify_token(token: &str, secret: &str) -> Result<Claims, String> {
     let key = DecodingKey::from_secret(secret.as_bytes());
     let mut validation = Validation::default();

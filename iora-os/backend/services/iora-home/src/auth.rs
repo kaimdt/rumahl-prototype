@@ -111,6 +111,7 @@ pub fn sha256_hex(input: &str) -> String {
 }
 
 /// Generate a structured RefreshTokenResponse when a new token pair is issued.
+#[allow(dead_code)]
 pub fn build_refresh_response(
     access_token: String,
     refresh_token: String,

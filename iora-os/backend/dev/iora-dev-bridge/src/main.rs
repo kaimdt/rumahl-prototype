@@ -789,6 +789,7 @@ pub(crate) enum DevBridgeEvent {
         mem_available_bytes: u64,
         loadavg: String,
     },
+    #[allow(dead_code)]
     ServiceStatus {
         name: String,
         status: String,

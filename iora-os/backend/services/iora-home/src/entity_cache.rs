@@ -290,7 +290,7 @@ impl EntityStateCache {
             })
             .collect();
 
-        entries.sort_by(|a, b| b.change_count.cmp(&a.change_count));
+        entries.sort_by_key(|b| std::cmp::Reverse(b.change_count));
         entries.truncate(n);
         entries
     }
@@ -418,7 +418,7 @@ impl EntityStateCache {
             .iter()
             .map(|(id, t)| (id, t.change_count))
             .collect();
-        top5.sort_by(|a, b| b.1.cmp(&a.1));
+        top5.sort_by_key(|b| std::cmp::Reverse(b.1));
         top5.truncate(5);
 
         serde_json::json!({

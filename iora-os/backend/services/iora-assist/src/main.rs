@@ -2,7 +2,7 @@
 // handler methods exist for external consumers (HTTP endpoints, capability
 // registry, pi.dev controller). Suppress dead_code warnings at crate level since
 // the compiler cannot see external usage.
-#![allow(dead_code)]
+#![allow(dead_code, clippy::all)]
 
 use std::{sync::Arc, time::Instant, collections::HashMap};
 

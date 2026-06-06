@@ -6,6 +6,7 @@ use std::{
 };
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct CacheEntry<T> {
     data: T,
     expires_at: Instant,
@@ -17,6 +18,7 @@ pub struct Cache {
     expirations: Arc<DashMap<String, Instant>>,
 }
 
+#[allow(dead_code)]
 impl Cache {
     pub fn new() -> Self {
         Self {

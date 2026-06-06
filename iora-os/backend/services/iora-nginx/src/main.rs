@@ -24,6 +24,7 @@ use tracing::{error, info, warn};
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 const NGINX_CONFIG_DIR: &str = "/etc/nginx";
 const NGINX_CONFIG_FILE: &str = "/etc/nginx/nginx.conf";
 /// Default template location used when neither `$NGINX_TEMPLATE_PATH`
@@ -56,6 +57,7 @@ struct AppRoute {
     enabled: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct NginxConfig {
     apps: Vec<AppRoute>,

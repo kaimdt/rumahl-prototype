@@ -74,6 +74,7 @@ mod tracker {
             }
         }
 
+        #[allow(clippy::unnecessary_filter_map)]
         async fn poll_once(&self) -> anyhow::Result<()> {
             let states = self.ha_client.get_states().await?;
             let persons: Vec<(String, String, HaPersonAttributes, String)> = states
@@ -312,6 +313,7 @@ mod tracker {
             Ok(())
         }
 
+        #[allow(clippy::type_complexity)]
         async fn evaluate_automations(&self) -> anyhow::Result<()> {
             let rules: Vec<(
                 String,

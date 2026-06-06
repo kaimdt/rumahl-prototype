@@ -32,6 +32,7 @@ use uuid::Uuid;
 struct AppState {
     db: Arc<SqlitePool>,
     http_client: reqwest::Client,
+    #[allow(dead_code, clippy::type_complexity)]
     rate_limiter: Arc<RwLock<HashMap<String, RateLimiter<NotKeyed, InMemoryState, DefaultClock>>>>,
     started_at: Arc<Instant>,
     config: Arc<GatewayConfig>,
@@ -51,6 +52,7 @@ struct GatewayConfig {
 // ─── Data Structures ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct GatewayRequest {
     request_id: String,
     request_type: String,
@@ -353,6 +355,7 @@ async fn send_email_internal(
 
 // ─── Web Search Functions ────────────────────────────────────────────────────
 
+#[allow(clippy::wildcard_in_or_patterns)]
 async fn web_search_internal(
     client: &reqwest::Client,
     query: &str,

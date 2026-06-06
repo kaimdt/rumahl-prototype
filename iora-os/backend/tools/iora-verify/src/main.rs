@@ -24,6 +24,7 @@ const PUBKEY_PATH:     &str = "/etc/iora/iora-release.pub";
 const TAMPER_FLAG:     &str = "/run/iora-tamper";
 const TAMPER_LOG:      &str = "/var/log/iora-tamper.log";
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct Manifest {
     version: String,
@@ -37,7 +38,8 @@ struct ManifestEntry {
     sha256: String,
     // `mode` is informational only; we never try to chmod here.
     #[serde(default)]
-    mode:   Option<String>,
+    #[allow(dead_code)]
+    mode: Option<String>,
 }
 
 fn main() -> ExitCode {

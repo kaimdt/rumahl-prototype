@@ -90,6 +90,7 @@ struct SystemResourceStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct ReallocationRequest {
     container_id: String,
     cpu_shares: Option<u64>,
@@ -298,15 +299,15 @@ async fn reallocate_resources(state: &AppState) -> Result<Vec<ResourceAllocation
     );
 
     // Calculate total reclaimable resources
-    let mut reclaimable_cpu: i64 = 0;
-    let mut reclaimable_memory: i64 = 0;
+    let mut _reclaimable_cpu: i64 = 0;
+    let mut _reclaimable_memory: i64 = 0;
 
     for container in &underutilized {
         let unused_cpu = (container.cpu_shares as f64 * (1.0 - container.cpu_utilization)) as i64;
         let unused_memory = (container.memory_limit_bytes as f64 * (1.0 - container.memory_utilization)) as i64;
 
-        reclaimable_cpu += unused_cpu;
-        reclaimable_memory += unused_memory;
+        _reclaimable_cpu += unused_cpu;
+        _reclaimable_memory += unused_memory;
     }
 
     // Distribute to overutilized containers

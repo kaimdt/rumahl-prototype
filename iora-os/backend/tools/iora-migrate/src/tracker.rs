@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MigrationRecord {
     pub service: String,
     pub migration: String,
@@ -16,6 +17,7 @@ pub struct MigrationTracker {
     pool: PgPool,
 }
 
+#[allow(dead_code)]
 impl MigrationTracker {
     pub async fn new(pool: PgPool) -> Result<Self> {
         let tracker = Self { pool };

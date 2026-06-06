@@ -791,6 +791,7 @@ async fn show_status(base_url: &str, verbose: bool) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn handle_update(check: bool) -> Result<()> {
     // Backwards-compat wrapper kept in case external scripts still call it.
     handle_system_update(check, false, "stable").await

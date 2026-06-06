@@ -420,11 +420,7 @@ async fn restart_app_inplace(
         return Err(msg);
     }
 
-    let project_prefix = if app.bundle_config.is_some() {
-        "iora-app-" // bundles nutzen aktuell denselben Prefix
-    } else {
-        "iora-app-"
-    };
+    let project_prefix = "iora-app-";
     let result = Command::new("docker")
         .args([
             "compose",

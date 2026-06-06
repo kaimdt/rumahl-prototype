@@ -25,10 +25,12 @@ use tracing::{error, info, warn};
 /// How many consecutive failed health checks before the watchdog tries to
 /// recover the service automatically.  Override with
 /// `IORA_RECOVERY_THRESHOLD`.
+#[allow(dead_code)]
 const DEFAULT_RECOVERY_THRESHOLD: u32 = 3;
 
 /// Minimum seconds between two recovery attempts for the same service.
 /// Prevents flapping.  Override with `IORA_RECOVERY_COOLDOWN_SECS`.
+#[allow(dead_code)]
 const DEFAULT_RECOVERY_COOLDOWN_SECS: u64 = 120;
 
 /// Recovery backend used to restart failing services.

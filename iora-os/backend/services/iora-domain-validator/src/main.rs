@@ -98,6 +98,7 @@ struct AddIpRequest {
 struct AppState {
     db: PgPool,
     policies: Arc<RwLock<HashMap<String, AppNetworkPolicy>>>,
+    #[allow(dead_code)]
     resolver: Arc<TokioAsyncResolver>,
 }
 

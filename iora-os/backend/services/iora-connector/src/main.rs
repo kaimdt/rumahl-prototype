@@ -34,7 +34,6 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         ConnectInfo, Path, Query, State,
     },
-    handler::Handler,
     http::{header, HeaderMap, Method, StatusCode, Uri},
     middleware,
     response::{IntoResponse, Json, Response},
@@ -42,7 +41,7 @@ use axum::{
     Router,
 };
 use chrono::Utc;
-use futures_util::{SinkExt, StreamExt};
+
 use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
 use sha2::{Digest, Sha256};
@@ -74,7 +73,7 @@ use uuid::Uuid;
 //   {"type":"config_update","subdomain":"..."}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct TunnelMessage {
+pub struct TunnelMessage {
     #[serde(rename = "type")]
     msg_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -373,7 +372,7 @@ async fn ws_tunnel_handler(
 }
 
 async fn handle_tunnel_connection(state: Arc<AppState>, mut ws: WebSocket) {
-    let mut tunnel_id: Option<String> = None;
+    let mut _tunnel_id: Option<String> = None;
     let (tx, mut rx) = mpsc::unbounded_channel::<TunnelMessage>();
 
     // Step 1: Wait for auth message
@@ -417,7 +416,7 @@ async fn handle_tunnel_connection(state: Arc<AppState>, mut ws: WebSocket) {
         }
     };
 
-    tunnel_id = Some(tunnel.id.clone());
+    _tunnel_id = Some(tunnel.id.clone());
     let subdomain = format!("{}.{}", tunnel.subdomain, state.public_domain);
     let now = Utc::now().to_rfc3339();
 

@@ -21,6 +21,7 @@ use utoipa_swagger_ui::SwaggerUi;
 // keeps the binary functional in dev environments while preventing the
 // previously-used `dev-token-placeholder` constant from acting as an
 // authentication backdoor in production.
+#[allow(clippy::empty_line_after_doc_comments)]
 const DEVELOPER_APP_TOKEN_BUILDTIME: Option<&str> = option_env!("IORA_DEVELOPER_APP_TOKEN");
 
 fn developer_app_token() -> &'static str {
@@ -100,6 +101,7 @@ struct IDEDeployRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[allow(dead_code)]
 struct DeveloperModeRequest {
     /// API key or token for authentication
     api_key: Option<String>,
@@ -388,6 +390,7 @@ async fn public_app_metrics(
     )
 )]
 #[post("/api/hotreload/upload")]
+#[allow(deprecated)]
 async fn hotreload_upload(
     req: HttpRequest,
     data: web::Data<AppState>,

@@ -138,6 +138,7 @@ impl UserManager {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn revoke_all_privileges(&self, username: &str, database: &str) -> Result<()> {
         sqlx::query(&format!("REVOKE ALL ON DATABASE \"{}\" FROM \"{}\"", database, username))
             .execute(&self.pool)
@@ -146,6 +147,7 @@ impl UserManager {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn list_user_connections(&self, username: &str) -> Result<Vec<String>> {
         let conns: Vec<(String,)> = sqlx::query_as(
             r#"
@@ -161,6 +163,7 @@ impl UserManager {
         Ok(conns.into_iter().map(|(db,)| db).collect())
     }
 
+    #[allow(dead_code)]
     pub async fn terminate_user_connections(&self, username: &str) -> Result<usize> {
         let count: i64 = sqlx::query_scalar(
             r#"

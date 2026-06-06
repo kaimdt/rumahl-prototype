@@ -68,6 +68,7 @@ pub async fn auth_middleware(
 }
 
 /// Optional auth middleware that allows unauthenticated requests but extracts claims if present
+#[allow(dead_code)]
 pub async fn optional_auth_middleware(
     State(state): State<Arc<AuthState>>,
     headers: HeaderMap,
@@ -93,6 +94,7 @@ pub async fn optional_auth_middleware(
 }
 
 /// Extract claims from request extensions
+#[allow(dead_code)]
 pub fn get_claims(request: &Request) -> Option<Claims> {
     request.extensions().get::<Claims>().cloned()
 }

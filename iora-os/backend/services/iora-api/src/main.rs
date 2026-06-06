@@ -256,6 +256,7 @@ async fn list_interfaces(State(_state): State<Arc<AppState>>) -> impl IntoRespon
 
 // ─── Metrics ────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MetricsQuery {
     interface_type: Option<String>,
@@ -308,6 +309,7 @@ struct V2ListQuery {
     #[serde(default = "default_per_page")]
     per_page: i32,
     #[serde(default)]
+    #[allow(dead_code)]
     sort: Option<String>,
     #[serde(default)]
     state: Option<String>, // filter by state value
@@ -377,7 +379,7 @@ async fn v2_list_entities(
     }
 
     let total = filtered.len() as i32;
-    let per_page = query.per_page.min(200).max(1);
+    let per_page = query.per_page.clamp(1, 200);
     let page = query.page.max(1);
     let offset = (page - 1) * per_page;
     let total_pages = (total as f64 / per_page as f64).ceil() as i32;

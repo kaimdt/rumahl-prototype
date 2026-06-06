@@ -37,7 +37,9 @@ pub fn build_schema(
 #[derive(Clone)]
 pub struct GraphQLContext {
     pub iora_home_url: String,
+    #[allow(dead_code)]
     pub ha_url: String,
+    #[allow(dead_code)]
     pub ha_token: String,
     pub http_client: reqwest::Client,
 }
@@ -72,6 +74,7 @@ struct Area {
 }
 
 /// A Home Assistant device.
+#[allow(dead_code)]
 #[derive(SimpleObject, Clone)]
 struct Device {
     id: String,

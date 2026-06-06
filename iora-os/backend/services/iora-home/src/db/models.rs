@@ -236,6 +236,7 @@ pub struct PageWithWidgets {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    #[allow(dead_code)]
     pub remember_me: Option<bool>,
     #[serde(default)]
     pub device_id: Option<String>,

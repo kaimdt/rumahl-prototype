@@ -16,6 +16,7 @@ pub struct MigrationRunner {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct Migration {
     service: String,
     name: String,

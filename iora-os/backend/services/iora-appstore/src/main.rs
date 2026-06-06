@@ -15,6 +15,8 @@ use iora_shared::system_config;
 /// Manages app discovery, installation, and lifecycle.
 /// Integrates with appstore.kaimdt.com and supports ZIP uploads.
 
+#[allow(clippy::empty_line_after_doc_comments)]
+#[allow(dead_code)]
 struct AppState {
     db: PgPool,
     port_manager: Arc<PortManager>,
@@ -42,6 +44,7 @@ struct App {
     container_name: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 struct AppPermission {
     id: Uuid,
@@ -73,6 +76,7 @@ struct AppSettings {
 
 // ─── API Request/Response Models ─────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SearchQuery {
     q: Option<String>,
@@ -81,6 +85,7 @@ struct SearchQuery {
     offset: Option<i64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct InstallRequest {
     /// App ID from store

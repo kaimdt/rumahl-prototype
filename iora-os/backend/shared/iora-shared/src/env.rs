@@ -11,7 +11,7 @@
 //! - Primary flag on data partition: `/mnt/data/iora/.setup-complete`
 //! - Secondary flag on rootfs (survives data-partition mount failures):
 //!   `/etc/iora/.setup-complete`
-//! If EITHER flag exists, the system is considered set up.
+//!   If EITHER flag exists, the system is considered set up.
 
 use std::path::{Path, PathBuf};
 

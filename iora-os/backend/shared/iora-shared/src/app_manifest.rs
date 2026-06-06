@@ -411,7 +411,6 @@ fn default_health_retries() -> u32 {
 }
 
 /// ─── v2.3: Multi-Container App Bundle ────────────────────────────
-
 /// A multi-container app bundle (Docker Compose-like).
 /// When an app defines `bundle` in its manifest, IORA manages
 /// all services as a coordinated group with internal networking.

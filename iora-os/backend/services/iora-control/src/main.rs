@@ -365,6 +365,7 @@ async fn update_config(
 // ─── SSH Management ──────────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize, serde::Serialize)]
+#[allow(dead_code)]
 struct SSHStatus {
     enabled: bool,
     running: bool,

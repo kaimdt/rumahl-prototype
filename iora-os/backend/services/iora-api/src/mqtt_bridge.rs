@@ -81,7 +81,7 @@ pub async fn mqtt_subscribe_ws(
 
     ws.on_upgrade(move |mut socket| async move {
         use axum::extract::ws::Message;
-        use futures_util::{SinkExt, StreamExt};
+        use futures_util::StreamExt;
 
         // Simple MQTT over WebSocket bridge
         // Client sends: { "type": "subscribe", "topic": "homeassistant/#" }

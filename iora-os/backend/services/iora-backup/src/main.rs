@@ -20,6 +20,7 @@ use scheduler::BackupScheduler;
 struct AppState {
     db: PgPool,
     engine: Arc<BackupEngine>,
+    #[allow(dead_code)]
     backup_dir: PathBuf,
     scheduler: BackupScheduler,
 }

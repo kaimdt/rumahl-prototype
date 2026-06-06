@@ -145,6 +145,7 @@ async fn connection_loop(
 
 // ── Single connection lifecycle ─────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn run_connection(
     ws_url: &str,
     is_wss: bool,

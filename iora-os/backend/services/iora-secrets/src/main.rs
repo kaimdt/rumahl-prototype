@@ -60,6 +60,7 @@ struct CreateSecretRequest {
     created_by: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct UpdateSecretRequest {
     description: Option<String>,

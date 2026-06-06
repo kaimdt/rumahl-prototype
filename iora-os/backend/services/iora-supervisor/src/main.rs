@@ -65,6 +65,7 @@ struct SupervisorStatus {
     docker_version: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct RestartRequest {
     container_name: String,
@@ -111,12 +112,15 @@ struct ComposePsRow {
 struct AppState {
     docker: Docker,
     start_time: DateTime<Utc>,
+    #[allow(dead_code)]
     services: Arc<RwLock<HashMap<String, ServiceDefinition>>>,
     developer_mode: Arc<RwLock<bool>>,
+    #[allow(dead_code)]
     environment: String, // "production", "development", etc.
 }
 
 /// Check if app is allowed to use Developer Mode features
+#[allow(dead_code)]
 async fn check_developer_mode_access(
     data: &web::Data<AppState>,
     app_id: &str,
@@ -1605,11 +1609,13 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
         "IORA_API_URL=http://iora-api:8080".to_string(),
     ];
 
-    let mut host_config = HostConfig::default();
-    host_config.binds = Some(vec![
-        "/var/run/docker.sock:/var/run/docker.sock:ro".to_string(),
-        "iora-developer-data:/app/data".to_string(),
-    ]);
+    let host_config = HostConfig {
+        binds: Some(vec![
+            "/var/run/docker.sock:/var/run/docker.sock:ro".to_string(),
+            "iora-developer-data:/app/data".to_string(),
+        ]),
+        ..Default::default()
+    };
 
     let config = Config {
         image: Some(DEVELOPER_APP_IMAGE.to_string()),
@@ -1976,6 +1982,7 @@ async fn get_live_metrics(data: web::Data<AppState>) -> impl Responder {
 
 /// Deploy/update app from IDE (Developer Mode only)
 #[post("/api/developer/deploy")]
+#[allow(deprecated)]
 async fn deploy_from_ide(
     data: web::Data<AppState>,
     req: web::Json<DeployRequest>,

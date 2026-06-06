@@ -1052,6 +1052,7 @@ impl ConfigRepository {
     }
 
     // API Key CRUD
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_api_key(
         &self,
         user_id: &str,

@@ -99,6 +99,7 @@ struct PluginListResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 struct BackgroundTaskEntry {
     id: String,
     name: String,
@@ -351,6 +352,7 @@ async fn list_tasks(State(state): State<AppState>) -> Json<serde_json::Value> {
         return Json(serde_json::json!({ "tasks": [], "total": 0, "db": false }));
     };
 
+    #[allow(clippy::type_complexity)]
     let rows: Vec<(String, String, String, bool, Option<i32>, i32, i32)> =
         match sqlx::query_as(
             "SELECT id, name, task_type, enabled, interval_seconds, run_count, error_count FROM background_tasks ORDER BY name",

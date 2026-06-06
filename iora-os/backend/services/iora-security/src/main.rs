@@ -71,6 +71,7 @@ struct SecurityEvent {
     prev_hash: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct DatabaseConnection {
     id: Option<i64>,
@@ -83,6 +84,7 @@ struct DatabaseConnection {
     is_authorized: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct PostgresUser {
     username: String,
@@ -130,6 +132,7 @@ fn encrypt_data(key: &[u8; 32], plaintext: &str) -> Result<String> {
     Ok(hex::encode(combined))
 }
 
+#[allow(dead_code)]
 fn decrypt_data(key: &[u8; 32], encrypted_hex: &str) -> Result<String> {
     let combined = hex::decode(encrypted_hex)?;
     if combined.len() < 12 {
@@ -164,6 +167,7 @@ fn compute_event_hash(event: &SecurityEvent) -> String {
 
 // ─── Security Logging ────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn log_security_event(
     db: &SqlitePool,
     key: &[u8; 32],

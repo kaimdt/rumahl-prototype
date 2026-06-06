@@ -240,6 +240,7 @@ impl DatabaseManager {
         self.rotation.rotate_all(notify).await
     }
 
+    #[allow(clippy::type_complexity)]
     pub async fn print_status(&self) -> Result<()> {
         let users: Vec<(String, String, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, i32, i32)> =
             sqlx::query_as(
