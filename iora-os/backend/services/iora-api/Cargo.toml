@@ -35,7 +35,7 @@ async-stream = "0.3"
 quick-xml = { version = "0.36", features = ["serialize"] }
 
 # Authentication
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.4"
 
 # Rate limiting
 governor = "0.6"

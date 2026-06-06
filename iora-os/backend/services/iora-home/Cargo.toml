@@ -48,7 +48,7 @@ libsqlite3-sys = { workspace = true }
 
 # Authentication
 bcrypt = "0.15"
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.4"
 rand = "0.8"
 hex = "0.4"
 hmac = "0.12"
