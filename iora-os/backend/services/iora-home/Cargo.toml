@@ -8,7 +8,7 @@ description = "IORA Backend – Interface for Optimized Residential Autonomy –
 # Web framework
 axum = { version = "0.7", features = ["ws", "macros", "multipart"] }
 tokio = { version = "1", features = ["full"] }
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.5", features = ["fs", "cors", "trace", "compression-gzip", "compression-br"] }
 iora-shared = { path = "../../shared/iora-shared" }
 
