@@ -175,7 +175,7 @@ jobs:
 
       # ── Upload artifacts to workflow summary ───────────────────────
       - name: Upload artifacts (workflow run)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: iora-os-${{ inputs.target || 'pc' }}-${{ steps.tag-version.outputs.version }}
           path: ${{ steps.build.outputs.artifacts-dir }}
