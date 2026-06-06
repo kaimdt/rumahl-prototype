@@ -9,15 +9,17 @@ echo "🔍 ORA Pre-Commit: Checking code quality..."
 echo ""
 echo "─── Rust Backend (cargo check) ───"
 cd iora-os/backend
-cargo check 2>&1
-if [ $? -ne 0 ]; then
+
+# Use timeout to avoid blocking commits on a slow rebuild
+if ! timeout 60 cargo check 2>&1; then
     echo ""
     echo "❌ cargo check FAILED — there are compilation errors."
     echo "   Fix them before committing, or use 'git commit --no-verify' to skip."
     exit 1
 fi
-echo "✅ cargo check passed"
 cd ../..
+
+echo "✅ cargo check passed"
 
 # --- All good ---
 echo ""
