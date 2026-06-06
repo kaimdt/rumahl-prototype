@@ -34,7 +34,7 @@ parking_lot = "0.12.5"
 diffy = "0.3"
 walkdir = "2.5"
 cron = "0.12"
-toml = "0.8"
+toml = "1.1"
 notify = { version = "7", features = ["macos_kqueue"] }
 tempfile = "3.10"
 bollard = "0.16"
