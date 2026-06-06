@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { MagnifyingGlass } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -21,6 +22,7 @@ export function EntityPickerDialog({
   currentEntityId,
   entities,
 }: EntityPickerDialogProps) {
+  const { t } = useTranslation()
   const filteredEntities = entityDomain
     ? entities.filter((e) => e.entity_id.startsWith(`${entityDomain}.`))
     : entities
@@ -43,12 +45,12 @@ export function EntityPickerDialog({
       <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-4 pt-4 pb-2">
           <DialogTitle className="text-sm font-semibold">
-            Entity auswählen
+            {t('pageDesigner.entitySelect')}
           </DialogTitle>
         </DialogHeader>
         <Command className="border-none" shouldFilter={true}>
           <div className="px-3 pb-2">
-            <CommandInput placeholder="Entity suchen..." className="h-9" />
+            <CommandInput placeholder={t('pageDesigner.entitySearch')} className="h-9" />
           </div>
           <CommandList className="max-h-[400px] overflow-y-auto border-t border-foreground/5">
             <CommandEmpty className="py-8 text-center text-sm text-foreground/40">

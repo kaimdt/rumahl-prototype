@@ -374,9 +374,9 @@ function DashboardContent() {
       await savePreference('device_lock_mode', false)
       setShowUnlockDialog(false)
       setUnlockPinInput('')
-      toast.success('Einstellungen entsperrt')
+      toast.success(t('dashboard.settingsUnlocked'))
     } catch {
-      toast.error('Entsperren fehlgeschlagen')
+      toast.error(t('dashboard.unlockFailed'))
     } finally {
       setLockLoading(false)
     }

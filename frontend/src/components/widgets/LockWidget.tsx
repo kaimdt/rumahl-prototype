@@ -69,7 +69,7 @@ export function LockWidget({ entity, onUpdate }: LockWidgetProps) {
           <div className="min-w-0 flex-1">
             <h3 className="font-medium text-sm truncate">{name}</h3>
             <p className="text-xs text-muted-foreground font-mono">
-              {isLocked ? 'Verriegelt' : 'Entriegelt'}
+              {isLocked ? t('widgets.lock.locked') : t('widgets.lock.unlocked')}
             </p>
           </div>
         </div>
@@ -80,7 +80,7 @@ export function LockWidget({ entity, onUpdate }: LockWidgetProps) {
             className="flex-1 px-3 py-2 rounded-xl bg-foreground/5 hover:bg-foreground/10 text-foreground/70 text-xs font-medium transition-colors disabled:opacity-30 flex items-center justify-center gap-1.5"
           >
             <LockKey size={14} weight="bold" />
-            {isLocked ? 'Entriegeln' : 'Verriegeln'}
+            {isLocked ? t('widgets.lock.unlock') : t('widgets.lock.lock')}
           </button>
         </div>
       </div>
