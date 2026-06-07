@@ -134,11 +134,15 @@ fn validate_ident(name: &str) -> Result<()> {
     let mut chars = name.chars();
     let first = chars.next().unwrap();
     if !(first.is_ascii_alphabetic() || first == '_') {
-        return Err(anyhow!("identifier '{name}' must start with a letter or '_'"));
+        return Err(anyhow!(
+            "identifier '{name}' must start with a letter or '_'"
+        ));
     }
     for c in chars {
         if !(c.is_ascii_alphanumeric() || c == '_') {
-            return Err(anyhow!("identifier '{name}' contains invalid character '{c}'"));
+            return Err(anyhow!(
+                "identifier '{name}' contains invalid character '{c}'"
+            ));
         }
     }
     Ok(())
@@ -172,7 +176,10 @@ fn decode_column(row: &PgRow, col: &sqlx::postgres::PgColumn) -> Value {
     // NULL fast-path
     if let Ok(opt) = row.try_get::<Option<String>, _>(name) {
         if opt.is_none()
-            && row.try_get::<Option<i64>, _>(name).map(|v| v.is_none()).unwrap_or(false)
+            && row
+                .try_get::<Option<i64>, _>(name)
+                .map(|v| v.is_none())
+                .unwrap_or(false)
         {
             return Value::Null;
         }
@@ -203,7 +210,10 @@ fn decode_column(row: &PgRow, col: &sqlx::postgres::PgColumn) -> Value {
         "NUMERIC" => {
             // Render as string to avoid precision loss.
             if let Ok(v) = row.try_get::<Option<String>, _>(name) {
-                return match v { Some(s) => Value::String(s), None => Value::Null };
+                return match v {
+                    Some(s) => Value::String(s),
+                    None => Value::Null,
+                };
             }
         }
         "JSON" | "JSONB" => try_get_value!(Value, row, name),

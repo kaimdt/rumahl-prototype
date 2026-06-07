@@ -116,7 +116,9 @@ async fn caldav_propfind(
         xml.push_str("    <D:propstat>\n      <D:prop>\n");
         xml.push_str("        <D:resourcetype><D:collection/></D:resourcetype>\n");
         xml.push_str("        <D:displayname>IORA Calendars</D:displayname>\n");
-        xml.push_str("      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n");
+        xml.push_str(
+            "      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n",
+        );
         xml.push_str("  </D:response>\n");
 
         if depth != "0" {
@@ -128,8 +130,13 @@ async fn caldav_propfind(
                 xml.push_str("  <D:response>\n");
                 xml.push_str(&format!("    <D:href>/caldav/{}/</D:href>\n", cal_path));
                 xml.push_str("    <D:propstat>\n      <D:prop>\n");
-                xml.push_str("        <D:resourcetype><D:collection/><C:calendar/></D:resourcetype>\n");
-                xml.push_str(&format!("        <D:displayname>{}</D:displayname>\n", name));
+                xml.push_str(
+                    "        <D:resourcetype><D:collection/><C:calendar/></D:resourcetype>\n",
+                );
+                xml.push_str(&format!(
+                    "        <D:displayname>{}</D:displayname>\n",
+                    name
+                ));
                 xml.push_str("        <C:supported-calendar-component-set>\n");
                 xml.push_str("          <C:comp name=\"VEVENT\"/>\n");
                 xml.push_str("        </C:supported-calendar-component-set>\n");
@@ -146,8 +153,13 @@ async fn caldav_propfind(
         xml.push_str(&format!("    <D:href>/caldav/{}/</D:href>\n", cal_path));
         xml.push_str("    <D:propstat>\n      <D:prop>\n");
         xml.push_str("        <D:resourcetype><D:collection/><C:calendar/></D:resourcetype>\n");
-        xml.push_str(&format!("        <D:displayname>{}</D:displayname>\n", entity_id));
-        xml.push_str("      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n");
+        xml.push_str(&format!(
+            "        <D:displayname>{}</D:displayname>\n",
+            entity_id
+        ));
+        xml.push_str(
+            "      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n",
+        );
         xml.push_str("  </D:response>\n");
 
         if depth != "0" {
@@ -176,10 +188,16 @@ async fn caldav_propfind(
                 let uid = format!("{}-{}", cal_path, idx);
 
                 xml.push_str("  <D:response>\n");
-                xml.push_str(&format!("    <D:href>/caldav/{}/{}.ics</D:href>\n", cal_path, uid));
+                xml.push_str(&format!(
+                    "    <D:href>/caldav/{}/{}.ics</D:href>\n",
+                    cal_path, uid
+                ));
                 xml.push_str("    <D:propstat>\n      <D:prop>\n");
                 xml.push_str("        <D:resourcetype/>\n");
-                xml.push_str(&format!("        <D:displayname>{}</D:displayname>\n", summary));
+                xml.push_str(&format!(
+                    "        <D:displayname>{}</D:displayname>\n",
+                    summary
+                ));
                 xml.push_str("        <D:getcontenttype>text/calendar</D:getcontenttype>\n");
                 xml.push_str("      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n");
                 xml.push_str("  </D:response>\n");
@@ -251,13 +269,23 @@ async fn caldav_report(
         let uid = format!("{}-{}", cal_path, idx);
         let href = format!("/caldav/{}/{}.ics", cal_path, uid);
 
-        if is_multiget && !requested_hrefs.iter().any(|h| h.ends_with(&format!("{}.ics", uid))) {
+        if is_multiget
+            && !requested_hrefs
+                .iter()
+                .any(|h| h.ends_with(&format!("{}.ics", uid)))
+        {
             continue;
         }
 
         let summary = event["summary"].as_str().unwrap_or("Event");
-        let dtstart = event["start"].as_str().or_else(|| event["dtstart"].as_str()).unwrap_or("");
-        let dtend = event["end"].as_str().or_else(|| event["dtend"].as_str()).unwrap_or("");
+        let dtstart = event["start"]
+            .as_str()
+            .or_else(|| event["dtstart"].as_str())
+            .unwrap_or("");
+        let dtend = event["end"]
+            .as_str()
+            .or_else(|| event["dtend"].as_str())
+            .unwrap_or("");
 
         let ics = format!(
             "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//IORA//CalDAV//EN\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nSUMMARY:{summary}\r\nDTSTART:{dtstart}\r\nDTEND:{dtend}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
@@ -271,8 +299,13 @@ async fn caldav_report(
         xml.push_str(&format!("    <D:href>{}</D:href>\n", href));
         xml.push_str("    <D:propstat>\n      <D:prop>\n");
         xml.push_str("        <D:getcontenttype>text/calendar; charset=utf-8; component=VEVENT</D:getcontenttype>\n");
-        xml.push_str(&format!("        <C:calendar-data>{}</C:calendar-data>\n", xml_escape(&ics)));
-        xml.push_str("      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n");
+        xml.push_str(&format!(
+            "        <C:calendar-data>{}</C:calendar-data>\n",
+            xml_escape(&ics)
+        ));
+        xml.push_str(
+            "      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n",
+        );
         xml.push_str("  </D:response>\n");
     }
 
@@ -309,7 +342,10 @@ fn parse_time_range(xml: &str) -> (Option<chrono::DateTime<Utc>>, Option<chrono:
 fn parse_hrefs(xml: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cursor = 0;
-    while let Some(start) = xml[cursor..].find("<D:href>").or_else(|| xml[cursor..].find("<href>")) {
+    while let Some(start) = xml[cursor..]
+        .find("<D:href>")
+        .or_else(|| xml[cursor..].find("<href>"))
+    {
         let abs = cursor + start;
         let after = abs + xml[abs..].find('>').map(|p| p + 1).unwrap_or(0);
         if let Some(end_rel) = xml[after..].find("</") {
@@ -394,8 +430,14 @@ async fn caldav_get(state: &crate::AppState, path: &str, token: &str) -> Respons
     // Build iCalendar output
     let summary = event["summary"].as_str().unwrap_or("Event");
     let description = event["description"].as_str().unwrap_or("");
-    let start_dt = event["start"].as_str().or(event["start"]["dateTime"].as_str()).unwrap_or("");
-    let end_dt = event["end"].as_str().or(event["end"]["dateTime"].as_str()).unwrap_or("");
+    let start_dt = event["start"]
+        .as_str()
+        .or(event["start"]["dateTime"].as_str())
+        .unwrap_or("");
+    let end_dt = event["end"]
+        .as_str()
+        .or(event["end"]["dateTime"].as_str())
+        .unwrap_or("");
     let location = event["location"].as_str().unwrap_or("");
     let uid = format!("{}-{}@iora", cal_path, event_idx);
 
@@ -423,7 +465,10 @@ async fn caldav_get(state: &crate::AppState, path: &str, token: &str) -> Respons
 }
 
 fn extract_token(headers: &HeaderMap) -> Option<String> {
-    if let Some(auth) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+    if let Some(auth) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
         if let Some(token) = auth.strip_prefix("Bearer ") {
             return Some(token.to_string());
         }
@@ -446,7 +491,9 @@ fn base64_decode(input: &str) -> Vec<u8> {
     let mut bits = 0u32;
 
     for &byte in input.as_bytes() {
-        if byte == b'=' { break; }
+        if byte == b'=' {
+            break;
+        }
         if let Some(val) = table.iter().position(|&b| b == byte) {
             buffer = (buffer << 6) | val as u32;
             bits += 6;

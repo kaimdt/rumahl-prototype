@@ -35,7 +35,12 @@ pub struct RoutingDecision {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum RoutingPriority { Low, Normal, High, Critical }
+pub enum RoutingPriority {
+    Low,
+    Normal,
+    High,
+    Critical,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterConfig {
@@ -80,53 +85,73 @@ impl ModelRouter {
         let default_rules = vec![
             RoutingRule {
                 category: TaskCategory::SimpleChat,
-                provider: "local".into(), model: "default".into(),
-                priority: RoutingPriority::Low, max_tokens: 1024,
+                provider: "local".into(),
+                model: "default".into(),
+                priority: RoutingPriority::Low,
+                max_tokens: 1024,
             },
             RoutingRule {
                 category: TaskCategory::CodeGeneration,
-                provider: "pidev".into(), model: "pi-dev".into(),
-                priority: RoutingPriority::High, max_tokens: 8192,
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                priority: RoutingPriority::High,
+                max_tokens: 8192,
             },
             RoutingRule {
                 category: TaskCategory::CodeReview,
-                provider: "pidev".into(), model: "pi-dev".into(),
-                priority: RoutingPriority::Normal, max_tokens: 4096,
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                priority: RoutingPriority::Normal,
+                max_tokens: 4096,
             },
             RoutingRule {
                 category: TaskCategory::BugFix,
-                provider: "pidev".into(), model: "pi-dev".into(),
-                priority: RoutingPriority::High, max_tokens: 8192,
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                priority: RoutingPriority::High,
+                max_tokens: 8192,
             },
             RoutingRule {
                 category: TaskCategory::Refactoring,
-                provider: "pidev".into(), model: "pi-dev".into(),
-                priority: RoutingPriority::Normal, max_tokens: 8192,
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                priority: RoutingPriority::Normal,
+                max_tokens: 8192,
             },
             RoutingRule {
                 category: TaskCategory::Research,
-                provider: "perplexity".into(), model: "default".into(),
-                priority: RoutingPriority::Normal, max_tokens: 4096,
+                provider: "perplexity".into(),
+                model: "default".into(),
+                priority: RoutingPriority::Normal,
+                max_tokens: 4096,
             },
             RoutingRule {
                 category: TaskCategory::Documentation,
-                provider: "local".into(), model: "default".into(),
-                priority: RoutingPriority::Low, max_tokens: 4096,
+                provider: "local".into(),
+                model: "default".into(),
+                priority: RoutingPriority::Low,
+                max_tokens: 4096,
             },
             RoutingRule {
                 category: TaskCategory::Testing,
-                provider: "pidev".into(), model: "pi-dev".into(),
-                priority: RoutingPriority::Normal, max_tokens: 4096,
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                priority: RoutingPriority::Normal,
+                max_tokens: 4096,
             },
             RoutingRule {
                 category: TaskCategory::Planning,
-                provider: "anthropic".into(), model: "claude-sonnet".into(),
-                priority: RoutingPriority::High, max_tokens: 8192,
+                provider: "anthropic".into(),
+                model: "claude-sonnet".into(),
+                priority: RoutingPriority::High,
+                max_tokens: 8192,
             },
             RoutingRule {
                 category: TaskCategory::SystemAdmin,
-                provider: "local".into(), model: "default".into(),
-                priority: RoutingPriority::Low, max_tokens: 2048,
+                provider: "local".into(),
+                model: "default".into(),
+                priority: RoutingPriority::Low,
+                max_tokens: 2048,
             },
         ];
 
@@ -146,7 +171,9 @@ impl ModelRouter {
 
     /// Register a provider's capabilities
     pub fn register_provider(&self, capability: ProviderCapability) {
-        self.providers.write().insert(capability.provider_id.clone(), capability);
+        self.providers
+            .write()
+            .insert(capability.provider_id.clone(), capability);
     }
 
     /// Analyze a message and determine the task category
@@ -154,20 +181,90 @@ impl ModelRouter {
         let msg_lower = message.to_lowercase();
 
         // Keyword-based classification (can be enhanced with ML/LLM)
-        let code_keywords = ["code", "function", "class", "implement", "build", "create", "component",
-            "api", "endpoint", "route", "handler", "module", "package", "crate"];
-        let bug_keywords = ["bug", "fix", "error", "crash", "broken", "issue", "wrong", "incorrect",
-            "fails", "exception", "panic", "null", "undefined"];
-        let refactor_keywords = ["refactor", "clean", "improve", "optimize", "restructure", "rewrite",
-            "simplify", "extract"];
-        let test_keywords = ["test", "spec", "assert", "mock", "stub", "coverage", "unit test",
-            "integration test"];
-        let doc_keywords = ["document", "readme", "comment", "explain", "describe", "doc", "api doc"];
-        let research_keywords = ["research", "find", "search", "look up", "what is", "how does",
-            "compare", "alternative", "best practice"];
-        let review_keywords = ["review", "check", "audit", "inspect", "examine", "analyze code"];
-        let plan_keywords = ["plan", "design", "architecture", "strategy", "roadmap", "approach"];
-        let admin_keywords = ["deploy", "config", "settings", "monitor", "health", "status", "log"];
+        let code_keywords = [
+            "code",
+            "function",
+            "class",
+            "implement",
+            "build",
+            "create",
+            "component",
+            "api",
+            "endpoint",
+            "route",
+            "handler",
+            "module",
+            "package",
+            "crate",
+        ];
+        let bug_keywords = [
+            "bug",
+            "fix",
+            "error",
+            "crash",
+            "broken",
+            "issue",
+            "wrong",
+            "incorrect",
+            "fails",
+            "exception",
+            "panic",
+            "null",
+            "undefined",
+        ];
+        let refactor_keywords = [
+            "refactor",
+            "clean",
+            "improve",
+            "optimize",
+            "restructure",
+            "rewrite",
+            "simplify",
+            "extract",
+        ];
+        let test_keywords = [
+            "test",
+            "spec",
+            "assert",
+            "mock",
+            "stub",
+            "coverage",
+            "unit test",
+            "integration test",
+        ];
+        let doc_keywords = [
+            "document", "readme", "comment", "explain", "describe", "doc", "api doc",
+        ];
+        let research_keywords = [
+            "research",
+            "find",
+            "search",
+            "look up",
+            "what is",
+            "how does",
+            "compare",
+            "alternative",
+            "best practice",
+        ];
+        let review_keywords = [
+            "review",
+            "check",
+            "audit",
+            "inspect",
+            "examine",
+            "analyze code",
+        ];
+        let plan_keywords = [
+            "plan",
+            "design",
+            "architecture",
+            "strategy",
+            "roadmap",
+            "approach",
+        ];
+        let admin_keywords = [
+            "deploy", "config", "settings", "monitor", "health", "status", "log",
+        ];
 
         let score = |keywords: &[&str]| -> u32 {
             keywords.iter().filter(|k| msg_lower.contains(*k)).count() as u32
@@ -228,7 +325,10 @@ impl ModelRouter {
             // Fallback: prefer local if available and prefer_local is set
             if config.prefer_local {
                 for (id, cap) in providers.iter() {
-                    if cap.is_local && cap.is_available && cap.supported_categories.contains(&category) {
+                    if cap.is_local
+                        && cap.is_available
+                        && cap.supported_categories.contains(&category)
+                    {
                         return RoutingDecision {
                             provider_type: id.clone(),
                             model: "default".into(),
@@ -265,8 +365,16 @@ impl ModelRouter {
         estimated_cost < config.daily_budget
     }
 
-    pub fn get_daily_usage(&self) -> u32 { *self.daily_usage_tokens.read() }
-    pub fn get_config(&self) -> RouterConfig { self.config.read().clone() }
-    pub fn update_config(&self, cfg: RouterConfig) { *self.config.write() = cfg; }
-    pub fn reset_daily_usage(&self) { *self.daily_usage_tokens.write() = 0; }
+    pub fn get_daily_usage(&self) -> u32 {
+        *self.daily_usage_tokens.read()
+    }
+    pub fn get_config(&self) -> RouterConfig {
+        self.config.read().clone()
+    }
+    pub fn update_config(&self, cfg: RouterConfig) {
+        *self.config.write() = cfg;
+    }
+    pub fn reset_daily_usage(&self) {
+        *self.daily_usage_tokens.write() = 0;
+    }
 }

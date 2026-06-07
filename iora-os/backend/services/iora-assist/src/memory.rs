@@ -99,10 +99,7 @@ impl MemoryManager {
     // ── CRUD ─────────────────────────────────────────────────────────────────
 
     /// Create or update a memory (upsert by user_id + key).
-    pub async fn store(
-        &self,
-        req: &CreateMemoryRequest,
-    ) -> Result<AiMemory, sqlx::Error> {
+    pub async fn store(&self, req: &CreateMemoryRequest) -> Result<AiMemory, sqlx::Error> {
         let category = req.category.as_deref().unwrap_or("fact");
         let importance = req.importance.unwrap_or(5);
         let source = req.source.as_deref().unwrap_or("ai");
@@ -231,7 +228,10 @@ impl MemoryManager {
         );
 
         for mem in &relevant {
-            memory_block.push_str(&format!("- [{}] {}: {}\n", mem.category, mem.key, mem.value));
+            memory_block.push_str(&format!(
+                "- [{}] {}: {}\n",
+                mem.category, mem.key, mem.value
+            ));
         }
 
         memory_block.push_str(
@@ -244,11 +244,7 @@ impl MemoryManager {
     }
 
     /// Score and rank memories by relevance to the user's message.
-    async fn find_relevant(
-        &self,
-        user_message: &str,
-        user_id: Option<Uuid>,
-    ) -> Vec<AiMemory> {
+    async fn find_relevant(&self, user_message: &str, user_id: Option<Uuid>) -> Vec<AiMemory> {
         // Fetch all candidate memories (limit to 200 for performance)
         let all = match self.list(user_id, 200).await {
             Ok(m) => m,
@@ -262,7 +258,13 @@ impl MemoryManager {
         // "home,automation" becomes ["home", "automation"] rather than one term.
         let normalized: String = user_message
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { ' ' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    ' '
+                }
+            })
             .collect();
         let query_terms: Vec<&str> = normalized
             .split_whitespace()
@@ -408,9 +410,8 @@ impl MemoryManager {
         let uid = user_id.or(req.user_id);
         let is_one_shot = req.recurrence_type.as_deref().unwrap_or("once") == "once";
         let recurrence_type = req.recurrence_type.as_deref().unwrap_or("once");
-        let recurrence_days = serde_json::to_value(
-            req.recurrence_days.clone().unwrap_or_default(),
-        ).unwrap_or(serde_json::json!([]));
+        let recurrence_days = serde_json::to_value(req.recurrence_days.clone().unwrap_or_default())
+            .unwrap_or(serde_json::json!([]));
         let user_timezone = req.user_timezone.as_deref().unwrap_or("UTC");
         let input_mode = req.input_mode.as_deref().unwrap_or("chat");
 
@@ -490,11 +491,7 @@ impl MemoryManager {
     }
 
     /// Pause or resume a task.
-    pub async fn set_task_enabled(
-        &self,
-        task_id: Uuid,
-        enabled: bool,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_task_enabled(&self, task_id: Uuid, enabled: bool) -> Result<(), sqlx::Error> {
         crate::database::tasks::set_enabled(&self.db, task_id, enabled).await
     }
 
@@ -520,7 +517,8 @@ impl MemoryManager {
         description: Option<&str>,
         next_execution_at: Option<DateTime<Utc>>,
     ) -> Result<(), sqlx::Error> {
-        crate::database::tasks::update_task(&self.db, task_id, name, description, next_execution_at).await
+        crate::database::tasks::update_task(&self.db, task_id, name, description, next_execution_at)
+            .await
     }
 
     /// Build a system-prompt segment that includes:
@@ -528,7 +526,8 @@ impl MemoryManager {
     ///  2. Instructions on how the AI should express task modifications
     pub async fn build_tasks_system_prompt(&self, user_id: Option<Uuid>) -> String {
         use crate::task_resolver::TaskResolver;
-        let tasks = match crate::database::tasks::list_user_tasks(&self.db, user_id, true, 50).await {
+        let tasks = match crate::database::tasks::list_user_tasks(&self.db, user_id, true, 50).await
+        {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!("Failed to load tasks for system prompt: {}", e);

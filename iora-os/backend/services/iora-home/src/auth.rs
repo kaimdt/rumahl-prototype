@@ -145,9 +145,11 @@ mod tests {
     #[test]
     fn test_generate_and_verify_token() {
         let _lock = JWT_TEST_MUTEX.lock().unwrap();
-        std::env::set_var("IORA_JWT_SECRET", "test-secret-for-unit-tests-0123456789abcdef");
-        let (token, jti, expires_in) =
-            generate_token("user_abc123", "testuser", false).unwrap();
+        std::env::set_var(
+            "IORA_JWT_SECRET",
+            "test-secret-for-unit-tests-0123456789abcdef",
+        );
+        let (token, jti, expires_in) = generate_token("user_abc123", "testuser", false).unwrap();
         assert!(!token.is_empty());
         assert!(!jti.is_empty());
         assert_eq!(expires_in, ACCESS_TOKEN_TTL_SECS);
@@ -164,9 +166,11 @@ mod tests {
     #[test]
     fn test_generate_token_with_admin() {
         let _lock = JWT_TEST_MUTEX.lock().unwrap();
-        std::env::set_var("IORA_JWT_SECRET", "test-secret-for-unit-tests-0123456789abcdef");
-        let (token, _jti, _) =
-            generate_token("admin_001", "admin", true).unwrap();
+        std::env::set_var(
+            "IORA_JWT_SECRET",
+            "test-secret-for-unit-tests-0123456789abcdef",
+        );
+        let (token, _jti, _) = generate_token("admin_001", "admin", true).unwrap();
         let claims = verify_token(&token).unwrap();
         assert!(claims.is_admin);
         cleanup_test_secret();
@@ -181,9 +185,11 @@ mod tests {
     #[test]
     fn test_verify_token_wrong_secret() {
         let _lock = JWT_TEST_MUTEX.lock().unwrap();
-        std::env::set_var("IORA_JWT_SECRET", "test-secret-for-unit-tests-0123456789abcdef");
-        let (token, _, _) =
-            generate_token("user_1", "user", false).unwrap();
+        std::env::set_var(
+            "IORA_JWT_SECRET",
+            "test-secret-for-unit-tests-0123456789abcdef",
+        );
+        let (token, _, _) = generate_token("user_1", "user", false).unwrap();
         cleanup_test_secret();
 
         // Use a different secret to verify — should fail
@@ -196,11 +202,12 @@ mod tests {
     #[test]
     fn test_generate_multiple_tokens_unique() {
         let _lock = JWT_TEST_MUTEX.lock().unwrap();
-        std::env::set_var("IORA_JWT_SECRET", "test-secret-for-unit-tests-0123456789abcdef");
-        let (token1, jti1, _) =
-            generate_token("user_1", "user", false).unwrap();
-        let (token2, jti2, _) =
-            generate_token("user_1", "user", false).unwrap();
+        std::env::set_var(
+            "IORA_JWT_SECRET",
+            "test-secret-for-unit-tests-0123456789abcdef",
+        );
+        let (token1, jti1, _) = generate_token("user_1", "user", false).unwrap();
+        let (token2, jti2, _) = generate_token("user_1", "user", false).unwrap();
         assert_ne!(token1, token2);
         assert_ne!(jti1, jti2);
         cleanup_test_secret();

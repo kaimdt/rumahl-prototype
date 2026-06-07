@@ -77,7 +77,10 @@ async fn handle_webdav(
 async fn webdav_options() -> Response {
     Response::builder()
         .status(StatusCode::OK)
-        .header("Allow", "OPTIONS, GET, PUT, DELETE, PROPFIND, MKCOL, MOVE, COPY")
+        .header(
+            "Allow",
+            "OPTIONS, GET, PUT, DELETE, PROPFIND, MKCOL, MOVE, COPY",
+        )
         .header("DAV", "1, 2")
         .header("MS-Author-Via", "DAV")
         .body(Body::empty())
@@ -105,7 +108,9 @@ async fn webdav_propfind(
         .await;
 
     let files: serde_json::Value = match resp {
-        Ok(r) if r.status().is_success() => r.json().await.unwrap_or(serde_json::json!({"files": []})),
+        Ok(r) if r.status().is_success() => {
+            r.json().await.unwrap_or(serde_json::json!({"files": []}))
+        }
         _ => serde_json::json!({"files": []}),
     };
 
@@ -128,7 +133,9 @@ async fn webdav_propfind(
             let name = file["original_name"].as_str().unwrap_or("unnamed");
             let is_folder = file["is_folder"].as_bool().unwrap_or(false);
             let size = file["size_bytes"].as_i64().unwrap_or(0);
-            let mime = file["mime_type"].as_str().unwrap_or("application/octet-stream");
+            let mime = file["mime_type"]
+                .as_str()
+                .unwrap_or("application/octet-stream");
             let modified = file["updated_at"].as_str().unwrap_or("");
             let _file_id = file["id"].as_str().unwrap_or("");
 
@@ -146,13 +153,25 @@ async fn webdav_propfind(
                 xml.push_str("        <D:resourcetype><D:collection/></D:resourcetype>\n");
             } else {
                 xml.push_str("        <D:resourcetype/>\n");
-                xml.push_str(&format!("        <D:getcontentlength>{}</D:getcontentlength>\n", size));
-                xml.push_str(&format!("        <D:getcontenttype>{}</D:getcontenttype>\n", mime));
+                xml.push_str(&format!(
+                    "        <D:getcontentlength>{}</D:getcontentlength>\n",
+                    size
+                ));
+                xml.push_str(&format!(
+                    "        <D:getcontenttype>{}</D:getcontenttype>\n",
+                    mime
+                ));
             }
 
-            xml.push_str(&format!("        <D:displayname>{}</D:displayname>\n", name));
+            xml.push_str(&format!(
+                "        <D:displayname>{}</D:displayname>\n",
+                name
+            ));
             if !modified.is_empty() {
-                xml.push_str(&format!("        <D:getlastmodified>{}</D:getlastmodified>\n", modified));
+                xml.push_str(&format!(
+                    "        <D:getlastmodified>{}</D:getlastmodified>\n",
+                    modified
+                ));
             }
 
             xml.push_str("      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n  </D:response>\n");
@@ -181,7 +200,9 @@ async fn webdav_get(state: &crate::AppState, path: &str, token: &str) -> Respons
         .await;
 
     let files: serde_json::Value = match resp {
-        Ok(r) if r.status().is_success() => r.json().await.unwrap_or(serde_json::json!({"files": []})),
+        Ok(r) if r.status().is_success() => {
+            r.json().await.unwrap_or(serde_json::json!({"files": []}))
+        }
         _ => {
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -269,7 +290,10 @@ async fn webdav_put(state: &crate::AppState, path: &str, token: &str, body: Body
             .body(Body::empty())
             .unwrap(),
         Ok(r) => Response::builder()
-            .status(StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+            .status(
+                StatusCode::from_u16(r.status().as_u16())
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            )
             .body(Body::from("Upload failed"))
             .unwrap(),
         Err(e) => Response::builder()
@@ -283,21 +307,31 @@ async fn webdav_delete(state: &crate::AppState, path: &str, token: &str) -> Resp
     let filename = path.split('/').next_back().unwrap_or("");
 
     let url = format!("{}/api/files?search={}", state.iora_files_url, filename);
-    let resp = state.http_client.get(&url)
+    let resp = state
+        .http_client
+        .get(&url)
         .header("Authorization", format!("Bearer {}", token))
-        .send().await;
+        .send()
+        .await;
 
     let files: serde_json::Value = match resp {
         Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
-        _ => return Response::builder().status(StatusCode::NOT_FOUND).body(Body::from("Not found")).unwrap(),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Not found"))
+                .unwrap()
+        }
     };
 
     if let Some(file) = files["files"].as_array().and_then(|a| a.first()) {
         let file_id = file["id"].as_str().unwrap_or("");
-        let _ = state.http_client
+        let _ = state
+            .http_client
             .delete(format!("{}/api/files/{}", state.iora_files_url, file_id))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await;
+            .send()
+            .await;
     }
 
     Response::builder()
@@ -311,11 +345,13 @@ async fn webdav_mkcol(state: &crate::AppState, path: &str, token: &str) -> Respo
 
     let body = serde_json::json!({ "name": folder_name });
 
-    let resp = state.http_client
+    let resp = state
+        .http_client
         .post(format!("{}/api/files/folders", state.iora_files_url))
         .header("Authorization", format!("Bearer {}", token))
         .json(&body)
-        .send().await;
+        .send()
+        .await;
 
     match resp {
         Ok(r) if r.status().is_success() => Response::builder()
@@ -329,7 +365,12 @@ async fn webdav_mkcol(state: &crate::AppState, path: &str, token: &str) -> Respo
     }
 }
 
-async fn webdav_move(state: &crate::AppState, path: &str, token: &str, headers: &HeaderMap) -> Response {
+async fn webdav_move(
+    state: &crate::AppState,
+    path: &str,
+    token: &str,
+    headers: &HeaderMap,
+) -> Response {
     let destination = headers.get("Destination").and_then(|v| v.to_str().ok());
     let Some(destination) = destination else {
         return Response::builder()
@@ -356,16 +397,21 @@ async fn webdav_move(state: &crate::AppState, path: &str, token: &str, headers: 
 
     // Look up file by name
     let url = format!("{}/api/files?search={}", state.iora_files_url, filename);
-    let resp = state.http_client.get(&url)
+    let resp = state
+        .http_client
+        .get(&url)
         .header("Authorization", format!("Bearer {}", token))
-        .send().await;
+        .send()
+        .await;
 
     let files: serde_json::Value = match resp {
         Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
-        _ => return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("Source file not found"))
-            .unwrap(),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Source file not found"))
+                .unwrap()
+        }
     };
 
     let Some(file_id) = files["files"]
@@ -381,7 +427,8 @@ async fn webdav_move(state: &crate::AppState, path: &str, token: &str, headers: 
 
     let body = serde_json::json!({ "new_name": new_name });
     let rename_url = format!("{}/api/files/{}/rename", state.iora_files_url, file_id);
-    let resp = state.http_client
+    let resp = state
+        .http_client
         .put(&rename_url)
         .header("Authorization", format!("Bearer {}", token))
         .json(&body)
@@ -394,7 +441,10 @@ async fn webdav_move(state: &crate::AppState, path: &str, token: &str, headers: 
             .body(Body::empty())
             .unwrap(),
         Ok(r) => Response::builder()
-            .status(StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+            .status(
+                StatusCode::from_u16(r.status().as_u16())
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            )
             .body(Body::from("Move failed"))
             .unwrap(),
         Err(e) => Response::builder()
@@ -404,13 +454,20 @@ async fn webdav_move(state: &crate::AppState, path: &str, token: &str, headers: 
     }
 }
 
-async fn webdav_copy(state: &crate::AppState, path: &str, token: &str, headers: &HeaderMap) -> Response {
+async fn webdav_copy(
+    state: &crate::AppState,
+    path: &str,
+    token: &str,
+    headers: &HeaderMap,
+) -> Response {
     let destination = match headers.get("Destination").and_then(|v| v.to_str().ok()) {
         Some(d) => d,
-        None => return Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::from("Missing Destination header"))
-            .unwrap(),
+        None => {
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from("Missing Destination header"))
+                .unwrap()
+        }
     };
 
     let filename = path.split('/').next_back().unwrap_or("");
@@ -423,39 +480,64 @@ async fn webdav_copy(state: &crate::AppState, path: &str, token: &str, headers: 
 
     // Find source file
     let url = format!("{}/api/files?search={}", state.iora_files_url, filename);
-    let resp = state.http_client.get(&url)
+    let resp = state
+        .http_client
+        .get(&url)
         .header("Authorization", format!("Bearer {}", token))
-        .send().await;
+        .send()
+        .await;
     let files: serde_json::Value = match resp {
         Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
-        _ => return Response::builder().status(StatusCode::NOT_FOUND).body(Body::from("Source file not found")).unwrap(),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Source file not found"))
+                .unwrap()
+        }
     };
     let Some(file_id) = files["files"]
         .as_array()
         .and_then(|a| a.first())
         .and_then(|f| f["id"].as_str())
     else {
-        return Response::builder().status(StatusCode::NOT_FOUND).body(Body::from("Source file not found")).unwrap();
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Source file not found"))
+            .unwrap();
     };
 
     // Download original
     let download_url = format!("{}/api/files/{}/download", state.iora_files_url, file_id);
-    let dl = state.http_client.get(&download_url)
+    let dl = state
+        .http_client
+        .get(&download_url)
         .header("Authorization", format!("Bearer {}", token))
-        .send().await;
+        .send()
+        .await;
     let bytes = match dl {
         Ok(r) if r.status().is_success() => match r.bytes().await {
             Ok(b) => b,
-            Err(e) => return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(format!("Download error: {}", e))).unwrap(),
+            Err(e) => {
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::from(format!("Download error: {}", e)))
+                    .unwrap()
+            }
         },
-        _ => return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from("Failed to download source")).unwrap(),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("Failed to download source"))
+                .unwrap()
+        }
     };
 
     // Re-upload under new name
     let part = reqwest::multipart::Part::bytes(bytes.to_vec()).file_name(new_name.to_string());
     let form = reqwest::multipart::Form::new().part("file", part);
     let upload_url = format!("{}/api/files/upload", state.iora_files_url);
-    let resp = state.http_client
+    let resp = state
+        .http_client
         .post(&upload_url)
         .header("Authorization", format!("Bearer {}", token))
         .multipart(form)
@@ -468,7 +550,10 @@ async fn webdav_copy(state: &crate::AppState, path: &str, token: &str, headers: 
             .body(Body::empty())
             .unwrap(),
         Ok(r) => Response::builder()
-            .status(StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+            .status(
+                StatusCode::from_u16(r.status().as_u16())
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            )
             .body(Body::from("Copy failed"))
             .unwrap(),
         Err(e) => Response::builder()
@@ -480,7 +565,10 @@ async fn webdav_copy(state: &crate::AppState, path: &str, token: &str, headers: 
 
 fn extract_token(headers: &HeaderMap) -> Option<String> {
     // Support both Bearer token and Basic auth
-    if let Some(auth) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+    if let Some(auth) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
         if let Some(token) = auth.strip_prefix("Bearer ") {
             return Some(token.to_string());
         }
@@ -500,7 +588,9 @@ fn base64_decode(input: &str) -> Result<String, ()> {
     // Simple base64 decode using standard library approach
     use std::str;
     let bytes = base64_decode_bytes(input).map_err(|_| ())?;
-    str::from_utf8(&bytes).map(|s| s.to_string()).map_err(|_| ())
+    str::from_utf8(&bytes)
+        .map(|s| s.to_string())
+        .map_err(|_| ())
 }
 
 fn base64_decode_bytes(input: &str) -> Result<Vec<u8>, ()> {

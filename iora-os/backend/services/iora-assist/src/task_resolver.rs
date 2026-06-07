@@ -81,14 +81,15 @@ impl TaskResolver {
         let mut out = String::from("### Active User Tasks\n");
         for t in tasks {
             let recur = match t.recurrence_type.as_str() {
-                "hourly"   => "hourly".to_string(),
+                "hourly" => "hourly".to_string(),
                 "weekdays" => "Mo–Fr".to_string(),
-                "daily"    => "daily".to_string(),
-                "weekly"   => format!("weekly (days: {:?})", t.recurrence_days),
-                "custom"   => format!("Tage: {:?}", t.recurrence_days),
-                _          => "einmalig".to_string(),
+                "daily" => "daily".to_string(),
+                "weekly" => format!("weekly (days: {:?})", t.recurrence_days),
+                "custom" => format!("Tage: {:?}", t.recurrence_days),
+                _ => "einmalig".to_string(),
             };
-            let time_str = t.time_of_day
+            let time_str = t
+                .time_of_day
                 .map(|t| format!(", um {}", t.format("%H:%M")))
                 .unwrap_or_default();
             let status = if t.paused_temporarily {
@@ -105,8 +106,14 @@ impl TaskResolver {
             };
             out.push_str(&format!(
                 "- ID={} | \"{}\" | {} {}{}{}\n",
-                t.id, t.name, recur, time_str,
-                t.description.as_deref().map(|d| format!(" | {}", d)).unwrap_or_default(),
+                t.id,
+                t.name,
+                recur,
+                time_str,
+                t.description
+                    .as_deref()
+                    .map(|d| format!(" | {}", d))
+                    .unwrap_or_default(),
                 status,
             ));
         }
@@ -153,19 +160,25 @@ Füge diesen Block immer am **Ende** der Antwort ein, und **nur einmal**.
         // Try [TASK_ACTION: {...}]
         if let Some(cmd) = parse_marker(response, "TASK_ACTION") {
             let cleaned = strip_marker(response, "TASK_ACTION");
-            return (cleaned, Some(ParsedAiTaskCommand {
-                requires_confirmation: false,
-                ..cmd
-            }));
+            return (
+                cleaned,
+                Some(ParsedAiTaskCommand {
+                    requires_confirmation: false,
+                    ..cmd
+                }),
+            );
         }
 
         // Try [TASK_CONFIRM: {...}]
         if let Some(cmd) = parse_marker(response, "TASK_CONFIRM") {
             let cleaned = strip_marker(response, "TASK_CONFIRM");
-            return (cleaned, Some(ParsedAiTaskCommand {
-                requires_confirmation: true,
-                ..cmd
-            }));
+            return (
+                cleaned,
+                Some(ParsedAiTaskCommand {
+                    requires_confirmation: true,
+                    ..cmd
+                }),
+            );
         }
 
         (response.to_string(), None)
@@ -176,19 +189,14 @@ Füge diesen Block immer am **Ende** der Antwort ein, und **nur einmal**.
     ///
     /// Returns the best-matching task id and a confidence in 0.0–1.0, plus a
     /// confirmation question if confidence is below the threshold.
-    pub fn resolve_from_text(
-        text: &str,
-        tasks: &[AutonomousTask],
-    ) -> TaskResolution {
+    pub fn resolve_from_text(text: &str, tasks: &[AutonomousTask]) -> TaskResolution {
         if tasks.is_empty() {
             return TaskResolution {
                 task_id: None,
                 task_name: None,
                 action: None,
                 confidence: 0.0,
-                confirmation_question: Some(
-                    "You have no active tasks that I could modify.".into()
-                ),
+                confirmation_question: Some("You have no active tasks that I could modify.".into()),
             };
         }
 
@@ -205,15 +213,18 @@ Füge diesen Block immer am **Ende** der Antwort ein, und **nur einmal**.
 
         let (confidence, task) = match best {
             Some(b) => b,
-            None => return TaskResolution {
-                task_id: None,
-                task_name: None,
-                action: None,
-                confidence: 0.0,
-                confirmation_question: Some(
-                    "Ich konnte keine passende Aufgabe finden. Welche Aufgabe meinst du?".into()
-                ),
-            },
+            None => {
+                return TaskResolution {
+                    task_id: None,
+                    task_name: None,
+                    action: None,
+                    confidence: 0.0,
+                    confirmation_question: Some(
+                        "Ich konnte keine passende Aufgabe finden. Welche Aufgabe meinst du?"
+                            .into(),
+                    ),
+                }
+            }
         };
 
         // Determine the action
@@ -268,15 +279,20 @@ fn score_task_match(lower: &str, task: &AutonomousTask) -> f64 {
     // ── Recurrence keyword match ──────────────────────────────────────────────
     let recur_match = match task.recurrence_type.as_str() {
         "weekdays" => {
-            lower.contains("wecker") || lower.contains("alarm")
-                || lower.contains("wochentag") || lower.contains("unter der woche")
-                || lower.contains("werktag") || lower.contains("weekday")
+            lower.contains("wecker")
+                || lower.contains("alarm")
+                || lower.contains("wochentag")
+                || lower.contains("unter der woche")
+                || lower.contains("werktag")
+                || lower.contains("weekday")
         }
         "daily" => lower.contains("daily") || lower.contains("daily"),
         "weekly" => lower.contains("weekly") || lower.contains("weekly"),
         _ => false,
     };
-    if recur_match { score += 0.20; }
+    if recur_match {
+        score += 0.20;
+    }
 
     // ── Name / description substring match ───────────────────────────────────
     let task_lower = task.name.to_lowercase();
@@ -290,7 +306,10 @@ fn score_task_match(lower: &str, task: &AutonomousTask) -> f64 {
         score += 0.25 * (matched_words as f64 / name_words.len() as f64);
     }
     // Short description words
-    let desc_words: Vec<&str> = desc_lower.split_whitespace().filter(|w| w.len() >= 5).collect();
+    let desc_words: Vec<&str> = desc_lower
+        .split_whitespace()
+        .filter(|w| w.len() >= 5)
+        .collect();
     let desc_matches = desc_words.iter().filter(|w| lower.contains(**w)).count();
     if !desc_words.is_empty() {
         score += 0.10 * (desc_matches as f64 / desc_words.len() as f64);
@@ -298,12 +317,15 @@ fn score_task_match(lower: &str, task: &AutonomousTask) -> f64 {
 
     // ── Task type keywords ────────────────────────────────────────────────────
     if (task.task_type == "reminder" || task.task_type == "alarm")
-        && (lower.contains("wecker") || lower.contains("alarm")
-            || lower.contains("wake") || lower.contains("wecken")
-            || lower.contains("reminder") || lower.contains("erinnern"))
-        {
-            score += 0.15;
-        }
+        && (lower.contains("wecker")
+            || lower.contains("alarm")
+            || lower.contains("wake")
+            || lower.contains("wecken")
+            || lower.contains("reminder")
+            || lower.contains("erinnern"))
+    {
+        score += 0.15;
+    }
 
     score.min(1.0)
 }
@@ -317,13 +339,18 @@ fn detect_modification_action(lower: &str, _task: &AutonomousTask) -> TaskModifi
     // Temporary pause with explicit duration
     if days > 0 {
         let disable_words = [
-            "deaktiviere", "disable", "deaktiviert",
-            "pause", "pausen", "pause",
-            "disable", "turn off", "ausschalten", "abschalten",
+            "deaktiviere",
+            "disable",
+            "deaktiviert",
+            "pause",
+            "pausen",
+            "pause",
+            "disable",
+            "turn off",
+            "ausschalten",
+            "abschalten",
         ];
-        let vacation_words = [
-            "urlaub", "vacation", "holiday", "ferien",
-        ];
+        let vacation_words = ["urlaub", "vacation", "holiday", "ferien"];
         if disable_words.iter().any(|w| lower.contains(w))
             || vacation_words.iter().any(|w| lower.contains(w))
         {
@@ -333,9 +360,15 @@ fn detect_modification_action(lower: &str, _task: &AutonomousTask) -> TaskModifi
 
     // Permanent disable
     let perm_disable = [
-        "deaktiviere", "disable", "disable",
-        "ausschalten", "abschalten", "turn off",
-        "stoppe", "stopp", "stop",
+        "deaktiviere",
+        "disable",
+        "disable",
+        "ausschalten",
+        "abschalten",
+        "turn off",
+        "stoppe",
+        "stopp",
+        "stop",
     ];
     if perm_disable.iter().any(|w| lower.contains(w)) {
         return TaskModificationAction::Disable;
@@ -343,9 +376,15 @@ fn detect_modification_action(lower: &str, _task: &AutonomousTask) -> TaskModifi
 
     // Resume / enable
     let resume_words = [
-        "aktiviere", "enable", "enable",
-        "einschalten", "wieder an", "fortsetzen",
-        "resume", "reactivate", "reaktiviere",
+        "aktiviere",
+        "enable",
+        "enable",
+        "einschalten",
+        "wieder an",
+        "fortsetzen",
+        "resume",
+        "reactivate",
+        "reaktiviere",
     ];
     if resume_words.iter().any(|w| lower.contains(w)) {
         return TaskModificationAction::Resume;
@@ -353,8 +392,7 @@ fn detect_modification_action(lower: &str, _task: &AutonomousTask) -> TaskModifi
 
     // Delete
     let delete_words = [
-        "delete", "deleten", "delete", "remove", "removen",
-        "remove", "cancel",
+        "delete", "deleten", "delete", "remove", "removen", "remove", "cancel",
     ];
     if delete_words.iter().any(|w| lower.contains(w)) {
         return TaskModificationAction::Delete;
@@ -365,7 +403,7 @@ fn detect_modification_action(lower: &str, _task: &AutonomousTask) -> TaskModifi
         let vacation = ["urlaub", "vacation", "holiday", "ferien", "pause", "frei"];
         if vacation.iter().any(|w| lower.contains(w)) {
             return TaskModificationAction::PauseUntil(
-                now + Duration::days(extract_duration_days(lower).unwrap_or(14))
+                now + Duration::days(extract_duration_days(lower).unwrap_or(14)),
             );
         }
     }
@@ -376,12 +414,13 @@ fn detect_modification_action(lower: &str, _task: &AutonomousTask) -> TaskModifi
 
 /// Build a natural German confirmation question for a detected action.
 fn build_confirmation_question(task: &AutonomousTask, action: &TaskModificationAction) -> String {
-    let time_str = task.time_of_day
+    let time_str = task
+        .time_of_day
         .map(|t| format!(" um {}:{:02} Uhr", t.hour(), t.minute()))
         .unwrap_or_default();
     let recur_str = match task.recurrence_type.as_str() {
         "weekdays" => " (Mo–Fr)".to_string(),
-        "daily"    => " (daily)".to_string(),
+        "daily" => " (daily)".to_string(),
         _ => String::new(),
     };
 
@@ -390,7 +429,9 @@ fn build_confirmation_question(task: &AutonomousTask, action: &TaskModificationA
             let days = (*until - Utc::now()).num_days().max(1);
             format!(
                 "Should I disable your alarm{}{} für {} {} disable?",
-                time_str, recur_str, days,
+                time_str,
+                recur_str,
+                days,
                 if days == 1 { "Tag" } else { "Tage" }
             )
         }
@@ -419,20 +460,29 @@ fn parse_marker(text: &str, marker: &str) -> Option<ParsedAiTaskCommand> {
 
     let v: serde_json::Value = serde_json::from_str(json_str).ok()?;
 
-    let task_id = v.get("task_id")
+    let task_id = v
+        .get("task_id")
         .and_then(|x| x.as_str())
         .and_then(|s| Uuid::parse_str(s).ok());
 
-    let resume_at = v.get("resume_at")
+    let resume_at = v
+        .get("resume_at")
         .and_then(|x| x.as_str())
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc));
 
     Some(ParsedAiTaskCommand {
-        action: v.get("action").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        action: v
+            .get("action")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
         task_id,
         resume_at,
-        question: v.get("question").and_then(|x| x.as_str()).map(str::to_string),
+        question: v
+            .get("question")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
         reason: v.get("reason").and_then(|x| x.as_str()).map(str::to_string),
         requires_confirmation: false,
     })

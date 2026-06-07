@@ -20,12 +20,11 @@ impl UserManager {
         allow_temp: bool,
     ) -> Result<()> {
         // Check if user exists
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)",
-        )
-        .bind(username)
-        .fetch_one(&self.pool)
-        .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)")
+                .bind(username)
+                .fetch_one(&self.pool)
+                .await?;
 
         if exists {
             // Update password
@@ -36,9 +35,12 @@ impl UserManager {
                 .context("Failed to update user password")?;
 
             // Update connection limit
-            sqlx::query(&format!("ALTER USER \"{}\" WITH CONNECTION LIMIT {}", username, conn_limit))
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(&format!(
+                "ALTER USER \"{}\" WITH CONNECTION LIMIT {}",
+                username, conn_limit
+            ))
+            .execute(&self.pool)
+            .await?;
 
             tracing::debug!("Updated user: {}", username);
         } else {
@@ -58,7 +60,8 @@ impl UserManager {
         }
 
         // Grant necessary privileges
-        self.grant_privileges(username, database, allow_ddl, allow_temp).await?;
+        self.grant_privileges(username, database, allow_ddl, allow_temp)
+            .await?;
 
         // Apply security restrictions
         self.apply_security_restrictions(username).await?;
@@ -74,22 +77,27 @@ impl UserManager {
         allow_temp: bool,
     ) -> Result<()> {
         // Connect and grant database access
-        sqlx::query(&format!("GRANT CONNECT ON DATABASE \"{}\" TO \"{}\"", database, username))
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "GRANT CONNECT ON DATABASE \"{}\" TO \"{}\"",
+            database, username
+        ))
+        .execute(&self.pool)
+        .await?;
 
         // For schema privileges, we need to connect to the target database
         // This is a simplified version - in production you'd connect to each DB
         let privileges = if allow_ddl {
             // Full access for services that run migrations
-            vec![
-                format!("GRANT ALL ON DATABASE \"{}\" TO \"{}\"", database, username),
-            ]
+            vec![format!(
+                "GRANT ALL ON DATABASE \"{}\" TO \"{}\"",
+                database, username
+            )]
         } else {
             // Read/write only for regular services
-            vec![
-                format!("GRANT CONNECT ON DATABASE \"{}\" TO \"{}\"", database, username),
-            ]
+            vec![format!(
+                "GRANT CONNECT ON DATABASE \"{}\" TO \"{}\"",
+                database, username
+            )]
         };
 
         for priv_sql in privileges {
@@ -100,9 +108,12 @@ impl UserManager {
         }
 
         if allow_temp {
-            sqlx::query(&format!("GRANT TEMP ON DATABASE \"{}\" TO \"{}\"", database, username))
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(&format!(
+                "GRANT TEMP ON DATABASE \"{}\" TO \"{}\"",
+                database, username
+            ))
+            .execute(&self.pool)
+            .await?;
         }
 
         Ok(())
@@ -140,9 +151,12 @@ impl UserManager {
 
     #[allow(dead_code)]
     pub async fn revoke_all_privileges(&self, username: &str, database: &str) -> Result<()> {
-        sqlx::query(&format!("REVOKE ALL ON DATABASE \"{}\" FROM \"{}\"", database, username))
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "REVOKE ALL ON DATABASE \"{}\" FROM \"{}\"",
+            database, username
+        ))
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

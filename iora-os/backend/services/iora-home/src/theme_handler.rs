@@ -581,18 +581,16 @@ impl ThemeState {
                 if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
                     if let Some((parent_row, _)) = cache.get(parent_id) {
                         // Merge parent CSS variables (child wins)
-                        let parent_vars: HashMap<String, String> = serde_json::from_str(
-                            &parent_row.css_variables,
-                        )
-                        .unwrap_or_else(|e| {
-                            tracing::warn!(
+                        let parent_vars: HashMap<String, String> =
+                            serde_json::from_str(&parent_row.css_variables).unwrap_or_else(|e| {
+                                tracing::warn!(
                                 "Failed to parse parent css_variables for theme {} (parent={}): {}",
                                 row.id,
                                 parent_id,
                                 e
                             );
-                            HashMap::new()
-                        });
+                                HashMap::new()
+                            });
                         for (k, v) in parent_vars {
                             vars.entry(k).or_insert(v);
                         }

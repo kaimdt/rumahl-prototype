@@ -1,5 +1,8 @@
 // Local AI Provider Implementation (Ollama, LM Studio, LocalAI)
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
+use super::{
+    AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError,
+    ProviderModel, SpeechSynthesis,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -78,7 +81,12 @@ impl AIProvider for LocalAIProvider {
         if let Some(base_url) = &self.config.base_url {
             let base_url = base_url.trim_end_matches('/');
             for path in ["/v1/models", "/api/tags"] {
-                if let Ok(response) = self.client.get(format!("{}{}", base_url, path)).send().await {
+                if let Ok(response) = self
+                    .client
+                    .get(format!("{}{}", base_url, path))
+                    .send()
+                    .await
+                {
                     if response.status().is_success() {
                         return true;
                     }
@@ -89,33 +97,53 @@ impl AIProvider for LocalAIProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Local AI base URL not configured")?;
         let base_url = base_url.trim_end_matches('/');
 
-        if let Ok(response) = self.client.get(format!("{}/v1/models", base_url)).send().await {
+        if let Ok(response) = self
+            .client
+            .get(format!("{}/v1/models", base_url))
+            .send()
+            .await
+        {
             if response.status().is_success() {
                 let payload: OpenAiModelsResponse = response.json().await?;
-                return Ok(payload.data.into_iter().map(|model| ProviderModel {
-                    id: model.id.clone(),
-                    name: model.id,
-                    provider: "local".to_string(),
-                }).collect());
+                return Ok(payload
+                    .data
+                    .into_iter()
+                    .map(|model| ProviderModel {
+                        id: model.id.clone(),
+                        name: model.id,
+                        provider: "local".to_string(),
+                    })
+                    .collect());
             }
         }
 
-        let response = self.client.get(format!("{}/api/tags", base_url)).send().await?;
+        let response = self
+            .client
+            .get(format!("{}/api/tags", base_url))
+            .send()
+            .await?;
         if !response.status().is_success() {
             let error_text = response.text().await?;
             return Err(format!("Local AI model discovery failed: {}", error_text).into());
         }
 
         let payload: OllamaTagsResponse = response.json().await?;
-        Ok(payload.models.into_iter().map(|model| ProviderModel {
-            id: model.name.clone(),
-            name: model.name,
-            provider: "local".to_string(),
-        }).collect())
+        Ok(payload
+            .models
+            .into_iter()
+            .map(|model| ProviderModel {
+                id: model.name.clone(),
+                name: model.name,
+                provider: "local".to_string(),
+            })
+            .collect())
     }
 
     async fn chat(
@@ -123,11 +151,13 @@ impl AIProvider for LocalAIProvider {
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
     ) -> Result<ChatResponse, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Local AI base URL not configured")?;
 
-        let model = self.config.model.as_deref()
-            .unwrap_or("llama3.2");
+        let model = self.config.model.as_deref().unwrap_or("llama3.2");
 
         let mut local_messages = Vec::new();
 
@@ -151,7 +181,8 @@ impl AIProvider for LocalAIProvider {
             stream: false,
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/api/chat", base_url))
             .header("Content-Type", "application/json")
             .json(&request)
@@ -178,7 +209,10 @@ impl AIProvider for LocalAIProvider {
         audio_data: Vec<u8>,
         format: &str,
     ) -> Result<AudioTranscription, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Local AI base URL not configured")?;
 
         // Whisper via Ollama or LocalAI
@@ -191,7 +225,8 @@ impl AIProvider for LocalAIProvider {
                     .mime_str(&format!("audio/{}", format))?,
             );
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/api/transcribe", base_url))
             .multipart(form)
             .send()
@@ -223,7 +258,10 @@ impl AIProvider for LocalAIProvider {
         text: &str,
         voice: Option<&str>,
     ) -> Result<SpeechSynthesis, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Local AI base URL not configured")?;
 
         #[derive(Serialize)]
@@ -237,7 +275,8 @@ impl AIProvider for LocalAIProvider {
             voice: voice.unwrap_or("default").to_string(),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/api/tts", base_url))
             .header("Content-Type", "application/json")
             .json(&request)

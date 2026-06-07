@@ -1,16 +1,16 @@
 // Self-evolution tools - ORA's toolkit for modifying its own codebase
 
-use std::path::{Path, PathBuf};
+use crate::providers::{AIProvider, ChatMessage};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use crate::providers::{AIProvider, ChatMessage};
+use std::path::{Path, PathBuf};
 
 /// Base trait for evolution tools
 #[async_trait]
 pub trait EvolutionTool: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
-    
+
     /// Execute the tool with given parameters
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String>;
 }
@@ -29,24 +29,25 @@ pub struct ToolOutput {
 pub struct CodeReadTool;
 
 impl CodeReadTool {
-    pub fn new() -> Self { Self }
-    
+    pub fn new() -> Self {
+        Self
+    }
+
     pub async fn read_file(&self, path: &str) -> Result<String, String> {
-        std::fs::read_to_string(path)
-            .map_err(|e| format!("Cannot read {}: {}", path, e))
+        std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path, e))
     }
 
     pub fn list_files(&self, dir: &Path, extension: Option<&str>) -> Result<Vec<PathBuf>, String> {
         let mut files = Vec::new();
-        
+
         let entries = match std::fs::read_dir(dir) {
             Ok(e) => e,
             Err(e) => return Err(format!("Cannot read directory {}: {}", dir.display(), e)),
         };
-        
+
         for entry in entries.flatten() {
             let path = entry.path();
-            
+
             if path.is_file() {
                 if extension.is_none_or(|ext| path.extension().is_some_and(|e| e == ext)) {
                     files.push(path);
@@ -66,19 +67,22 @@ impl CodeReadTool {
 
 #[async_trait]
 impl EvolutionTool for CodeReadTool {
-    fn name(&self) -> &str { "code_read" }
-    fn description(&self) -> &str { 
-        "Read source code files. Params: {\"path\": \"src/file.rs\"}" 
+    fn name(&self) -> &str {
+        "code_read"
+    }
+    fn description(&self) -> &str {
+        "Read source code files. Params: {\"path\": \"src/file.rs\"}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let path = params.get("path")
+        let path = params
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'path' parameter".to_string())?;
 
         let content = self.read_file(path).await?;
         let content_len = content.len();
-        
+
         Ok(ToolOutput {
             success: true,
             output: content,
@@ -93,11 +97,13 @@ impl EvolutionTool for CodeReadTool {
 pub struct CodeWriteTool;
 
 impl CodeWriteTool {
-    pub fn new() -> Self { Self }
-    
+    pub fn new() -> Self {
+        Self
+    }
+
     pub async fn write_file(&self, path: &str, content: &str) -> Result<(), String> {
         let path = PathBuf::from(path);
-        
+
         // Create parent directories if needed
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -115,8 +121,7 @@ impl CodeWriteTool {
         // actually mutate the file rather than just reporting metadata.
         let original = std::fs::read_to_string(file_path)
             .map_err(|e| format!("Cannot read {}: {}", file_path, e))?;
-        let mut out: Vec<String> =
-            original.lines().map(|s| s.to_string()).collect();
+        let mut out: Vec<String> = original.lines().map(|s| s.to_string()).collect();
 
         // Parse hunks
         let mut hunks: Vec<(usize, Vec<&str>)> = Vec::new();
@@ -134,7 +139,10 @@ impl CodeWriteTool {
                     .unwrap_or(1);
                 let mut body: Vec<&str> = Vec::new();
                 while let Some(next) = iter.peek() {
-                    if next.starts_with("@@") || next.starts_with("--- ") || next.starts_with("+++ ") {
+                    if next.starts_with("@@")
+                        || next.starts_with("--- ")
+                        || next.starts_with("+++ ")
+                    {
                         break;
                     }
                     body.push(iter.next().unwrap());
@@ -179,17 +187,21 @@ impl CodeWriteTool {
 
 #[async_trait]
 impl EvolutionTool for CodeWriteTool {
-    fn name(&self) -> &str { "code_write" }
-    fn description(&self) -> &str { 
-        "Write or modify source code files. Params: {\"path\": \"src/file.rs\", \"content\": \"...\"}" 
+    fn name(&self) -> &str {
+        "code_write"
+    }
+    fn description(&self) -> &str {
+        "Write or modify source code files. Params: {\"path\": \"src/file.rs\", \"content\": \"...\"}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let path = params.get("path")
+        let path = params
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'path' parameter".to_string())?;
 
-        let content = params.get("content")
+        let content = params
+            .get("content")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'content' parameter".to_string())?;
 
@@ -211,7 +223,9 @@ pub struct CodeReviewTool {
 }
 
 impl CodeReviewTool {
-    pub fn new(source_dir: PathBuf) -> Self { Self { source_dir } }
+    pub fn new(source_dir: PathBuf) -> Self {
+        Self { source_dir }
+    }
 
     /// Analyze code quality and suggest improvements
     pub async fn review_file(&self, file_path: &str) -> Result<CodeReviewResult, String> {
@@ -221,15 +235,17 @@ impl CodeReviewTool {
 
         // Run static analysis checks
         let mut issues = Vec::new();
-        
+
         // Check for common Rust anti-patterns
         self.check_rust_patterns(&content, &mut issues);
-        
+
         // Check for security concerns
         self.check_security_issues(&content, file_path, &mut issues);
 
-        let score: u32 = if issues.is_empty() { 100 } else { 
-            std::cmp::max(0u32, 100 - (issues.len() * 10) as u32) 
+        let score: u32 = if issues.is_empty() {
+            100
+        } else {
+            std::cmp::max(0u32, 100 - (issues.len() * 10) as u32)
         };
 
         Ok(CodeReviewResult {
@@ -257,10 +273,9 @@ impl CodeReviewTool {
             issues.push(ReviewIssue {
                 severity: "info".to_string(),
                 category: "code_quality".to_string(),
-                message: "File contains TODO/FIXME comments that should be addressed"
-                    .to_string(),
+                message: "File contains TODO/FIXME comments that should be addressed".to_string(),
                 line_hint: None,
-                suggestion: Some("Address pending TODOs or create tracking issues".to_string())
+                suggestion: Some("Address pending TODOs or create tracking issues".to_string()),
             });
         }
 
@@ -270,10 +285,17 @@ impl CodeReviewTool {
         }
     }
 
-    fn check_security_issues(&self, _content: &str, file_path: &str, issues: &mut Vec<ReviewIssue>) {
+    fn check_security_issues(
+        &self,
+        _content: &str,
+        file_path: &str,
+        issues: &mut Vec<ReviewIssue>,
+    ) {
         // Check if this is a sensitive file that might handle secrets
-        if file_path.contains("config") || file_path.contains("secret") 
-            || file_path.contains("credential") {
+        if file_path.contains("config")
+            || file_path.contains("secret")
+            || file_path.contains("credential")
+        {
             issues.push(ReviewIssue {
                 severity: "critical".to_string(),
                 category: "security".to_string(),
@@ -292,7 +314,9 @@ impl CodeReviewTool {
                 message: "Potential SQL injection risk with string formatting for queries"
                     .to_string(),
                 line_hint: None,
-                suggestion: Some("Use parameterized queries instead of string interpolation".to_string())
+                suggestion: Some(
+                    "Use parameterized queries instead of string interpolation".to_string(),
+                ),
             });
         }
     }
@@ -307,8 +331,8 @@ pub struct CodeReviewResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewIssue {
-    pub severity: String,      // info, warning, error, critical
-    pub category: String,      // security, performance, style, correctness
+    pub severity: String, // info, warning, error, critical
+    pub category: String, // security, performance, style, correctness
     pub message: String,
     pub line_hint: Option<usize>,
     pub suggestion: Option<String>,
@@ -316,13 +340,16 @@ pub struct ReviewIssue {
 
 #[async_trait]
 impl EvolutionTool for CodeReviewTool {
-    fn name(&self) -> &str { "code_review" }
-    fn description(&self) -> &str { 
-        "Analyze code quality and suggest improvements. Params: {\"path\": \"src/file.rs\"}" 
+    fn name(&self) -> &str {
+        "code_review"
+    }
+    fn description(&self) -> &str {
+        "Analyze code quality and suggest improvements. Params: {\"path\": \"src/file.rs\"}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let path = params.get("path")
+        let path = params
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'path' parameter".to_string())?;
 
@@ -332,8 +359,9 @@ impl EvolutionTool for CodeReviewTool {
             success: true,
             output: serde_json::to_string(&result).map_err(|e| e.to_string())?,
             summary: Some(format!(
-                "{} issues found (score: {}/100)", 
-                result.issues.len(), result.score
+                "{} issues found (score: {}/100)",
+                result.issues.len(),
+                result.score
             )),
             metadata: Some(serde_json::json!({"review_result": result})),
         })
@@ -347,7 +375,9 @@ pub struct RunTestsTool {
 }
 
 impl RunTestsTool {
-    pub fn new(source_dir: PathBuf) -> Self { Self { source_dir } }
+    pub fn new(source_dir: PathBuf) -> Self {
+        Self { source_dir }
+    }
 
     /// Run cargo test and return results
     pub async fn run_cargo_test(&self) -> Result<TestOutput, String> {
@@ -366,15 +396,23 @@ impl RunTestsTool {
         let success = output.status.success();
         let mut passed = 0;
         let mut failed = 0;
-        
+
         for line in full_output.lines() {
             if line.contains("test result: ok") {
-                if let Some(count_str) = line.split('(').next_back().map(|s| s.trim_end_matches(')').trim()) {
+                if let Some(count_str) = line
+                    .split('(')
+                    .next_back()
+                    .map(|s| s.trim_end_matches(')').trim())
+                {
                     passed += count_str.parse::<usize>().unwrap_or(0);
                 }
             } else if line.contains("test result: FAILED") {
                 if let Some(parts) = line.split('(').next() {
-                    failed += parts.split(':').next_back().and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(0);
+                    failed += parts
+                        .split(':')
+                        .next_back()
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
                 }
             }
         }
@@ -401,10 +439,17 @@ impl RunTestsTool {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let full_output = format!("{}\n{}", stdout, stderr);
 
-        let failed_count = if output.status.success() { 0 } else { 
-            full_output.lines().filter(|l| l.contains("warning:") || l.contains("error:")).count() 
+        let failed_count = if output.status.success() {
+            0
+        } else {
+            full_output
+                .lines()
+                .filter(|l| l.contains("warning:") || l.contains("error:"))
+                .count()
         };
-        let summary_str = if output.status.success() { "No clippy warnings".to_string() } else {
+        let summary_str = if output.status.success() {
+            "No clippy warnings".to_string()
+        } else {
             format!("{} issues found", failed_count)
         };
 
@@ -430,10 +475,14 @@ impl RunTestsTool {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let full_output = format!("{}\n{}", stdout, stderr);
 
-        let failed_count = if output.status.success() { 0 } else { 
-            full_output.lines().filter(|l| l.contains("error")).count() 
+        let failed_count = if output.status.success() {
+            0
+        } else {
+            full_output.lines().filter(|l| l.contains("error")).count()
         };
-        let summary_str = if output.status.success() { "Compilation successful".to_string() } else {
+        let summary_str = if output.status.success() {
+            "Compilation successful".to_string()
+        } else {
             format!("{} compilation errors", failed_count)
         };
 
@@ -458,13 +507,16 @@ pub struct TestOutput {
 
 #[async_trait]
 impl EvolutionTool for RunTestsTool {
-    fn name(&self) -> &str { "run_tests" }
-    fn description(&self) -> &str { 
-        "Run tests and verification. Params: {\"command\": \"test|clippy|check\"}" 
+    fn name(&self) -> &str {
+        "run_tests"
+    }
+    fn description(&self) -> &str {
+        "Run tests and verification. Params: {\"command\": \"test|clippy|check\"}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let command = params.get("command")
+        let command = params
+            .get("command")
             .and_then(|v| v.as_str())
             .unwrap_or("test");
 
@@ -475,7 +527,9 @@ impl EvolutionTool for RunTestsTool {
                     success: result.success,
                     output: result.output,
                     summary: result.summary,
-                    metadata: Some(serde_json::json!({"passed": result.passed, "failed": result.failed})),
+                    metadata: Some(
+                        serde_json::json!({"passed": result.passed, "failed": result.failed}),
+                    ),
                 })
             }
             "clippy" => {
@@ -506,7 +560,9 @@ impl EvolutionTool for RunTestsTool {
 pub struct CodeDiffTool;
 
 impl CodeDiffTool {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// Generate a unified diff between original and modified content
     pub fn generate_diff(&self, original: &str, modified: &str) -> String {
@@ -523,13 +579,13 @@ impl CodeDiffTool {
     pub fn diff_summary(&self, original: &str, modified: &str) -> serde_json::Value {
         let _added = 0i32;
         let _removed = 0i32;
-        
+
         for (orig_line, mod_line) in original.lines().zip(modified.lines()) {
             if orig_line != mod_line {
                 // Count as both removed and added
             }
         }
-        
+
         serde_json::json!({
             "original_lines": original.lines().count(),
             "modified_lines": modified.lines().count(),
@@ -540,23 +596,28 @@ impl CodeDiffTool {
 
 #[async_trait]
 impl EvolutionTool for CodeDiffTool {
-    fn name(&self) -> &str { "code_diff" }
-    fn description(&self) -> &str { 
+    fn name(&self) -> &str {
+        "code_diff"
+    }
+    fn description(&self) -> &str {
         "Generate and apply code diffs. Params: {\"action\": \"generate|apply|summary\", \
-         \"original\": \"...\", \"modified\": \"...\", \"patch\": \"...\"}" 
+         \"original\": \"...\", \"modified\": \"...\", \"patch\": \"...\"}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let action = params.get("action")
+        let action = params
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'action' parameter (generate|apply|summary)".to_string())?;
 
         match action {
             "generate" => {
-                let original = params.get("original")
+                let original = params
+                    .get("original")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'original' parameter".to_string())?;
-                let modified = params.get("modified")
+                let modified = params
+                    .get("modified")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'modified' parameter".to_string())?;
 
@@ -569,10 +630,12 @@ impl EvolutionTool for CodeDiffTool {
                 })
             }
             "apply" => {
-                let original = params.get("original")
+                let original = params
+                    .get("original")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'original' parameter".to_string())?;
-                let patch = params.get("patch")
+                let patch = params
+                    .get("patch")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'patch' parameter".to_string())?;
 
@@ -585,10 +648,12 @@ impl EvolutionTool for CodeDiffTool {
                 })
             }
             "summary" => {
-                let original = params.get("original")
+                let original = params
+                    .get("original")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'original' parameter".to_string())?;
-                let modified = params.get("modified")
+                let modified = params
+                    .get("modified")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'modified' parameter".to_string())?;
 
@@ -612,8 +677,10 @@ pub struct GitOpsTool {
 }
 
 impl GitOpsTool {
-    pub fn new(repo_path: impl Into<String>) -> Self { 
-        Self { repo_path: repo_path.into() } 
+    pub fn new(repo_path: impl Into<String>) -> Self {
+        Self {
+            repo_path: repo_path.into(),
+        }
     }
 
     async fn run_git(&self, args: &[&str]) -> Result<std::process::Output, String> {
@@ -626,7 +693,11 @@ impl GitOpsTool {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Git error (exit {}): {}", output.status.code().unwrap_or(-1), stderr));
+            return Err(format!(
+                "Git error (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr
+            ));
         }
 
         Ok(output)
@@ -640,30 +711,34 @@ impl GitOpsTool {
 
 #[async_trait]
 impl EvolutionTool for GitOpsTool {
-    fn name(&self) -> &str { "git_ops" }
-    fn description(&self) -> &str { 
+    fn name(&self) -> &str {
+        "git_ops"
+    }
+    fn description(&self) -> &str {
         "Git operations for self-evolution. Params: {\"action\": \"commit|branch|status|log|stash\", \
          \"message\": \"...\", \"branch_name\": \"...\", \"files\": [...]}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let action = params.get("action")
+        let action = params
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'action' parameter".to_string())?;
 
         match action {
             "commit" => {
-                let message = params.get("message")
+                let message = params
+                    .get("message")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'message' parameter".to_string())?;
-                
+
                 // Stage all changes
                 self.run_git(&["add", "-"]).await?;
-                
+
                 // Commit with message
                 let output = self.run_git(&["commit", "-m", message]).await?;
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                
+
                 Ok(ToolOutput {
                     success: true,
                     output: stdout.clone(),
@@ -672,13 +747,14 @@ impl EvolutionTool for GitOpsTool {
                 })
             }
             "branch" => {
-                let branch_name = params.get("branch_name")
+                let branch_name = params
+                    .get("branch_name")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'branch_name' parameter".to_string())?;
 
                 // Create and checkout new branch
                 self.run_git(&["checkout", "-b", branch_name]).await?;
-                
+
                 Ok(ToolOutput {
                     success: true,
                     output: format!("Created and switched to branch '{}'", branch_name),
@@ -697,7 +773,9 @@ impl EvolutionTool for GitOpsTool {
             }
             "log" => {
                 let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
-                let output = self.run_git_with_output(&["log", "--oneline", &format!("-n{}", limit)]).await?;
+                let output = self
+                    .run_git_with_output(&["log", "--oneline", &format!("-n{}", limit)])
+                    .await?;
                 Ok(ToolOutput {
                     success: true,
                     output: output.clone(),
@@ -706,13 +784,14 @@ impl EvolutionTool for GitOpsTool {
                 })
             }
             "stash" => {
-                let message = params.get("message")
+                let message = params
+                    .get("message")
                     .and_then(|v| v.as_str())
                     .unwrap_or("self-evolution-workspace");
 
                 self.run_git(&["add", "-"]).await?;
                 self.run_git(&["stash", "push", "-m", message]).await?;
-                
+
                 Ok(ToolOutput {
                     success: true,
                     output: format!("Changes stashed as '{}'", message),
@@ -722,7 +801,7 @@ impl EvolutionTool for GitOpsTool {
             }
             "stash_pop" => {
                 self.run_git(&["stash", "pop"]).await?;
-                
+
                 Ok(ToolOutput {
                     success: true,
                     output: "Stashed changes restored".to_string(),
@@ -742,8 +821,8 @@ pub struct PromptOptimizerTool {
 }
 
 impl PromptOptimizerTool {
-    pub fn new(provider: Option<Box<dyn AIProvider>>) -> Self { 
-        Self { provider } 
+    pub fn new(provider: Option<Box<dyn AIProvider>>) -> Self {
+        Self { provider }
     }
 
     /// Analyze a prompt and suggest improvements
@@ -762,17 +841,23 @@ System prompt to analyze:
         let full_prompt = format!("{}\n\n---\n{}", analysis, prompt);
 
         if let Some(ref provider) = self.provider {
-            let response = provider.chat(
-                vec![ChatMessage { role: "user".to_string(), content: full_prompt }],
-                Some("You are a prompt optimization expert.".to_string()),
-            ).await.map_err(|e| e.to_string())?;
+            let response = provider
+                .chat(
+                    vec![ChatMessage {
+                        role: "user".to_string(),
+                        content: full_prompt,
+                    }],
+                    Some("You are a prompt optimization expert.".to_string()),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(response.message)
         } else {
             // Fallback: basic heuristic analysis
             let clarity = if prompt.len() > 100 { 7 } else { 4 };
             let has_examples = prompt.contains("Example") || prompt.contains("example");
             let has_format = prompt.contains("JSON") || prompt.contains("format");
-            
+
             Ok(serde_json::json!({
                 "clarity_score": clarity,
                 "specificity_score": if has_examples { 7 } else { 3 },
@@ -784,7 +869,8 @@ System prompt to analyze:
                     "Use numbered lists for multi-step instructions",
                     "Define edge cases and how to handle them",
                 ],
-            }).to_string())
+            })
+            .to_string())
         }
     }
 
@@ -796,10 +882,18 @@ System prompt to analyze:
         );
 
         if let Some(ref provider) = self.provider {
-            let response = provider.chat(
-                vec![ChatMessage { role: "user".to_string(), content: optimization_request }],
-                Some("You are an expert system prompt optimizer for AI assistants.".to_string()),
-            ).await.map_err(|e| e.to_string())?;
+            let response = provider
+                .chat(
+                    vec![ChatMessage {
+                        role: "user".to_string(),
+                        content: optimization_request,
+                    }],
+                    Some(
+                        "You are an expert system prompt optimizer for AI assistants.".to_string(),
+                    ),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(response.message)
         } else {
             Err("No provider configured for prompt optimization".to_string())
@@ -809,20 +903,24 @@ System prompt to analyze:
 
 #[async_trait]
 impl EvolutionTool for PromptOptimizerTool {
-    fn name(&self) -> &str { "prompt_optimizer" }
-    fn description(&self) -> &str { 
+    fn name(&self) -> &str {
+        "prompt_optimizer"
+    }
+    fn description(&self) -> &str {
         "Analyze and optimize system prompts. Params: {\"action\": \"analyze|optimize\", \
-         \"prompt\": \"...\", \"goal\": \"...\"}" 
+         \"prompt\": \"...\", \"goal\": \"...\"}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let action = params.get("action")
+        let action = params
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'action' parameter (analyze|optimize)".to_string())?;
 
         match action {
             "analyze" => {
-                let prompt = params.get("prompt")
+                let prompt = params
+                    .get("prompt")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'prompt' parameter".to_string())?;
 
@@ -835,10 +933,12 @@ impl EvolutionTool for PromptOptimizerTool {
                 })
             }
             "optimize" => {
-                let prompt = params.get("prompt")
+                let prompt = params
+                    .get("prompt")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'prompt' parameter".to_string())?;
-                let goal = params.get("goal")
+                let goal = params
+                    .get("goal")
                     .and_then(|v| v.as_str())
                     .unwrap_or("general purpose AI assistant");
 
@@ -862,20 +962,21 @@ pub struct DependencyManagerTool {
 }
 
 impl DependencyManagerTool {
-    pub fn new(cargo_toml_path: impl Into<String>) -> Self { 
-        Self { cargo_toml_path: cargo_toml_path.into() } 
+    pub fn new(cargo_toml_path: impl Into<String>) -> Self {
+        Self {
+            cargo_toml_path: cargo_toml_path.into(),
+        }
     }
 
     async fn read_cargo_toml(&self) -> Result<serde_json::Value, String> {
         let content = std::fs::read_to_string(&self.cargo_toml_path)
             .map_err(|e| format!("Failed to read Cargo.toml: {}", e))?;
-        
+
         // Parse TOML to JSON for easy manipulation
-        let parsed: toml::Value = toml::from_str(&content)
-            .map_err(|e| format!("Failed to parse Cargo.toml: {}", e))?;
-        
-        serde_json::to_value(parsed)
-            .map_err(|e| format!("Failed to convert TOML to JSON: {}", e))
+        let parsed: toml::Value =
+            toml::from_str(&content).map_err(|e| format!("Failed to parse Cargo.toml: {}", e))?;
+
+        serde_json::to_value(parsed).map_err(|e| format!("Failed to convert TOML to JSON: {}", e))
     }
 
     async fn write_cargo_toml(&self, content: &str) -> Result<(), String> {
@@ -887,21 +988,25 @@ impl DependencyManagerTool {
 
 #[async_trait]
 impl EvolutionTool for DependencyManagerTool {
-    fn name(&self) -> &str { "dependency_manager" }
-    fn description(&self) -> &str { 
+    fn name(&self) -> &str {
+        "dependency_manager"
+    }
+    fn description(&self) -> &str {
         "Manage Cargo.toml dependencies. Params: {\"action\": \"list|add|remove|update\", \
          \"crate_name\": \"...\", \"version\": \"...\", \"features\": [...]}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let action = params.get("action")
+        let action = params
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'action' parameter".to_string())?;
 
         match action {
             "list" => {
                 let cargo = self.read_cargo_toml().await?;
-                let deps = cargo.get("dependencies")
+                let deps = cargo
+                    .get("dependencies")
                     .and_then(|d| d.as_object())
                     .map(|d| serde_json::to_string(d).unwrap_or_default())
                     .unwrap_or("{}".to_string());
@@ -914,10 +1019,12 @@ impl EvolutionTool for DependencyManagerTool {
                 })
             }
             "add" => {
-                let crate_name = params.get("crate_name")
+                let crate_name = params
+                    .get("crate_name")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'crate_name' parameter".to_string())?;
-                let version = params.get("version")
+                let version = params
+                    .get("version")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'version' parameter".to_string())?;
 
@@ -925,7 +1032,8 @@ impl EvolutionTool for DependencyManagerTool {
                 let mut args: Vec<String> = vec!["add".into(), crate_name.into(), "--quiet".into()];
                 if let Some(features) = params.get("features") {
                     if let Some(feat_arr) = features.as_array() {
-                        let features_str = feat_arr.iter()
+                        let features_str = feat_arr
+                            .iter()
                             .filter_map(|f| f.as_str())
                             .collect::<Vec<_>>()
                             .join(",");
@@ -935,7 +1043,11 @@ impl EvolutionTool for DependencyManagerTool {
                 }
 
                 let output = tokio::process::Command::new("cargo")
-                    .current_dir(self.cargo_toml_path.strip_suffix("/Cargo.toml").unwrap_or("."))
+                    .current_dir(
+                        self.cargo_toml_path
+                            .strip_suffix("/Cargo.toml")
+                            .unwrap_or("."),
+                    )
                     .args(args.iter().map(|s| s.as_str()).collect::<Vec<_>>())
                     .output()
                     .await
@@ -954,12 +1066,17 @@ impl EvolutionTool for DependencyManagerTool {
                 })
             }
             "remove" => {
-                let crate_name = params.get("crate_name")
+                let crate_name = params
+                    .get("crate_name")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing 'crate_name' parameter".to_string())?;
 
                 let output = tokio::process::Command::new("cargo")
-                    .current_dir(self.cargo_toml_path.strip_suffix("/Cargo.toml").unwrap_or("."))
+                    .current_dir(
+                        self.cargo_toml_path
+                            .strip_suffix("/Cargo.toml")
+                            .unwrap_or("."),
+                    )
                     .args(["remove", crate_name, "--quiet"])
                     .output()
                     .await
@@ -979,7 +1096,11 @@ impl EvolutionTool for DependencyManagerTool {
             }
             "update" => {
                 let output = tokio::process::Command::new("cargo")
-                    .current_dir(self.cargo_toml_path.strip_suffix("/Cargo.toml").unwrap_or("."))
+                    .current_dir(
+                        self.cargo_toml_path
+                            .strip_suffix("/Cargo.toml")
+                            .unwrap_or("."),
+                    )
                     .args(["update", "--quiet"])
                     .output()
                     .await
@@ -1009,8 +1130,10 @@ pub struct FileSystemWatcherTool {
 }
 
 impl FileSystemWatcherTool {
-    pub fn new(watch_dir: impl Into<String>) -> Self { 
-        Self { watch_dir: watch_dir.into() } 
+    pub fn new(watch_dir: impl Into<String>) -> Self {
+        Self {
+            watch_dir: watch_dir.into(),
+        }
     }
 
     /// List all Rust source files in the project
@@ -1030,9 +1153,10 @@ impl FileSystemWatcherTool {
     /// Get a summary of the project structure
     async fn project_structure(&self) -> Result<serde_json::Value, String> {
         let rust_files = self.list_rust_files().await?;
-        
+
         // Count by module
-        let mut modules: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut modules: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for file in &rust_files {
             if let Some(parent) = file.rsplit_once('/') {
                 *modules.entry(parent.1.to_string()).or_default() += 1;
@@ -1049,13 +1173,16 @@ impl FileSystemWatcherTool {
 
 #[async_trait]
 impl EvolutionTool for FileSystemWatcherTool {
-    fn name(&self) -> &str { "fs_watcher" }
-    fn description(&self) -> &str { 
-        "Monitor project file system. Params: {\"action\": \"list_files|structure\"}" 
+    fn name(&self) -> &str {
+        "fs_watcher"
+    }
+    fn description(&self) -> &str {
+        "Monitor project file system. Params: {\"action\": \"list_files|structure\"}"
     }
 
     async fn execute(&self, params: &serde_json::Value) -> Result<ToolOutput, String> {
-        let action = params.get("action")
+        let action = params
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing 'action' parameter".to_string())?;
 
@@ -1082,4 +1209,3 @@ impl EvolutionTool for FileSystemWatcherTool {
         }
     }
 }
-

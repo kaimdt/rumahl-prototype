@@ -3,12 +3,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use tokio::time::{sleep, Duration};
 use std::collections::HashMap;
+use tokio::time::{sleep, Duration};
 
-use super::reflection::ReflectionEngine;
+use super::code_generation::{ChangeType, CodeChangeProposal, CodeGenerationEngine};
 use super::prompt_engine::PromptOptimizationEngine;
-use super::code_generation::{CodeGenerationEngine, CodeChangeProposal, ChangeType};
+use super::reflection::ReflectionEngine;
 
 /// Orchestrates the complete self-evolution cycle for ORA
 pub struct EvolutionCycle {
@@ -99,11 +99,7 @@ pub struct SelfEvolutionOrchestrator {
 }
 
 impl SelfEvolutionOrchestrator {
-    pub fn new(
-        db_pool: PgPool,
-        project_root: String,
-        config: EvolutionCycleConfig,
-    ) -> Self {
+    pub fn new(db_pool: PgPool, project_root: String, config: EvolutionCycleConfig) -> Self {
         Self {
             reflection: ReflectionEngine::new(db_pool.clone()),
             prompt_engine: PromptOptimizationEngine::new(db_pool.clone()),
@@ -214,11 +210,15 @@ impl SelfEvolutionOrchestrator {
 
         // Analyze recent failures
         let failures = self.reflection.analyze_failures().await?;
-        result.metrics.insert("failures_analyzed".to_string(), failures.len() as f64);
+        result
+            .metrics
+            .insert("failures_analyzed".to_string(), failures.len() as f64);
 
         for failure in &failures {
             if let Some(lesson) = &failure.lesson_learned {
-                result.findings.push(format!("[{}] {}", failure.reflection_type, lesson));
+                result
+                    .findings
+                    .push(format!("[{}] {}", failure.reflection_type, lesson));
             }
             if let Some(ref items) = failure.action_items {
                 if let Some(arr) = items.as_array() {
@@ -233,12 +233,19 @@ impl SelfEvolutionOrchestrator {
 
         // Analyze successes
         let successes = self.reflection.analyze_successes().await?;
-        result.metrics.insert("successes_analyzed".to_string(), successes.len() as f64);
+        result
+            .metrics
+            .insert("successes_analyzed".to_string(), successes.len() as f64);
 
         // Run comprehensive assessment
         let assessment = self.reflection.run_self_assessment().await?;
-        result.metrics.insert("success_rate".to_string(), assessment.success_rate);
-        result.metrics.insert("total_tasks_30d".to_string(), assessment.total_tasks_30d as f64);
+        result
+            .metrics
+            .insert("success_rate".to_string(), assessment.success_rate);
+        result.metrics.insert(
+            "total_tasks_30d".to_string(),
+            assessment.total_tasks_30d as f64,
+        );
 
         if assessment.success_rate < self.config.min_performance_threshold {
             result.findings.push(format!(
@@ -264,14 +271,23 @@ impl SelfEvolutionOrchestrator {
 
         // Analyze code quality via ReflectionEngine assessment
         let report = self.reflection.run_self_assessment().await?;
-        result.metrics.insert("knowledge_entries".to_string(), report.knowledge_entries as f64);
+        result.metrics.insert(
+            "knowledge_entries".to_string(),
+            report.knowledge_entries as f64,
+        );
 
         if report.knowledge_entries < 5 {
-            result.findings.push("Knowledge base has fewer than 5 entries - consider adding more patterns".to_string());
+            result.findings.push(
+                "Knowledge base has fewer than 5 entries - consider adding more patterns"
+                    .to_string(),
+            );
         }
 
         if report.failure_patterns > 3 {
-            result.findings.push(format!("{} recurring failure patterns detected", report.failure_patterns));
+            result.findings.push(format!(
+                "{} recurring failure patterns detected",
+                report.failure_patterns
+            ));
         }
 
         result.status = PhaseStatus::Completed;
@@ -291,9 +307,13 @@ impl SelfEvolutionOrchestrator {
         let mut action_items = Vec::new();
         for phase_result in previous {
             for finding in &phase_result.findings {
-                if finding.contains("optimize") || finding.contains("improve")
-                    || finding.contains("fix") || finding.contains("add")
-                    || finding.contains("performance") || finding.contains("Low") {
+                if finding.contains("optimize")
+                    || finding.contains("improve")
+                    || finding.contains("fix")
+                    || finding.contains("add")
+                    || finding.contains("performance")
+                    || finding.contains("Low")
+                {
                     action_items.push(finding.clone());
                 }
             }
@@ -303,20 +323,28 @@ impl SelfEvolutionOrchestrator {
         for item in action_items.iter().take(self.config.max_changes_per_cycle) {
             match self.create_proposal_from_finding(item).await {
                 Ok(proposal) => {
-                    result.actions_taken.push(format!("Created proposal: {} ({:?})", proposal.title, proposal.risk_level));
+                    result.actions_taken.push(format!(
+                        "Created proposal: {} ({:?})",
+                        proposal.title, proposal.risk_level
+                    ));
                     proposals_created += 1;
                 }
                 Err(e) => tracing::warn!("Could not create proposal for '{}': {}", item, e),
             }
         }
 
-        result.metrics.insert("proposals_created".to_string(), proposals_created as f64);
+        result
+            .metrics
+            .insert("proposals_created".to_string(), proposals_created as f64);
         result.findings = action_items;
         result.status = PhaseStatus::Completed;
         Ok(result)
     }
 
-    async fn create_proposal_from_finding(&self, finding: &str) -> Result<CodeChangeProposal, String> {
+    async fn create_proposal_from_finding(
+        &self,
+        finding: &str,
+    ) -> Result<CodeChangeProposal, String> {
         let file_path;
         let change_type;
         let new_code;
@@ -339,16 +367,21 @@ impl SelfEvolutionOrchestrator {
             new_code = format!("// TODO: Address finding: {}\n", finding);
         }
 
-        self.code_generation.generate_proposal(
-            format!("Auto-improvement: {}", &finding.chars().take(50).collect::<String>()),
-            finding.to_string(),
-            "Generated during self-evolution cycle".to_string(),
-            file_path,
-            change_type,
-            None,
-            new_code,
-            None,
-        ).await
+        self.code_generation
+            .generate_proposal(
+                format!(
+                    "Auto-improvement: {}",
+                    &finding.chars().take(50).collect::<String>()
+                ),
+                finding.to_string(),
+                "Generated during self-evolution cycle".to_string(),
+                file_path,
+                change_type,
+                None,
+                new_code,
+                None,
+            )
+            .await
     }
 
     async fn phase_code_generation(&self) -> Result<PhaseResult, String> {
@@ -361,11 +394,23 @@ impl SelfEvolutionOrchestrator {
             metrics: HashMap::new(),
         };
 
-        let proposals = self.code_generation.list_proposals(Some("Draft"), None, self.config.max_changes_per_cycle as i64).await?;
-        result.metrics.insert("proposals_to_generate".to_string(), proposals.len() as f64);
+        let proposals = self
+            .code_generation
+            .list_proposals(
+                Some("Draft"),
+                None,
+                self.config.max_changes_per_cycle as i64,
+            )
+            .await?;
+        result
+            .metrics
+            .insert("proposals_to_generate".to_string(), proposals.len() as f64);
 
         for proposal in &proposals {
-            result.actions_taken.push(format!("Code ready for review: {} ({:?})", proposal.title, proposal.change_type));
+            result.actions_taken.push(format!(
+                "Code ready for review: {} ({:?})",
+                proposal.title, proposal.change_type
+            ));
         }
 
         Ok(result)
@@ -381,7 +426,14 @@ impl SelfEvolutionOrchestrator {
             metrics: HashMap::new(),
         };
 
-        let proposals = self.code_generation.list_proposals(Some("Draft"), None, self.config.max_changes_per_cycle as i64).await?;
+        let proposals = self
+            .code_generation
+            .list_proposals(
+                Some("Draft"),
+                None,
+                self.config.max_changes_per_cycle as i64,
+            )
+            .await?;
         let mut approved = 0;
         let mut rejected = 0;
 
@@ -390,10 +442,16 @@ impl SelfEvolutionOrchestrator {
                 Ok(review) => {
                     if review.passed {
                         approved += 1;
-                        result.actions_taken.push(format!("APPROVED: {}", proposal.title));
+                        result
+                            .actions_taken
+                            .push(format!("APPROVED: {}", proposal.title));
                     } else {
                         rejected += 1;
-                        result.findings.push(format!("REJECTED: {} - Issues: {}", proposal.title, review.issues.join("; ")));
+                        result.findings.push(format!(
+                            "REJECTED: {} - Issues: {}",
+                            proposal.title,
+                            review.issues.join("; ")
+                        ));
                     }
                 }
                 Err(e) => {
@@ -404,8 +462,12 @@ impl SelfEvolutionOrchestrator {
             sleep(Duration::from_millis(100)).await;
         }
 
-        result.metrics.insert("approved".to_string(), approved as f64);
-        result.metrics.insert("rejected".to_string(), rejected as f64);
+        result
+            .metrics
+            .insert("approved".to_string(), approved as f64);
+        result
+            .metrics
+            .insert("rejected".to_string(), rejected as f64);
         result.status = PhaseStatus::Completed;
         Ok(result)
     }
@@ -420,7 +482,14 @@ impl SelfEvolutionOrchestrator {
             metrics: HashMap::new(),
         };
 
-        let proposals = self.code_generation.list_proposals(Some("Approved"), None, self.config.max_changes_per_cycle as i64).await?;
+        let proposals = self
+            .code_generation
+            .list_proposals(
+                Some("Approved"),
+                None,
+                self.config.max_changes_per_cycle as i64,
+            )
+            .await?;
         let mut applied = 0;
         let mut failed = 0;
 
@@ -428,11 +497,16 @@ impl SelfEvolutionOrchestrator {
             match self.code_generation.apply_change(proposal.id).await {
                 Ok(apply_result) => {
                     applied += 1;
-                    result.actions_taken.push(format!("APPLIED: {} -> {} (committed: {})", proposal.title, apply_result.file_path, apply_result.committed));
+                    result.actions_taken.push(format!(
+                        "APPLIED: {} -> {} (committed: {})",
+                        proposal.title, apply_result.file_path, apply_result.committed
+                    ));
                 }
                 Err(e) => {
                     failed += 1;
-                    result.findings.push(format!("FAILED to apply {}: {}", proposal.title, e));
+                    result
+                        .findings
+                        .push(format!("FAILED to apply {}: {}", proposal.title, e));
                 }
             }
             sleep(Duration::from_millis(200)).await;
@@ -474,7 +548,10 @@ impl SelfEvolutionOrchestrator {
     }
 
     async fn rollback_changes(&self) -> Result<(), String> {
-        let proposals = self.code_generation.list_proposals(Some("Applied"), None, 100).await?;
+        let proposals = self
+            .code_generation
+            .list_proposals(Some("Applied"), None, 100)
+            .await?;
         for proposal in proposals {
             if let Err(e) = self.code_generation.rollback_change(proposal.id).await {
                 tracing::error!("Failed to rollback {}: {}", proposal.title, e);

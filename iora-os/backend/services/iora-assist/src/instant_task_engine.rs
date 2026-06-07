@@ -132,7 +132,10 @@ impl InstantTaskEngine {
         let running = self.running.clone();
 
         tokio::spawn(async move {
-            tracing::info!("InstantTaskEngine started, polling every {}s", POLL_INTERVAL_SECS);
+            tracing::info!(
+                "InstantTaskEngine started, polling every {}s",
+                POLL_INTERVAL_SECS
+            );
             let mut tick = interval(Duration::from_secs(POLL_INTERVAL_SECS));
 
             loop {
@@ -187,7 +190,9 @@ async fn process_task(
 
     tracing::info!(
         "Processing instant task {} type={} query={:?}",
-        task_id, task_ref.task_type, task_ref.query
+        task_id,
+        task_ref.task_type,
+        task_ref.query
     );
 
     // Kick off the actual tool work in a separate task; communicate via a oneshot channel.
@@ -222,7 +227,11 @@ async fn process_task(
         }
         Err(_) => {
             // Slow path: emit "taking_longer" signal.
-            tracing::info!("Instant task {} exceeded {}s – emitting taking_longer", task_id, SLOW_PATH_THRESHOLD_SECS);
+            tracing::info!(
+                "Instant task {} exceeded {}s – emitting taking_longer",
+                task_id,
+                SLOW_PATH_THRESHOLD_SECS
+            );
             let _ = tx.send(InstantTaskResult {
                 task_id,
                 event_type: "taking_longer".to_string(),
@@ -244,7 +253,8 @@ async fn process_task(
                     // Deferred: mark in DB, broadcast deferred event, then keep waiting.
                     tracing::info!(
                         "Instant task {} exceeded {}s – marking deferred",
-                        task_id, DEFERRED_THRESHOLD_SECS
+                        task_id,
+                        DEFERRED_THRESHOLD_SECS
                     );
                     let _ = db::mark_deferred(&db, task_id).await;
 
@@ -262,7 +272,10 @@ async fn process_task(
                     match result_rx.await {
                         Ok(output) => output,
                         Err(_) => {
-                            tracing::warn!("Instant task {} tool channel closed (deferred phase)", task_id);
+                            tracing::warn!(
+                                "Instant task {} tool channel closed (deferred phase)",
+                                task_id
+                            );
                             return;
                         }
                     }
@@ -272,8 +285,13 @@ async fn process_task(
     };
 
     // Synthesise a natural-language answer.
-    let result_text =
-        synthesise_answer(&provider, &task_ref.query, &task_ref.task_type, &tool_output.0).await;
+    let result_text = synthesise_answer(
+        &provider,
+        &task_ref.query,
+        &task_ref.task_type,
+        &tool_output.0,
+    )
+    .await;
 
     // Persist result.
     let (final_status, final_event_type, final_error) = if result_text.starts_with("ERROR:") {
@@ -290,14 +308,22 @@ async fn process_task(
         task_id,
         event_type: final_event_type.clone(),
         status: final_status.clone(),
-        result_text: if final_event_type == "completed" { result_text.clone() } else { String::new() },
+        result_text: if final_event_type == "completed" {
+            result_text.clone()
+        } else {
+            String::new()
+        },
         result_data: tool_output.1.clone(),
         error: final_error.clone(),
         elapsed_secs: None,
     };
     let _ = tx.send(broadcast_result);
 
-    tracing::info!("Instant task {} completed (status={})", task_id, final_status);
+    tracing::info!(
+        "Instant task {} completed (status={})",
+        task_id,
+        final_status
+    );
 
     // If the task was deferred OR there are no active SSE listeners, queue a
     // notification so the result is delivered when the user is back online.
@@ -311,9 +337,7 @@ async fn process_task(
     };
 
     if (no_listeners || was_deferred) && final_event_type == "completed" {
-        let notification_msg = format!(
-            "ORA hat eine Antwort für dich: {}", result_text
-        );
+        let notification_msg = format!("ORA hat eine Antwort für dich: {}", result_text);
         if let Err(e) = notifications::queue_notification(
             &db,
             None,
@@ -326,7 +350,12 @@ async fn process_task(
         {
             tracing::warn!("Failed to queue deferred instant task notification: {}", e);
         } else {
-            tracing::info!("Instant task {} result queued as notification (no_listeners={}, was_deferred={})", task_id, no_listeners, was_deferred);
+            tracing::info!(
+                "Instant task {} result queued as notification (no_listeners={}, was_deferred={})",
+                task_id,
+                no_listeners,
+                was_deferred
+            );
         }
     }
 }
@@ -369,7 +398,10 @@ async fn run_tool(
             if result.success {
                 (summarise_search_results(&result.data), result.data)
             } else {
-                (format!("ERROR: {}", result.error.unwrap_or_default()), serde_json::Value::Null)
+                (
+                    format!("ERROR: {}", result.error.unwrap_or_default()),
+                    serde_json::Value::Null,
+                )
             }
         }
     }
@@ -379,7 +411,10 @@ async fn run_tool(
 fn build_search_query(task_type: &str, base_query: &str, params: &serde_json::Value) -> String {
     match task_type {
         "weather" => {
-            let location = params.get("location").and_then(|v| v.as_str()).unwrap_or("aktuell");
+            let location = params
+                .get("location")
+                .and_then(|v| v.as_str())
+                .unwrap_or("aktuell");
             format!("Wetter heute {} {}", location, base_query)
         }
         "news" => format!("aktuelle Nachrichten {}", base_query),
@@ -400,10 +435,19 @@ fn summarise_search_results(data: &serde_json::Value) -> String {
         let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("");
         let snippet = r.get("snippet").and_then(|v| v.as_str()).unwrap_or("");
         if !title.is_empty() {
-            out.push_str(&format!("{}. {}: {}\n", i + 1, title.trim(), snippet.trim()));
+            out.push_str(&format!(
+                "{}. {}: {}\n",
+                i + 1,
+                title.trim(),
+                snippet.trim()
+            ));
         }
     }
-    if out.is_empty() { "Keine Suchergebnisse gefunden.".to_string() } else { out }
+    if out.is_empty() {
+        "Keine Suchergebnisse gefunden.".to_string()
+    } else {
+        out
+    }
 }
 
 // ─── AI answer synthesis ──────────────────────────────────────────────────────

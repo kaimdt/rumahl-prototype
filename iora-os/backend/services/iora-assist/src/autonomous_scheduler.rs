@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc, Timelike, Datelike, Weekday};
+use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -132,7 +132,8 @@ impl AutonomousScheduler {
         while *self.running.read() {
             let now = Utc::now();
             let due_tasks: Vec<ScheduledTask> = {
-                self.tasks.read()
+                self.tasks
+                    .read()
                     .values()
                     .filter(|t| t.enabled && t.next_run.is_some_and(|nr| nr <= now))
                     .cloned()
@@ -141,7 +142,9 @@ impl AutonomousScheduler {
 
             for mut task in due_tasks {
                 info!("Scheduler: Task '{}' is due", task.name);
-                let _ = self.event_tx.send(SchedulerEvent::TaskDue { task: task.clone() });
+                let _ = self
+                    .event_tx
+                    .send(SchedulerEvent::TaskDue { task: task.clone() });
 
                 // Simulate task execution (actual execution handled by agent system)
                 task.last_run = Some(now);
@@ -166,13 +169,18 @@ impl AutonomousScheduler {
     pub fn record_run(&self, task_id: &str, run: TaskRun) {
         if let Some(task) = self.tasks.write().get_mut(task_id) {
             task.last_run = Some(Utc::now());
-            if run.success { task.success_count += 1; }
+            if run.success {
+                task.success_count += 1;
+            }
             task.next_run = self.calculate_next_run(&task.schedule);
         }
         self.run_history.write().push(run.clone());
 
         if run.success {
-            let _ = self.event_tx.send(SchedulerEvent::TaskCompleted { task_id: task_id.to_string(), run });
+            let _ = self.event_tx.send(SchedulerEvent::TaskCompleted {
+                task_id: task_id.to_string(),
+                run,
+            });
         } else {
             let _ = self.event_tx.send(SchedulerEvent::TaskFailed {
                 task_id: task_id.to_string(),
@@ -202,7 +210,8 @@ impl AutonomousScheduler {
                 let current_weekday = now.weekday();
                 let mut next = now.with_hour(*h)?.with_minute(*m)?;
                 for day in days {
-                    let days_ahead = (*day as i32 - current_weekday.num_days_from_monday() as i32 + 7) % 7;
+                    let days_ahead =
+                        (*day as i32 - current_weekday.num_days_from_monday() as i32 + 7) % 7;
                     let candidate = now + chrono::Duration::days(days_ahead as i64);
                     let candidate = candidate.with_hour(*h)?.with_minute(*m)?;
                     if candidate > now {
@@ -222,7 +231,11 @@ impl AutonomousScheduler {
             Schedule::Cron(_expr) => Some(now + chrono::Duration::hours(1)), // Simplified
             Schedule::OnEvent(_) => None, // No automatic next run
             Schedule::Once(dt) => {
-                if *dt > now { Some(*dt) } else { None }
+                if *dt > now {
+                    Some(*dt)
+                } else {
+                    None
+                }
             }
         }
     }
@@ -241,7 +254,11 @@ impl AutonomousScheduler {
     pub fn get_run_history(&self, task_id: Option<&str>, limit: usize) -> Vec<TaskRun> {
         let history = self.run_history.read();
         let filtered: Vec<TaskRun> = match task_id {
-            Some(tid) => history.iter().filter(|r| r.task_id == tid).cloned().collect(),
+            Some(tid) => history
+                .iter()
+                .filter(|r| r.task_id == tid)
+                .cloned()
+                .collect(),
             None => history.iter().cloned().collect(),
         };
         filtered.into_iter().rev().take(limit).collect()

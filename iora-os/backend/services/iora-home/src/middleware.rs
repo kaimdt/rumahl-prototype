@@ -88,8 +88,7 @@ pub async fn try_authenticate(
     if let Some(query) = query_string.as_deref() {
         if let Some(token) = query.split('&').find_map(|pair| {
             let (key, value) = pair.split_once('=')?;
-            
-            
+
             if key == "token" {
                 Some(value)
             } else {
@@ -108,7 +107,10 @@ pub async fn try_authenticate(
                     .await
                     .unwrap_or(false)
                 {
-                    warn!("Rejected blacklisted JWT from query param (jti={})", &claims.jti[..8]);
+                    warn!(
+                        "Rejected blacklisted JWT from query param (jti={})",
+                        &claims.jti[..8]
+                    );
                     return None;
                 }
                 return Some(AuthIdentity::Jwt(claims));
@@ -209,11 +211,13 @@ pub async fn require_auth(
             }
 
             // Check write permission for API keys
-            if !id.has_permission("write") && !id.has_permission("*")
-                && matches!(id, AuthIdentity::ApiKey { .. }) {
-                    warn!("Service call rejected: API key lacks write permission");
-                    return Err(StatusCode::FORBIDDEN);
-                }
+            if !id.has_permission("write")
+                && !id.has_permission("*")
+                && matches!(id, AuthIdentity::ApiKey { .. })
+            {
+                warn!("Service call rejected: API key lacks write permission");
+                return Err(StatusCode::FORBIDDEN);
+            }
 
             request.extensions_mut().insert(id);
             Ok(next.run(request).await)

@@ -74,12 +74,24 @@ pub struct GlobalConfig {
     pub backup_retention_days: u32,
 }
 
-fn default_conn_limit() -> i32 { 20 }
-fn default_rotation_days() -> u32 { 90 }
-fn default_min_password_length() -> usize { 32 }
-fn default_grace_period_hours() -> u32 { 24 }
-fn default_true() -> bool { true }
-fn default_backup_retention() -> u32 { 30 }
+fn default_conn_limit() -> i32 {
+    20
+}
+fn default_rotation_days() -> u32 {
+    90
+}
+fn default_min_password_length() -> usize {
+    32
+}
+fn default_grace_period_hours() -> u32 {
+    24
+}
+fn default_true() -> bool {
+    true
+}
+fn default_backup_retention() -> u32 {
+    30
+}
 
 impl Default for DbConfig {
     fn default() -> Self {

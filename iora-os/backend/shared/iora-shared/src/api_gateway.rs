@@ -137,11 +137,7 @@ impl ApiGateway {
             .values()
             .find(|e| e.path == request.path && e.method == request.method)
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No endpoint found for {} {}",
-                    request.method,
-                    request.path
-                )
+                anyhow::anyhow!("No endpoint found for {} {}", request.method, request.path)
             })?;
 
         let provider_id = endpoint.provider_id.clone();

@@ -1,14 +1,14 @@
 // ORA AI Provider Module
 // Abstraction layer for different AI providers
 
-pub mod openai;
 pub mod anthropic;
-pub mod local;
-pub mod desktop;
-pub mod pidev;
 pub mod cloud;
+pub mod desktop;
 pub mod iora_stt;
 pub mod iora_tts;
+pub mod local;
+pub mod openai;
+pub mod pidev;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -137,10 +137,14 @@ impl ProviderType {
 pub fn provider_type_from_str(value: &str) -> Option<ProviderType> {
     match value.trim().to_ascii_lowercase().as_str() {
         "openai" => Some(ProviderType::OpenAI),
-        "anthropic" | "claude" | "claude-sonnet" | "claude-opus" | "claude-haiku" => Some(ProviderType::Anthropic),
+        "anthropic" | "claude" | "claude-sonnet" | "claude-opus" | "claude-haiku" => {
+            Some(ProviderType::Anthropic)
+        }
         "local" | "localai" | "ollama" | "lmstudio" | "lm-studio" => Some(ProviderType::Local),
         "desktop" | "desktopai" => Some(ProviderType::Desktop),
-        "compatible" | "custom" | "openai-compatible" | "openai_compatible" => Some(ProviderType::Compatible),
+        "compatible" | "custom" | "openai-compatible" | "openai_compatible" => {
+            Some(ProviderType::Compatible)
+        }
         "pidev" | "pi.dev" | "pi_dev" => Some(ProviderType::PiDev),
         "deepseek" => Some(ProviderType::DeepSeek),
         "grok" | "xai" => Some(ProviderType::Grok),
@@ -150,16 +154,15 @@ pub fn provider_type_from_str(value: &str) -> Option<ProviderType> {
         "fireworks" | "fireworks-ai" | "fireworks_ai" => Some(ProviderType::Fireworks),
         "perplexity" | "perplexity-ai" | "perplexity_ai" => Some(ProviderType::Perplexity),
         "cloud_custom" | "cloud-custom" => Some(ProviderType::CloudCustom),
-        "iora_stt" | "iora-stt" | "faster-whisper" | "faster_whisper" => Some(ProviderType::IoraStt),
+        "iora_stt" | "iora-stt" | "faster-whisper" | "faster_whisper" => {
+            Some(ProviderType::IoraStt)
+        }
         "iora_tts" | "iora-tts" | "kokoro" => Some(ProviderType::IoraTts),
         _ => None,
     }
 }
 
-pub fn create_provider(
-    provider_type: ProviderType,
-    config: ProviderConfig,
-) -> Box<dyn AIProvider> {
+pub fn create_provider(provider_type: ProviderType, config: ProviderConfig) -> Box<dyn AIProvider> {
     match provider_type {
         ProviderType::OpenAI => Box::new(openai::OpenAIProvider::new(config)),
         ProviderType::Anthropic => Box::new(anthropic::AnthropicProvider::new(config)),
@@ -167,25 +170,47 @@ pub fn create_provider(
         ProviderType::Desktop => Box::new(desktop::DesktopAIProvider::new(config)),
         ProviderType::Compatible => Box::new(openai::OpenAIProvider::new_compatible(config)),
         ProviderType::PiDev => pidev::PiDevProvider::from_config(config),
-        ProviderType::DeepSeek => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::DeepSeek, config)),
-        ProviderType::Grok => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Grok, config)),
-        ProviderType::Mistral => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Mistral, config)),
-        ProviderType::Cohere => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Cohere, config)),
-        ProviderType::Together => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Together, config)),
-        ProviderType::Fireworks => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Fireworks, config)),
-        ProviderType::Perplexity => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Perplexity, config)),
-        ProviderType::CloudCustom => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Custom, config)),
+        ProviderType::DeepSeek => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::DeepSeek,
+            config,
+        )),
+        ProviderType::Grok => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::Grok,
+            config,
+        )),
+        ProviderType::Mistral => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::Mistral,
+            config,
+        )),
+        ProviderType::Cohere => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::Cohere,
+            config,
+        )),
+        ProviderType::Together => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::Together,
+            config,
+        )),
+        ProviderType::Fireworks => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::Fireworks,
+            config,
+        )),
+        ProviderType::Perplexity => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::Perplexity,
+            config,
+        )),
+        ProviderType::CloudCustom => Box::new(cloud::CloudAIProvider::new(
+            cloud::CloudProviderType::Custom,
+            config,
+        )),
         ProviderType::IoraStt => Box::new(iora_stt::IoraSttProvider::new(config)),
         ProviderType::IoraTts => Box::new(iora_tts::IoraTtsProvider::new(config)),
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub model: Option<String>,
     pub api_version: Option<String>,
 }
-

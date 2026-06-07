@@ -39,10 +39,17 @@ use std::{
     collections::{HashSet, VecDeque},
     io::stdout,
     path::PathBuf,
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
-use tokio::{process::Command as TokioCommand, sync::{mpsc, oneshot}, time::interval};
+use tokio::{
+    process::Command as TokioCommand,
+    sync::{mpsc, oneshot},
+    time::interval,
+};
 
 /// Spawn a TokioCommand configured for headless background use:
 /// stdin pinned to NUL so the child never competes with our input thread for
@@ -75,14 +82,21 @@ const STATUS_REFRESH_INTERVAL_S: u64 = 8;
 #[derive(Parser, Debug)]
 #[command(name = "iora-dev-watch")]
 struct Args {
-    #[arg(long)] no_watch: bool,
-    #[arg(long, default_value = "127.0.0.1")] vm_host: String,
-    #[arg(long, default_value = "2222")] vm_port: u16,
-    #[arg(long)] ssh_key: Option<String>,
-    #[arg(long)] no_deploy: bool,
-    #[arg(long)] no_initial_build: bool,
+    #[arg(long)]
+    no_watch: bool,
+    #[arg(long, default_value = "127.0.0.1")]
+    vm_host: String,
+    #[arg(long, default_value = "2222")]
+    vm_port: u16,
+    #[arg(long)]
+    ssh_key: Option<String>,
+    #[arg(long)]
+    no_deploy: bool,
+    #[arg(long)]
+    no_initial_build: bool,
     /// Bridge port (iora-dev-bridge). Set to 0 to disable bridge mode.
-    #[arg(long, default_value = "8101")] vm_bridge_port: u16,
+    #[arg(long, default_value = "8101")]
+    vm_bridge_port: u16,
 }
 
 // ═══ Backend: cheap shared snapshot for background tasks ═════════════════
@@ -103,22 +117,39 @@ struct Backend {
 impl Backend {
     fn ssh_args(&self) -> Vec<String> {
         let mut args = vec![
-            "-o".into(), "StrictHostKeyChecking=no".into(),
-            "-o".into(), "IdentitiesOnly=yes".into(),
-            "-o".into(), "BatchMode=yes".into(),
-            "-o".into(), "LogLevel=ERROR".into(),
-            "-o".into(), "ConnectTimeout=10".into(),
-            "-o".into(), "ServerAliveInterval=60".into(),
-            "-o".into(), "ServerAliveCountMax=60".into(),
-            "-o".into(), "TCPKeepAlive=yes".into(),
-            "-o".into(), "AddressFamily=inet".into(),
+            "-o".into(),
+            "StrictHostKeyChecking=no".into(),
+            "-o".into(),
+            "IdentitiesOnly=yes".into(),
+            "-o".into(),
+            "BatchMode=yes".into(),
+            "-o".into(),
+            "LogLevel=ERROR".into(),
+            "-o".into(),
+            "ConnectTimeout=10".into(),
+            "-o".into(),
+            "ServerAliveInterval=60".into(),
+            "-o".into(),
+            "ServerAliveCountMax=60".into(),
+            "-o".into(),
+            "TCPKeepAlive=yes".into(),
+            "-o".into(),
+            "AddressFamily=inet".into(),
         ];
         #[cfg(unix)]
-        { args.push("-o".into()); args.push("UserKnownHostsFile=/dev/null".into()); }
+        {
+            args.push("-o".into());
+            args.push("UserKnownHostsFile=/dev/null".into());
+        }
         #[cfg(windows)]
-        { args.push("-o".into()); args.push("UserKnownHostsFile=NUL".into()); }
-        args.push("-i".into()); args.push(self.ssh_key.to_string_lossy().into());
-        args.push("-p".into()); args.push(self.vm_port.to_string());
+        {
+            args.push("-o".into());
+            args.push("UserKnownHostsFile=NUL".into());
+        }
+        args.push("-i".into());
+        args.push(self.ssh_key.to_string_lossy().into());
+        args.push("-p".into());
+        args.push(self.vm_port.to_string());
         args.push(format!("root@{}", self.vm_host));
         args
     }
@@ -133,7 +164,9 @@ impl Backend {
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .output(),
-        ).await.context("ssh timeout")??;
+        )
+        .await
+        .context("ssh timeout")??;
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
@@ -142,7 +175,9 @@ impl Backend {
     }
 
     async fn refresh_services(&self) -> usize {
-        if self.services.is_empty() { return 0; }
+        if self.services.is_empty() {
+            return 0;
+        }
         let cmd = format!(
             "for s in {}; do st=$(systemctl is-active \"$s\" 2>/dev/null); [ -n \"$st\" ] || st=unknown; printf '%s\\n' \"$st\"; done",
             self.services.join(" ")
@@ -155,7 +190,9 @@ impl Backend {
 
     async fn fetch_service_status(&self) -> Vec<(String, bool)> {
         let mut result = Vec::with_capacity(self.services.len());
-        if self.services.is_empty() { return result; }
+        if self.services.is_empty() {
+            return result;
+        }
         // Probe multiple bin directories — IORA OS may use /usr/local/bin or
         // /opt/iora/bin depending on the image. Reporting "binary missing"
         // when it's just installed elsewhere caused phantom auto-builds.
@@ -184,7 +221,9 @@ impl Backend {
                 }
             }
         } else {
-            for _ in self.services.iter() { result.push(("?".into(), false)); }
+            for _ in self.services.iter() {
+                result.push(("?".into(), false));
+            }
         }
         result
     }
@@ -195,7 +234,9 @@ impl Backend {
             self.vm_workspace
         );
         if let Some(crates) = only {
-            for c in crates { cmd.push_str(&format!(" -p {}", c)); }
+            for c in crates {
+                cmd.push_str(&format!(" -p {}", c));
+            }
         } else {
             cmd.push_str(" --workspace");
         }
@@ -207,11 +248,20 @@ impl Backend {
         let mut ssh_opts: Vec<String> = self.ssh_args();
         ssh_opts.pop(); // drop user@host
         let mut args = vec![
-            "-a".into(), "--delete".into(),
-            "--exclude=.git".into(), "--exclude=target".into(), "--exclude=node_modules".into(),
-            "--exclude=.cache".into(), "--exclude=buildroot-*".into(), "--exclude=releases".into(),
-            "--exclude=*.img".into(), "--exclude=*.qcow2".into(), "--exclude=*.iso".into(),
-            "--exclude=.iora-dev".into(), "--exclude=dist".into(), "--exclude=__pycache__".into(),
+            "-a".into(),
+            "--delete".into(),
+            "--exclude=.git".into(),
+            "--exclude=target".into(),
+            "--exclude=node_modules".into(),
+            "--exclude=.cache".into(),
+            "--exclude=buildroot-*".into(),
+            "--exclude=releases".into(),
+            "--exclude=*.img".into(),
+            "--exclude=*.qcow2".into(),
+            "--exclude=*.iso".into(),
+            "--exclude=.iora-dev".into(),
+            "--exclude=dist".into(),
+            "--exclude=__pycache__".into(),
         ];
         args.push("-e".into());
         args.push(format!("ssh {}", ssh_opts.join(" ")));
@@ -221,20 +271,37 @@ impl Backend {
             .args(&args)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status().await;
-        let _ = self.ssh_exec("chown -R iora:iora /home/iora/iora 2>/dev/null").await;
+            .status()
+            .await;
+        let _ = self
+            .ssh_exec("chown -R iora:iora /home/iora/iora 2>/dev/null")
+            .await;
     }
 
     async fn build_rust(&self, only: Option<HashSet<String>>, tx: mpsc::UnboundedSender<AppEvent>) {
-        let label = if let Some(ref c) = only { format!("{} crates", c.len()) } else { "all".into() };
+        let label = if let Some(ref c) = only {
+            format!("{} crates", c.len())
+        } else {
+            "all".into()
+        };
         let _ = tx.send(AppEvent::Log(format!("──[Rust — {}]──", label)));
         let _ = self.ssh_exec("su - iora -c 'test -f /home/iora/.cargo/bin/cargo || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1").await;
 
         // Check disk space — clean only incremental cache (not deps/)
-        let disk_check = self.ssh_exec("df -BG /home/iora/iora/iora-os/backend | tail -1 | awk '{print $4}' | tr -d 'G'").await;
-        let free_gb: u32 = disk_check.as_ref().ok().and_then(|s| s.trim().parse().ok()).unwrap_or(99);
+        let disk_check = self
+            .ssh_exec(
+                "df -BG /home/iora/iora/iora-os/backend | tail -1 | awk '{print $4}' | tr -d 'G'",
+            )
+            .await;
+        let free_gb: u32 = disk_check
+            .as_ref()
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(99);
         if free_gb < 5 {
-            let _ = tx.send(AppEvent::Log(format!("[RUST] Disk low ({free_gb}G free), cleaning incremental cache...")));
+            let _ = tx.send(AppEvent::Log(format!(
+                "[RUST] Disk low ({free_gb}G free), cleaning incremental cache..."
+            )));
             // Remove only incremental compilation cache (~5-10GB), not compiled deps
             let _ = self.ssh_exec("find /home/iora/iora/iora-os/backend/target -type d -name incremental -exec rm -rf {} + 2>/dev/null; find /home/iora/iora/iora-os/backend/target -name '*.d' -delete 2>/dev/null; echo OK").await;
         }
@@ -247,13 +314,17 @@ impl Backend {
         use tokio::io::{AsyncBufReadExt, BufReader};
         let mut args = self.ssh_args();
         args.push(full);
-        let spawn = bg_cmd("ssh").args(&args)
+        let spawn = bg_cmd("ssh")
+            .args(&args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn();
         let mut child = match spawn {
             Ok(c) => c,
-            Err(e) => { let _ = tx.send(AppEvent::Log(format!("[RUST] spawn failed: {e}"))); return; }
+            Err(e) => {
+                let _ = tx.send(AppEvent::Log(format!("[RUST] spawn failed: {e}")));
+                return;
+            }
         };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -279,9 +350,11 @@ impl Backend {
         let _ = t2.await;
         let status = child.wait().await;
         let ok = matches!(status, Ok(s) if s.success());
-        let _ = tx.send(AppEvent::Log(
-            if ok { "[RUST] ✓ Build OK".into() } else { "[RUST] ✗ Build FAILED".into() }
-        ));
+        let _ = tx.send(AppEvent::Log(if ok {
+            "[RUST] ✓ Build OK".into()
+        } else {
+            "[RUST] ✗ Build FAILED".into()
+        }));
     }
 
     /// Hard-reset deployment state on the VM: wipe persisted bin-hashes and
@@ -322,7 +395,8 @@ echo "wiped"
         use tokio::io::{AsyncBufReadExt, BufReader};
         let mut args = self.ssh_args();
         args.push(cmd);
-        let spawn = bg_cmd("ssh").args(&args)
+        let spawn = bg_cmd("ssh")
+            .args(&args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn();
@@ -363,7 +437,8 @@ echo "wiped"
     fn deploy_script(&self) -> String {
         let ws = &self.vm_workspace;
         let svc_list = self.services.join(" ");
-        format!(r#"#!/bin/bash
+        format!(
+            r#"#!/bin/bash
 set +e
 mkdir -p /var/lib/iora/.bin-hashes
 # Pick a writable system bin dir. /usr/bin is read-only on the IORA OS
@@ -502,16 +577,24 @@ if [ "$home_changed" = "1" ] && [ ! -f /var/lib/iora/.admin-role-fixed ]; then
     touch /var/lib/iora/.admin-role-fixed
 fi
 echo "result: deployed=$deployed skipped=$skipped"
-"#)
+"#
+        )
     }
 
     async fn build_frontend(&self, tx: mpsc::UnboundedSender<AppEvent>, auto_deploy: bool) {
-        let fe = match &self.frontend_dir { Some(d) => d.clone(), None => return };
+        let fe = match &self.frontend_dir {
+            Some(d) => d.clone(),
+            None => return,
+        };
         let _ = tx.send(AppEvent::Log("──[Frontend]──".into()));
         // If dist/ already exists (pre-built by dev-local.ps1), skip build
         if fe.join("dist").is_dir() && !fe.join("node_modules").is_dir() {
-            let _ = tx.send(AppEvent::Log("[FE] Using pre-built dist/ (from dev-local.ps1)".into()));
-            if auto_deploy { self.deploy_frontend(tx).await; }
+            let _ = tx.send(AppEvent::Log(
+                "[FE] Using pre-built dist/ (from dev-local.ps1)".into(),
+            ));
+            if auto_deploy {
+                self.deploy_frontend(tx).await;
+            }
             return;
         }
         // On Windows, npm is npm.cmd — use cmd /c to invoke it
@@ -522,12 +605,17 @@ echo "result: deployed=$deployed skipped=$skipped"
         if !fe.join("node_modules").is_dir() {
             let _ = tx.send(AppEvent::Log("[FE] npm install...".into()));
             let mut cmd = bg_cmd(npm_cmd);
-            #[cfg(windows)] { cmd.arg("/c").arg("npm"); }
-            let st = cmd.args(["install", "--no-audit", "--no-fund"])
+            #[cfg(windows)]
+            {
+                cmd.arg("/c").arg("npm");
+            }
+            let st = cmd
+                .args(["install", "--no-audit", "--no-fund"])
                 .current_dir(&fe)
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
-                .status().await;
+                .status()
+                .await;
             if !matches!(st, Ok(s) if s.success()) {
                 let _ = tx.send(AppEvent::Log("[FE] ✗ npm install FAILED".into()));
                 return;
@@ -535,12 +623,17 @@ echo "result: deployed=$deployed skipped=$skipped"
         }
         let _ = tx.send(AppEvent::Log("[FE] npm run build...".into()));
         let mut cmd = bg_cmd(npm_cmd);
-        #[cfg(windows)] { cmd.arg("/c").arg("npm"); }
-        let out = match cmd.args(["run", "build"])
+        #[cfg(windows)]
+        {
+            cmd.arg("/c").arg("npm");
+        }
+        let out = match cmd
+            .args(["run", "build"])
             .current_dir(&fe)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .output().await
+            .output()
+            .await
         {
             Ok(o) => o,
             Err(e) => {
@@ -548,26 +641,37 @@ echo "result: deployed=$deployed skipped=$skipped"
                 // Fallback: check if dist/ exists from dev-local.ps1
                 if fe.join("dist").is_dir() {
                     let _ = tx.send(AppEvent::Log("[FE] Using pre-built dist/ instead".into()));
-                    if auto_deploy { self.deploy_frontend(tx).await; }
+                    if auto_deploy {
+                        self.deploy_frontend(tx).await;
+                    }
                 }
                 return;
             }
         };
         for line in String::from_utf8_lossy(&out.stdout).lines() {
-            if !line.trim().is_empty() { let _ = tx.send(AppEvent::Log(format!("[FE] {}", line))); }
+            if !line.trim().is_empty() {
+                let _ = tx.send(AppEvent::Log(format!("[FE] {}", line)));
+            }
         }
         if out.status.success() {
             let _ = tx.send(AppEvent::Log("[FE] ✓ Build OK".into()));
-            if auto_deploy { self.deploy_frontend(tx).await; }
+            if auto_deploy {
+                self.deploy_frontend(tx).await;
+            }
         } else {
             let _ = tx.send(AppEvent::Log("[FE] ✗ Build FAILED".into()));
         }
     }
 
     async fn deploy_frontend(&self, tx: mpsc::UnboundedSender<AppEvent>) {
-        let fe = match &self.frontend_dir { Some(d) => d.clone(), None => return };
+        let fe = match &self.frontend_dir {
+            Some(d) => d.clone(),
+            None => return,
+        };
         let dist = fe.join("dist");
-        if !dist.is_dir() { return; }
+        if !dist.is_dir() {
+            return;
+        }
         let remote = "set -e; mkdir -p /opt/iora/build; \
             tmp=$(mktemp -d /opt/iora/build/.dist-XXXXXX); \
             tar xzf - -C \"$tmp\"; \
@@ -584,29 +688,43 @@ echo "result: deployed=$deployed skipped=$skipped"
             .spawn()
         {
             Ok(c) => c,
-            Err(e) => { let _ = tx.send(AppEvent::Log(format!("[FE] tar spawn: {e}"))); return; }
+            Err(e) => {
+                let _ = tx.send(AppEvent::Log(format!("[FE] tar spawn: {e}")));
+                return;
+            }
         };
-        let Some(tar_out) = tar_child.stdout.take() else { return; };
+        let Some(tar_out) = tar_child.stdout.take() else {
+            return;
+        };
         #[cfg(unix)]
         let stdin = match tar_out.into_owned_fd() {
             Ok(fd) => std::process::Stdio::from(fd),
-            Err(_) => { let _ = tx.send(AppEvent::Log("[FE] tar stdout fd error".into())); return; }
+            Err(_) => {
+                let _ = tx.send(AppEvent::Log("[FE] tar stdout fd error".into()));
+                return;
+            }
         };
         #[cfg(windows)]
         let stdin = match tar_out.into_owned_handle() {
             Ok(h) => std::process::Stdio::from(h),
-            Err(_) => { let _ = tx.send(AppEvent::Log("[FE] tar stdout handle error".into())); return; }
+            Err(_) => {
+                let _ = tx.send(AppEvent::Log("[FE] tar stdout handle error".into()));
+                return;
+            }
         };
         let status = bg_cmd("ssh")
             .args(&ssh_args)
             .stdin(stdin)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status().await;
+            .status()
+            .await;
         let _ = tar_child.wait().await;
-        let _ = tx.send(AppEvent::Log(
-            if matches!(status, Ok(s) if s.success()) { "[FE] ✓ Deployed".into() } else { "[FE] ✗ Deploy FAILED".into() }
-        ));
+        let _ = tx.send(AppEvent::Log(if matches!(status, Ok(s) if s.success()) {
+            "[FE] ✓ Deployed".into()
+        } else {
+            "[FE] ✗ Deploy FAILED".into()
+        }));
     }
 
     async fn restart_service(&self, svc: String, tx: mpsc::UnboundedSender<AppEvent>) {
@@ -617,7 +735,12 @@ echo "result: deployed=$deployed skipped=$skipped"
         let _ = tx.send(AppEvent::Log(format!("[RESTART] {svc} → {st}")));
     }
 
-    async fn service_action(&self, svc: String, action: &'static str, tx: mpsc::UnboundedSender<AppEvent>) {
+    async fn service_action(
+        &self,
+        svc: String,
+        action: &'static str,
+        tx: mpsc::UnboundedSender<AppEvent>,
+    ) {
         let cmd = match action {
             "start" => format!("systemctl start {svc} 2>/dev/null || true; sleep 1; systemctl is-active {svc} 2>/dev/null | tr -d '\\n'"),
             "stop" => format!("systemctl stop {svc} 2>/dev/null || true; sleep 1; systemctl is-active {svc} 2>/dev/null | tr -d '\\n'"),
@@ -642,7 +765,8 @@ echo "result: deployed=$deployed skipped=$skipped"
             return;
         }
         let svc_list = self.services.join(" ");
-        let script = format!(r#"set +e
+        let script = format!(
+            r#"set +e
 out=""
 missing=""
 mkdir -p /var/lib/iora/.bin-hashes
@@ -760,14 +884,17 @@ if [ -n "$used" ] && [ "$used" -ge 90 ]; then
     out="${{out}}disk root ${{used}}% full\n"
 fi
 printf '%s' "$out"
-"#);
+"#
+        );
         if let Ok(output) = self.ssh_exec(&script).await {
             let output = output.replace("\\n", "\n");
             let valid_crates: HashSet<String> = self.services.iter().cloned().collect();
             let mut missing_crates: HashSet<String> = HashSet::new();
             for line in output.lines() {
                 let line = line.trim();
-                if line.is_empty() { continue; }
+                if line.is_empty() {
+                    continue;
+                }
                 // Detect the `missing: foo bar` marker and turn it into an
                 // AutoBuildMissing event so the main loop can kick a build.
                 if let Some(rest) = line.strip_prefix("missing:") {
@@ -792,14 +919,20 @@ printf '%s' "$out"
 #[derive(Debug, Clone)]
 enum AppEvent {
     Log(String),
-    ServiceLog { service: String, line: String },
+    ServiceLog {
+        service: String,
+        line: String,
+    },
     BuildComplete,
     VmReachable(bool),
     ServiceCount(usize),
     ServiceStatus(Vec<(String, bool)>),
     Resource(ResourceData),
     HealthCheckDone,
-    FileChange { rust_crates: HashSet<String>, frontend: bool },
+    FileChange {
+        rust_crates: HashSet<String>,
+        frontend: bool,
+    },
     /// Self-heal detected one or more iora-* binaries missing on the VM
     /// and asks the main loop to start an automatic build+deploy for them.
     AutoBuildMissing(HashSet<String>),
@@ -808,15 +941,33 @@ enum AppEvent {
 // ═══ App state ═══════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, PartialEq)]
-enum View { Logs, Status, ServiceLog, Journal, Commands, Resources, Deploy }
+enum View {
+    Logs,
+    Status,
+    ServiceLog,
+    Journal,
+    Commands,
+    Resources,
+    Deploy,
+}
 
 #[derive(Debug, Clone)]
 enum Mode {
     Normal,
-    Command { input: String },
-    BuildMenu { cursor: usize },
-    BuildSelect { cursor: usize, selected: HashSet<usize> },
-    DeploySelect { cursor: usize, selected: HashSet<usize> },
+    Command {
+        input: String,
+    },
+    BuildMenu {
+        cursor: usize,
+    },
+    BuildSelect {
+        cursor: usize,
+        selected: HashSet<usize>,
+    },
+    DeploySelect {
+        cursor: usize,
+        selected: HashSet<usize>,
+    },
 }
 
 struct AppState {
@@ -874,16 +1025,26 @@ impl AppState {
     fn new(backend: Backend, auto_deploy: bool, do_watch: bool) -> Self {
         let total = backend.services.len();
         Self {
-            backend, auto_deploy, do_watch,
-            vm_online: false, bridge_connected: false, ssh_connected: false,
-            building: false, build_start: None, last_build: "-".into(),
+            backend,
+            auto_deploy,
+            do_watch,
+            vm_online: false,
+            bridge_connected: false,
+            ssh_connected: false,
+            building: false,
+            build_start: None,
+            last_build: "-".into(),
             active_services: 0,
             service_status: vec![("?".into(), false); total],
             last_status_refresh: None,
-            bridge_uptime: 0, bridge_mem_avail: 0,
-            changed_rust: HashSet::new(), changed_fe: false,
+            bridge_uptime: 0,
+            bridge_mem_avail: 0,
+            changed_rust: HashSet::new(),
+            changed_fe: false,
             last_auto_build_trigger: None,
-            view: View::Logs, mode: Mode::Normal, show_help: false,
+            view: View::Logs,
+            mode: Mode::Normal,
+            show_help: false,
             log_buf: VecDeque::with_capacity(LOG_BUFFER_CAP),
             service_log_buf: VecDeque::with_capacity(LOG_BUFFER_CAP),
             service_log_service: None,
@@ -899,7 +1060,8 @@ impl AppState {
             status_cursor: 0,
             status_selected: None,
             help_scroll: 0,
-            should_quit: false, dirty: true,
+            should_quit: false,
+            dirty: true,
         }
     }
 
@@ -907,11 +1069,12 @@ impl AppState {
         for sanitized in sanitize_log(&line.into()) {
             // Skip duplicate [HEAL] lines — self-heal runs periodically and
             // would otherwise flood the log with identical restart messages.
-            if sanitized.starts_with("[HEAL]")
-                && self.log_buf.back() == Some(&sanitized) {
-                    continue;
-                }
-            if self.log_buf.len() >= LOG_BUFFER_CAP { self.log_buf.pop_front(); }
+            if sanitized.starts_with("[HEAL]") && self.log_buf.back() == Some(&sanitized) {
+                continue;
+            }
+            if self.log_buf.len() >= LOG_BUFFER_CAP {
+                self.log_buf.pop_front();
+            }
             self.log_buf.push_back(sanitized);
         }
         self.dirty = true;
@@ -919,7 +1082,9 @@ impl AppState {
 
     fn push_service_log(&mut self, line: impl Into<String>) {
         for sanitized in sanitize_log(&line.into()) {
-            if self.service_log_buf.len() >= LOG_BUFFER_CAP { self.service_log_buf.pop_front(); }
+            if self.service_log_buf.len() >= LOG_BUFFER_CAP {
+                self.service_log_buf.pop_front();
+            }
             self.service_log_buf.push_back(sanitized);
         }
         self.dirty = true;
@@ -933,7 +1098,9 @@ impl AppState {
 
     fn push_cmd_log(&mut self, line: impl Into<String>) {
         for sanitized in sanitize_log(&line.into()) {
-            if self.command_log.len() >= CMD_LOG_CAP { self.command_log.pop_front(); }
+            if self.command_log.len() >= CMD_LOG_CAP {
+                self.command_log.pop_front();
+            }
             self.command_log.push_back(sanitized);
         }
         self.dirty = true;
@@ -953,8 +1120,15 @@ fn service_status_rank(status: &str) -> u8 {
 fn sorted_status_indices(state: &AppState) -> Vec<usize> {
     let mut indexed: Vec<usize> = (0..state.backend.services.len()).collect();
     indexed.sort_by_key(|&i| {
-        let status = state.service_status.get(i).map(|(s, _)| s.as_str()).unwrap_or("?");
-        (service_status_rank(status), state.backend.services[i].as_str())
+        let status = state
+            .service_status
+            .get(i)
+            .map(|(s, _)| s.as_str())
+            .unwrap_or("?");
+        (
+            service_status_rank(status),
+            state.backend.services[i].as_str(),
+        )
     });
     indexed
 }
@@ -965,7 +1139,10 @@ fn selected_status_row(state: &AppState) -> usize {
         return 0;
     }
     if let Some(selected) = state.status_selected.as_deref() {
-        if let Some(row) = sorted.iter().position(|&i| state.backend.services[i] == selected) {
+        if let Some(row) = sorted
+            .iter()
+            .position(|&i| state.backend.services[i] == selected)
+        {
             return row;
         }
     }
@@ -1009,21 +1186,29 @@ fn sanitize_log(raw: &str) -> Vec<String> {
                         // CSI: parameters then a final byte 0x40..=0x7e.
                         for cc in chars.by_ref() {
                             let v = cc as u32;
-                            if (0x40..=0x7e).contains(&v) { break; }
+                            if (0x40..=0x7e).contains(&v) {
+                                break;
+                            }
                         }
                     }
                     Some(&']') => {
                         chars.next();
                         // OSC: terminate at BEL or ESC \\.
                         while let Some(cc) = chars.next() {
-                            if cc == '\x07' { break; }
+                            if cc == '\x07' {
+                                break;
+                            }
                             if cc == '\x1b' {
-                                if matches!(chars.peek(), Some(&'\\')) { chars.next(); }
+                                if matches!(chars.peek(), Some(&'\\')) {
+                                    chars.next();
+                                }
                                 break;
                             }
                         }
                     }
-                    _ => { chars.next(); }
+                    _ => {
+                        chars.next();
+                    }
                 }
             } else if c == '\t' {
                 cleaned.push(' ');
@@ -1042,7 +1227,10 @@ fn sanitize_log(raw: &str) -> Vec<String> {
 // ═══ Helpers ═════════════════════════════════════════════════════════════
 
 fn find_repo_root() -> Result<PathBuf> {
-    if let Ok(o) = std::process::Command::new("git").args(["rev-parse", "--show-toplevel"]).output() {
+    if let Ok(o) = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+    {
         if o.status.success() {
             return Ok(PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
         }
@@ -1058,7 +1246,9 @@ fn find_repo_root() -> Result<PathBuf> {
 #[allow(clippy::ptr_arg)]
 fn find_workspace(r: &PathBuf) -> Result<PathBuf> {
     for c in &[r.join("iora-os/backend"), r.join("backend")] {
-        if c.join("Cargo.toml").exists() { return Ok(c.clone()); }
+        if c.join("Cargo.toml").exists() {
+            return Ok(c.clone());
+        }
     }
     anyhow::bail!("no workspace")
 }
@@ -1067,7 +1257,9 @@ fn find_workspace(r: &PathBuf) -> Result<PathBuf> {
 fn find_frontend(r: &PathBuf) -> Option<PathBuf> {
     for d in &["frontend", "desktop"] {
         let p = r.join(d);
-        if p.join("package.json").exists() { return Some(p); }
+        if p.join("package.json").exists() {
+            return Some(p);
+        }
     }
     None
 }
@@ -1080,7 +1272,9 @@ fn discover_services(w: &PathBuf) -> Vec<String> {
     // but not services the watcher should deploy/restart/status-check.
     for sub in &["services", "apps/system", "dev"] {
         let b = w.join(sub);
-        if !b.is_dir() { continue; }
+        if !b.is_dir() {
+            continue;
+        }
         if let Ok(e) = std::fs::read_dir(&b) {
             for en in e.flatten() {
                 let p = en.path();
@@ -1094,7 +1288,9 @@ fn discover_services(w: &PathBuf) -> Vec<String> {
             }
         }
     }
-    v.sort(); v.dedup(); v
+    v.sort();
+    v.dedup();
+    v
 }
 
 fn start_file_watcher(
@@ -1104,47 +1300,68 @@ fn start_file_watcher(
     valid_services: Vec<String>,
 ) -> Result<RecommendedWatcher> {
     let dirs: Vec<PathBuf> = ["services", "shared", "tools", "apps", "dev"]
-        .iter().map(|s| workspace.join(s)).filter(|p| p.is_dir()).collect();
+        .iter()
+        .map(|s| workspace.join(s))
+        .filter(|p| p.is_dir())
+        .collect();
     let service_set: HashSet<String> = valid_services.into_iter().collect();
-    let mut w: RecommendedWatcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        let Ok(ev) = res else { return };
-        if !matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) { return; }
-        let mut rust = HashSet::new();
-        let mut frontend = false;
-        for p in &ev.paths {
-            let s = p.to_string_lossy();
-            if s.contains("iora-dev-watch") { continue; }
-            if s.ends_with(".rs") {
-                for c in p.components().rev() {
-                    let cn = c.as_os_str().to_string_lossy();
-                    if cn.starts_with("iora-") {
-                        // If the changed crate is a shared library (not a service binary),
-                        // rebuild everything — all services depend on shared crates.
-                        if service_set.contains(cn.as_ref()) {
-                            rust.insert(cn.to_string());
-                        } else {
-                            rust.insert("__workspace__".into());
+    let mut w: RecommendedWatcher =
+        notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let Ok(ev) = res else { return };
+            if !matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+                return;
+            }
+            let mut rust = HashSet::new();
+            let mut frontend = false;
+            for p in &ev.paths {
+                let s = p.to_string_lossy();
+                if s.contains("iora-dev-watch") {
+                    continue;
+                }
+                if s.ends_with(".rs") {
+                    for c in p.components().rev() {
+                        let cn = c.as_os_str().to_string_lossy();
+                        if cn.starts_with("iora-") {
+                            // If the changed crate is a shared library (not a service binary),
+                            // rebuild everything — all services depend on shared crates.
+                            if service_set.contains(cn.as_ref()) {
+                                rust.insert(cn.to_string());
+                            } else {
+                                rust.insert("__workspace__".into());
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
+                if s.contains("Cargo.toml") || s.contains("Cargo.lock") {
+                    rust.insert("__workspace__".into());
+                }
+                if s.ends_with(".tsx")
+                    || s.ends_with(".ts")
+                    || s.ends_with(".jsx")
+                    || s.ends_with(".css")
+                    || s.ends_with(".html")
+                {
+                    frontend = true;
+                }
             }
-            if s.contains("Cargo.toml") || s.contains("Cargo.lock") {
-                rust.insert("__workspace__".into());
+            if !rust.is_empty() || frontend {
+                let _ = tx.send(AppEvent::FileChange {
+                    rust_crates: rust,
+                    frontend,
+                });
             }
-            if s.ends_with(".tsx") || s.ends_with(".ts") || s.ends_with(".jsx")
-                || s.ends_with(".css") || s.ends_with(".html") { frontend = true; }
-        }
-        if !rust.is_empty() || frontend {
-            let _ = tx.send(AppEvent::FileChange { rust_crates: rust, frontend });
-        }
-    })?;
+        })?;
     w.configure(NotifyConfig::default().with_poll_interval(Duration::from_secs(2)))?;
-    for d in &dirs { let _ = w.watch(d, RecursiveMode::Recursive); }
+    for d in &dirs {
+        let _ = w.watch(d, RecursiveMode::Recursive);
+    }
     if let Some(f) = &fe {
         for s in &["src", "public"] {
             let d = f.join(s);
-            if d.is_dir() { let _ = w.watch(&d, RecursiveMode::Recursive); }
+            if d.is_dir() {
+                let _ = w.watch(&d, RecursiveMode::Recursive);
+            }
         }
     }
     Ok(w)
@@ -1159,16 +1376,26 @@ fn spawn_build(
     fe: bool,
     tx: mpsc::UnboundedSender<AppEvent>,
 ) {
-    if state.building { state.push_log("[BUILD] Already building"); return; }
-    if !state.vm_online { state.push_log("[BUILD] VM offline"); return; }
+    if state.building {
+        state.push_log("[BUILD] Already building");
+        return;
+    }
+    if !state.vm_online {
+        state.push_log("[BUILD] VM offline");
+        return;
+    }
     state.building = true;
     state.build_start = Some(Instant::now());
     state.last_build = "Building...".into();
     let backend = state.backend.clone();
     let auto_deploy = state.auto_deploy;
     tokio::spawn(async move {
-        if rust { backend.build_rust(only, tx.clone()).await; }
-        if fe { backend.build_frontend(tx.clone(), auto_deploy).await; }
+        if rust {
+            backend.build_rust(only, tx.clone()).await;
+        }
+        if fe {
+            backend.build_frontend(tx.clone(), auto_deploy).await;
+        }
         if auto_deploy && rust {
             backend.deploy_binaries(tx.clone()).await;
         }
@@ -1177,17 +1404,26 @@ fn spawn_build(
 }
 
 fn spawn_deploy(state: &mut AppState, tx: mpsc::UnboundedSender<AppEvent>, force: bool) {
-    if !state.vm_online { state.push_log("[DEPLOY] VM offline"); return; }
+    if !state.vm_online {
+        state.push_log("[DEPLOY] VM offline");
+        return;
+    }
     let backend = state.backend.clone();
-    if force { state.push_log("[DEPLOY] Force-redeploy: wiping hashes & re-installing all"); }
+    if force {
+        state.push_log("[DEPLOY] Force-redeploy: wiping hashes & re-installing all");
+    }
     tokio::spawn(async move {
-        if force { backend.wipe_hashes_and_bins(&tx).await; }
+        if force {
+            backend.wipe_hashes_and_bins(&tx).await;
+        }
         backend.deploy_binaries(tx).await;
     });
 }
 
 fn spawn_deploy_selected(state: &AppState, svcs: Vec<String>, tx: mpsc::UnboundedSender<AppEvent>) {
-    if !state.vm_online { return; }
+    if !state.vm_online {
+        return;
+    }
     let backend = state.backend.clone();
     let ws = backend.vm_workspace.clone();
     tokio::spawn(async move {
@@ -1197,8 +1433,12 @@ fn spawn_deploy_selected(state: &AppState, svcs: Vec<String>, tx: mpsc::Unbounde
                 "bin={ws}/target/debug/{svc}; [ -f \"$bin\" ] && {{ install -m 0755 \"$bin\" /usr/bin/{svc} && systemctl restart {svc} 2>/dev/null && echo \"DEPLOY: ✓ {svc}\"; }} || echo \"DEPLOY: ✗ {svc} (not built)\"",
             );
             match backend.ssh_exec(&cmd).await {
-                Ok(out) => { let _ = tx.send(AppEvent::Log(out.trim().to_string())); }
-                Err(e) => { let _ = tx.send(AppEvent::Log(format!("[DEPLOY] ✗ {svc}: {e}"))); }
+                Ok(out) => {
+                    let _ = tx.send(AppEvent::Log(out.trim().to_string()));
+                }
+                Err(e) => {
+                    let _ = tx.send(AppEvent::Log(format!("[DEPLOY] ✗ {svc}: {e}")));
+                }
             }
         }
     });
@@ -1228,11 +1468,17 @@ fn spawn_fetch_status(state: &AppState, tx: mpsc::UnboundedSender<AppEvent>) {
 fn spawn_health_probe(state: &AppState, tx: mpsc::UnboundedSender<AppEvent>) {
     let backend = state.backend.clone();
     tokio::spawn(async move {
-        if let Ok(h) = backend.ssh_exec("curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null || echo FAIL").await {
-            let _ = tx.send(AppEvent::Log(
-                if h.contains("\"status\":\"ok\"") { "[HEALTH] ✓ API OK".into() }
-                else { "[HEALTH] ✗ API unreachable".into() }
-            ));
+        if let Ok(h) = backend
+            .ssh_exec(
+                "curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null || echo FAIL",
+            )
+            .await
+        {
+            let _ = tx.send(AppEvent::Log(if h.contains("\"status\":\"ok\"") {
+                "[HEALTH] ✓ API OK".into()
+            } else {
+                "[HEALTH] ✗ API unreachable".into()
+            }));
         }
         if let Ok(d) = backend.ssh_exec("df -h / 2>/dev/null | tail -1").await {
             let _ = tx.send(AppEvent::Log(format!("[HEALTH] Disk: {}", d.trim())));
@@ -1243,7 +1489,10 @@ fn spawn_health_probe(state: &AppState, tx: mpsc::UnboundedSender<AppEvent>) {
 fn spawn_journal(state: &AppState, tx: mpsc::UnboundedSender<AppEvent>) {
     let backend = state.backend.clone();
     tokio::spawn(async move {
-        if let Ok(l) = backend.ssh_exec("journalctl -u iora-home --no-pager -n 30 2>/dev/null").await {
+        if let Ok(l) = backend
+            .ssh_exec("journalctl -u iora-home --no-pager -n 30 2>/dev/null")
+            .await
+        {
             for line in l.lines() {
                 let _ = tx.send(AppEvent::Log(format!("  {}", line)));
             }
@@ -1255,7 +1504,9 @@ fn spawn_journal_one(state: &AppState, svc: &str, tx: mpsc::UnboundedSender<AppE
     let backend = state.backend.clone();
     let svc = svc.to_string();
     tokio::spawn(async move {
-        let cmd = format!("journalctl -u {svc} --no-pager -n 80 2>/dev/null || echo '(no journal for {svc})'");
+        let cmd = format!(
+            "journalctl -u {svc} --no-pager -n 80 2>/dev/null || echo '(no journal for {svc})'"
+        );
         if let Ok(l) = backend.ssh_exec(&cmd).await {
             for line in l.lines() {
                 let _ = tx.send(AppEvent::Log(format!("  {}", line)));
@@ -1292,18 +1543,27 @@ fn spawn_service_live_log(state: &mut AppState, svc: String, tx: mpsc::Unbounded
         {
             Ok(child) => child,
             Err(e) => {
-                let _ = tx.send(AppEvent::ServiceLog { service: svc, line: format!("[LIVE] spawn failed: {e}") });
+                let _ = tx.send(AppEvent::ServiceLog {
+                    service: svc,
+                    line: format!("[LIVE] spawn failed: {e}"),
+                });
                 return;
             }
         };
 
         let Some(stdout) = child.stdout.take() else {
-            let _ = tx.send(AppEvent::ServiceLog { service: svc.clone(), line: "[LIVE] stdout unavailable".into() });
+            let _ = tx.send(AppEvent::ServiceLog {
+                service: svc.clone(),
+                line: "[LIVE] stdout unavailable".into(),
+            });
             let _ = child.kill().await;
             return;
         };
         let mut lines = BufReader::new(stdout).lines();
-        let _ = tx.send(AppEvent::ServiceLog { service: svc.clone(), line: "[LIVE] connected".into() });
+        let _ = tx.send(AppEvent::ServiceLog {
+            service: svc.clone(),
+            line: "[LIVE] connected".into(),
+        });
 
         loop {
             tokio::select! {
@@ -1329,10 +1589,15 @@ fn spawn_service_live_log(state: &mut AppState, svc: String, tx: mpsc::Unbounded
 }
 
 fn export_log(state: &AppState) {
-    let path = state.backend.repo_root.join("iora-os/.cache/dev-watch-log.txt");
+    let path = state
+        .backend
+        .repo_root
+        .join("iora-os/.cache/dev-watch-log.txt");
     let mut f = match std::fs::File::create(&path) {
         Ok(f) => f,
-        Err(_) => { return; }
+        Err(_) => {
+            return;
+        }
     };
     use std::io::Write;
     for line in &state.log_buf {
@@ -1340,21 +1605,41 @@ fn export_log(state: &AppState) {
     }
     // Open the file automatically
     #[cfg(windows)]
-    { let _ = std::process::Command::new("cmd").arg("/c").arg("start").arg("").arg(path.to_str().unwrap_or("")).spawn(); }
+    {
+        let _ = std::process::Command::new("cmd")
+            .arg("/c")
+            .arg("start")
+            .arg("")
+            .arg(path.to_str().unwrap_or(""))
+            .spawn();
+    }
     #[cfg(target_os = "macos")]
-    { let _ = std::process::Command::new("open").arg(&path).spawn(); }
+    {
+        let _ = std::process::Command::new("open").arg(&path).spawn();
+    }
     #[cfg(target_os = "linux")]
-    { let _ = std::process::Command::new("xdg-open").arg(&path).spawn(); }
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    }
 }
 
 fn spawn_restart(state: &AppState, svc: String, tx: mpsc::UnboundedSender<AppEvent>) {
     let backend = state.backend.clone();
-    tokio::spawn(async move { backend.restart_service(svc, tx).await; });
+    tokio::spawn(async move {
+        backend.restart_service(svc, tx).await;
+    });
 }
 
-fn spawn_service_action(state: &AppState, svc: String, action: &'static str, tx: mpsc::UnboundedSender<AppEvent>) {
+fn spawn_service_action(
+    state: &AppState,
+    svc: String,
+    action: &'static str,
+    tx: mpsc::UnboundedSender<AppEvent>,
+) {
     let backend = state.backend.clone();
-    tokio::spawn(async move { backend.service_action(svc, action, tx).await; });
+    tokio::spawn(async move {
+        backend.service_action(svc, action, tx).await;
+    });
 }
 
 // ═══ Input / commands ════════════════════════════════════════════════════
@@ -1386,7 +1671,10 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                     input.push(c);
                     state.mode = Mode::Command { input };
                 }
-                KeyCode::Backspace => { input.pop(); state.mode = Mode::Command { input }; }
+                KeyCode::Backspace => {
+                    input.pop();
+                    state.mode = Mode::Command { input };
+                }
                 _ => {}
             }
             return;
@@ -1395,16 +1683,29 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             let cur = *cursor;
             match key.code {
                 KeyCode::Esc => state.mode = Mode::Normal,
-                KeyCode::Up => state.mode = Mode::BuildMenu { cursor: cur.saturating_sub(1) },
-                KeyCode::Down => state.mode = Mode::BuildMenu { cursor: (cur + 1).min(2) },
+                KeyCode::Up => {
+                    state.mode = Mode::BuildMenu {
+                        cursor: cur.saturating_sub(1),
+                    }
+                }
+                KeyCode::Down => {
+                    state.mode = Mode::BuildMenu {
+                        cursor: (cur + 1).min(2),
+                    }
+                }
                 KeyCode::Enter => {
                     if cur == 2 {
-                        state.mode = Mode::BuildSelect { cursor: 0, selected: HashSet::new() };
+                        state.mode = Mode::BuildSelect {
+                            cursor: 0,
+                            selected: HashSet::new(),
+                        };
                     } else {
                         state.mode = Mode::Normal;
                         let only = if cur == 1 && !state.changed_rust.is_empty() {
                             Some(state.changed_rust.clone())
-                        } else { None };
+                        } else {
+                            None
+                        };
                         state.push_log(format!("[BUILD] {}", ["All", "Changed", "Select"][cur]));
                         spawn_build(state, only, true, true, tx.clone());
                     }
@@ -1418,19 +1719,37 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             let mut sel = selected.clone();
             let n = state.backend.services.len();
             match key.code {
-                KeyCode::Esc => { state.mode = Mode::BuildMenu { cursor: 2 }; return; }
+                KeyCode::Esc => {
+                    state.mode = Mode::BuildMenu { cursor: 2 };
+                    return;
+                }
                 KeyCode::Up => cur = cur.saturating_sub(1),
                 KeyCode::Down => cur = (cur + 1).min(n.saturating_sub(1)),
                 KeyCode::Char(' ') => {
-                    if sel.contains(&cur) { sel.remove(&cur); } else { sel.insert(cur); }
+                    if sel.contains(&cur) {
+                        sel.remove(&cur);
+                    } else {
+                        sel.insert(cur);
+                    }
                 }
                 KeyCode::Char('a') | KeyCode::Char('A') => {
-                    if sel.len() == n { sel.clear(); }
-                    else { for i in 0..n { sel.insert(i); } }
+                    if sel.len() == n {
+                        sel.clear();
+                    } else {
+                        for i in 0..n {
+                            sel.insert(i);
+                        }
+                    }
                 }
                 KeyCode::Enter => {
-                    if sel.is_empty() { state.mode = Mode::BuildMenu { cursor: 2 }; return; }
-                    let only: HashSet<String> = sel.iter().map(|&i| state.backend.services[i].clone()).collect();
+                    if sel.is_empty() {
+                        state.mode = Mode::BuildMenu { cursor: 2 };
+                        return;
+                    }
+                    let only: HashSet<String> = sel
+                        .iter()
+                        .map(|&i| state.backend.services[i].clone())
+                        .collect();
                     state.mode = Mode::Normal;
                     state.push_log(format!("[BUILD] {} services", only.len()));
                     spawn_build(state, Some(only), true, false, tx.clone());
@@ -1438,7 +1757,10 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 }
                 _ => {}
             }
-            state.mode = Mode::BuildSelect { cursor: cur, selected: sel };
+            state.mode = Mode::BuildSelect {
+                cursor: cur,
+                selected: sel,
+            };
             return;
         }
         Mode::DeploySelect { cursor, selected } => {
@@ -1446,19 +1768,37 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             let mut sel = selected.clone();
             let n = state.backend.services.len();
             match key.code {
-                KeyCode::Esc => { state.mode = Mode::Normal; return; }
+                KeyCode::Esc => {
+                    state.mode = Mode::Normal;
+                    return;
+                }
                 KeyCode::Up => cur = cur.saturating_sub(1),
                 KeyCode::Down => cur = (cur + 1).min(n.saturating_sub(1)),
                 KeyCode::Char(' ') => {
-                    if sel.contains(&cur) { sel.remove(&cur); } else { sel.insert(cur); }
+                    if sel.contains(&cur) {
+                        sel.remove(&cur);
+                    } else {
+                        sel.insert(cur);
+                    }
                 }
                 KeyCode::Char('a') | KeyCode::Char('A') => {
-                    if sel.len() == n { sel.clear(); }
-                    else { for i in 0..n { sel.insert(i); } }
+                    if sel.len() == n {
+                        sel.clear();
+                    } else {
+                        for i in 0..n {
+                            sel.insert(i);
+                        }
+                    }
                 }
                 KeyCode::Enter => {
-                    if sel.is_empty() { state.mode = Mode::Normal; return; }
-                    let svcs: Vec<String> = sel.iter().map(|&i| state.backend.services[i].clone()).collect();
+                    if sel.is_empty() {
+                        state.mode = Mode::Normal;
+                        return;
+                    }
+                    let svcs: Vec<String> = sel
+                        .iter()
+                        .map(|&i| state.backend.services[i].clone())
+                        .collect();
                     state.mode = Mode::Normal;
                     state.push_log(format!("[DEPLOY] {} services", svcs.len()));
                     spawn_deploy_selected(state, svcs, tx.clone());
@@ -1466,7 +1806,10 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 }
                 _ => {}
             }
-            state.mode = Mode::DeploySelect { cursor: cur, selected: sel };
+            state.mode = Mode::DeploySelect {
+                cursor: cur,
+                selected: sel,
+            };
             return;
         }
         Mode::Normal => {}
@@ -1482,16 +1825,37 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 state.view = View::Status;
             }
         }
-        KeyCode::Up if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(1);}
-        KeyCode::Down if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(1);}
-        KeyCode::PageUp if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(6);}
-        KeyCode::PageDown if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(6);}
-        KeyCode::Home if state.show_help => { state.help_scroll = 0;}
-        KeyCode::End if state.show_help => { state.help_scroll = usize::MAX;}
-        KeyCode::Char('0') if state.show_help => { state.help_scroll = 0;}
+        KeyCode::Up if state.show_help => {
+            state.help_scroll = state.help_scroll.saturating_sub(1);
+        }
+        KeyCode::Down if state.show_help => {
+            state.help_scroll = state.help_scroll.saturating_add(1);
+        }
+        KeyCode::PageUp if state.show_help => {
+            state.help_scroll = state.help_scroll.saturating_sub(6);
+        }
+        KeyCode::PageDown if state.show_help => {
+            state.help_scroll = state.help_scroll.saturating_add(6);
+        }
+        KeyCode::Home if state.show_help => {
+            state.help_scroll = 0;
+        }
+        KeyCode::End if state.show_help => {
+            state.help_scroll = usize::MAX;
+        }
+        KeyCode::Char('0') if state.show_help => {
+            state.help_scroll = 0;
+        }
         KeyCode::Char('q') | KeyCode::Char('Q') => state.should_quit = true,
-        KeyCode::Char('?') => { state.show_help = !state.show_help; state.help_scroll = 0; }
-        KeyCode::Char('/') => state.mode = Mode::Command { input: String::new() },
+        KeyCode::Char('?') => {
+            state.show_help = !state.show_help;
+            state.help_scroll = 0;
+        }
+        KeyCode::Char('/') => {
+            state.mode = Mode::Command {
+                input: String::new(),
+            }
+        }
         KeyCode::Tab => {
             state.view = match state.view {
                 View::Logs => View::Status,
@@ -1525,12 +1889,19 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         KeyCode::Char(' ') if state.view == View::Deploy => {
             if state.deploy_selected.contains(&state.deploy_cursor) {
                 state.deploy_selected.remove(&state.deploy_cursor);
-            } else { state.deploy_selected.insert(state.deploy_cursor); }
+            } else {
+                state.deploy_selected.insert(state.deploy_cursor);
+            }
         }
         KeyCode::Char('a') | KeyCode::Char('A') if state.view == View::Deploy => {
             let n = state.backend.services.len();
-            if state.deploy_selected.len() == n { state.deploy_selected.clear(); }
-            else { for i in 0..n { state.deploy_selected.insert(i); } }
+            if state.deploy_selected.len() == n {
+                state.deploy_selected.clear();
+            } else {
+                for i in 0..n {
+                    state.deploy_selected.insert(i);
+                }
+            }
         }
         KeyCode::Up if state.view == View::Deploy => {
             state.deploy_cursor = state.deploy_cursor.saturating_sub(1);
@@ -1541,15 +1912,21 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         }
         KeyCode::Enter if state.view == View::Deploy => {
             if !state.deploy_selected.is_empty() {
-                let svcs: Vec<String> = state.deploy_selected.iter()
-                    .map(|&i| state.backend.services[i].clone()).collect();
+                let svcs: Vec<String> = state
+                    .deploy_selected
+                    .iter()
+                    .map(|&i| state.backend.services[i].clone())
+                    .collect();
                 state.push_log(format!("[DEPLOY] {} services", svcs.len()));
                 spawn_deploy_selected(state, svcs, tx.clone());
             }
         }
         KeyCode::Char('n') | KeyCode::Char('N') => {
             state.notify_on_ready = !state.notify_on_ready;
-            state.push_log(format!("[CONFIG] Notify on ready: {}", if state.notify_on_ready {"ON"} else {"OFF"}));
+            state.push_log(format!(
+                "[CONFIG] Notify on ready: {}",
+                if state.notify_on_ready { "ON" } else { "OFF" }
+            ));
         }
         KeyCode::Char('r') if state.view == View::Status => {
             if let Some(svc) = selected_status_service(state) {
@@ -1646,9 +2023,20 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             spawn_build(state, None, true, true, tx.clone());
         }
         KeyCode::Char('r') => state.mode = Mode::BuildMenu { cursor: 0 },
-        KeyCode::Char('e') => { state.view = View::Deploy; state.log_scroll = 0; },
-        KeyCode::Char('E') => state.mode = Mode::DeploySelect { cursor: 0, selected: HashSet::new() },
-        KeyCode::Char('R') => { state.view = View::Resources; state.log_scroll = 0; },
+        KeyCode::Char('e') => {
+            state.view = View::Deploy;
+            state.log_scroll = 0;
+        }
+        KeyCode::Char('E') => {
+            state.mode = Mode::DeploySelect {
+                cursor: 0,
+                selected: HashSet::new(),
+            }
+        }
+        KeyCode::Char('R') => {
+            state.view = View::Resources;
+            state.log_scroll = 0;
+        }
         KeyCode::Char('c') | KeyCode::Char('C') => {
             state.push_log("[VM] Checking...");
             spawn_check_vm(state, tx.clone());
@@ -1657,24 +2045,34 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         KeyCode::Char('D') => spawn_deploy(state, tx.clone(), true),
         KeyCode::Char('l') | KeyCode::Char('L') => {
             state.auto_deploy = !state.auto_deploy;
-            let s = format!("[CONFIG] Auto-deploy: {}", if state.auto_deploy {"ON"} else {"OFF"});
+            let s = format!(
+                "[CONFIG] Auto-deploy: {}",
+                if state.auto_deploy { "ON" } else { "OFF" }
+            );
             state.push_log(s);
         }
         KeyCode::Char('w') | KeyCode::Char('W') => {
             state.do_watch = !state.do_watch;
-            let s = format!("[CONFIG] Watch: {}", if state.do_watch {"ON"} else {"OFF"});
+            let s = format!(
+                "[CONFIG] Watch: {}",
+                if state.do_watch { "ON" } else { "OFF" }
+            );
             state.push_log(s);
         }
         KeyCode::Char('s') | KeyCode::Char('S') => {
-            state.view = View::Status; state.log_scroll = 0;
-            if state.vm_online { spawn_fetch_status(state, tx.clone()); }
+            state.view = View::Status;
+            state.log_scroll = 0;
+            if state.vm_online {
+                spawn_fetch_status(state, tx.clone());
+            }
         }
         KeyCode::Char('h') | KeyCode::Char('H') => {
             state.push_log("[HEALTH] Checking...");
             spawn_health_probe(state, tx.clone());
         }
         KeyCode::Char('j') | KeyCode::Char('J') => {
-            state.view = View::Journal; state.log_scroll = 0;
+            state.view = View::Journal;
+            state.log_scroll = 0;
             spawn_journal(state, tx.clone());
         }
         KeyCode::Char(d @ '1'..='9') => {
@@ -1691,50 +2089,87 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
 
 fn run_command(state: &mut AppState, input: &str, tx: &mpsc::UnboundedSender<AppEvent>) {
     let parts: Vec<&str> = input.split_whitespace().collect();
-    if parts.is_empty() { return; }
+    if parts.is_empty() {
+        return;
+    }
     match parts[0] {
         "build" | "b" => {
-            let mut rust = true; let mut fe = true; let mut changed = false;
+            let mut rust = true;
+            let mut fe = true;
+            let mut changed = false;
             for p in &parts[1..] {
                 match *p {
                     "rust" | "r" => fe = false,
                     "fe" | "frontend" | "f" => rust = false,
                     "changed" | "c" => changed = true,
                     "all" | "a" => {}
-                    _ => { state.push_log("[CMD] unknown arg"); return; }
+                    _ => {
+                        state.push_log("[CMD] unknown arg");
+                        return;
+                    }
                 }
             }
-            let only = if changed && !state.changed_rust.is_empty() { Some(state.changed_rust.clone()) } else { None };
+            let only = if changed && !state.changed_rust.is_empty() {
+                Some(state.changed_rust.clone())
+            } else {
+                None
+            };
             spawn_build(state, only, rust, fe, tx.clone());
         }
         "deploy" | "d" => spawn_deploy(state, tx.clone(), false),
         "redeploy" | "force-deploy" | "force" => spawn_deploy(state, tx.clone(), true),
         "restart" => {
-            if parts.len() < 2 { state.push_log("[CMD] Usage: restart <service>"); return; }
+            if parts.len() < 2 {
+                state.push_log("[CMD] Usage: restart <service>");
+                return;
+            }
             spawn_restart(state, parts[1].into(), tx.clone());
         }
-        "logs" | "l" => { state.view = View::Logs; state.log_scroll = 0; }
-        "status" => { state.view = View::Status; state.log_scroll = 0;
-            if state.vm_online { spawn_fetch_status(state, tx.clone()); } }
-        "journal" | "j" => { state.view = View::Journal; state.log_scroll = 0; spawn_journal(state, tx.clone()); }
-        "commands" | "cmd" => { state.view = View::Commands; state.log_scroll = 0; }
-        "resources" => { state.view = View::Resources; state.log_scroll = 0; }
+        "logs" | "l" => {
+            state.view = View::Logs;
+            state.log_scroll = 0;
+        }
+        "status" => {
+            state.view = View::Status;
+            state.log_scroll = 0;
+            if state.vm_online {
+                spawn_fetch_status(state, tx.clone());
+            }
+        }
+        "journal" | "j" => {
+            state.view = View::Journal;
+            state.log_scroll = 0;
+            spawn_journal(state, tx.clone());
+        }
+        "commands" | "cmd" => {
+            state.view = View::Commands;
+            state.log_scroll = 0;
+        }
+        "resources" => {
+            state.view = View::Resources;
+            state.log_scroll = 0;
+        }
         "connect" | "c" => spawn_check_vm(state, tx.clone()),
         "watch" => {
             state.do_watch = parts.get(1).is_none_or(|&w| w != "off");
-            let s = format!("[CMD] Watch: {}", if state.do_watch {"ON"} else {"OFF"});
+            let s = format!("[CMD] Watch: {}", if state.do_watch { "ON" } else { "OFF" });
             state.push_log(s);
         }
         "deploy-toggle" | "dt" => {
             state.auto_deploy = !state.auto_deploy;
-            let s = format!("[CMD] Auto-deploy: {}", if state.auto_deploy {"ON"} else {"OFF"});
+            let s = format!(
+                "[CMD] Auto-deploy: {}",
+                if state.auto_deploy { "ON" } else { "OFF" }
+            );
             state.push_log(s);
         }
         "quit" | "q" | "exit" => state.should_quit = true,
         "help" | "?" => {
             state.push_log("[CMD] build [rust|fe|changed] | deploy | restart <s> | journal | status | logs | commands | resources | connect | watch [on|off] | deploy-toggle | quit");
         }
-        _ => { state.push_log(format!("[CMD] Unknown: {} (type help)", parts[0])); }
+        _ => {
+            state.push_log(format!("[CMD] Unknown: {} (type help)", parts[0]));
+        }
     }
 }
 
@@ -1745,10 +2180,10 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),   // header
-            Constraint::Length(2),   // tabs
-            Constraint::Min(3),      // body
-            Constraint::Length(2),   // footer
+            Constraint::Length(3), // header
+            Constraint::Length(2), // tabs
+            Constraint::Min(3),    // body
+            Constraint::Length(2), // footer
         ])
         .split(area);
 
@@ -1765,29 +2200,59 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
     }
     render_footer(f, chunks[3], state);
 
-    if state.show_help { render_help(f, area, state); }
+    if state.show_help {
+        render_help(f, area, state);
+    }
 }
 
 fn render_header(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
-    let vm_style = if s.vm_online { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Red) };
-    let vm_text = if s.vm_online { "● online" } else { "● offline" };
+    let vm_style = if s.vm_online {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Red)
+    };
+    let vm_text = if s.vm_online {
+        "● online"
+    } else {
+        "● offline"
+    };
 
-    let bridge_style = if s.bridge_connected { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) };
-    let ssh_style = if s.ssh_connected { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) };
+    let bridge_style = if s.bridge_connected {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let ssh_style = if s.ssh_connected {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
 
     let build_text = if s.building {
         let secs = s.build_start.map(|t| t.elapsed().as_secs()).unwrap_or(0);
         format!("Building {}s", secs)
-    } else { s.last_build.clone() };
-    let dep_style = if s.auto_deploy { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Red) };
+    } else {
+        s.last_build.clone()
+    };
+    let dep_style = if s.auto_deploy {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Red)
+    };
     let dep_text = if s.auto_deploy { "ON" } else { "OFF" };
-    let watch_style = if s.do_watch { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) };
+    let watch_style = if s.do_watch {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
     let watch_text = if s.do_watch { "ON" } else { "OFF" };
 
     let mem_g = s.bridge_mem_avail as f64 / 1_073_741_824.0;
     let info = if s.bridge_connected && s.bridge_uptime > 0 {
         format!(" ↑{}m  free {:.1}G", s.bridge_uptime / 60, mem_g)
-    } else { String::new() };
+    } else {
+        String::new()
+    };
 
     let line = Line::from(vec![
         Span::raw(" VM: "),
@@ -1804,48 +2269,105 @@ fn render_header(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         Span::styled(dep_text, dep_style),
         Span::raw("   Watch: "),
         Span::styled(watch_text, watch_style),
-        Span::raw(format!("   Services: {}/{}", s.active_services, s.backend.services.len())),
+        Span::raw(format!(
+            "   Services: {}/{}",
+            s.active_services,
+            s.backend.services.len()
+        )),
     ]);
     // Append ready indicator when all services are up
-    let all_ready = s.vm_online && s.bridge_connected && s.ssh_connected
-        && !s.building && s.active_services == s.backend.services.len();
+    let all_ready = s.vm_online
+        && s.bridge_connected
+        && s.ssh_connected
+        && !s.building
+        && s.active_services == s.backend.services.len();
     let display = if all_ready {
         let mut spans = line.spans.clone();
         spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-        spans.push(Span::styled("✓ READY", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(
+            "✓ READY",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
         Line::from(spans)
-    } else { line };
+    } else {
+        line
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" IORA Dev Watch ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " IORA Dev Watch ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
     let p = Paragraph::new(display).block(block);
     f.render_widget(p, area);
 }
 
 fn render_tabs(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
-    let titles = vec!["Logs", "Status", "Service Log", "Journal", "Commands", "Resources", "Deploy"];
+    let titles = vec![
+        "Logs",
+        "Status",
+        "Service Log",
+        "Journal",
+        "Commands",
+        "Resources",
+        "Deploy",
+    ];
     let idx = match s.view {
-        View::Logs => 0, View::Status => 1, View::ServiceLog => 2, View::Journal => 3,
-        View::Commands => 4, View::Resources => 5, View::Deploy => 6,
+        View::Logs => 0,
+        View::Status => 1,
+        View::ServiceLog => 2,
+        View::Journal => 3,
+        View::Commands => 4,
+        View::Resources => 5,
+        View::Deploy => 6,
     };
     let tabs = Tabs::new(titles)
         .select(idx)
         .style(Style::default().fg(Color::DarkGray))
-        .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
         .divider("│");
     f.render_widget(tabs, area);
 }
 
 fn log_style(line: &str) -> Style {
-    if line.contains("[RUST]") || line.contains("[DEPLOY]") { Style::default().fg(Color::Magenta) }
-    else if line.contains("[FE]") || line.contains("[SYSTEM]") || line.contains("[BRIDGE]") { Style::default().fg(Color::Cyan) }
-    else if line.contains("[CMD]") || line.contains("[RESTART]") || line.contains("[WATCH]") || line.contains("[CONFIG]") { Style::default().fg(Color::Yellow) }
-    else if line.contains("[HEALTH]") || line.contains("[STATUS]") || line.contains("[SSH]") || line.contains("[VM]") || line.contains("[CONN]") { Style::default().fg(Color::Blue) }
-    else if line.contains("✓") || line.contains(" OK") { Style::default().fg(Color::Green) }
-    else if line.contains("✗") || line.contains("FAILED") { Style::default().fg(Color::Red) }
-    else if line.contains("──") { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) }
-    else { Style::default().fg(Color::Gray) }
+    if line.contains("[RUST]") || line.contains("[DEPLOY]") {
+        Style::default().fg(Color::Magenta)
+    } else if line.contains("[FE]") || line.contains("[SYSTEM]") || line.contains("[BRIDGE]") {
+        Style::default().fg(Color::Cyan)
+    } else if line.contains("[CMD]")
+        || line.contains("[RESTART]")
+        || line.contains("[WATCH]")
+        || line.contains("[CONFIG]")
+    {
+        Style::default().fg(Color::Yellow)
+    } else if line.contains("[HEALTH]")
+        || line.contains("[STATUS]")
+        || line.contains("[SSH]")
+        || line.contains("[VM]")
+        || line.contains("[CONN]")
+    {
+        Style::default().fg(Color::Blue)
+    } else if line.contains("✓") || line.contains(" OK") {
+        Style::default().fg(Color::Green)
+    } else if line.contains("✗") || line.contains("FAILED") {
+        Style::default().fg(Color::Red)
+    } else if line.contains("──") {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Gray)
+    }
 }
 
 fn render_logs(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
@@ -1854,10 +2376,16 @@ fn render_logs(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     // Newest line is the last; log_scroll counts how many lines below the newest are skipped (scroll-up)
     let end = total.saturating_sub(s.log_scroll);
     let start = end.saturating_sub(h);
-    let items: Vec<ListItem> = s.log_buf.range(start..end)
+    let items: Vec<ListItem> = s
+        .log_buf
+        .range(start..end)
         .map(|l| ListItem::new(Line::styled(l.as_str(), log_style(l))))
         .collect();
-    let title = if s.log_scroll > 0 { format!(" Logs [↑{}] ", s.log_scroll) } else { " Logs ".into() };
+    let title = if s.log_scroll > 0 {
+        format!(" Logs [↑{}] ", s.log_scroll)
+    } else {
+        " Logs ".into()
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
@@ -1871,11 +2399,24 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     use ratatui::layout::{Constraint, Direction, Layout};
 
     let total = s.backend.services.len();
-    let active = s.service_status.iter().filter(|(st, _)| st == "active").count();
-    let failed = s.service_status.iter().filter(|(st, _)| st == "failed").count();
-    let inactive = s.service_status.iter().filter(|(st, _)| st == "inactive").count();
+    let active = s
+        .service_status
+        .iter()
+        .filter(|(st, _)| st == "active")
+        .count();
+    let failed = s
+        .service_status
+        .iter()
+        .filter(|(st, _)| st == "failed")
+        .count();
+    let inactive = s
+        .service_status
+        .iter()
+        .filter(|(st, _)| st == "inactive")
+        .count();
     let missing_bin = s.service_status.iter().filter(|(_, b)| !*b).count();
-    let last_refresh = s.last_status_refresh
+    let last_refresh = s
+        .last_status_refresh
         .map(|t| format!("{}s ago", t.elapsed().as_secs()))
         .unwrap_or_else(|| "never".into());
 
@@ -1886,25 +2427,55 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
 
     // Summary bar
     let summary = Line::from(vec![
-        Span::styled(" Services ",
-            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Services ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("  "),
-        Span::styled(format!("{active}"), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("{active}"),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" active  "),
-        Span::styled(format!("{failed}"),
-            Style::default().fg(if failed > 0 { Color::Red } else { Color::DarkGray }).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("{failed}"),
+            Style::default()
+                .fg(if failed > 0 {
+                    Color::Red
+                } else {
+                    Color::DarkGray
+                })
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" failed  "),
         Span::styled(format!("{inactive}"), Style::default().fg(Color::Yellow)),
         Span::raw(" inactive  "),
-        Span::styled(format!("{missing_bin}"),
-            Style::default().fg(if missing_bin > 0 { Color::Magenta } else { Color::DarkGray })),
+        Span::styled(
+            format!("{missing_bin}"),
+            Style::default().fg(if missing_bin > 0 {
+                Color::Magenta
+            } else {
+                Color::DarkGray
+            }),
+        ),
         Span::raw(" no-binary  /  "),
-        Span::styled(format!("{total}"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("{total}"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" total      refresh: "),
         Span::styled(last_refresh, Style::default().fg(Color::DarkGray)),
         Span::raw("  (auto every 8s)"),
     ]);
-    let summary_block = Block::default().borders(Borders::ALL)
+    let summary_block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Service Overview ");
     f.render_widget(Paragraph::new(summary).block(summary_block), chunks[0]);
@@ -1915,20 +2486,35 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
 
     let mut rows: Vec<ListItem> = Vec::with_capacity(total + 1);
     rows.push(ListItem::new(Line::styled(
-        format!("  {:<28} {:<12} {:<8} {}", "Service", "Status", "Binary", "Notes"),
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        format!(
+            "  {:<28} {:<12} {:<8} {}",
+            "Service", "Status", "Binary", "Notes"
+        ),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     )));
     for (row, i) in indexed.into_iter().enumerate() {
         let svc = &s.backend.services[i];
-        let (status, has_bin) = s.service_status.get(i)
+        let (status, has_bin) = s
+            .service_status
+            .get(i)
             .map(|(s, b)| (s.as_str(), *b))
             .unwrap_or(("?", false));
         let (marker, st_style) = match status {
-            "active"   => ("●", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            "failed"   => ("×", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            "active" => (
+                "●",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            "failed" => (
+                "×",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
             "inactive" => ("○", Style::default().fg(Color::Yellow)),
             "activating" | "deactivating" => ("◐", Style::default().fg(Color::Blue)),
-            _          => ("?", Style::default().fg(Color::DarkGray)),
+            _ => ("?", Style::default().fg(Color::DarkGray)),
         };
         let (bin, bin_style) = if has_bin {
             ("yes", Style::default().fg(Color::Gray))
@@ -1939,17 +2525,24 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             "binary missing — auto-build will trigger"
         } else if status == "failed" {
             "will be auto-restarted by self-heal"
-        } else { "" };
+        } else {
+            ""
+        };
         let row_style = if row == selected_row {
             Style::default().bg(Color::DarkGray)
-        } else { Style::default() };
-        rows.push(ListItem::new(Line::from(vec![
-            Span::styled(format!(" {} ", marker), st_style),
-            Span::styled(format!("{:<28} ", svc), Style::default().fg(Color::White)),
-            Span::styled(format!("{:<12} ", status), st_style),
-            Span::styled(format!("{:<8} ", bin), bin_style),
-            Span::styled(notes.to_string(), Style::default().fg(Color::DarkGray)),
-        ])).style(row_style));
+        } else {
+            Style::default()
+        };
+        rows.push(
+            ListItem::new(Line::from(vec![
+                Span::styled(format!(" {} ", marker), st_style),
+                Span::styled(format!("{:<28} ", svc), Style::default().fg(Color::White)),
+                Span::styled(format!("{:<12} ", status), st_style),
+                Span::styled(format!("{:<8} ", bin), bin_style),
+                Span::styled(notes.to_string(), Style::default().fg(Color::DarkGray)),
+            ]))
+            .style(row_style),
+        );
     }
     // Auto-scroll: keep the highlighted row visible.
     // Row 0 is the header — keep it pinned, scroll only the body.
@@ -1958,20 +2551,34 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let body_total = rows.len();
     let visible_body = body_height.saturating_sub(1); // header row consumes one
     let cursor = selected_row.min(body_total.saturating_sub(1));
-    let start = if body_total <= visible_body { 0 }
-        else if cursor < visible_body / 2 { 0 }
-        else if cursor >= body_total.saturating_sub(visible_body / 2) { body_total.saturating_sub(visible_body) }
-        else { cursor.saturating_sub(visible_body / 2) };
+    let start = if body_total <= visible_body {
+        0
+    } else if cursor < visible_body / 2 {
+        0
+    } else if cursor >= body_total.saturating_sub(visible_body / 2) {
+        body_total.saturating_sub(visible_body)
+    } else {
+        cursor.saturating_sub(visible_body / 2)
+    };
     let end = (start + visible_body).min(body_total);
     let mut visible: Vec<ListItem> = Vec::with_capacity(visible_body + 1);
     visible.push(header);
-    if start < end { visible.extend(rows.drain(start..end)); }
+    if start < end {
+        visible.extend(rows.drain(start..end));
+    }
     let scroll_hint = if body_total > visible_body {
-        format!(" Services on {} [{}..{} / {}] ", s.backend.vm_host, start + 1, end, body_total)
+        format!(
+            " Services on {} [{}..{} / {}] ",
+            s.backend.vm_host,
+            start + 1,
+            end,
+            body_total
+        )
     } else {
         format!(" Services on {} ", s.backend.vm_host)
     };
-    let list_block = Block::default().borders(Borders::ALL)
+    let list_block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(scroll_hint);
     f.render_widget(List::new(visible).block(list_block), chunks[1]);
@@ -1980,10 +2587,16 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
 fn render_journal(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     // Reuse log buf showing entries that look like journal lines (indented from journalctl)
     let h = area.height.saturating_sub(2) as usize;
-    let items: Vec<ListItem> = s.log_buf.iter().rev().take(h).rev()
+    let items: Vec<ListItem> = s
+        .log_buf
+        .iter()
+        .rev()
+        .take(h)
+        .rev()
         .map(|l| ListItem::new(Line::styled(l.as_str(), log_style(l))))
         .collect();
-    let block = Block::default().borders(Borders::ALL)
+    let block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Journal ");
     f.render_widget(List::new(items).block(block), area);
@@ -1995,18 +2608,29 @@ fn render_service_log(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let scroll = s.service_log_scroll.min(total.saturating_sub(1));
     let end = total.saturating_sub(scroll);
     let start = end.saturating_sub(h);
-    let items: Vec<ListItem> = s.service_log_buf.iter()
+    let items: Vec<ListItem> = s
+        .service_log_buf
+        .iter()
         .skip(start)
         .take(end.saturating_sub(start))
         .map(|l| ListItem::new(Line::styled(l.as_str(), log_style(l))))
         .collect();
-    let service = s.service_log_service.as_deref().unwrap_or("no service selected");
+    let service = s
+        .service_log_service
+        .as_deref()
+        .unwrap_or("no service selected");
     let title = if total > h {
-        format!(" Live Service Log: {service} [{}..{} / {}] ", start + 1, end, total)
+        format!(
+            " Live Service Log: {service} [{}..{} / {}] ",
+            start + 1,
+            end,
+            total
+        )
     } else {
         format!(" Live Service Log: {service} ")
     };
-    let block = Block::default().borders(Borders::ALL)
+    let block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
         .title(title);
     f.render_widget(List::new(items).block(block), area);
@@ -2016,21 +2640,28 @@ fn render_commands(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let h = area.height.saturating_sub(2) as usize;
     let total = s.command_log.len();
     let start = total.saturating_sub(h);
-    let items: Vec<ListItem> = s.command_log.range(start..)
+    let items: Vec<ListItem> = s
+        .command_log
+        .range(start..)
         .map(|l| {
             let style = if l.starts_with("> ") {
                 Style::default().fg(Color::Yellow)
-            } else { Style::default().fg(Color::Gray) };
+            } else {
+                Style::default().fg(Color::Gray)
+            };
             ListItem::new(Line::styled(l.as_str(), style))
-        }).collect();
-    let block = Block::default().borders(Borders::ALL)
+        })
+        .collect();
+    let block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Commands (press / to enter command mode) ");
     f.render_widget(List::new(items).block(block), area);
 }
 
 fn render_resources(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
-    let block = Block::default().borders(Borders::ALL)
+    let block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Resources ");
     let inner = block.inner(area);
@@ -2039,13 +2670,13 @@ fn render_resources(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),  // cpu gauge
-            Constraint::Length(1),  // cpu sub
-            Constraint::Length(2),  // ram gauge
-            Constraint::Length(1),  // ram sub
-            Constraint::Length(2),  // disk gauge
-            Constraint::Length(1),  // disk sub
-            Constraint::Min(1),     // history sparklines
+            Constraint::Length(2), // cpu gauge
+            Constraint::Length(1), // cpu sub
+            Constraint::Length(2), // ram gauge
+            Constraint::Length(1), // ram sub
+            Constraint::Length(2), // disk gauge
+            Constraint::Length(1), // disk sub
+            Constraint::Min(1),    // history sparklines
         ])
         .split(inner);
 
@@ -2061,14 +2692,21 @@ fn render_resources(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     f.render_widget(cpu, chunks[0]);
     let cpu_sub = Paragraph::new(format!(
         "  load {:.2} {:.2} {:.2}    cores {}/{}",
-        d.load_1m, d.load_5m, d.load_15m, d.cpu_cores_used, d.cpu_cores_total.max(1)
-    )).style(Style::default().fg(Color::DarkGray));
+        d.load_1m,
+        d.load_5m,
+        d.load_15m,
+        d.cpu_cores_used,
+        d.cpu_cores_total.max(1)
+    ))
+    .style(Style::default().fg(Color::DarkGray));
     f.render_widget(cpu_sub, chunks[1]);
 
     // RAM
     let ram_pct = if d.ram_total_bytes > 0 {
         (d.ram_used_bytes as f64 / d.ram_total_bytes as f64 * 100.0).clamp(0.0, 100.0) as u16
-    } else { 0 };
+    } else {
+        0
+    };
     let ram = Gauge::default()
         .block(Block::default().title("RAM"))
         .gauge_style(Style::default().fg(Color::Magenta))
@@ -2079,14 +2717,19 @@ fn render_resources(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             resources::format_bytes(d.ram_total_bytes),
         ));
     f.render_widget(ram, chunks[2]);
-    let ram_sub = Paragraph::new(format!("  available {}", resources::format_bytes(d.ram_available_bytes)))
-        .style(Style::default().fg(Color::DarkGray));
+    let ram_sub = Paragraph::new(format!(
+        "  available {}",
+        resources::format_bytes(d.ram_available_bytes)
+    ))
+    .style(Style::default().fg(Color::DarkGray));
     f.render_widget(ram_sub, chunks[3]);
 
     // Disk
     let disk_pct = if d.disk_total_bytes > 0 {
         (d.disk_used_bytes as f64 / d.disk_total_bytes as f64 * 100.0).clamp(0.0, 100.0) as u16
-    } else { 0 };
+    } else {
+        0
+    };
     let disk = Gauge::default()
         .block(Block::default().title("Disk"))
         .gauge_style(Style::default().fg(Color::Yellow))
@@ -2098,22 +2741,32 @@ fn render_resources(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             d.disk_mount,
         ));
     f.render_widget(disk, chunks[4]);
-    let disk_sub = Paragraph::new(format!("  uptime {}", resources::format_uptime(d.uptime_seconds)))
-        .style(Style::default().fg(Color::DarkGray));
+    let disk_sub = Paragraph::new(format!(
+        "  uptime {}",
+        resources::format_uptime(d.uptime_seconds)
+    ))
+    .style(Style::default().fg(Color::DarkGray));
     f.render_widget(disk_sub, chunks[5]);
 
     // Sparkline history (CPU + RAM)
     let cpu_spark = resources::render_sparkline(&s.resource_history.cpu, inner.width as usize - 6);
     let ram_spark = resources::render_sparkline(&s.resource_history.ram, inner.width as usize - 6);
     let sparks = Paragraph::new(vec![
-        Line::from(vec![Span::styled("CPU ", Style::default().fg(Color::Cyan)), Span::raw(cpu_spark)]),
-        Line::from(vec![Span::styled("RAM ", Style::default().fg(Color::Magenta)), Span::raw(ram_spark)]),
+        Line::from(vec![
+            Span::styled("CPU ", Style::default().fg(Color::Cyan)),
+            Span::raw(cpu_spark),
+        ]),
+        Line::from(vec![
+            Span::styled("RAM ", Style::default().fg(Color::Magenta)),
+            Span::raw(ram_spark),
+        ]),
     ]);
     f.render_widget(sparks, chunks[6]);
 }
 
 fn render_deploy(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
-    let block = Block::default().borders(Borders::ALL)
+    let block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
         .title(" Deploy ");
     let inner = block.inner(area);
@@ -2125,10 +2778,16 @@ fn render_deploy(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     for i in 0..n {
         let svc = &s.backend.services[i];
         let label = svc.strip_prefix("iora-").unwrap_or(svc);
-        let checked = if s.deploy_selected.contains(&i) { "✓" } else { " " };
+        let checked = if s.deploy_selected.contains(&i) {
+            "✓"
+        } else {
+            " "
+        };
         let cursor = if i == s.deploy_cursor { ">" } else { " " };
         let style = if i == s.deploy_cursor {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else if s.deploy_selected.contains(&i) {
             Style::default().fg(Color::Green)
         } else {
@@ -2144,17 +2803,30 @@ fn render_deploy(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     f.render_widget(List::new(visible).block(Block::default()), inner);
 
     // Footer hint
-    let hint = Paragraph::new("Space=toggle  A=all  Enter=deploy  ↑↓=scroll  Tab=next  Esc=back  N=notify")
-        .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(hint, Rect { y: inner.y + inner.height.saturating_sub(1), height: 1, ..inner });
+    let hint = Paragraph::new(
+        "Space=toggle  A=all  Enter=deploy  ↑↓=scroll  Tab=next  Esc=back  N=notify",
+    )
+    .style(Style::default().fg(Color::DarkGray));
+    f.render_widget(
+        hint,
+        Rect {
+            y: inner.y + inner.height.saturating_sub(1),
+            height: 1,
+            ..inner
+        },
+    );
 }
 
 fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let line = match &s.mode {
         Mode::Normal => {
-            let status: Span = if s.building { Span::styled("● BUILDING", Style::default().fg(Color::Yellow)) }
-                else if !s.vm_online { Span::styled("VM offline — press C", Style::default().fg(Color::Red)) }
-                else { Span::styled("● idle", Style::default().fg(Color::Green)) };
+            let status: Span = if s.building {
+                Span::styled("● BUILDING", Style::default().fg(Color::Yellow))
+            } else if !s.vm_online {
+                Span::styled("VM offline — press C", Style::default().fg(Color::Red))
+            } else {
+                Span::styled("● idle", Style::default().fg(Color::Green))
+            };
             let keys = match s.view {
                 View::Status => "   ↑↓=select  Enter=live-log  r=restart  u=start  k=stop  d=deploy-selected  L=journal  S=refresh  Tab=view  ?=help",
                 View::ServiceLog => "   Live service log  Esc=back/stop  ↑↓/PgUp/PgDn=scroll  0/End=bottom  Tab=view  ?=help",
@@ -2162,12 +2834,18 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
                 _ => "   Q=quit  B=build  D=deploy  Shift+D=force-redeploy  e=deploy-tab  E=deploy-select  S=status  H=health  R=resources  r=build-menu  J=journal  W=watch  L=auto-deploy  0=bottom  /=cmd  Tab=view  ?=help",
             };
             Line::from(vec![
-                Span::raw(" "), status,
+                Span::raw(" "),
+                status,
                 Span::styled(keys, Style::default().fg(Color::DarkGray)),
             ])
         }
         Mode::Command { input } => Line::from(vec![
-            Span::styled(" / ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " / ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(input.clone()),
             Span::styled("█", Style::default().fg(Color::Yellow)),
         ]),
@@ -2176,11 +2854,19 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             let mut spans = vec![Span::styled(" Build: ", Style::default().fg(Color::Cyan))];
             for (i, item) in items.iter().enumerate() {
                 let style = if i == *cursor {
-                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else { Style::default().fg(Color::Gray) };
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
                 spans.push(Span::styled(format!(" {} ", item), style));
             }
-            spans.push(Span::styled("   ↑↓ Enter Esc", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                "   ↑↓ Enter Esc",
+                Style::default().fg(Color::DarkGray),
+            ));
             Line::from(spans)
         }
         Mode::BuildSelect { cursor, selected } => {
@@ -2191,12 +2877,16 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
                     Style::default().fg(Color::Black).bg(Color::Yellow)
                 } else if selected.contains(&i) {
                     Style::default().fg(Color::Green)
-                } else { Style::default().fg(Color::DarkGray) };
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
                 let label = svc.strip_prefix("iora-").unwrap_or(svc);
                 spans.push(Span::styled(format!(" [{mark}]{label}"), style));
             }
-            spans.push(Span::styled("  Space=toggle A=all Enter=build Esc=back",
-                Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                "  Space=toggle A=all Enter=build Esc=back",
+                Style::default().fg(Color::DarkGray),
+            ));
             Line::from(spans)
         }
         Mode::DeploySelect { cursor, selected } => {
@@ -2207,12 +2897,16 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
                     Style::default().fg(Color::Black).bg(Color::Yellow)
                 } else if selected.contains(&i) {
                     Style::default().fg(Color::Green)
-                } else { Style::default().fg(Color::DarkGray) };
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
                 let label = svc.strip_prefix("iora-").unwrap_or(svc);
                 spans.push(Span::styled(format!(" [{mark}]{label}"), style));
             }
-            spans.push(Span::styled("  Space=toggle A=all Enter=deploy Esc=back",
-                Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                "  Space=toggle A=all Enter=deploy Esc=back",
+                Style::default().fg(Color::DarkGray),
+            ));
             Line::from(spans)
         }
     };
@@ -2221,7 +2915,11 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     if area.width < 120 {
         let hint2 = Paragraph::new("  ?=help  X=export-log  N=notify  Status: Enter=live-log r=restart u=start k=stop d=deploy")
             .style(Style::default().fg(Color::DarkGray));
-        let r2 = Rect { y: area.y + 1, height: 1, ..area };
+        let r2 = Rect {
+            y: area.y + 1,
+            height: 1,
+            ..area
+        };
         f.render_widget(hint2, r2);
     }
 }
@@ -2235,7 +2933,12 @@ fn render_help(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     f.render_widget(Clear, rect);
     let keys = vec![
         Line::from(""),
-        Line::from(Span::styled("  Help — Keybindings", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "  Help — Keybindings",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
         Line::from("  /          Command mode (then type 'help')"),
         Line::from("  Tab        Next tab    Shift+Tab   Previous tab"),
@@ -2263,10 +2966,16 @@ fn render_help(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let skip = s.help_scroll.min(total.saturating_sub(visible_h));
     let visible: Vec<Line> = keys.into_iter().skip(skip).take(visible_h).collect();
     let end = skip + visible.len();
-    let block = Block::default().borders(Borders::ALL)
+    let block = Block::default()
+        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
         .title(format!(" Help [{}-{}/{}] ", skip + 1, end, total));
-    f.render_widget(Paragraph::new(visible).block(block).wrap(Wrap { trim: false }), rect);
+    f.render_widget(
+        Paragraph::new(visible)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        rect,
+    );
 }
 
 // ═══ Main loop ═══════════════════════════════════════════════════════════
@@ -2280,7 +2989,10 @@ async fn main() -> Result<()> {
     let frontend_dir = find_frontend(&repo_root);
     let cache_dir = repo_root.join("iora-os/.cache");
     std::fs::create_dir_all(&cache_dir).ok();
-    let ssh_key = args.ssh_key.clone().map(PathBuf::from)
+    let ssh_key = args
+        .ssh_key
+        .clone()
+        .map(PathBuf::from)
         .unwrap_or_else(|| cache_dir.join("iora-dev-key"));
     let services = discover_services(&workspace);
     let services_for_watcher = services.clone();
@@ -2318,20 +3030,47 @@ async fn main() -> Result<()> {
     let (conn_tx, mut conn_rx) = mpsc::unbounded_channel::<ConnEvent>();
 
     // Initial log
-    state.push_log(format!("[BRIDGE] Connecting to bridge at {}:{}...", args.vm_host, args.vm_bridge_port));
-    state.push_log(format!("[SSH] Opening persistent master session to {}:{}...", args.vm_host, args.vm_port));
-    state.push_log(format!("[SYSTEM] {} services discovered", state.backend.services.len()));
+    state.push_log(format!(
+        "[BRIDGE] Connecting to bridge at {}:{}...",
+        args.vm_host, args.vm_bridge_port
+    ));
+    state.push_log(format!(
+        "[SSH] Opening persistent master session to {}:{}...",
+        args.vm_host, args.vm_port
+    ));
+    state.push_log(format!(
+        "[SYSTEM] {} services discovered",
+        state.backend.services.len()
+    ));
 
     // Connection managers
     let _bridge = if args.vm_bridge_port > 0 {
-        Some(BridgeConnection::start(args.vm_host.clone(), args.vm_bridge_port, conn_tx.clone()))
-    } else { None };
-    let _ssh = SshSession::start(args.vm_host.clone(), args.vm_port, ssh_key.clone(), conn_tx.clone());
+        Some(BridgeConnection::start(
+            args.vm_host.clone(),
+            args.vm_bridge_port,
+            conn_tx.clone(),
+        ))
+    } else {
+        None
+    };
+    let _ssh = SshSession::start(
+        args.vm_host.clone(),
+        args.vm_port,
+        ssh_key.clone(),
+        conn_tx.clone(),
+    );
 
     // File watcher
     let _watcher = if state.do_watch {
-        Some(start_file_watcher(workspace.clone(), frontend_dir.clone(), app_tx.clone(), services_for_watcher)?)
-    } else { None };
+        Some(start_file_watcher(
+            workspace.clone(),
+            frontend_dir.clone(),
+            app_tx.clone(),
+            services_for_watcher,
+        )?)
+    } else {
+        None
+    };
 
     // Initial VM check + optional build
     {
@@ -2340,7 +3079,10 @@ async fn main() -> Result<()> {
         let do_build = !args.no_initial_build;
         let auto_deploy_init = state.auto_deploy;
         state.building = do_build;
-        if do_build { state.build_start = Some(Instant::now()); state.last_build = "Building...".into(); }
+        if do_build {
+            state.build_start = Some(Instant::now());
+            state.last_build = "Building...".into();
+        }
         tokio::spawn(async move {
             let ok = backend.check_vm().await;
             let _ = tx.send(AppEvent::VmReachable(ok));
@@ -2380,20 +3122,18 @@ async fn main() -> Result<()> {
         let input_tx = input_tx.clone();
         std::thread::Builder::new()
             .name("iora-dev-watch-input".into())
-            .spawn(move || {
-                loop {
-                    match crossterm::event::poll(Duration::from_millis(200)) {
-                        Ok(true) => {
-                            match crossterm::event::read() {
-                                Ok(ev) => {
-                                    if input_tx.send(ev).is_err() { return; }
-                                }
-                                Err(_) => return,
+            .spawn(move || loop {
+                match crossterm::event::poll(Duration::from_millis(200)) {
+                    Ok(true) => match crossterm::event::read() {
+                        Ok(ev) => {
+                            if input_tx.send(ev).is_err() {
+                                return;
                             }
                         }
-                        Ok(false) => continue,
                         Err(_) => return,
-                    }
+                    },
+                    Ok(false) => continue,
+                    Err(_) => return,
                 }
             })
             .ok();
@@ -2565,7 +3305,9 @@ async fn main() -> Result<()> {
             }
         }
 
-        if state.should_quit { break; }
+        if state.should_quit {
+            break;
+        }
     }
 
     // Cleanup
@@ -2587,7 +3329,10 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
             }
         }
         AppEvent::BuildComplete => {
-            let dur = state.build_start.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+            let dur = state
+                .build_start
+                .map(|t| t.elapsed().as_secs())
+                .unwrap_or(0);
             state.building = false;
             state.build_start = None;
             state.last_build = format!("✓ {}s", dur);
@@ -2605,10 +3350,14 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
                 if !state.building {
                     let backend = state.backend.clone();
                     let txc = tx.clone();
-                    tokio::spawn(async move { backend.self_heal(txc).await; });
+                    tokio::spawn(async move {
+                        backend.self_heal(txc).await;
+                    });
                 }
             }
-            if !ok && was { state.push_log("[VM] No longer reachable"); }
+            if !ok && was {
+                state.push_log("[VM] No longer reachable");
+            }
         }
         AppEvent::ServiceCount(n) => state.active_services = n,
         AppEvent::ServiceStatus(s) => {
@@ -2622,7 +3371,9 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
             let cpu = d.cpu_percent;
             let ram_pct = if d.ram_total_bytes > 0 {
                 (d.ram_used_bytes as f64 / d.ram_total_bytes as f64 * 100.0).clamp(0.0, 100.0)
-            } else { 0.0 };
+            } else {
+                0.0
+            };
             state.resource_history.push(cpu, ram_pct);
             state.resource_data = d;
         }
@@ -2639,22 +3390,39 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
                 spawn_build(state, Some(crates), true, false, tx.clone());
             }
         }
-        AppEvent::FileChange { rust_crates, frontend } => {
+        AppEvent::FileChange {
+            rust_crates,
+            frontend,
+        } => {
             for c in &rust_crates {
-                if c == "__workspace__" { state.changed_rust.clear(); }
-                else { state.changed_rust.insert(c.clone()); }
+                if c == "__workspace__" {
+                    state.changed_rust.clear();
+                } else {
+                    state.changed_rust.insert(c.clone());
+                }
             }
-            if frontend { state.changed_fe = true; }
+            if frontend {
+                state.changed_fe = true;
+            }
 
             // Auto-rebuild debounce: at most once every 2 seconds
-            let should = state.do_watch && !state.building && state.vm_online && state.auto_deploy
+            let should = state.do_watch
+                && !state.building
+                && state.vm_online
+                && state.auto_deploy
                 && (!state.changed_rust.is_empty() || state.changed_fe);
-            let debounce_ok = state.last_auto_build_trigger
-                .map(|t| t.elapsed() >= Duration::from_secs(2)).unwrap_or(true);
+            let debounce_ok = state
+                .last_auto_build_trigger
+                .map(|t| t.elapsed() >= Duration::from_secs(2))
+                .unwrap_or(true);
             if should && debounce_ok {
                 state.last_auto_build_trigger = Some(Instant::now());
                 state.push_log("[WATCH] Changes detected — auto-rebuilding...");
-                let only = if !state.changed_rust.is_empty() { Some(state.changed_rust.clone()) } else { None };
+                let only = if !state.changed_rust.is_empty() {
+                    Some(state.changed_rust.clone())
+                } else {
+                    None
+                };
                 let want_fe = state.changed_fe;
                 state.changed_rust.clear();
                 state.changed_fe = false;
@@ -2674,13 +3442,17 @@ fn handle_conn_event(
     match ev {
         ConnEvent::Online { build, hostname } => {
             state.bridge_connected = true;
-            if !state.vm_online { state.vm_online = true; }
+            if !state.vm_online {
+                state.vm_online = true;
+            }
             state.push_log(format!("[BRIDGE] Connected — {hostname} (build {build})"));
         }
         ConnEvent::Offline => {
             let was_connected = state.bridge_connected;
             state.bridge_connected = false;
-            if !state.ssh_connected { state.vm_online = false; }
+            if !state.ssh_connected {
+                state.vm_online = false;
+            }
             state.bridge_uptime = 0;
             state.bridge_mem_avail = 0;
             // Only log the *transition* from online → offline. Subsequent
@@ -2704,15 +3476,23 @@ fn handle_conn_event(
         }
         ConnEvent::SshOnline => {
             state.ssh_connected = true;
-            if !state.vm_online { state.vm_online = true; }
+            if !state.vm_online {
+                state.vm_online = true;
+            }
             state.push_log("[SSH] Master session established");
         }
         ConnEvent::SshOffline => {
             state.ssh_connected = false;
-            if !state.bridge_connected { state.vm_online = false; }
+            if !state.bridge_connected {
+                state.vm_online = false;
+            }
             state.push_log("[SSH] Master session lost — auto-reconnecting...");
         }
-        ConnEvent::Heartbeat { uptime_seconds, mem_available_bytes, .. } => {
+        ConnEvent::Heartbeat {
+            uptime_seconds,
+            mem_available_bytes,
+            ..
+        } => {
             state.bridge_uptime = uptime_seconds;
             state.bridge_mem_avail = mem_available_bytes;
             if !state.bridge_connected {

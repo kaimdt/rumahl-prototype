@@ -398,7 +398,7 @@ pub struct RefreshToken {
 pub struct RefreshTokenResponse {
     pub access_token: String,
     pub refresh_token: String,
-    pub expires_in: i64,       // seconds until access_token expires
+    pub expires_in: i64, // seconds until access_token expires
     pub token_type: String,
 }
 

@@ -2,7 +2,6 @@
 // Enables the admin to see everything the system does: agent tasks, pi.dev sessions,
 // subagent activity, security events, task scheduling, evolution cycles, etc.
 
-
 use serde::Serialize;
 use tokio::sync::broadcast;
 
@@ -30,7 +29,13 @@ pub struct SystemEvent {
 }
 
 impl SystemEvent {
-    pub fn new(category: &str, source: &str, event_type: &str, summary: &str, severity: &str) -> Self {
+    pub fn new(
+        category: &str,
+        source: &str,
+        event_type: &str,
+        summary: &str,
+        severity: &str,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             category: category.to_string(),
@@ -81,48 +86,70 @@ impl SystemEventBus {
 
     /// Agent task event
     pub fn agent_event(&self, task_id: &str, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("agent", task_id, event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "agent", task_id, event_type, summary, severity,
+        ));
     }
 
     /// Pi.dev session event
     pub fn pidev_event(&self, session_id: &str, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("pidev", session_id, event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "pidev", session_id, event_type, summary, severity,
+        ));
     }
 
     /// Subagent event
     pub fn subagent_event(&self, agent_id: &str, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("subagent", agent_id, event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "subagent", agent_id, event_type, summary, severity,
+        ));
     }
 
     /// Security event
     pub fn security_event(&self, source: &str, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("security", source, event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "security", source, event_type, summary, severity,
+        ));
     }
 
     /// Task scheduling event
     pub fn task_event(&self, task_id: &str, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("task", task_id, event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "task", task_id, event_type, summary, severity,
+        ));
     }
 
     /// System-level event (startup, shutdown, health, config changes)
     pub fn system_event(&self, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("system", "iora-assist", event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "system",
+            "iora-assist",
+            event_type,
+            summary,
+            severity,
+        ));
     }
 
     /// GitHub operation event
     pub fn github_event(&self, repo: &str, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("github", repo, event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "github", repo, event_type, summary, severity,
+        ));
     }
 
     /// Evolution cycle event
     pub fn evolution_event(&self, event_type: &str, summary: &str, severity: &str) {
-        self.publish(SystemEvent::new("evolution", "self-evolution", event_type, summary, severity));
+        self.publish(SystemEvent::new(
+            "evolution",
+            "self-evolution",
+            event_type,
+            summary,
+            severity,
+        ));
     }
 
     /// Tool execution output line (from agent, pi.dev, subagent)
     pub fn tool_output(&self, source: &str, tool: &str, output: &str, severity: &str) {
-        self.publish(
-            SystemEvent::new("tool", source, tool, output, severity)
-        );
+        self.publish(SystemEvent::new("tool", source, tool, output, severity));
     }
 }

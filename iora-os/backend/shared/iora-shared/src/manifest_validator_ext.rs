@@ -313,30 +313,30 @@ pub fn validate_security_policy(
             .and_then(|p| p.as_array())
             .map(|perms| perms.iter().any(|p| p.as_str() == Some("NetworkAccess")))
             .unwrap_or(false)
-        {
-            // App has NetworkAccess permission, check for whitelist
-            if let Some(network) = manifest.get("network_access") {
-                let has_domains = network
-                    .get("allowed_domains")
-                    .and_then(|d| d.as_array())
-                    .map(|arr| !arr.is_empty())
-                    .unwrap_or(false);
+    {
+        // App has NetworkAccess permission, check for whitelist
+        if let Some(network) = manifest.get("network_access") {
+            let has_domains = network
+                .get("allowed_domains")
+                .and_then(|d| d.as_array())
+                .map(|arr| !arr.is_empty())
+                .unwrap_or(false);
 
-                if !has_domains {
-                    result.add_error(
-                        "network_access.allowed_domains",
-                        "Security-Policy erfordert Domain-Whitelist für NetworkAccess.",
-                        Some("Füge \"allowed_domains\": [\"example.com\"] hinzu."),
-                    );
-                }
-            } else {
+            if !has_domains {
                 result.add_error(
-                    "network_access",
-                    "Security-Policy erfordert network_access-Konfiguration mit allowed_domains.",
-                    Some("Füge \"network_access\": { \"allowed_domains\": [\"example.com\"] } hinzu.")
+                    "network_access.allowed_domains",
+                    "Security-Policy erfordert Domain-Whitelist für NetworkAccess.",
+                    Some("Füge \"allowed_domains\": [\"example.com\"] hinzu."),
                 );
             }
+        } else {
+            result.add_error(
+                "network_access",
+                "Security-Policy erfordert network_access-Konfiguration mit allowed_domains.",
+                Some("Füge \"network_access\": { \"allowed_domains\": [\"example.com\"] } hinzu."),
+            );
         }
+    }
 
     // Check for untrusted source
     if !policy.allow_untrusted_apps {

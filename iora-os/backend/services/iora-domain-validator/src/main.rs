@@ -19,9 +19,9 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
+use iora_shared::system_config;
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
-use iora_shared::system_config;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -30,8 +30,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
-use trust_dns_resolver::TokioAsyncResolver;
 use trust_dns_resolver::config::*;
+use trust_dns_resolver::TokioAsyncResolver;
 use uuid::Uuid;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -627,8 +627,7 @@ async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "iora_domain_validator=info".to_string()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "iora_domain_validator=info".to_string()),
         )
         .init();
 
@@ -653,9 +652,10 @@ async fn main() -> Result<()> {
     let policies = Arc::new(RwLock::new(load_policies(&pool).await?));
 
     // Create DNS resolver
-    let resolver = Arc::new(
-        TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())
-    );
+    let resolver = Arc::new(TokioAsyncResolver::tokio(
+        ResolverConfig::default(),
+        ResolverOpts::default(),
+    ));
 
     // Create app state
     let state = AppState {

@@ -1,17 +1,17 @@
 // Self-Evolution System - ORA improves itself using pi.dev and other AI providers
-pub mod evolution_engine;
-pub mod reflection;
-pub mod tools;
-pub mod planner;
-pub mod prompt_engine;
 pub mod code_generation;
 pub mod evolution_cycle;
+pub mod evolution_engine;
 pub mod knowledge_base;
+pub mod planner;
+pub mod prompt_engine;
+pub mod reflection;
 pub mod scheduler;
+pub mod tools;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 /// Evolution proposal representing a potential self-improvement
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,12 +19,12 @@ pub struct EvolutionProposal {
     pub id: Uuid,
     pub title: String,
     pub description: Option<String>,
-    pub category: String,       // feature, bugfix, optimization, security, refactor
-    pub priority: i32,          // 1-10 scale
-    pub status: String,         // proposed, planned, in_progress, implemented, tested, rejected
+    pub category: String, // feature, bugfix, optimization, security, refactor
+    pub priority: i32,    // 1-10 scale
+    pub status: String,   // proposed, planned, in_progress, implemented, tested, rejected
     pub rationale: Option<String>,
     pub estimated_effort: Option<String>,
-    pub created_by: String,     // ora, user, external
+    pub created_by: String, // ora, user, external
     pub provider_used: Option<String>,
     pub model_used: Option<String>,
 
@@ -46,7 +46,7 @@ pub struct EvolutionImplementation {
     pub id: Uuid,
     pub proposal_id: Uuid,
     pub file_path: String,
-    pub change_type: String,   // add, modify, delete
+    pub change_type: String, // add, modify, delete
     pub old_content: Option<String>,
     pub new_content: String,
     pub diff_text: Option<String>,
@@ -64,7 +64,7 @@ pub struct EvolutionImplementation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelfReflection {
     pub id: Uuid,
-    pub reflection_type: String,  // success, failure, improvement, insight
+    pub reflection_type: String, // success, failure, improvement, insight
     pub context: String,
     pub observation: String,
 
