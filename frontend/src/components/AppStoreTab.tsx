@@ -48,6 +48,17 @@ interface AppInfo {
   services?: any[]
   permission_grants?: Array<{ permission: string; risk_level?: string; is_active?: boolean }>
   denied_permissions?: string[]
+  /**
+   * Optional i18n configuration for the app.
+   * Convention: translation files are served at `<assets_base_url>/i18n/<lng>.json`
+   * (e.g. `/api/apps/<id>/assets/i18n/en.json`). The system loads these bundles
+   * into a namespace scoped to the app (e.g. `app-<id>`) so translations can be
+   * accessed via `t('app-<id>:key.path')` in the frontend.
+   */
+  i18n?: {
+    /** Base URL from which i18n bundles are served */
+    assets_base_url: string
+  }
 }
 
 interface PortInfo {

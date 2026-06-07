@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { adminFetch, InlineSpinner } from './AdminPanel'
 import { toast } from 'sonner'
 import { getBackendUrl } from '@/lib/config'
+import { loadTranslationBundlesFromAssets } from '@/i18n/external'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -67,6 +68,10 @@ interface AppDetail {
   is_bundle?: boolean
   bundle_config?: any
   services?: any[]
+  /** Optional i18n configuration — translation bundles served at `<assets_base_url>/i18n/<lng>.json` */
+  i18n?: {
+    assets_base_url: string
+  }
 }
 
 interface PermissionGrant {
@@ -184,6 +189,24 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
       try {
         const data = await adminFetch(`/api/apps/${appId}/detail`, token) as AppDetail
         setDetail(data)
+
+        // Load app-provided i18n bundles (optional)
+        if (data.i18n?.assets_base_url) {
+          const namespace = `app-${data.id}`
+          loadTranslationBundlesFromAssets({
+            assetsBaseUrl: data.i18n.assets_base_url,
+            namespace,
+            languages: ['en', 'de'] as const,
+          }).then((result) => {
+            if (result.loaded.length > 0) {
+              console.log(`Loaded i18n bundles for app ${data.id}:`, result.loaded)
+            }
+            if (result.failed.length > 0) {
+              console.warn(`Failed to load i18n for app ${data.id}:`, result.failed)
+            }
+          })
+        }
+
         setLogs(data.recent_logs || [])
         const activeGrants = (data.permission_grants || [])
           .filter(grant => grant.is_active !== false)
