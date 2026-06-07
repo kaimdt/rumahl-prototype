@@ -1,13 +1,12 @@
 // Smart Home Context Injection Module
+use iora_shared::system_config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use iora_shared::system_config;
 
 /// Returns the iora-home base URL.
 /// Honors `$IORA_HOME_URL` env var; falls back to `system_config::service_url`.
 fn iora_home_url() -> String {
-    std::env::var("IORA_HOME_URL")
-        .unwrap_or_else(|_| system_config::service_url("iora-home", 8126))
+    std::env::var("IORA_HOME_URL").unwrap_or_else(|_| system_config::service_url("iora-home", 8126))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +49,9 @@ impl ContextBuilder {
     }
 
     /// Fetch current smart home context from iora-home
-    pub async fn fetch_context(&self) -> Result<SmartHomeContext, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_context(
+        &self,
+    ) -> Result<SmartHomeContext, Box<dyn std::error::Error + Send + Sync>> {
         // Fetch entity states
         let entities = self.fetch_entities().await?;
 
@@ -112,7 +113,10 @@ impl ContextBuilder {
     ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
         let resp = self
             .client
-            .get(format!("{}/api/integration/dashboard-settings", iora_home_url()))
+            .get(format!(
+                "{}/api/integration/dashboard-settings",
+                iora_home_url()
+            ))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -137,8 +141,11 @@ impl ContextBuilder {
     }
 
     /// Fetch all entities from iora-home
-    async fn fetch_entities(&self) -> Result<Vec<EntityState>, Box<dyn std::error::Error + Send + Sync>> {
-        let response = self.client
+    async fn fetch_entities(
+        &self,
+    ) -> Result<Vec<EntityState>, Box<dyn std::error::Error + Send + Sync>> {
+        let response = self
+            .client
             .get(format!("{}/api/states", iora_home_url()))
             .send()
             .await?;
@@ -185,9 +192,13 @@ impl ContextBuilder {
     }
 
     /// Build context-aware system prompt
-    pub fn build_system_prompt(&self, context: &SmartHomeContext, base_prompt: Option<&str>) -> String {
+    pub fn build_system_prompt(
+        &self,
+        context: &SmartHomeContext,
+        base_prompt: Option<&str>,
+    ) -> String {
         let base = base_prompt.unwrap_or(
-            "You are IORA Assist, an AI assistant integrated into the IORA smart home system."
+            "You are IORA Assist, an AI assistant integrated into the IORA smart home system.",
         );
 
         let mut prompt = format!("{}\n\nCurrent Smart Home Status:\n", base);
@@ -198,17 +209,23 @@ impl ContextBuilder {
         }
 
         // Add key entity states
-        let lights: Vec<_> = context.entities
+        let lights: Vec<_> = context
+            .entities
             .iter()
             .filter(|e| e.entity_id.starts_with("light."))
             .collect();
 
         if !lights.is_empty() {
             let on_count = lights.iter().filter(|l| l.state == "on").count();
-            prompt.push_str(&format!("Lights: {} total, {} on\n", lights.len(), on_count));
+            prompt.push_str(&format!(
+                "Lights: {} total, {} on\n",
+                lights.len(),
+                on_count
+            ));
         }
 
-        let climate: Vec<_> = context.entities
+        let climate: Vec<_> = context
+            .entities
             .iter()
             .filter(|e| e.entity_id.starts_with("climate."))
             .collect();
@@ -217,13 +234,18 @@ impl ContextBuilder {
             prompt.push_str(&format!("Climate devices: {}\n", climate.len()));
         }
 
-        prompt.push_str("\nYou can reference these devices when answering questions or providing suggestions.");
+        prompt.push_str(
+            "\nYou can reference these devices when answering questions or providing suggestions.",
+        );
 
         prompt
     }
 
     /// Discover available entities by category
-    pub fn discover_entities(&self, context: &SmartHomeContext) -> HashMap<String, Vec<EntityState>> {
+    pub fn discover_entities(
+        &self,
+        context: &SmartHomeContext,
+    ) -> HashMap<String, Vec<EntityState>> {
         let mut categorized = HashMap::new();
 
         for entity in &context.entities {
@@ -259,16 +281,21 @@ impl ContextBuilder {
     }
 
     /// Generate automation suggestions based on entity states
-    pub async fn suggest_automations(&self, context: &SmartHomeContext) -> Vec<AutomationSuggestion> {
+    pub async fn suggest_automations(
+        &self,
+        context: &SmartHomeContext,
+    ) -> Vec<AutomationSuggestion> {
         let mut suggestions = Vec::new();
 
         // Suggest motion-based lighting
-        let motion_sensors: Vec<_> = context.entities
+        let motion_sensors: Vec<_> = context
+            .entities
             .iter()
             .filter(|e| e.entity_id.contains("motion"))
             .collect();
 
-        let lights_in_rooms: Vec<_> = context.entities
+        let lights_in_rooms: Vec<_> = context
+            .entities
             .iter()
             .filter(|e| e.entity_id.starts_with("light."))
             .collect();
@@ -284,7 +311,8 @@ impl ContextBuilder {
         }
 
         // Suggest climate automation based on time
-        let climate_devices: Vec<_> = context.entities
+        let climate_devices: Vec<_> = context
+            .entities
             .iter()
             .filter(|e| e.entity_id.starts_with("climate."))
             .collect();
@@ -300,7 +328,8 @@ impl ContextBuilder {
         }
 
         // Suggest away mode automation
-        let door_sensors: Vec<_> = context.entities
+        let door_sensors: Vec<_> = context
+            .entities
             .iter()
             .filter(|e| e.entity_id.contains("door") && e.entity_id.contains("sensor"))
             .collect();
@@ -308,7 +337,9 @@ impl ContextBuilder {
         if !door_sensors.is_empty() && !lights_in_rooms.is_empty() {
             suggestions.push(AutomationSuggestion {
                 title: "Away Mode".to_string(),
-                description: "When all doors are locked, turn off all lights and set climate to eco mode.".to_string(),
+                description:
+                    "When all doors are locked, turn off all lights and set climate to eco mode."
+                        .to_string(),
                 confidence: 0.75,
                 entities_involved: vec![],
                 automation_type: "away_mode".to_string(),

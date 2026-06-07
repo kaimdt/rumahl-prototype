@@ -5,12 +5,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use bollard::container::{
-    Config as ContainerConfig, CreateContainerOptions,
-    RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+    Config as ContainerConfig, CreateContainerOptions, RemoveContainerOptions,
+    StartContainerOptions, StopContainerOptions,
 };
-use bollard::models::{
-    HostConfig as BollardHostConfig, RestartPolicy, RestartPolicyNameEnum,
-};
+use bollard::models::{HostConfig as BollardHostConfig, RestartPolicy, RestartPolicyNameEnum};
 use bollard::Docker;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -60,8 +58,8 @@ pub struct DockerSandbox {
 
 impl DockerSandbox {
     pub fn new() -> Self {
-        let docker = Docker::connect_with_local_defaults()
-            .expect("Failed to connect to Docker daemon");
+        let docker =
+            Docker::connect_with_local_defaults().expect("Failed to connect to Docker daemon");
         Self { docker }
     }
 
@@ -70,7 +68,11 @@ impl DockerSandbox {
 
         let container_name = format!(
             "iora-pidev-{}",
-            uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
+            uuid::Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("session")
         );
 
         let workspace_bind = format!("{}:/workspace:rw", config.workspace_path);
@@ -104,12 +106,17 @@ impl DockerSandbox {
         };
 
         // Build extension flags from session config (pi-context-tools, pi-codex-goal, etc.)
-        let config_ext_flags: String = config.extensions.iter()
+        let config_ext_flags: String = config
+            .extensions
+            .iter()
             .map(|ext| format!(" -e {}", ext))
             .collect();
 
         let start_cmd = if config.plugin_packages.is_empty() {
-            format!("exec npx pi serve --port 3000 --host 0.0.0.0{}{}", ext_flag, config_ext_flags)
+            format!(
+                "exec npx pi serve --port 3000 --host 0.0.0.0{}{}",
+                ext_flag, config_ext_flags
+            )
         } else {
             format!(
                 "for pkg in {}; do npx pi install $pkg 2>/dev/null || true; done && exec npx pi serve --port 3000 --host 0.0.0.0{}{}",
@@ -119,10 +126,8 @@ impl DockerSandbox {
             )
         };
 
-        let memory_bytes = config.memory_limit.as_ref()
-            .and_then(|m| parse_memory(m));
-        let nano_cpus = config.cpu_limit.as_ref()
-            .and_then(|c| parse_cpu(c));
+        let memory_bytes = config.memory_limit.as_ref().and_then(|m| parse_memory(m));
+        let nano_cpus = config.cpu_limit.as_ref().and_then(|c| parse_cpu(c));
 
         let host_config = BollardHostConfig {
             binds: Some(binds),
@@ -130,10 +135,16 @@ impl DockerSandbox {
             nano_cpus,
             cap_drop: Some(vec!["ALL".to_string()]),
             cap_add: Some(vec![
-                "CHOWN".to_string(), "DAC_OVERRIDE".to_string(),
-                "FOWNER".to_string(), "FSETID".to_string(),
+                "CHOWN".to_string(),
+                "DAC_OVERRIDE".to_string(),
+                "FOWNER".to_string(),
+                "FSETID".to_string(),
             ]),
-            network_mode: Some(if config.network_enabled { "bridge".to_string() } else { "none".to_string() }),
+            network_mode: Some(if config.network_enabled {
+                "bridge".to_string()
+            } else {
+                "none".to_string()
+            }),
             auto_remove: Some(true),
             restart_policy: Some(RestartPolicy {
                 name: Some(RestartPolicyNameEnum::NO),
@@ -156,7 +167,8 @@ impl DockerSandbox {
             platform: None,
         };
 
-        let container = self.docker
+        let container = self
+            .docker
             .create_container(Some(create_opts), container_config)
             .await
             .map_err(|e| format!("Failed to create container: {}", e))?;
@@ -188,7 +200,10 @@ impl DockerSandbox {
     }
 
     pub async fn destroy_container(&self, container_id: &str) -> Result<(), String> {
-        let opts = RemoveContainerOptions { force: true, ..Default::default() };
+        let opts = RemoveContainerOptions {
+            force: true,
+            ..Default::default()
+        };
         self.docker
             .remove_container(container_id, Some(opts))
             .await
@@ -197,7 +212,8 @@ impl DockerSandbox {
     }
 
     pub async fn container_status(&self, container_id: &str) -> Result<SandboxStatus, String> {
-        let inspect = self.docker
+        let inspect = self
+            .docker
             .inspect_container(container_id, None)
             .await
             .map_err(|e| format!("Inspect failed: {}", e))?;
@@ -216,7 +232,12 @@ impl DockerSandbox {
     }
 
     pub async fn container_metrics(&self, _container_id: &str) -> Result<ContainerMetrics, String> {
-        Ok(ContainerMetrics { cpu_percent: 0.0, memory_mb: 0.0, network_rx_bytes: 0, network_tx_bytes: 0 })
+        Ok(ContainerMetrics {
+            cpu_percent: 0.0,
+            memory_mb: 0.0,
+            network_rx_bytes: 0,
+            network_tx_bytes: 0,
+        })
     }
 
     pub async fn exec_in_container(
@@ -226,17 +247,22 @@ impl DockerSandbox {
     ) -> Result<String, String> {
         use bollard::exec::{CreateExecOptions, StartExecResults};
 
-        let exec = self.docker
-            .create_exec(container_id, CreateExecOptions {
-                attach_stdout: Some(true),
-                attach_stderr: Some(true),
-                cmd: Some(command),
-                ..Default::default()
-            })
+        let exec = self
+            .docker
+            .create_exec(
+                container_id,
+                CreateExecOptions {
+                    attach_stdout: Some(true),
+                    attach_stderr: Some(true),
+                    cmd: Some(command),
+                    ..Default::default()
+                },
+            )
             .await
             .map_err(|e| format!("Exec create failed: {}", e))?;
 
-        let output = self.docker
+        let output = self
+            .docker
             .start_exec(&exec.id, None)
             .await
             .map_err(|e| format!("Exec start failed: {}", e))?;
@@ -355,7 +381,8 @@ impl DockerSandbox {
         let mut filters: HashMap<&str, Vec<&str>> = HashMap::new();
         filters.insert("reference", vec![image]);
 
-        let images = self.docker
+        let images = self
+            .docker
             .list_images(Some(ListImagesOptions::<&str> {
                 filters,
                 ..Default::default()
@@ -363,7 +390,9 @@ impl DockerSandbox {
             .await
             .map_err(|e| format!("List images failed: {}", e))?;
 
-        if !images.is_empty() { return Ok(()); }
+        if !images.is_empty() {
+            return Ok(());
+        }
 
         info!("Pulling Docker image: {}", image);
         let mut stream = self.docker.create_image(
@@ -386,9 +415,15 @@ impl DockerSandbox {
 }
 
 fn parse_memory(mem: &str) -> Option<i64> {
-    let mem = mem.to_lowercase().replace("gb", "g").replace("mb", "m").replace("kb", "k");
+    let mem = mem
+        .to_lowercase()
+        .replace("gb", "g")
+        .replace("mb", "m")
+        .replace("kb", "k");
     if let Some(v) = mem.strip_suffix('g') {
-        v.parse::<f64>().ok().map(|v| (v * 1024.0 * 1024.0 * 1024.0) as i64)
+        v.parse::<f64>()
+            .ok()
+            .map(|v| (v * 1024.0 * 1024.0 * 1024.0) as i64)
     } else if let Some(v) = mem.strip_suffix('m') {
         v.parse::<f64>().ok().map(|v| (v * 1024.0 * 1024.0) as i64)
     } else if let Some(v) = mem.strip_suffix('k') {
@@ -399,5 +434,7 @@ fn parse_memory(mem: &str) -> Option<i64> {
 }
 
 fn parse_cpu(cpu: &str) -> Option<i64> {
-    cpu.parse::<f64>().ok().map(|v| (v * 1_000_000_000.0) as i64)
+    cpu.parse::<f64>()
+        .ok()
+        .map(|v| (v * 1_000_000_000.0) as i64)
 }

@@ -44,8 +44,8 @@ impl PasswordRotation {
 
         // Update tracking database
         let password_hash = self.hash_password(&new_password);
-        let next_rotation = chrono::Utc::now()
-            + chrono::Duration::days(self.config.interval_days as i64);
+        let next_rotation =
+            chrono::Utc::now() + chrono::Duration::days(self.config.interval_days as i64);
 
         sqlx::query(
             r#"
@@ -77,13 +77,11 @@ impl PasswordRotation {
         .await?;
 
         // Add new password to history
-        sqlx::query(
-            "INSERT INTO _iora_password_history (service, password_hash) VALUES ($1, $2)",
-        )
-        .bind(service)
-        .bind(&password_hash)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("INSERT INTO _iora_password_history (service, password_hash) VALUES ($1, $2)")
+            .bind(service)
+            .bind(&password_hash)
+            .execute(&self.pool)
+            .await?;
 
         // Write new credentials
         self.write_credentials(service, &username, &new_password, &database)
@@ -131,7 +129,10 @@ impl PasswordRotation {
         password: &str,
         database: &str,
     ) -> Result<()> {
-        let conn_str = format!("postgres://{}:{}@localhost:5432/{}", username, password, database);
+        let conn_str = format!(
+            "postgres://{}:{}@localhost:5432/{}",
+            username, password, database
+        );
 
         let cred_dir = Path::new("/etc/iora/db-credentials");
         std::fs::create_dir_all(cred_dir)?;
@@ -177,8 +178,8 @@ impl PasswordRotation {
     }
 
     async fn cleanup_old_passwords(&self, service: &str) -> Result<()> {
-        let grace_cutoff = chrono::Utc::now()
-            - chrono::Duration::hours(self.config.grace_period_hours as i64);
+        let grace_cutoff =
+            chrono::Utc::now() - chrono::Duration::hours(self.config.grace_period_hours as i64);
 
         sqlx::query(
             r#"
@@ -198,7 +199,8 @@ impl PasswordRotation {
 
     fn generate_strong_password(&self) -> String {
         use rand::Rng;
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*-_=+";
+        const CHARSET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*-_=+";
         let mut rng = rand::thread_rng();
 
         let mut password: Vec<u8> = (0..self.config.min_password_length)

@@ -39,8 +39,9 @@ async fn get_config(state: web::Data<AppState>) -> impl Responder {
     match db::load_config(&state.db).await {
         Ok(Some(cfg)) => HttpResponse::Ok().json(cfg),
         Ok(None) => HttpResponse::NotFound().json(serde_json::json!({"error":"no_config"})),
-        Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()})),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()}))
+        }
     }
 }
 
@@ -51,8 +52,9 @@ async fn update_config(
 ) -> impl Responder {
     match db::update_config(&state.db, &req).await {
         Ok(cfg) => HttpResponse::Ok().json(cfg),
-        Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()})),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()}))
+        }
     }
 }
 
@@ -111,11 +113,11 @@ async fn create_backup(
         }
         Ok(Err(e)) => {
             error!("backup failed: {e}");
-            HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()}))
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()}))
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()})),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()}))
+        }
     }
 }
 
@@ -123,8 +125,9 @@ async fn create_backup(
 async fn list_backups(state: web::Data<AppState>) -> impl Responder {
     match db::list_backups(&state.db).await {
         Ok(rows) => HttpResponse::Ok().json(serde_json::json!({"backups": rows})),
-        Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()})),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()}))
+        }
     }
 }
 
@@ -141,8 +144,7 @@ async fn restore_backup(
     let row = match db::find_backup(&state.db, req.backup_id).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return HttpResponse::NotFound()
-                .json(serde_json::json!({"error":"backup_not_found"}))
+            return HttpResponse::NotFound().json(serde_json::json!({"error":"backup_not_found"}))
         }
         Err(e) => {
             return HttpResponse::InternalServerError()
@@ -191,10 +193,12 @@ async fn pre_update_backup(state: web::Data<AppState>) -> impl Responder {
             let _ = db::insert_backup(&state.db, &b, "pre_update", "completed", None).await;
             HttpResponse::Ok().json(b)
         }
-        Ok(Err(e)) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()})),
-        Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()})),
+        Ok(Err(e)) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()}))
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()}))
+        }
     }
 }
 
@@ -228,9 +232,8 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or_else(|_| PathBuf::from("/var/lib/iora/backups"));
     let _ = std::fs::create_dir_all(&backup_dir);
 
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "postgres://iora:iora@127.0.0.1:5432/iora".to_string()
-    });
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://iora:iora@127.0.0.1:5432/iora".to_string());
 
     let db = match PgPoolOptions::new()
         .max_connections(5)
@@ -254,13 +257,13 @@ async fn main() -> std::io::Result<()> {
     let scheduler = BackupScheduler::new(db.clone(), engine.clone());
     scheduler.clone().spawn();
 
-    let _hb = iora_shared::heartbeat::spawn_default(
-        "iora-backup",
-        port,
-        "Backup & restore service",
-    );
+    let _hb =
+        iora_shared::heartbeat::spawn_default("iora-backup", port, "Backup & restore service");
 
-    info!("iora-backup listening on 0.0.0.0:{port}, backup_dir={}", backup_dir.display());
+    info!(
+        "iora-backup listening on 0.0.0.0:{port}, backup_dir={}",
+        backup_dir.display()
+    );
 
     let state = web::Data::new(AppState {
         db,

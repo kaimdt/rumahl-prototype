@@ -59,8 +59,8 @@ impl ToolExecutor {
             .build()
             .map_err(|e| format!("Failed to build launch options: {}", e))?;
 
-        let browser = Browser::new(options)
-            .map_err(|e| format!("Failed to launch browser: {}", e))?;
+        let browser =
+            Browser::new(options).map_err(|e| format!("Failed to launch browser: {}", e))?;
 
         self.browser = Some(Arc::new(browser));
         tracing::info!("Headless Chrome browser initialized");
@@ -138,7 +138,10 @@ impl ToolExecutor {
             .and_then(|s| s.as_bool())
             .unwrap_or(false);
 
-        match self.fetch_and_parse_with_chrome(url, include_screenshot).await {
+        match self
+            .fetch_and_parse_with_chrome(url, include_screenshot)
+            .await
+        {
             Ok(page) => ToolResult {
                 success: true,
                 data: serde_json::to_value(&page).unwrap_or_default(),
@@ -240,13 +243,9 @@ impl ToolExecutor {
             // Wait for content to load
             std::thread::sleep(Duration::from_secs(2));
 
-            let title = tab
-                .get_title()
-                .unwrap_or_else(|_| "Untitled".to_string());
+            let title = tab.get_title().unwrap_or_else(|_| "Untitled".to_string());
 
-            let content = tab
-                .get_content()
-                .map_err(|e| e.to_string())?;
+            let content = tab.get_content().map_err(|e| e.to_string())?;
 
             // Parse HTML to extract text content using the same readability heuristic.
             let document = Html::parse_document(&content);
@@ -375,16 +374,14 @@ fn extract_readable_text(document: &Html) -> String {
 
     // Tags whose textual content should always be discarded.
     let blacklist: HashSet<&str> = [
-        "script", "style", "noscript", "template", "iframe", "form", "svg",
-        "header", "footer", "nav", "aside",
+        "script", "style", "noscript", "template", "iframe", "form", "svg", "header", "footer",
+        "nav", "aside",
     ]
     .into_iter()
     .collect();
 
     // Try to find the primary content container first.
-    let primary_selectors = [
-        "article", "main", "[role=main]", "[itemprop=articleBody]",
-    ];
+    let primary_selectors = ["article", "main", "[role=main]", "[itemprop=articleBody]"];
     let mut root_html: Option<String> = None;
     for sel in &primary_selectors {
         if let Ok(selector) = Selector::parse(sel) {
@@ -418,7 +415,9 @@ fn extract_readable_text(document: &Html) -> String {
                 break;
             }
         }
-        if skip { continue; }
+        if skip {
+            continue;
+        }
 
         let text: String = el.text().collect::<Vec<_>>().join(" ");
         let trimmed = text.split_whitespace().collect::<Vec<_>>().join(" ");

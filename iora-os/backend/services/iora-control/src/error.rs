@@ -65,7 +65,9 @@ impl AppError {
             AppError::InternalError(msg) => msg.clone(),
             AppError::ServiceUnavailable(msg) => msg.clone(),
             AppError::Conflict(msg) => msg.clone(),
-            AppError::RateLimitExceeded => "Rate limit exceeded. Please try again later.".to_string(),
+            AppError::RateLimitExceeded => {
+                "Rate limit exceeded. Please try again later.".to_string()
+            }
         }
     }
 }

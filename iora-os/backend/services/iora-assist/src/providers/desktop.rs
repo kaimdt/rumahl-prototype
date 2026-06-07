@@ -1,5 +1,8 @@
 // Desktop AI Provider Implementation (via IORA Desktop client)
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
+use super::{
+    AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError,
+    ProviderModel, SpeechSynthesis,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -68,7 +71,8 @@ impl AIProvider for DesktopAIProvider {
     async fn is_available(&self) -> bool {
         if let Some(base_url) = &self.config.base_url {
             // Try to ping the desktop AI proxy (LM Studio via IORA Desktop)
-            if let Ok(response) = self.client
+            if let Ok(response) = self
+                .client
                 .get(format!("{}/v1/models", base_url))
                 .send()
                 .await
@@ -80,10 +84,14 @@ impl AIProvider for DesktopAIProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Desktop AI base URL not configured")?;
 
-        let mut req_builder = self.client
+        let mut req_builder = self
+            .client
             .get(format!("{}/v1/models", base_url.trim_end_matches('/')));
 
         if let Some(api_key) = &self.config.api_key {
@@ -97,11 +105,15 @@ impl AIProvider for DesktopAIProvider {
         }
 
         let payload: DesktopModelsResponse = response.json().await?;
-        Ok(payload.data.into_iter().map(|model| ProviderModel {
-            id: model.id.clone(),
-            name: model.id,
-            provider: "desktop".to_string(),
-        }).collect())
+        Ok(payload
+            .data
+            .into_iter()
+            .map(|model| ProviderModel {
+                id: model.id.clone(),
+                name: model.id,
+                provider: "desktop".to_string(),
+            })
+            .collect())
     }
 
     async fn chat(
@@ -109,13 +121,17 @@ impl AIProvider for DesktopAIProvider {
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
     ) -> Result<ChatResponse, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Desktop AI base URL not configured (should point to IORA Desktop proxy)")?;
 
         let model = if let Some(model) = self.config.model.as_deref() {
             model.to_string()
         } else {
-            self.list_models().await?
+            self.list_models()
+                .await?
                 .into_iter()
                 .next()
                 .map(|model| model.id)
@@ -143,7 +159,8 @@ impl AIProvider for DesktopAIProvider {
             messages: desktop_messages,
         };
 
-        let mut req_builder = self.client
+        let mut req_builder = self
+            .client
             .post(format!("{}/v1/chat/completions", base_url))
             .header("Content-Type", "application/json")
             .json(&request);
@@ -175,7 +192,10 @@ impl AIProvider for DesktopAIProvider {
         audio_data: Vec<u8>,
         format: &str,
     ) -> Result<AudioTranscription, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Desktop AI base URL not configured")?;
 
         // OpenAI-compatible Whisper endpoint via desktop proxy
@@ -188,7 +208,8 @@ impl AIProvider for DesktopAIProvider {
                     .mime_str(&format!("audio/{}", format))?,
             );
 
-        let mut req_builder = self.client
+        let mut req_builder = self
+            .client
             .post(format!("{}/v1/audio/transcriptions", base_url))
             .multipart(form);
 
@@ -224,7 +245,10 @@ impl AIProvider for DesktopAIProvider {
         text: &str,
         voice: Option<&str>,
     ) -> Result<SpeechSynthesis, ProviderError> {
-        let base_url = self.config.base_url.as_ref()
+        let base_url = self
+            .config
+            .base_url
+            .as_ref()
             .ok_or("Desktop AI base URL not configured")?;
 
         #[derive(Serialize)]
@@ -240,7 +264,8 @@ impl AIProvider for DesktopAIProvider {
             voice: voice.unwrap_or("alloy").to_string(),
         };
 
-        let mut req_builder = self.client
+        let mut req_builder = self
+            .client
             .post(format!("{}/v1/audio/speech", base_url))
             .header("Content-Type", "application/json")
             .json(&request);

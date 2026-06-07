@@ -42,16 +42,11 @@ use axum::{
 };
 use chrono::Utc;
 
-use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Instant};
 use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
@@ -244,7 +239,10 @@ async fn main() -> Result<()> {
     let public_domain = system_config::connector_domain();
     let domain_for_log = public_domain.clone();
 
-    let db = SqlitePoolOptions::new().max_connections(10).connect(&database_url).await?;
+    let db = SqlitePoolOptions::new()
+        .max_connections(10)
+        .connect(&database_url)
+        .await?;
 
     // Run migrations
     let migration_sql = include_str!("../migrations/002_cloud_tunnel_schema.sql");
@@ -284,7 +282,10 @@ async fn main() -> Result<()> {
     let state_orphan_cleanup = state.clone();
     tokio::spawn(async move { cleanup_orphaned_entries(state_orphan_cleanup).await });
 
-    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     // ── Public API (HTTP port) ──────────────────────────────────────────
     let http_app = Router::new()
@@ -305,7 +306,10 @@ async fn main() -> Result<()> {
     // Start HTTP server
     let http_addr = SocketAddr::from(([0, 0, 0, 0], http_port));
     let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
-    info!("Cloud Relay HTTP listening on {} (public domain: {})", http_addr, domain_for_log);
+    info!(
+        "Cloud Relay HTTP listening on {} (public domain: {})",
+        http_addr, domain_for_log
+    );
 
     // Start Relay/WebSocket server
     let relay_addr = SocketAddr::from(([0, 0, 0, 0], relay_port));
@@ -336,19 +340,30 @@ fn admin_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/tunnels/:id", get(get_tunnel).delete(remove_tunnel))
         .route("/services", post(expose_service).get(list_services))
         .route("/services/:id", delete(remove_service))
-        .route("/pairing-tokens", post(create_pairing_token).get(list_pairing_tokens))
+        .route(
+            "/pairing-tokens",
+            post(create_pairing_token).get(list_pairing_tokens),
+        )
         .route("/pairing-tokens/:id", delete(revoke_pairing_token))
         .route("/access-log", get(get_access_log))
-        .layer(middleware::from_fn_with_state(state.clone(), admin_auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin_auth_middleware,
+        ))
 }
 
 // ─── Health ─────────────────────────────────────────────────────────────────
 
 async fn health_endpoint(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let tunnels_total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cloud_tunnels")
-        .fetch_one(&state.db).await.unwrap_or((0,));
-    let connected: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cloud_tunnels WHERE status = 'connected'")
-        .fetch_one(&state.db).await.unwrap_or((0,));
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+    let connected: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM cloud_tunnels WHERE status = 'connected'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or((0,));
 
     Json(serde_json::json!({
         "status": "healthy",
@@ -377,21 +392,29 @@ async fn handle_tunnel_connection(state: Arc<AppState>, mut ws: WebSocket) {
 
     // Step 1: Wait for auth message
     let auth_msg = match tokio::time::timeout(std::time::Duration::from_secs(10), ws.recv()).await {
-        Ok(Some(Ok(Message::Text(text)))) => {
-            match serde_json::from_str::<TunnelMessage>(&text) {
-                Ok(msg) if msg.msg_type == "auth" => msg,
-                _ => {
-                    let _ = ws.send(Message::Text(serde_json::json!({
-                        "type": "auth_error", "message": "Invalid auth message"
-                    }).to_string())).await;
-                    return;
-                }
+        Ok(Some(Ok(Message::Text(text)))) => match serde_json::from_str::<TunnelMessage>(&text) {
+            Ok(msg) if msg.msg_type == "auth" => msg,
+            _ => {
+                let _ = ws
+                    .send(Message::Text(
+                        serde_json::json!({
+                            "type": "auth_error", "message": "Invalid auth message"
+                        })
+                        .to_string(),
+                    ))
+                    .await;
+                return;
             }
-        }
+        },
         _ => {
-            let _ = ws.send(Message::Text(serde_json::json!({
-                "type": "auth_error", "message": "Auth timeout"
-            }).to_string())).await;
+            let _ = ws
+                .send(Message::Text(
+                    serde_json::json!({
+                        "type": "auth_error", "message": "Auth timeout"
+                    })
+                    .to_string(),
+                ))
+                .await;
             return;
         }
     };
@@ -402,16 +425,24 @@ async fn handle_tunnel_connection(state: Arc<AppState>, mut ws: WebSocket) {
     let token_hash = hash_string(token);
 
     let tunnel: CloudTunnel = match sqlx::query_as(
-        "SELECT * FROM cloud_tunnels WHERE (id = ? OR subdomain = ?) AND token_hash = ?"
+        "SELECT * FROM cloud_tunnels WHERE (id = ? OR subdomain = ?) AND token_hash = ?",
     )
-    .bind(tid).bind(tid).bind(&token_hash)
-    .fetch_optional(&state.db).await
+    .bind(tid)
+    .bind(tid)
+    .bind(&token_hash)
+    .fetch_optional(&state.db)
+    .await
     {
         Ok(Some(t)) => t,
         _ => {
-            let _ = ws.send(Message::Text(serde_json::json!({
-                "type": "auth_error", "message": "Invalid tunnel ID or token"
-            }).to_string())).await;
+            let _ = ws
+                .send(Message::Text(
+                    serde_json::json!({
+                        "type": "auth_error", "message": "Invalid tunnel ID or token"
+                    })
+                    .to_string(),
+                ))
+                .await;
             return;
         }
     };
@@ -537,27 +568,32 @@ async fn proxy_http_request(
 ) -> Result<Response, (StatusCode, String)> {
     let start = Instant::now();
     let source_ip = addr.ip().to_string();
-    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
 
     // Extract subdomain from host header: <subdomain>.iora.cloud → subdomain
     let domain_suffix = format!(".{}", state.public_domain);
-    let subdomain = host
-        .strip_suffix(&domain_suffix)
-        .unwrap_or("")
-        .to_string();
+    let subdomain = host.strip_suffix(&domain_suffix).unwrap_or("").to_string();
 
     if subdomain.is_empty() || subdomain.contains('.') {
         return Ok((StatusCode::NOT_FOUND, "Unknown subdomain").into_response());
     }
 
     // Find tunnel by subdomain
-    let tunnel: CloudTunnel = sqlx::query_as(
-        "SELECT * FROM cloud_tunnels WHERE subdomain = ? AND status = 'connected'"
-    )
-    .bind(&subdomain)
-    .fetch_optional(&state.db).await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, "Tunnel not found or offline".to_string()))?;
+    let tunnel: CloudTunnel =
+        sqlx::query_as("SELECT * FROM cloud_tunnels WHERE subdomain = ? AND status = 'connected'")
+            .bind(&subdomain)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    "Tunnel not found or offline".to_string(),
+                )
+            })?;
 
     // Check if tunnel is active
     let tx = {
@@ -569,9 +605,16 @@ async fn proxy_http_request(
 
     // Build HTTP request to forward
     let request_id = Uuid::new_v4().to_string();
-    let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/").to_string();
+    let path = uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/")
+        .to_string();
     let query_string = uri.query().map(|q| q.to_string());
-    let user_agent = headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
     // Extract request headers
     let mut req_headers = serde_json::Map::new();
@@ -583,12 +626,22 @@ async fn proxy_http_request(
             }
         }
     }
-    req_headers.insert("x-forwarded-for".to_string(), serde_json::Value::String(source_ip.clone()));
-    req_headers.insert("x-real-ip".to_string(), serde_json::Value::String(source_ip.clone()));
-    req_headers.insert("x-forwarded-proto".to_string(), serde_json::Value::String("https".to_string()));
+    req_headers.insert(
+        "x-forwarded-for".to_string(),
+        serde_json::Value::String(source_ip.clone()),
+    );
+    req_headers.insert(
+        "x-real-ip".to_string(),
+        serde_json::Value::String(source_ip.clone()),
+    );
+    req_headers.insert(
+        "x-forwarded-proto".to_string(),
+        serde_json::Value::String("https".to_string()),
+    );
 
     // Read body
-    let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024).await
+    let body_bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
+        .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Body too large: {}", e)))?;
 
     let body_b64 = if !body_bytes.is_empty() {
@@ -635,7 +688,10 @@ async fn proxy_http_request(
         Ok(Err(_)) => {
             let mut pending = state.pending_requests.write().await;
             pending.remove(&request_id);
-            return Err((StatusCode::BAD_GATEWAY, "Response channel closed".to_string()));
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                "Response channel closed".to_string(),
+            ));
         }
         Err(_) => {
             let mut pending = state.pending_requests.write().await;
@@ -661,14 +717,18 @@ async fn proxy_http_request(
     .execute(&state.db).await;
 
     // Build response
-    let mut builder = Response::builder()
-        .status(StatusCode::from_u16(response.status.unwrap_or(502)).unwrap_or(StatusCode::BAD_GATEWAY));
+    let mut builder = Response::builder().status(
+        StatusCode::from_u16(response.status.unwrap_or(502)).unwrap_or(StatusCode::BAD_GATEWAY),
+    );
 
     if let Some(ref hdrs) = response.headers {
         if let Some(obj) = hdrs.as_object() {
             for (key, value) in obj {
                 if let Some(v) = value.as_str() {
-                    if !matches!(key.as_str(), "transfer-encoding" | "connection" | "content-encoding") {
+                    if !matches!(
+                        key.as_str(),
+                        "transfer-encoding" | "connection" | "content-encoding"
+                    ) {
                         if let (Ok(name), Ok(val)) = (
                             axum::http::HeaderName::from_bytes(key.as_bytes()),
                             axum::http::HeaderValue::from_str(v),
@@ -696,13 +756,25 @@ async fn proxy_http_request(
 
 async fn cloud_status(State(state): State<Arc<AppState>>) -> Json<CloudStatus> {
     let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cloud_tunnels")
-        .fetch_one(&state.db).await.unwrap_or((0,));
-    let connected: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cloud_tunnels WHERE status = 'connected'")
-        .fetch_one(&state.db).await.unwrap_or((0,));
-    let services: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM exposed_services WHERE is_active = 1")
-        .fetch_one(&state.db).await.unwrap_or((0,));
-    let reqs: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM access_log WHERE created_at > datetime('now', '-1 hour')")
-        .fetch_one(&state.db).await.unwrap_or((0,));
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+    let connected: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM cloud_tunnels WHERE status = 'connected'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or((0,));
+    let services: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM exposed_services WHERE is_active = 1")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or((0,));
+    let reqs: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM access_log WHERE created_at > datetime('now', '-1 hour')",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or((0,));
     let uptime = START_TIME.get().map(|t| t.elapsed().as_secs()).unwrap_or(0);
 
     Json(CloudStatus {
@@ -715,9 +787,12 @@ async fn cloud_status(State(state): State<Arc<AppState>>) -> Json<CloudStatus> {
     })
 }
 
-async fn list_tunnels(State(state): State<Arc<AppState>>) -> Result<Json<Vec<CloudTunnel>>, (StatusCode, String)> {
+async fn list_tunnels(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<CloudTunnel>>, (StatusCode, String)> {
     let tunnels = sqlx::query_as("SELECT * FROM cloud_tunnels ORDER BY created_at DESC")
-        .fetch_all(&state.db).await
+        .fetch_all(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(tunnels))
 }
@@ -726,15 +801,21 @@ async fn get_tunnel(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tunnel: CloudTunnel = sqlx::query_as("SELECT * FROM cloud_tunnels WHERE id = ? OR subdomain = ?")
-        .bind(&id).bind(&id)
-        .fetch_optional(&state.db).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Tunnel not found".to_string()))?;
+    let tunnel: CloudTunnel =
+        sqlx::query_as("SELECT * FROM cloud_tunnels WHERE id = ? OR subdomain = ?")
+            .bind(&id)
+            .bind(&id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "Tunnel not found".to_string()))?;
 
-    let services: Vec<ExposedService> = sqlx::query_as(
-        "SELECT * FROM exposed_services WHERE tunnel_id = ?"
-    ).bind(&tunnel.id).fetch_all(&state.db).await.unwrap_or_default();
+    let services: Vec<ExposedService> =
+        sqlx::query_as("SELECT * FROM exposed_services WHERE tunnel_id = ?")
+            .bind(&tunnel.id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
 
     let is_active = state.active_tunnels.read().await.contains_key(&tunnel.id);
 
@@ -754,8 +835,10 @@ async fn remove_tunnel(
     state.active_tunnels.write().await.remove(&id);
 
     sqlx::query("DELETE FROM cloud_tunnels WHERE id = ? OR subdomain = ?")
-        .bind(&id).bind(&id)
-        .execute(&state.db).await
+        .bind(&id)
+        .bind(&id)
+        .execute(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(serde_json::json!({ "removed": true })))
@@ -767,7 +850,8 @@ async fn expose_service(
 ) -> Result<Json<ExposedService>, (StatusCode, String)> {
     let _tunnel: CloudTunnel = sqlx::query_as("SELECT * FROM cloud_tunnels WHERE id = ?")
         .bind(&body.tunnel_id)
-        .fetch_optional(&state.db).await
+        .fetch_optional(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Tunnel not found".to_string()))?;
 
@@ -785,17 +869,26 @@ async fn expose_service(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let service: ExposedService = sqlx::query_as("SELECT * FROM exposed_services WHERE id = ?")
-        .bind(&service_id).fetch_one(&state.db).await
+        .bind(&service_id)
+        .fetch_one(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    info!("Service exposed: {} on tunnel {}", body.service_name, body.tunnel_id);
+    info!(
+        "Service exposed: {} on tunnel {}",
+        body.service_name, body.tunnel_id
+    );
     Ok(Json(service))
 }
 
-async fn list_services(State(state): State<Arc<AppState>>) -> Result<Json<Vec<ExposedService>>, (StatusCode, String)> {
-    let services = sqlx::query_as("SELECT * FROM exposed_services ORDER BY tunnel_id, service_name")
-        .fetch_all(&state.db).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+async fn list_services(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<ExposedService>>, (StatusCode, String)> {
+    let services =
+        sqlx::query_as("SELECT * FROM exposed_services ORDER BY tunnel_id, service_name")
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(services))
 }
 
@@ -804,7 +897,9 @@ async fn remove_service(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     sqlx::query("DELETE FROM exposed_services WHERE id = ?")
-        .bind(&id).execute(&state.db).await
+        .bind(&id)
+        .execute(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(serde_json::json!({ "removed": true })))
 }
@@ -817,7 +912,10 @@ async fn create_pairing_token(
     let user_id = extract_admin_user(&headers, &state.jwt_secret)?;
 
     let token_id = Uuid::new_v4().to_string();
-    let raw_token = format!("iora-{}", &Uuid::new_v4().to_string().replace('-', "")[..32]);
+    let raw_token = format!(
+        "iora-{}",
+        &Uuid::new_v4().to_string().replace('-', "")[..32]
+    );
     let token_hash = hash_string(&raw_token);
     let hours = body.expires_in_hours.unwrap_or(24);
     let expires_at = (Utc::now() + chrono::Duration::hours(hours)).to_rfc3339();
@@ -831,7 +929,8 @@ async fn create_pairing_token(
 
     // Auto-create a tunnel for this token
     let tunnel_id = Uuid::new_v4().to_string();
-    let subdomain = generate_subdomain(&state).await
+    let subdomain = generate_subdomain(&state)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     sqlx::query(
@@ -851,9 +950,12 @@ async fn create_pairing_token(
     }))
 }
 
-async fn list_pairing_tokens(State(state): State<Arc<AppState>>) -> Result<Json<Vec<PairingToken>>, (StatusCode, String)> {
+async fn list_pairing_tokens(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<PairingToken>>, (StatusCode, String)> {
     let tokens = sqlx::query_as("SELECT * FROM pairing_tokens ORDER BY created_at DESC")
-        .fetch_all(&state.db).await
+        .fetch_all(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(tokens))
 }
@@ -863,7 +965,9 @@ async fn revoke_pairing_token(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     sqlx::query("DELETE FROM pairing_tokens WHERE id = ?")
-        .bind(&id).execute(&state.db).await
+        .bind(&id)
+        .execute(&state.db)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(serde_json::json!({ "revoked": true })))
 }
@@ -874,12 +978,20 @@ async fn get_access_log(
 ) -> Result<Json<Vec<AccessLogEntry>>, (StatusCode, String)> {
     let limit = query.limit.unwrap_or(100).min(1000);
     let entries = if let Some(ref tid) = query.tunnel_id {
-        sqlx::query_as("SELECT * FROM access_log WHERE tunnel_id = ? ORDER BY created_at DESC LIMIT ?")
-            .bind(tid).bind(limit).fetch_all(&state.db).await
+        sqlx::query_as(
+            "SELECT * FROM access_log WHERE tunnel_id = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(tid)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
     } else {
         sqlx::query_as("SELECT * FROM access_log ORDER BY created_at DESC LIMIT ?")
-            .bind(limit).fetch_all(&state.db).await
-    }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .bind(limit)
+            .fetch_all(&state.db)
+            .await
+    }
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(entries))
 }
@@ -891,7 +1003,9 @@ async fn admin_auth_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
-    let token = request.headers().get(header::AUTHORIZATION)
+    let token = request
+        .headers()
+        .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
         .ok_or(StatusCode::UNAUTHORIZED)?;
@@ -903,24 +1017,33 @@ async fn admin_auth_middleware(
 fn verify_admin_jwt(token: &str, secret: &str) -> Result<(), StatusCode> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
     #[derive(Deserialize)]
-    struct Claims { is_admin: bool }
+    struct Claims {
+        is_admin: bool,
+    }
 
     let key = DecodingKey::from_secret(secret.as_bytes());
     let data = decode::<Claims>(token, &key, &Validation::default())
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    if data.claims.is_admin { Ok(()) } else { Err(StatusCode::FORBIDDEN) }
+    if data.claims.is_admin {
+        Ok(())
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
 }
 
 fn extract_admin_user(headers: &HeaderMap, secret: &str) -> Result<String, (StatusCode, String)> {
-    let token = headers.get(header::AUTHORIZATION)
+    let token = headers
+        .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing token".to_string()))?;
 
     use jsonwebtoken::{decode, DecodingKey, Validation};
     #[derive(Deserialize)]
-    struct Claims { sub: String }
+    struct Claims {
+        sub: String,
+    }
 
     let key = DecodingKey::from_secret(secret.as_bytes());
     decode::<Claims>(token, &key, &Validation::default())
@@ -949,10 +1072,18 @@ fn base64_decode(data: &str) -> Option<Vec<u8>> {
 async fn generate_subdomain(state: &AppState) -> Result<String> {
     // Generate a unique subdomain: random 8-char string
     for _ in 0..10 {
-        let candidate: String = Uuid::new_v4().to_string().chars().filter(|c| c.is_alphanumeric()).take(8).collect();
+        let candidate: String = Uuid::new_v4()
+            .to_string()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .take(8)
+            .collect();
         // Check uniqueness
-        let exists: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM cloud_tunnels WHERE subdomain = ?")
-            .bind(&candidate).fetch_optional(&state.db).await?;
+        let exists: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM cloud_tunnels WHERE subdomain = ?")
+                .bind(&candidate)
+                .fetch_optional(&state.db)
+                .await?;
         if exists.is_none() {
             return Ok(candidate);
         }
@@ -982,7 +1113,9 @@ async fn cleanup_old_logs(state: Arc<AppState>) {
         tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         let cutoff = (Utc::now() - chrono::Duration::days(30)).to_rfc3339();
         let _ = sqlx::query("DELETE FROM access_log WHERE created_at < ?")
-            .bind(&cutoff).execute(&state.db).await;
+            .bind(&cutoff)
+            .execute(&state.db)
+            .await;
     }
 }
 
@@ -1064,7 +1197,10 @@ async fn cleanup_orphaned_entries(state: Arc<AppState>) {
         };
 
         if pending_count > PENDING_REQUEST_CLEAR_THRESHOLD {
-            tracing::info!("Cleaned up {} orphaned pending_request entries", pending_count);
+            tracing::info!(
+                "Cleaned up {} orphaned pending_request entries",
+                pending_count
+            );
         }
     }
 }
@@ -1123,8 +1259,12 @@ mod tests {
     fn test_threshold_constant_consistent() {
         assert_eq!(PENDING_REQUEST_CLEAR_THRESHOLD, 100);
         // Boundary: exactly at threshold should not clear
-        assert!(!should_clear_pending_requests(PENDING_REQUEST_CLEAR_THRESHOLD));
+        assert!(!should_clear_pending_requests(
+            PENDING_REQUEST_CLEAR_THRESHOLD
+        ));
         // One above threshold should clear
-        assert!(should_clear_pending_requests(PENDING_REQUEST_CLEAR_THRESHOLD + 1));
+        assert!(should_clear_pending_requests(
+            PENDING_REQUEST_CLEAR_THRESHOLD + 1
+        ));
     }
 }

@@ -2789,7 +2789,10 @@ async fn detect_setup_wizard() -> (Option<String>, bool) {
     // Helper: try connecting to addr:port.
     async fn try_connect(host: &str, port: u16) -> bool {
         let addr = format!("{}:{}", host, port);
-        matches!(tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await, Ok(Ok(_)))
+        matches!(
+            tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await,
+            Ok(Ok(_))
+        )
     }
 
     // Try localhost first (fastest, no network needed).
@@ -6909,9 +6912,9 @@ async fn forward_reqwest_request(
                 }
             }
             if is_event_stream {
-                let stream = resp.bytes_stream().map_err(|e| {
-                    std::io::Error::other(format!("Assist stream error: {e}"))
-                });
+                let stream = resp
+                    .bytes_stream()
+                    .map_err(|e| std::io::Error::other(format!("Assist stream error: {e}")));
                 return builder.body(Body::from_stream(stream)).unwrap_or_else(|_| {
                     (StatusCode::BAD_GATEWAY, "proxy stream build failed").into_response()
                 });
@@ -9040,10 +9043,7 @@ async fn supervisor_compose_prepare(
 fn spawn_push_app_capabilities(state: AppState, app: local_appstore::InstalledApp) {
     tokio::spawn(async move {
         let extra = &app.manifest.extra;
-        let tools = extra
-            .get("assist_tools")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let tools = extra.get("assist_tools").cloned().unwrap_or(Value::Null);
         let services = extra
             .get("exposed_services")
             .cloned()
@@ -11442,18 +11442,19 @@ async fn auth_pin_login(
     }
 
     // Generate JWT + refresh token pair
-    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin) {
-        Ok(v) => v,
-        Err(e) => {
-            warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal("Token-Erstellung fehlgeschlagen"));
-        }
-    };
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal("Token-Erstellung fehlgeschlagen"));
+            }
+        };
 
     let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
     let refresh_id = Uuid::new_v4().to_string();
-    let refresh_expires = chrono::Utc::now()
-        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
 
     if let Err(e) = state
         .config_repo
@@ -11761,20 +11762,21 @@ async fn auth_register(
     }
 
     // Generate JWT + refresh token pair
-    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin) {
-        Ok(v) => v,
-        Err(e) => {
-            warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal(
-                "Failed to generate authentication token",
-            ));
-        }
-    };
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal(
+                    "Failed to generate authentication token",
+                ));
+            }
+        };
 
     let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
     let refresh_id = Uuid::new_v4().to_string();
-    let refresh_expires = chrono::Utc::now()
-        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
 
     if let Err(e) = state
         .config_repo
@@ -11858,21 +11860,21 @@ async fn auth_login(
     }
 
     // Generate JWT + refresh token pair
-    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin)
-    {
-        Ok(v) => v,
-        Err(e) => {
-            warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal(
-                "Failed to generate authentication token",
-            ));
-        }
-    };
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal(
+                    "Failed to generate authentication token",
+                ));
+            }
+        };
 
     let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
     let refresh_id = Uuid::new_v4().to_string();
-    let refresh_expires = chrono::Utc::now()
-        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
 
     if let Err(e) = state
         .config_repo
@@ -11924,7 +11926,9 @@ async fn auth_refresh(
     // Check if revoked
     if stored.revoked_at.is_some() {
         warn!("Refresh token already revoked (id={})", &stored.id[..8]);
-        return Err(ErrorResponse::unauthorized("Refresh token has been revoked"));
+        return Err(ErrorResponse::unauthorized(
+            "Refresh token has been revoked",
+        ));
     }
 
     // Check if expired
@@ -11936,7 +11940,10 @@ async fn auth_refresh(
     let user = match state.config_repo.get_user_by_id(&stored.user_id).await {
         Ok(Some(u)) => u,
         Ok(None) => {
-            warn!("Refresh token user not found (user_id={})", &stored.user_id[..8]);
+            warn!(
+                "Refresh token user not found (user_id={})",
+                &stored.user_id[..8]
+            );
             return Err(ErrorResponse::unauthorized("User not found"));
         }
         Err(e) => {
@@ -11956,19 +11963,19 @@ async fn auth_refresh(
     }
 
     // Generate a new token pair
-    let (token, _jti, expires_in) = match auth::generate_token(&user.id, &user.username, user.is_admin)
-    {
-        Ok(v) => v,
-        Err(e) => {
-            warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal("Failed to generate token"));
-        }
-    };
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal("Failed to generate token"));
+            }
+        };
 
     let (raw_refresh, new_refresh_hash) = auth::generate_refresh_token();
     let refresh_id = Uuid::new_v4().to_string();
-    let refresh_expires = chrono::Utc::now()
-        + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
 
     if let Err(e) = state
         .config_repo
@@ -12016,7 +12023,11 @@ async fn auth_logout(
     // Revoke a specific refresh token if provided
     if let Some(ref raw) = request.refresh_token {
         let hash = auth::sha256_hex(raw);
-        if let Err(e) = state.config_repo.revoke_refresh_token(&hash, "logout").await {
+        if let Err(e) = state
+            .config_repo
+            .revoke_refresh_token(&hash, "logout")
+            .await
+        {
             warn!("Failed to revoke refresh token: {}", e);
         }
     }
@@ -12030,7 +12041,8 @@ async fn auth_logout(
             .unwrap_or(0);
         info!(
             "Revoked {} refresh tokens for user {} during logout",
-            revoked, &claims.sub[..8]
+            revoked,
+            &claims.sub[..8]
         );
     }
 
@@ -12225,7 +12237,9 @@ async fn auth_verify(
     // If admin status changed in DB, issue a fresh token
     let mut response = serde_json::to_value(&user).unwrap_or_default();
     if user.is_admin != claims.is_admin {
-        if let Ok((new_token, _new_jti, _expires_in)) = auth::generate_token(&user.id, &user.username, user.is_admin) {
+        if let Ok((new_token, _new_jti, _expires_in)) =
+            auth::generate_token(&user.id, &user.username, user.is_admin)
+        {
             response["refreshed_token"] = serde_json::Value::String(new_token);
         }
     }
@@ -18638,9 +18652,10 @@ async fn handle_realtime_socket(socket: axum::extract::ws::WebSocket, state: App
                                     }
                                 }
                                 if !filter.entity_ids.is_empty()
-                                    && !filter.entity_ids.contains(&e.entity_id) {
-                                        return false;
-                                    }
+                                    && !filter.entity_ids.contains(&e.entity_id)
+                                {
+                                    return false;
+                                }
                                 true
                             })
                             .collect();

@@ -441,7 +441,8 @@ impl LocalAppStore {
             .apps
             .get_mut(app_id)
             .ok_or_else(|| anyhow!("app '{}' not found", app_id))?;
-        let requested: std::collections::HashSet<String> = app.manifest.permissions.iter().cloned().collect();
+        let requested: std::collections::HashSet<String> =
+            app.manifest.permissions.iter().cloned().collect();
         let granted: std::collections::HashSet<String> = granted_permissions
             .into_iter()
             .filter(|permission| requested.contains(permission))

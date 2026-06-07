@@ -95,12 +95,11 @@ async fn main() -> Result<()> {
 
     // Setup logging
     let log_level = if cli.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt()
-        .with_env_filter(log_level)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(log_level).init();
 
     // Determine migrations directory
-    let migrations_dir = cli.migrations_dir
+    let migrations_dir = cli
+        .migrations_dir
         .or_else(|| std::env::var("IORA_MIGRATIONS_DIR").ok().map(PathBuf::from))
         .unwrap_or_else(|| {
             if std::path::Path::new("/opt/iora/migrations").exists() {
@@ -111,13 +110,17 @@ async fn main() -> Result<()> {
         });
 
     if !migrations_dir.exists() {
-        anyhow::bail!("Migrations directory not found: {}", migrations_dir.display());
+        anyhow::bail!(
+            "Migrations directory not found: {}",
+            migrations_dir.display()
+        );
     }
 
     tracing::info!("Migrations directory: {}", migrations_dir.display());
 
     // Get database URL - try service-specific credentials first
-    let database_url = cli.database_url
+    let database_url = cli
+        .database_url
         .or_else(load_service_db_url)
         .or_else(|| std::env::var("POSTGRES_ADMIN_URL").ok())
         .or_else(|| std::env::var("DATABASE_URL").ok())

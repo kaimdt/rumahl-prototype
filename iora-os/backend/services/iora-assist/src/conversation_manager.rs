@@ -1,7 +1,9 @@
 // Proactive Conversation Manager
 // Manages continuous conversation threads and AI-initiated messages
 
-use crate::database::{DbPool, conversations as db_conversations, notifications as db_notifications};
+use crate::database::{
+    conversations as db_conversations, notifications as db_notifications, DbPool,
+};
 use crate::orchestrator::ProviderOrchestrator;
 use crate::providers::ChatMessage;
 use serde::{Deserialize, Serialize};
@@ -93,8 +95,8 @@ impl ConversationManager {
             return Ok(());
         }
 
-        let home_url = std::env::var("IORA_HOME_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8126".to_string());
+        let home_url =
+            std::env::var("IORA_HOME_URL").unwrap_or_else(|_| "http://127.0.0.1:8126".to_string());
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
@@ -133,7 +135,11 @@ impl ConversationManager {
                     );
                 }
                 Err(e) => {
-                    tracing::error!("Failed to forward notification {} to iora-home: {}", notification.id, e);
+                    tracing::error!(
+                        "Failed to forward notification {} to iora-home: {}",
+                        notification.id,
+                        e
+                    );
                 }
             }
         }
@@ -178,7 +184,8 @@ impl ConversationManager {
         thread_id: Uuid,
         limit: i64,
         _offset: i64,
-    ) -> Result<Vec<db_conversations::ConversationMessage>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<db_conversations::ConversationMessage>, Box<dyn std::error::Error + Send + Sync>>
+    {
         let messages = db_conversations::get_thread_messages(&self.db, thread_id, limit).await?;
         Ok(messages)
     }
@@ -200,7 +207,8 @@ impl ConversationManager {
             content: "Generate a proactive message to help the user.".to_string(),
         }];
 
-        let response = self.orchestrator
+        let response = self
+            .orchestrator
             .execute_chat(messages, Some(system_prompt), None)
             .await?;
 
@@ -246,8 +254,13 @@ impl ConversationManager {
         }
 
         // Generate response
-        let response = self.orchestrator
-            .execute_chat(messages, Some("You are a helpful AI assistant for a smart home system.".to_string()), None)
+        let response = self
+            .orchestrator
+            .execute_chat(
+                messages,
+                Some("You are a helpful AI assistant for a smart home system.".to_string()),
+                None,
+            )
             .await?;
 
         // Add assistant response to thread
@@ -286,19 +299,24 @@ impl ConversationManager {
     }
 
     /// Check if a thread is active
-    pub async fn is_thread_active(&self, thread_id: Uuid) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn is_thread_active(
+        &self,
+        thread_id: Uuid,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Query the thread row; consider it active iff `active = true`.
-        let row: Option<(bool,)> = sqlx::query_as(
-            "SELECT active FROM conversation_threads WHERE id = $1",
-        )
-        .bind(thread_id)
-        .fetch_optional(&self.db)
-        .await?;
+        let row: Option<(bool,)> =
+            sqlx::query_as("SELECT active FROM conversation_threads WHERE id = $1")
+                .bind(thread_id)
+                .fetch_optional(&self.db)
+                .await?;
         Ok(row.map(|r| r.0).unwrap_or(false))
     }
 
     /// Archive a conversation thread
-    pub async fn archive_thread(&self, thread_id: Uuid) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn archive_thread(
+        &self,
+        thread_id: Uuid,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Mark thread as inactive
         sqlx::query("UPDATE conversation_threads SET active = false WHERE id = $1")
             .bind(thread_id)
@@ -314,7 +332,8 @@ impl ConversationManager {
         &self,
         user_id: Option<Uuid>,
         limit: i64,
-    ) -> Result<Vec<db_conversations::ConversationThread>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<db_conversations::ConversationThread>, Box<dyn std::error::Error + Send + Sync>>
+    {
         let threads = if let Some(uid) = user_id {
             sqlx::query_as::<_, db_conversations::ConversationThread>(
                 "SELECT * FROM conversation_threads WHERE user_id = $1 AND active = true ORDER BY last_activity DESC LIMIT $2"
@@ -341,11 +360,13 @@ impl ConversationManager {
         thread_id: Uuid,
         context: serde_json::Value,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        sqlx::query("UPDATE conversation_threads SET context = $1, last_activity = NOW() WHERE id = $2")
-            .bind(context)
-            .bind(thread_id)
-            .execute(&self.db)
-            .await?;
+        sqlx::query(
+            "UPDATE conversation_threads SET context = $1, last_activity = NOW() WHERE id = $2",
+        )
+        .bind(context)
+        .bind(thread_id)
+        .execute(&self.db)
+        .await?;
 
         Ok(())
     }

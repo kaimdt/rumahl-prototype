@@ -9,10 +9,10 @@ pub struct KnowledgeEntry {
     pub id: uuid::Uuid,
     pub topic: String,
     pub content: String,
-    pub source: String,          // reflection, evolution_cycle, user_feedback, manual
+    pub source: String, // reflection, evolution_cycle, user_feedback, manual
     pub tags: Vec<String>,
-    pub confidence: f64,         // 0.0 to 1.0, how confident ORA is in this knowledge
-    pub times_applied: u32,      // how often this knowledge was successfully applied
+    pub confidence: f64,    // 0.0 to 1.0, how confident ORA is in this knowledge
+    pub times_applied: u32, // how often this knowledge was successfully applied
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -28,7 +28,13 @@ impl KnowledgeBase {
     }
 
     /// Store a new knowledge entry
-    pub async fn store(&self, topic: &str, content: &str, source: &str, tags: &[String]) -> Result<KnowledgeEntry, String> {
+    pub async fn store(
+        &self,
+        topic: &str,
+        content: &str,
+        source: &str,
+        tags: &[String],
+    ) -> Result<KnowledgeEntry, String> {
         let id = uuid::Uuid::new_v4();
         sqlx::query(
             "INSERT INTO knowledge_base (id, topic, content, source, tags, confidence, times_applied, created_at, updated_at) \
@@ -73,24 +79,27 @@ impl KnowledgeBase {
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 
-        Ok(rows.into_iter().map(|r| KnowledgeEntry {
-            id: r.0,
-            topic: r.1,
-            content: r.2,
-            source: r.3,
-            tags: r.4,
-            confidence: r.5,
-            times_applied: r.6 as u32,
-            created_at: r.7,
-            updated_at: r.8,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| KnowledgeEntry {
+                id: r.0,
+                topic: r.1,
+                content: r.2,
+                source: r.3,
+                tags: r.4,
+                confidence: r.5,
+                times_applied: r.6 as u32,
+                created_at: r.7,
+                updated_at: r.8,
+            })
+            .collect())
     }
 
     /// Increase confidence when knowledge is successfully applied
     pub async fn record_application(&self, id: uuid::Uuid) -> Result<(), String> {
         sqlx::query(
             "UPDATE knowledge_base SET times_applied = times_applied + 1, \
-             confidence = LEAST(1.0, confidence + 0.05), updated_at = NOW() WHERE id = $1"
+             confidence = LEAST(1.0, confidence + 0.05), updated_at = NOW() WHERE id = $1",
         )
         .bind(id)
         .execute(&self.db_pool)
@@ -122,16 +131,19 @@ impl KnowledgeBase {
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 
-        Ok(rows.into_iter().map(|r| KnowledgeEntry {
-            id: r.0,
-            topic: r.1,
-            content: r.2,
-            source: r.3,
-            tags: r.4,
-            confidence: r.5,
-            times_applied: r.6 as u32,
-            created_at: r.7,
-            updated_at: r.8,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| KnowledgeEntry {
+                id: r.0,
+                topic: r.1,
+                content: r.2,
+                source: r.3,
+                tags: r.4,
+                confidence: r.5,
+                times_applied: r.6 as u32,
+                created_at: r.7,
+                updated_at: r.8,
+            })
+            .collect())
     }
 }

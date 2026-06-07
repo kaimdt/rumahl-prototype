@@ -4,7 +4,12 @@ mod cache;
 mod error;
 mod ws;
 
-use std::{io::Write, process::{Command, Stdio}, sync::Arc, time::Instant};
+use std::{
+    io::Write,
+    process::{Command, Stdio},
+    sync::Arc,
+    time::Instant,
+};
 
 use axum::{
     extract::{Path, State},
@@ -180,7 +185,11 @@ async fn aggregate_logs() -> Json<serde_json::Value> {
         ("iora-home", iora_home_url()),
         ("iora-core", iora_core_url()),
         ("iora-control", "http://localhost:8123".to_string()),
-        ("iora-assist", std::env::var("IORA_ASSIST_URL").unwrap_or_else(|_| "http://localhost:8129".to_string())),
+        (
+            "iora-assist",
+            std::env::var("IORA_ASSIST_URL")
+                .unwrap_or_else(|_| "http://localhost:8129".to_string()),
+        ),
         ("iora-supervisor", "http://localhost:8097".to_string()),
         ("iora-watchdog", "http://localhost:8095".to_string()),
     ];
@@ -191,13 +200,18 @@ async fn aggregate_logs() -> Json<serde_json::Value> {
             // Try `/logs?lines=200` then `/api/<name>/logs?lines=200` as fallbacks.
             let candidates = [
                 format!("{}/logs?lines=200", base.trim_end_matches('/')),
-                format!("{}/api/{}/logs?lines=200", base.trim_end_matches('/'), name.trim_start_matches("iora-")),
+                format!(
+                    "{}/api/{}/logs?lines=200",
+                    base.trim_end_matches('/'),
+                    name.trim_start_matches("iora-")
+                ),
             ];
             let mut got = false;
             for url in &candidates {
                 match client.get(url).send().await {
                     Ok(r) if r.status().is_success() => {
-                        let body: serde_json::Value = r.json().await.unwrap_or(serde_json::Value::Null);
+                        let body: serde_json::Value =
+                            r.json().await.unwrap_or(serde_json::Value::Null);
                         entries.push(serde_json::json!({
                             "service": name,
                             "source": url,
@@ -224,7 +238,8 @@ async fn aggregate_logs() -> Json<serde_json::Value> {
     });
 
     // Optional forward to external aggregator (Loki, Elasticsearch, etc.).
-    if let (Some(client), Ok(forward_url)) = (client.as_ref(), std::env::var("LOG_AGGREGATOR_URL")) {
+    if let (Some(client), Ok(forward_url)) = (client.as_ref(), std::env::var("LOG_AGGREGATOR_URL"))
+    {
         let _ = client.post(&forward_url).json(&aggregated).send().await;
     }
 
@@ -288,10 +303,7 @@ async fn install_plugin(
     }
 }
 
-async fn remove_plugin(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+async fn remove_plugin(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     match state
         .http
         .delete(format!("{}/api/core/plugins/{}", iora_core_url(), id))
@@ -424,9 +436,7 @@ async fn set_ssh_enabled(Json(req): Json<EnableSSHRequest>) -> impl IntoResponse
     let action = if req.enabled { "enable" } else { "disable" };
 
     // Enable/disable SSH service
-    let enable_result = Command::new("systemctl")
-        .args([action, "ssh"])
-        .output();
+    let enable_result = Command::new("systemctl").args([action, "ssh"]).output();
 
     match enable_result {
         Ok(output) if output.status.success() => {
@@ -545,7 +555,11 @@ async fn list_ssh_users() -> Json<serde_json::Value> {
 /// Create a new SSH user
 async fn create_ssh_user(Json(req): Json<CreateUserRequest>) -> impl IntoResponse {
     // Validate username
-    if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+    if !req
+        .username
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -559,8 +573,9 @@ async fn create_ssh_user(Json(req): Json<CreateUserRequest>) -> impl IntoRespons
     // Create user with useradd
     let mut cmd = Command::new("useradd");
     cmd.args([
-        "-m",  // Create home directory
-        "-s", "/bin/bash",  // Set shell to bash
+        "-m", // Create home directory
+        "-s",
+        "/bin/bash", // Set shell to bash
         &req.username,
     ]);
 
@@ -615,12 +630,14 @@ async fn create_ssh_user(Json(req): Json<CreateUserRequest>) -> impl IntoRespons
 
                 // Set permissions
                 let _ = Command::new("chown")
-                    .args(["-R", &format!("{}:{}", req.username, req.username), &ssh_dir])
+                    .args([
+                        "-R",
+                        &format!("{}:{}", req.username, req.username),
+                        &ssh_dir,
+                    ])
                     .output();
 
-                let _ = Command::new("chmod")
-                    .args(["700", &ssh_dir])
-                    .output();
+                let _ = Command::new("chmod").args(["700", &ssh_dir]).output();
 
                 let _ = Command::new("chmod")
                     .args(["600", &authorized_keys])
@@ -662,7 +679,10 @@ async fn create_ssh_user(Json(req): Json<CreateUserRequest>) -> impl IntoRespons
 /// Delete an SSH user
 async fn delete_ssh_user(Path(username): Path<String>) -> impl IntoResponse {
     // Validate username
-    if !username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+    if !username
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -675,7 +695,7 @@ async fn delete_ssh_user(Path(username): Path<String>) -> impl IntoResponse {
 
     // Delete user with userdel
     let result = Command::new("userdel")
-        .args(["-r", &username])  // -r removes home directory
+        .args(["-r", &username]) // -r removes home directory
         .output();
 
     match result {
@@ -818,8 +838,10 @@ async fn list_network_interfaces() -> Json<serde_json::Value> {
                                 .iter()
                                 .filter_map(|a| {
                                     let local = a.get("local")?.as_str()?;
-                                    let family = a.get("family").and_then(|v| v.as_str()).unwrap_or("");
-                                    let prefix = a.get("prefixlen").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let family =
+                                        a.get("family").and_then(|v| v.as_str()).unwrap_or("");
+                                    let prefix =
+                                        a.get("prefixlen").and_then(|v| v.as_u64()).unwrap_or(0);
                                     Some(serde_json::json!({
                                         "address": local,
                                         "family": family,
@@ -1045,9 +1067,7 @@ async fn os_shutdown(Json(req): Json<PowerRequest>) -> impl IntoResponse {
 
 /// POST /api/control/os/network/set — Apply network configuration via iora-netctl.
 /// Only works on IORA OS hosts where /usr/bin/iora-netctl is installed.
-pub async fn set_network_config(
-    Json(config): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
+pub async fn set_network_config(Json(config): Json<serde_json::Value>) -> Json<serde_json::Value> {
     let normalized_config = normalize_network_config(config);
     let config_json = serde_json::to_string(&normalized_config).unwrap_or_default();
 
@@ -1159,7 +1179,11 @@ fn merge_dns_field(
         .unwrap_or_default();
 
     for item in items {
-        let Some(value) = item.as_str().map(str::trim).filter(|value| !value.is_empty()) else {
+        let Some(value) = item
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
             continue;
         };
         if !merged.iter().any(|existing| existing == value) {
@@ -1192,21 +1216,33 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/system", get(system_stats))
         .route("/api/control/services", get(list_services))
         .route("/api/control/logs", get(aggregate_logs))
-        .route("/api/control/plugins", get(list_plugins).post(install_plugin))
+        .route(
+            "/api/control/plugins",
+            get(list_plugins).post(install_plugin),
+        )
         .route("/api/control/plugins/:id", delete(remove_plugin))
         .route("/api/control/users", get(list_users))
         .route("/api/control/config", get(get_config).put(update_config))
         // SSH Management
         .route("/api/control/ssh/status", get(get_ssh_status))
-        .route("/api/control/ssh/enable", axum::routing::post(set_ssh_enabled))
-        .route("/api/control/ssh/users", get(list_ssh_users).post(create_ssh_user))
+        .route(
+            "/api/control/ssh/enable",
+            axum::routing::post(set_ssh_enabled),
+        )
+        .route(
+            "/api/control/ssh/users",
+            get(list_ssh_users).post(create_ssh_user),
+        )
         .route("/api/control/ssh/users/:username", delete(delete_ssh_user))
         // OS-level management (only useful when running on IORA OS)
         .route("/api/control/os/disks", get(list_disks))
         .route("/api/control/os/network", get(list_network_interfaces))
         .route("/api/control/os/network/set", post(set_network_config))
         .route("/api/control/os/processes", get(list_top_processes))
-        .route("/api/control/os/hostname", get(get_hostname).put(set_hostname))
+        .route(
+            "/api/control/os/hostname",
+            get(get_hostname).put(set_hostname),
+        )
         .route("/api/control/os/reboot", post(os_reboot))
         .route("/api/control/os/shutdown", post(os_shutdown))
         .layer(middleware::from_fn_with_state(

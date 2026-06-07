@@ -10,8 +10,11 @@ use std::collections::HashMap;
 
 use crate::{
     app_capabilities::{AssistToolDefinition, LifecycleHooks, ServiceExport},
-    app_database::AppDatabaseConfig, app_messaging::MessagingConfig, app_scheduler::ScheduleConfig,
-    app_storage::StorageConfig, app_webhooks::WebhookConfig,
+    app_database::AppDatabaseConfig,
+    app_messaging::MessagingConfig,
+    app_scheduler::ScheduleConfig,
+    app_storage::StorageConfig,
+    app_webhooks::WebhookConfig,
 };
 
 /// Complete app/plugin manifest

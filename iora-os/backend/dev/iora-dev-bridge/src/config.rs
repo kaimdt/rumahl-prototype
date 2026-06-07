@@ -83,7 +83,8 @@ pub async fn config_list(
             id: r.try_get::<String, _>("id").unwrap_or_default(),
             key: r.try_get::<String, _>("preference_key").unwrap_or_default(),
             value: parse_value_text(
-                &r.try_get::<String, _>("preference_value").unwrap_or_default(),
+                &r.try_get::<String, _>("preference_value")
+                    .unwrap_or_default(),
             ),
             created_at: r
                 .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("created_at")
@@ -237,20 +238,21 @@ pub async fn config_delete(
         Err(e) => return Err(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
     };
 
-    let res: sqlx::postgres::PgQueryResult = match sqlx::query("DELETE FROM system_preferences WHERE preference_key = $1")
-        .bind(&key)
-        .execute(&pool)
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            pool.close().await;
-            return Err(err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("deleting preference: {e}"),
-            ));
-        }
-    };
+    let res: sqlx::postgres::PgQueryResult =
+        match sqlx::query("DELETE FROM system_preferences WHERE preference_key = $1")
+            .bind(&key)
+            .execute(&pool)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                pool.close().await;
+                return Err(err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("deleting preference: {e}"),
+                ));
+            }
+        };
 
     pool.close().await;
     Ok(Json(json!({

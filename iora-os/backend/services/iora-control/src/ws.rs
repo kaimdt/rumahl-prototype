@@ -64,10 +64,7 @@ impl WsState {
     }
 }
 
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<WsState>>,
-) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<WsState>>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 

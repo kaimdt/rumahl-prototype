@@ -18,23 +18,23 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const MANIFEST_PATH:   &str = "/etc/iora/manifest.json";
-const SIGNATURE_PATH:  &str = "/etc/iora/manifest.json.sig";
-const PUBKEY_PATH:     &str = "/etc/iora/iora-release.pub";
-const TAMPER_FLAG:     &str = "/run/iora-tamper";
-const TAMPER_LOG:      &str = "/var/log/iora-tamper.log";
+const MANIFEST_PATH: &str = "/etc/iora/manifest.json";
+const SIGNATURE_PATH: &str = "/etc/iora/manifest.json.sig";
+const PUBKEY_PATH: &str = "/etc/iora/iora-release.pub";
+const TAMPER_FLAG: &str = "/run/iora-tamper";
+const TAMPER_LOG: &str = "/var/log/iora-tamper.log";
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct Manifest {
     version: String,
     created: String,
-    files:   Vec<ManifestEntry>,
+    files: Vec<ManifestEntry>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ManifestEntry {
-    path:   String,
+    path: String,
     sha256: String,
     // `mode` is informational only; we never try to chmod here.
     #[serde(default)]
@@ -70,16 +70,16 @@ fn run() -> Result<()> {
     let pubkey = load_pubkey(PUBKEY_PATH)
         .with_context(|| format!("loading release public key from {PUBKEY_PATH}"))?;
 
-    let manifest_bytes = fs::read(MANIFEST_PATH)
-        .with_context(|| format!("reading manifest {MANIFEST_PATH}"))?;
-    let sig_bytes = fs::read(SIGNATURE_PATH)
-        .with_context(|| format!("reading signature {SIGNATURE_PATH}"))?;
+    let manifest_bytes =
+        fs::read(MANIFEST_PATH).with_context(|| format!("reading manifest {MANIFEST_PATH}"))?;
+    let sig_bytes =
+        fs::read(SIGNATURE_PATH).with_context(|| format!("reading signature {SIGNATURE_PATH}"))?;
 
     verify_signature(&pubkey, &manifest_bytes, &sig_bytes)
         .context("manifest signature verification")?;
 
-    let manifest: Manifest = serde_json::from_slice(&manifest_bytes)
-        .context("parsing manifest JSON")?;
+    let manifest: Manifest =
+        serde_json::from_slice(&manifest_bytes).context("parsing manifest JSON")?;
 
     let mut failures: Vec<String> = Vec::new();
     for entry in &manifest.files {
@@ -128,10 +128,9 @@ fn verify_signature(pubkey: &VerifyingKey, msg: &[u8], sig_bytes: &[u8]) -> Resu
         let s = std::str::from_utf8(sig_bytes)
             .context("signature is neither 64 bytes nor valid UTF-8")?;
         let decoded = hex::decode(s.trim()).context("signature is not valid hex")?;
-        decoded
-            .as_slice()
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("decoded signature has wrong length ({})", decoded.len()))?
+        decoded.as_slice().try_into().map_err(|_| {
+            anyhow::anyhow!("decoded signature has wrong length ({})", decoded.len())
+        })?
     };
     let signature = Signature::from_bytes(&sig_raw);
     pubkey.verify(msg, &signature).context("bad signature")?;

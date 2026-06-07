@@ -4,67 +4,67 @@
 // the compiler cannot see external usage.
 #![allow(dead_code, clippy::all)]
 
-use std::{sync::Arc, time::Instant, collections::HashMap};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use axum::{
     body::Body,
     extract::{Multipart, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Response, Sse},
     response::sse::{Event, KeepAlive},
+    response::{IntoResponse, Response, Sse},
     routing::{get, post},
     Json, Router,
 };
 use chrono::Utc;
+use futures_util::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use uuid::Uuid;
-use futures_util::stream::{Stream, StreamExt};
-use std::convert::Infallible;
 
-mod providers;
-mod context;
-mod database;
-mod memory;
-mod schedule_engine;
-mod task_resolver;
-mod instant_task_engine;
-mod orchestrator;
-mod task_engine;
-mod conversation_manager;
-mod tools;
-mod api_proxy;
-mod self_evolution;
-mod sandbox;
-mod agent_task_executor;
-mod agent_pipeline;
-mod cost_manager;
-mod lsp;
 mod acp;
-mod subagents;
-mod github;
-mod models_registry;
-mod pi_dev_controller;
+mod agent_pipeline;
+mod agent_task_executor;
+mod api_proxy;
 mod app_capability_registry;
+mod autonomous_scheduler;
+mod context;
+mod conversation_manager;
+mod cost_manager;
+mod database;
+mod dlp_guard;
+mod github;
+mod instant_task_engine;
+mod lsp;
+mod memory;
+mod memory_system;
+mod messaging;
+mod model_router;
+mod models_registry;
+mod ora_features;
+mod orchestrator;
+mod pi_dev_controller;
+mod providers;
+mod sandbox;
+mod schedule_engine;
+mod self_evolution;
+mod subagents;
 mod system_event_bus;
 mod system_guard;
-mod model_router;
-mod memory_system;
-mod autonomous_scheduler;
-mod ora_features;
+mod task_engine;
+mod task_resolver;
+mod tools;
 mod virtual_company;
-mod messaging;
-mod dlp_guard;
 
 use context::ContextBuilder;
+use conversation_manager::ConversationManager;
 use database::DbPool;
+use instant_task_engine::{InstantTaskEngine, InstantTaskResult};
 use memory::{ActiveTaskRequest, CreateMemoryRequest, MemoryManager};
 use orchestrator::ProviderOrchestrator;
 use task_engine::TaskEngine;
-use instant_task_engine::{InstantTaskEngine, InstantTaskResult};
-use conversation_manager::ConversationManager;
 use tools::ToolExecutor;
 
 use providers::{
@@ -73,29 +73,39 @@ use providers::{
 };
 
 use self_evolution::{
-    evolution_cycle::{SelfEvolutionOrchestrator, EvolutionCycleConfig},
+    evolution_cycle::{EvolutionCycleConfig, SelfEvolutionOrchestrator},
     knowledge_base::KnowledgeBase,
     scheduler::EvolutionScheduler,
 };
 
-use sandbox::SandboxManager;
-use agent_task_executor::AgentTaskExecutor;
-use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PluginConfig, SecurityLevel, BridgeState, ControlResult};use app_capability_registry::{AppCapabilityRegistry, AppCapabilities};
-use system_event_bus::SystemEventBus;
-use system_guard::{SystemGuard, LoopDetection, ProtectionRule};
-use model_router::{ModelRouter, RoutingDecision, RouterConfig};
-use memory_system::{MemoryStore, Memory, MemoryQuery};
-use autonomous_scheduler::{AutonomousScheduler, ScheduledTask, TaskRun};
-use ora_features::{multi_agent::Orchestrator, code_review, self_healing::SelfHealing, cost_intel::CostTracker, mistake_learner::MistakeLearner};
-use virtual_company::{VirtualCompany, CompanyAgent, CompanyProject, CompanyTask, CompanyRole, BriefingSession, BriefingConfig, BriefingTrigger};
-use messaging::{MessagingManager, MessagingConfig, EmailRequest, MessageResult};
-use dlp_guard::{DlpGuard, DlpScanResult, AiTokenManager};
-use cost_manager::{BudgetConfig, CostManager};
-use lsp::LspManager;
 use acp::AcpRouter;
-use subagents::SubagentPool;
-use github::{GitHubAuth, GitHubClient, GitHubActionExecutor};
+use agent_task_executor::AgentTaskExecutor;
+use app_capability_registry::{AppCapabilities, AppCapabilityRegistry};
+use autonomous_scheduler::{AutonomousScheduler, ScheduledTask, TaskRun};
+use cost_manager::{BudgetConfig, CostManager};
+use dlp_guard::{AiTokenManager, DlpGuard, DlpScanResult};
+use github::{GitHubActionExecutor, GitHubAuth, GitHubClient};
 use iora_shared::system_config;
+use lsp::LspManager;
+use memory_system::{Memory, MemoryQuery, MemoryStore};
+use messaging::{EmailRequest, MessageResult, MessagingConfig, MessagingManager};
+use model_router::{ModelRouter, RouterConfig, RoutingDecision};
+use ora_features::{
+    code_review, cost_intel::CostTracker, mistake_learner::MistakeLearner,
+    multi_agent::Orchestrator, self_healing::SelfHealing,
+};
+use pi_dev_controller::{
+    BridgeState, ControlResult, PiDevController, PiDevSession, PiDevSessionConfig, PluginConfig,
+    SecurityLevel,
+};
+use sandbox::SandboxManager;
+use subagents::SubagentPool;
+use system_event_bus::SystemEventBus;
+use system_guard::{LoopDetection, ProtectionRule, SystemGuard};
+use virtual_company::{
+    BriefingConfig, BriefingSession, BriefingTrigger, CompanyAgent, CompanyProject, CompanyRole,
+    CompanyTask, VirtualCompany,
+};
 
 #[derive(Clone)]
 struct AppState {
@@ -206,7 +216,8 @@ fn parse_instant_task_marker(text: &str) -> (String, Option<InstantTaskSpec>) {
         Err(_) => return (text.to_string(), None),
     };
 
-    let task_type = v.get("type")
+    let task_type = v
+        .get("type")
         .and_then(|x| x.as_str())
         .unwrap_or("generic")
         .to_string();
@@ -217,14 +228,13 @@ fn parse_instant_task_marker(text: &str) -> (String, Option<InstantTaskSpec>) {
         _ => "generic".to_string(),
     };
 
-    let query = v.get("query")
+    let query = v
+        .get("query")
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string();
 
-    let params = v.get("params")
-        .cloned()
-        .unwrap_or(serde_json::json!({}));
+    let params = v.get("params").cloned().unwrap_or(serde_json::json!({}));
 
     let end_abs = start + marker.len() + end_offset + 1;
     let cleaned = format!(
@@ -235,7 +245,14 @@ fn parse_instant_task_marker(text: &str) -> (String, Option<InstantTaskSpec>) {
     .trim()
     .to_string();
 
-    (cleaned, Some(InstantTaskSpec { task_type, query, params }))
+    (
+        cleaned,
+        Some(InstantTaskSpec {
+            task_type,
+            query,
+            params,
+        }),
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -304,8 +321,16 @@ async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
     let provider_available = provider.is_available().await;
     let db_available = state.db.is_some();
     let degraded_reasons: Vec<&str> = [
-        if !provider_available { Some("ai_provider_unavailable") } else { None },
-        if !db_available { Some("database_unavailable") } else { None },
+        if !provider_available {
+            Some("ai_provider_unavailable")
+        } else {
+            None
+        },
+        if !db_available {
+            Some("database_unavailable")
+        } else {
+            None
+        },
     ]
     .into_iter()
     .flatten()
@@ -384,11 +409,17 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         .collect();
 
     // Build base system prompt
-    let base_system_prompt = req.system_prompt.as_deref().unwrap_or(DEFAULT_SYSTEM_PROMPT).to_string();
+    let base_system_prompt = req
+        .system_prompt
+        .as_deref()
+        .unwrap_or(DEFAULT_SYSTEM_PROMPT)
+        .to_string();
 
     // Inject relevant memories AND task context into the system prompt
     let mut system_prompt = if let Some(ref mm) = state.memory_manager {
-        let memory_prompt = mm.inject_into_prompt(&base_system_prompt, &req.message, None).await;
+        let memory_prompt = mm
+            .inject_into_prompt(&base_system_prompt, &req.message, None)
+            .await;
         let tasks_section = mm.build_tasks_system_prompt(None).await;
         format!("{}{}", memory_prompt, tasks_section)
     } else {
@@ -423,7 +454,10 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
     // Inject custom AI instructions (personality/style) from user settings
     if let Some(ref instructions) = req.instructions {
         if !instructions.trim().is_empty() {
-            system_prompt.push_str(&format!("\n\n### Custom Instructions from User\n{}\n", instructions));
+            system_prompt.push_str(&format!(
+                "\n\n### Custom Instructions from User\n{}\n",
+                instructions
+            ));
         }
     }
 
@@ -451,10 +485,13 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
 
     // Check budget before calling AI
     if let Err(budget_err) = state.cost_manager.check_budget().await {
-        return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
-            "error": "Budget exceeded",
-            "details": budget_err,
-        })));
+        return (
+            StatusCode::PAYMENT_REQUIRED,
+            Json(serde_json::json!({
+                "error": "Budget exceeded",
+                "details": budget_err,
+            })),
+        );
     }
 
     // Try cache lookup in economy mode
@@ -480,7 +517,8 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                 let user_msg = req.message.clone();
                 let ai_resp = cached.clone();
                 tokio::spawn(async move {
-                    mm.auto_extract_from_conversation(&user_msg, &ai_resp, None).await;
+                    mm.auto_extract_from_conversation(&user_msg, &ai_resp, None)
+                        .await;
                     mm.detect_and_create_tasks(&user_msg, &ai_resp, None).await;
                 });
             }
@@ -518,9 +556,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
             // Execute high-confidence task commands immediately in the background
             if let Some(cmd) = maybe_cmd.clone() {
                 if !cmd.requires_confirmation {
-                    if let (Some(mm), Some(task_id)) =
-                        (state.memory_manager.clone(), cmd.task_id)
-                    {
+                    if let (Some(mm), Some(task_id)) = (state.memory_manager.clone(), cmd.task_id) {
                         let action = cmd.action.clone();
                         let resume_at = cmd.resume_at;
                         tokio::spawn(async move {
@@ -535,7 +571,8 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                 (state.instant_task_engine.as_ref(), maybe_instant.as_ref())
             {
                 if let Some(ref db) = state.db {
-                    let session_id = req.context
+                    let session_id = req
+                        .context
                         .get("session_id")
                         .and_then(|v| v.as_str())
                         .map(str::to_string);
@@ -553,7 +590,9 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                         Ok(task) => {
                             tracing::info!(
                                 "Instant task {} created (type={}, query={:?})",
-                                task.id, task.task_type, task.query
+                                task.id,
+                                task.task_type,
+                                task.query
                             );
                             // The engine will pick it up within POLL_INTERVAL_SECS
                             Some(task.id)
@@ -581,19 +620,25 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
 
             // Record cost for tracking
             if let Some(tokens) = response.tokens_used {
-                state.cost_manager.record_call(
-                    &response.provider,
-                    &response.model,
-                    "chat",
-                    tokens / 2,  // estimated input
-                    tokens / 2,  // estimated output
-                    &budget_config.mode,
-                ).await;
+                state
+                    .cost_manager
+                    .record_call(
+                        &response.provider,
+                        &response.model,
+                        "chat",
+                        tokens / 2, // estimated input
+                        tokens / 2, // estimated output
+                        &budget_config.mode,
+                    )
+                    .await;
             }
 
             // Cache the response for economy mode
             if let Some(ref key) = cache_key {
-                state.cost_manager.cache_set(key.clone(), clean_response.clone()).await;
+                state
+                    .cost_manager
+                    .cache_set(key.clone(), clean_response.clone())
+                    .await;
             }
 
             // Post-chat: extract memories and detect new tasks in the background.
@@ -609,13 +654,15 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
             }
 
             // Build response
-            let task_action_json = maybe_cmd.as_ref().map(|cmd| serde_json::json!({
-                "action": cmd.action,
-                "task_id": cmd.task_id,
-                "resume_at": cmd.resume_at,
-                "question": cmd.question,
-                "requires_confirmation": cmd.requires_confirmation,
-            }));
+            let task_action_json = maybe_cmd.as_ref().map(|cmd| {
+                serde_json::json!({
+                    "action": cmd.action,
+                    "task_id": cmd.task_id,
+                    "resume_at": cmd.resume_at,
+                    "question": cmd.question,
+                    "requires_confirmation": cmd.requires_confirmation,
+                })
+            });
 
             (
                 StatusCode::OK,
@@ -726,8 +773,14 @@ async fn create_automation(
         No prose, no markdown fences, no comments.";
     let user_prompt = format!("Description: {}{}", req.description, entity_hint);
     let messages = vec![
-        crate::providers::ChatMessage { role: "system".into(), content: system_prompt.into() },
-        crate::providers::ChatMessage { role: "user".into(), content: user_prompt },
+        crate::providers::ChatMessage {
+            role: "system".into(),
+            content: system_prompt.into(),
+        },
+        crate::providers::ChatMessage {
+            role: "user".into(),
+            content: user_prompt,
+        },
     ];
     match provider.chat(messages, None).await {
         Ok(resp) => (
@@ -817,19 +870,40 @@ async fn get_providers(State(state): State<AppState>) -> Json<serde_json::Value>
                     continue;
                 };
                 let cfg = ProviderConfig {
-                    api_key: row.config.get("api_key").and_then(|v| v.as_str()).map(str::to_string),
-                    base_url: row.config.get("base_url").and_then(|v| v.as_str()).map(str::to_string),
-                    model: row.config.get("model").and_then(|v| v.as_str()).map(str::to_string),
-                    api_version: row.config.get("api_version").and_then(|v| v.as_str()).map(str::to_string),
+                    api_key: row
+                        .config
+                        .get("api_key")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    base_url: row
+                        .config
+                        .get("base_url")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    model: row
+                        .config
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    api_version: row
+                        .config
+                        .get("api_version")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
                 };
                 let provider = create_provider(provider_type, cfg.clone());
                 let available = provider.is_available().await;
                 let models = provider.list_models().await.unwrap_or_else(|_| {
-                    cfg.model.clone().map(|model| vec![ProviderModel {
-                        id: model.clone(),
-                        name: model,
-                        provider: provider.provider_id().to_string(),
-                    }]).unwrap_or_default()
+                    cfg.model
+                        .clone()
+                        .map(|model| {
+                            vec![ProviderModel {
+                                id: model.clone(),
+                                name: model,
+                                provider: provider.provider_id().to_string(),
+                            }]
+                        })
+                        .unwrap_or_default()
                 });
                 configured_providers.push(serde_json::json!({
                     "id": row.id,
@@ -1036,7 +1110,10 @@ async fn synthesize_speech(
             .unwrap();
     }
 
-    match provider.synthesize_speech(&req.text, req.voice.as_deref()).await {
+    match provider
+        .synthesize_speech(&req.text, req.voice.as_deref())
+        .await
+    {
         Ok(synthesis) => {
             let content_type = match synthesis.format.as_str() {
                 "mp3" => "audio/mpeg",
@@ -1090,7 +1167,10 @@ async fn transcribe_local(
                 base_url: Some(iora_shared::system_config::stt_service_url()),
                 ..Default::default()
             };
-            Some(providers::create_provider(providers::ProviderType::IoraStt, stt_config))
+            Some(providers::create_provider(
+                providers::ProviderType::IoraStt,
+                stt_config,
+            ))
         } else {
             None
         }
@@ -1215,7 +1295,10 @@ async fn synthesize_local(
                 api_version: req.lang.clone(),
                 ..Default::default()
             };
-            Some(providers::create_provider(providers::ProviderType::IoraTts, tts_config))
+            Some(providers::create_provider(
+                providers::ProviderType::IoraTts,
+                tts_config,
+            ))
         } else {
             None
         }
@@ -1266,12 +1349,16 @@ async fn synthesize_local(
                 serde_json::json!({
                     "error": "No TTS service available",
                     "message": "Neither local IORA TTS nor current AI provider are available.",
-                }).to_string(),
+                })
+                .to_string(),
             ))
             .unwrap();
     }
 
-    match provider.synthesize_speech(&req.text, req.voice.as_deref()).await {
+    match provider
+        .synthesize_speech(&req.text, req.voice.as_deref())
+        .await
+    {
         Ok(synthesis) => {
             let content_type = match synthesis.format.as_str() {
                 "mp3" => "audio/mpeg",
@@ -1299,7 +1386,8 @@ async fn synthesize_local(
                     serde_json::json!({
                         "error": "Speech synthesis failed",
                         "details": e.to_string(),
-                    }).to_string(),
+                    })
+                    .to_string(),
                 ))
                 .unwrap()
         }
@@ -1371,7 +1459,11 @@ async fn chat_stream(
 
     // Build enhanced system prompt with context
     let system_prompt = if let Some(ctx) = &context {
-        Some(state.context_builder.build_system_prompt(ctx, req.system_prompt.as_deref()))
+        Some(
+            state
+                .context_builder
+                .build_system_prompt(ctx, req.system_prompt.as_deref()),
+        )
     } else {
         req.system_prompt.clone()
     };
@@ -1510,15 +1602,13 @@ async fn get_automation_suggestions(State(state): State<AppState>) -> impl IntoR
 
 async fn get_smart_home_context(State(state): State<AppState>) -> impl IntoResponse {
     match state.context_builder.fetch_context().await {
-        Ok(context) => {
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "success": true,
-                    "context": context,
-                })),
-            )
-        }
+        Ok(context) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "context": context,
+            })),
+        ),
         Err(e) => {
             error!("Context fetch error: {}", e);
             (
@@ -1542,10 +1632,10 @@ async fn analyze_video(
     Json(_req): Json<VideoAnalyzeRequest>,
 ) -> impl IntoResponse {
     let p = state.current_provider.read().await;
-    
+
     // Simulate analyzing video chunk using the AI provider if they don't support full video
     let response_text = "Videoanalyse erfolgreich. Das Video zeigt Kontext aus dem Raum oder Desktop. (Detaillierte Analyse erfordert spezialisierte multimodale Modelle)";
-    
+
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -1622,12 +1712,16 @@ async fn openai_chat_completions(
     Json(req): Json<OpenAiChatRequest>,
 ) -> impl IntoResponse {
     // Extrahiere System-Prompt
-    let system_prompt: Option<String> = req.messages.iter()
+    let system_prompt: Option<String> = req
+        .messages
+        .iter()
         .find(|m| m.role == "system")
         .map(|m| m.content.clone());
 
     // Konvertiere Messages in ORA-Format (ohne system)
-    let messages: Vec<providers::ChatMessage> = req.messages.iter()
+    let messages: Vec<providers::ChatMessage> = req
+        .messages
+        .iter()
         .filter(|m| m.role != "system")
         .map(|m| providers::ChatMessage {
             role: m.role.clone(),
@@ -1645,7 +1739,10 @@ async fn openai_chat_completions(
                 code: "provider_unavailable".to_string(),
             },
         };
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::to_value(err).unwrap_or_default()));
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::to_value(err).unwrap_or_default()),
+        );
     }
 
     match provider.chat(messages, system_prompt).await {
@@ -1669,7 +1766,10 @@ async fn openai_chat_completions(
                     total_tokens: t,
                 }),
             };
-            (StatusCode::OK, Json(serde_json::to_value(resp).unwrap_or_default()))
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(resp).unwrap_or_default()),
+            )
         }
         Err(e) => {
             let err = OpenAiErrorResponse {
@@ -1679,7 +1779,10 @@ async fn openai_chat_completions(
                     code: "provider_error".to_string(),
                 },
             };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::to_value(err).unwrap_or_default()))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::to_value(err).unwrap_or_default()),
+            )
         }
     }
 }
@@ -1702,19 +1805,25 @@ async fn list_available_models(State(state): State<AppState>) -> impl IntoRespon
         data: Vec<OpenAiModel>,
     }
 
-    let data: Vec<OpenAiModel> = models.into_iter().map(|m| OpenAiModel {
-        id: m.id,
-        object: "model".to_string(),
-        created: chrono::Utc::now().timestamp(),
-        owned_by: m.provider,
-    }).collect();
+    let data: Vec<OpenAiModel> = models
+        .into_iter()
+        .map(|m| OpenAiModel {
+            id: m.id,
+            object: "model".to_string(),
+            created: chrono::Utc::now().timestamp(),
+            owned_by: m.provider,
+        })
+        .collect();
 
     let resp = OpenAiModelList {
         object: "list".to_string(),
         data,
     };
 
-    (StatusCode::OK, Json(serde_json::to_value(resp).unwrap_or_default()))
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(resp).unwrap_or_default()),
+    )
 }
 
 // ============================================================================
@@ -1760,7 +1869,11 @@ async fn list_evolution_proposals(State(state): State<AppState>) -> impl IntoRes
         );
     };
 
-    let proposals = orch.code_generation.list_proposals(None, None, 50).await.unwrap_or_default();
+    let proposals = orch
+        .code_generation
+        .list_proposals(None, None, 50)
+        .await
+        .unwrap_or_default();
 
     (
         StatusCode::OK,
@@ -1784,12 +1897,20 @@ async fn store_knowledge(
         );
     };
 
-    let topic = req.get("topic").and_then(|v| v.as_str()).unwrap_or("general");
+    let topic = req
+        .get("topic")
+        .and_then(|v| v.as_str())
+        .unwrap_or("general");
     let content = req.get("content").and_then(|v| v.as_str()).unwrap_or("");
     let source = req.get("source").and_then(|v| v.as_str()).unwrap_or("api");
-    let tags: Vec<String> = req.get("tags")
+    let tags: Vec<String> = req
+        .get("tags")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     match kb.store(topic, content, source, &tags).await {
@@ -1857,20 +1978,38 @@ async fn create_workspace(
     State(state): State<AppState>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed");
+    let name = req
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unnamed");
     let source = req.get("source").and_then(|v| v.as_str()).unwrap_or("new");
     let git_url = req.get("git_url").and_then(|v| v.as_str());
 
-    match state.sandbox_manager.create_workspace(name, source, git_url).await {
-        Ok(ws) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "workspace": ws}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .sandbox_manager
+        .create_workspace(name, source, git_url)
+        .await
+    {
+        Ok(ws) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "workspace": ws})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
 /// List all workspaces
 async fn list_workspaces(State(state): State<AppState>) -> impl IntoResponse {
     let workspaces = state.sandbox_manager.list_workspaces().await;
-    (StatusCode::OK, Json(serde_json::json!({"success": true, "workspaces": workspaces, "total": workspaces.len()})))
+    (
+        StatusCode::OK,
+        Json(
+            serde_json::json!({"success": true, "workspaces": workspaces, "total": workspaces.len()}),
+        ),
+    )
 }
 
 /// Get single workspace
@@ -1879,8 +2018,14 @@ async fn get_workspace(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     match state.sandbox_manager.get_workspace(&id).await {
-        Some(ws) => (StatusCode::OK, Json(serde_json::json!({"success": true, "workspace": ws}))),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Workspace not found"}))),
+        Some(ws) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "workspace": ws})),
+        ),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Workspace not found"})),
+        ),
     }
 }
 
@@ -1891,7 +2036,10 @@ async fn delete_workspace(
 ) -> impl IntoResponse {
     match state.sandbox_manager.delete_workspace(&id).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1903,8 +2051,14 @@ async fn list_workspace_files(
 ) -> impl IntoResponse {
     let sub_path = params.get("path").map(|s| s.as_str());
     match state.sandbox_manager.list_files(&id, sub_path).await {
-        Ok(files) => (StatusCode::OK, Json(serde_json::json!({"success": true, "files": files, "total": files.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(files) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "files": files, "total": files.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1914,8 +2068,14 @@ async fn read_workspace_file(
     axum::extract::Path((ws_id, file_path)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     match state.sandbox_manager.read_file(&ws_id, &file_path).await {
-        Ok(content) => (StatusCode::OK, Json(serde_json::json!({"success": true, "content": content}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(content) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "content": content})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1926,9 +2086,16 @@ async fn write_workspace_file(
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let content = req.get("content").and_then(|v| v.as_str()).unwrap_or("");
-    match state.sandbox_manager.write_file(&ws_id, &file_path, content).await {
+    match state
+        .sandbox_manager
+        .write_file(&ws_id, &file_path, content)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1938,8 +2105,14 @@ async fn workspace_git_status(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     match state.sandbox_manager.git_status(&id).await {
-        Ok(diffs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "changes": diffs, "total": diffs.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(diffs) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "changes": diffs, "total": diffs.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1949,10 +2122,19 @@ async fn workspace_git_commit(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let message = req.get("message").and_then(|v| v.as_str()).unwrap_or("Update via ORA Agent");
+    let message = req
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Update via ORA Agent");
     match state.sandbox_manager.git_commit(&id, message).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1962,11 +2144,20 @@ async fn workspace_git_push(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let remote = req.get("remote").and_then(|v| v.as_str()).unwrap_or("origin");
+    let remote = req
+        .get("remote")
+        .and_then(|v| v.as_str())
+        .unwrap_or("origin");
     let branch = req.get("branch").and_then(|v| v.as_str()).unwrap_or("main");
     match state.sandbox_manager.git_push(&id, remote, branch).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1976,11 +2167,24 @@ async fn workspace_git_create_branch(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("feature/ora-agent");
+    let name = req
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("feature/ora-agent");
     let base = req.get("base").and_then(|v| v.as_str());
-    match state.sandbox_manager.git_create_branch(&id, name, base).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .sandbox_manager
+        .git_create_branch(&id, name, base)
+        .await
+    {
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -1990,13 +2194,32 @@ async fn workspace_create_pr(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let title = req.get("title").and_then(|v| v.as_str()).unwrap_or("ORA Agent Changes");
-    let body = req.get("body").and_then(|v| v.as_str()).unwrap_or("Automated changes by ORA Agent.");
-    let head = req.get("head").and_then(|v| v.as_str()).unwrap_or("feature/ora-agent");
+    let title = req
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("ORA Agent Changes");
+    let body = req
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Automated changes by ORA Agent.");
+    let head = req
+        .get("head")
+        .and_then(|v| v.as_str())
+        .unwrap_or("feature/ora-agent");
     let base = req.get("base").and_then(|v| v.as_str()).unwrap_or("main");
-    match state.sandbox_manager.create_pull_request(&id, title, body, head, base).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .sandbox_manager
+        .create_pull_request(&id, title, body, head, base)
+        .await
+    {
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2007,10 +2230,19 @@ async fn workspace_git_log(
     axum::extract::Path(id): axum::extract::Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let max = params.get("max").and_then(|v| v.parse::<u32>().ok()).unwrap_or(20);
+    let max = params
+        .get("max")
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(20);
     match state.sandbox_manager.git_log(&id, max).await {
-        Ok(entries) => (StatusCode::OK, Json(serde_json::json!({"success": true, "entries": entries, "total": entries.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(entries) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "entries": entries, "total": entries.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2019,8 +2251,16 @@ async fn workspace_git_branches(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     match state.sandbox_manager.git_branches(&id).await {
-        Ok(branches) => (StatusCode::OK, Json(serde_json::json!({"success": true, "branches": branches, "total": branches.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(branches) => (
+            StatusCode::OK,
+            Json(
+                serde_json::json!({"success": true, "branches": branches, "total": branches.len()}),
+            ),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2031,8 +2271,14 @@ async fn workspace_git_checkout(
 ) -> impl IntoResponse {
     let branch = req.get("branch").and_then(|v| v.as_str()).unwrap_or("main");
     match state.sandbox_manager.git_checkout(&id, branch).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2043,8 +2289,14 @@ async fn workspace_git_delete_branch(
 ) -> impl IntoResponse {
     let branch = req.get("branch").and_then(|v| v.as_str()).unwrap_or("");
     match state.sandbox_manager.git_delete_branch(&id, branch).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2055,8 +2307,14 @@ async fn workspace_git_stash(
 ) -> impl IntoResponse {
     let message = req.get("message").and_then(|v| v.as_str());
     match state.sandbox_manager.git_stash(&id, message).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2067,8 +2325,14 @@ async fn workspace_git_stash_pop(
 ) -> impl IntoResponse {
     let index = req.get("index").and_then(|v| v.as_u64()).map(|i| i as u32);
     match state.sandbox_manager.git_stash_pop(&id, index).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2077,8 +2341,14 @@ async fn workspace_git_stash_list(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     match state.sandbox_manager.git_stash_list(&id).await {
-        Ok(stashes) => (StatusCode::OK, Json(serde_json::json!({"success": true, "stashes": stashes, "total": stashes.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(stashes) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "stashes": stashes, "total": stashes.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2090,8 +2360,14 @@ async fn workspace_git_reset(
     let mode = req.get("mode").and_then(|v| v.as_str()).unwrap_or("mixed");
     let target = req.get("target").and_then(|v| v.as_str()).unwrap_or("HEAD");
     match state.sandbox_manager.git_reset(&id, mode, target).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2102,8 +2378,14 @@ async fn workspace_git_revert(
 ) -> impl IntoResponse {
     let commit = req.get("commit").and_then(|v| v.as_str()).unwrap_or("HEAD");
     match state.sandbox_manager.git_revert(&id, commit).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2114,8 +2396,14 @@ async fn workspace_git_merge(
 ) -> impl IntoResponse {
     let source = req.get("source").and_then(|v| v.as_str()).unwrap_or("");
     match state.sandbox_manager.git_merge(&id, source).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2126,8 +2414,14 @@ async fn workspace_git_rebase(
 ) -> impl IntoResponse {
     let onto = req.get("onto").and_then(|v| v.as_str()).unwrap_or("main");
     match state.sandbox_manager.git_rebase(&id, onto).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2138,8 +2432,14 @@ async fn workspace_git_blame(
 ) -> impl IntoResponse {
     let file = req.get("file").and_then(|v| v.as_str()).unwrap_or("");
     match state.sandbox_manager.git_blame(&id, file).await {
-        Ok(lines) => (StatusCode::OK, Json(serde_json::json!({"success": true, "lines": lines, "total": lines.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(lines) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "lines": lines, "total": lines.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2148,10 +2448,19 @@ async fn workspace_git_fetch(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let remote = req.get("remote").and_then(|v| v.as_str()).unwrap_or("origin");
+    let remote = req
+        .get("remote")
+        .and_then(|v| v.as_str())
+        .unwrap_or("origin");
     match state.sandbox_manager.git_fetch(&id, remote).await {
-        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "output": output})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2163,8 +2472,14 @@ async fn workspace_git_diff_between(
     let a = req.get("a").and_then(|v| v.as_str()).unwrap_or("HEAD~1");
     let b = req.get("b").and_then(|v| v.as_str()).unwrap_or("HEAD");
     match state.sandbox_manager.git_diff_between(&id, a, b).await {
-        Ok(diffs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "changes": diffs, "total": diffs.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(diffs) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "changes": diffs, "total": diffs.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2175,18 +2490,44 @@ async fn create_agent_task(
     State(state): State<AppState>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let workspace_id = req.get("workspace_id").and_then(|v| v.as_str()).unwrap_or("");
-    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("Unnamed Task");
-    let description = req.get("description").and_then(|v| v.as_str()).unwrap_or("");
-    let model = req.get("model").and_then(|v| v.as_str()).unwrap_or("gpt-4o");
-    let provider = req.get("provider").and_then(|v| v.as_str()).unwrap_or("openai");
-    
-    // Parse steering config
-    let config = req.get("config").and_then(|c| serde_json::from_value(c.clone()).ok());
+    let workspace_id = req
+        .get("workspace_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let name = req
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unnamed Task");
+    let description = req
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let model = req
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("gpt-4o");
+    let provider = req
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("openai");
 
-    let task = match state.sandbox_manager.create_task(workspace_id, name, description, model, provider, config).await {
+    // Parse steering config
+    let config = req
+        .get("config")
+        .and_then(|c| serde_json::from_value(c.clone()).ok());
+
+    let task = match state
+        .sandbox_manager
+        .create_task(workspace_id, name, description, model, provider, config)
+        .await
+    {
         Ok(t) => t,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e})),
+            )
+        }
     };
 
     // Start executing the task in background
@@ -2200,22 +2541,23 @@ async fn create_agent_task(
         let key = api_key.map(|s| s.to_string());
         let url = base_url.map(|s| s.to_string());
         tokio::spawn(async move {
-            let _ = exec.execute_task(
-                task_id, prov, mdl,
-                key, url,
-            ).await;
+            let _ = exec.execute_task(task_id, prov, mdl, key, url).await;
         });
     }
 
-    (StatusCode::CREATED, Json(serde_json::json!({"success": true, "task": task})))
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({"success": true, "task": task})),
+    )
 }
 
 /// List agent tasks
-async fn list_agent_tasks(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn list_agent_tasks(State(state): State<AppState>) -> impl IntoResponse {
     let tasks = state.sandbox_manager.list_tasks(None).await;
-    (StatusCode::OK, Json(serde_json::json!({"success": true, "tasks": tasks, "total": tasks.len()})))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "tasks": tasks, "total": tasks.len()})),
+    )
 }
 
 /// Get single agent task
@@ -2224,8 +2566,14 @@ async fn get_agent_task(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     match state.sandbox_manager.get_task(&id).await {
-        Some(task) => (StatusCode::OK, Json(serde_json::json!({"success": true, "task": task}))),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Task not found"}))),
+        Some(task) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "task": task})),
+        ),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Task not found"})),
+        ),
     }
 }
 
@@ -2236,14 +2584,21 @@ async fn cancel_agent_task(
 ) -> impl IntoResponse {
     match state.sandbox_manager.cancel_task(&id).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
 /// SSE stream for agent task events (live output)
 async fn stream_agent_task_events(
     State(state): State<AppState>,
-) -> axum::response::Sse<impl futures_util::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+) -> axum::response::Sse<
+    impl futures_util::stream::Stream<
+        Item = Result<axum::response::sse::Event, std::convert::Infallible>,
+    >,
+> {
     use axum::response::sse::{Event, KeepAlive, Sse};
     use tokio_stream::wrappers::BroadcastStream;
 
@@ -2257,49 +2612,56 @@ async fn stream_agent_task_events(
     let stream = BroadcastStream::new(rx).filter_map(|msg| {
         futures_util::future::ready(match msg {
             Ok(agent_task_executor::AgentTaskEvent::Output { task_id, line }) => {
-                Some(Ok::<_, std::convert::Infallible>(Event::default()
-                    .event("agent_task_output")
-                    .data(serde_json::json!({
-                        "type": "output",
-                        "task_id": task_id,
-                        "line": line,
-                    }).to_string())))
+                Some(Ok::<_, std::convert::Infallible>(
+                    Event::default().event("agent_task_output").data(
+                        serde_json::json!({
+                            "type": "output",
+                            "task_id": task_id,
+                            "line": line,
+                        })
+                        .to_string(),
+                    ),
+                ))
             }
             Ok(agent_task_executor::AgentTaskEvent::Progress { task_id, progress }) => {
-                Some(Ok(Event::default()
-                    .event("agent_task_progress")
-                    .data(serde_json::json!({
+                Some(Ok(Event::default().event("agent_task_progress").data(
+                    serde_json::json!({
                         "type": "progress",
                         "task_id": task_id,
                         "progress": progress,
-                    }).to_string())))
+                    })
+                    .to_string(),
+                )))
             }
             Ok(agent_task_executor::AgentTaskEvent::StatusChange { task_id, status }) => {
-                Some(Ok(Event::default()
-                    .event("agent_task_status")
-                    .data(serde_json::json!({
+                Some(Ok(Event::default().event("agent_task_status").data(
+                    serde_json::json!({
                         "type": "status_change",
                         "task_id": task_id,
                         "status": status,
-                    }).to_string())))
+                    })
+                    .to_string(),
+                )))
             }
             Ok(agent_task_executor::AgentTaskEvent::Completed { task_id, changes }) => {
-                Some(Ok(Event::default()
-                    .event("agent_task_completed")
-                    .data(serde_json::json!({
+                Some(Ok(Event::default().event("agent_task_completed").data(
+                    serde_json::json!({
                         "type": "completed",
                         "task_id": task_id,
                         "changes": changes,
-                    }).to_string())))
+                    })
+                    .to_string(),
+                )))
             }
             Ok(agent_task_executor::AgentTaskEvent::Failed { task_id, error }) => {
-                Some(Ok(Event::default()
-                    .event("agent_task_failed")
-                    .data(serde_json::json!({
+                Some(Ok(Event::default().event("agent_task_failed").data(
+                    serde_json::json!({
                         "type": "failed",
                         "task_id": task_id,
                         "error": error,
-                    }).to_string())))
+                    })
+                    .to_string(),
+                )))
             }
             Err(_) => None,
         })
@@ -2309,9 +2671,7 @@ async fn stream_agent_task_events(
 }
 
 /// Get running agent task count
-async fn agent_task_stats(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn agent_task_stats(State(state): State<AppState>) -> impl IntoResponse {
     let running = if let Some(ref executor) = state.agent_task_executor {
         executor.running_count().await
     } else {
@@ -2322,34 +2682,43 @@ async fn agent_task_stats(
     let completed = tasks.iter().filter(|t| t.status == "completed").count();
     let failed = tasks.iter().filter(|t| t.status == "failed").count();
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "stats": {
-            "running": running,
-            "queued": queued,
-            "completed": completed,
-            "failed": failed,
-            "total": tasks.len(),
-        }
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "stats": {
+                "running": running,
+                "queued": queued,
+                "completed": completed,
+                "failed": failed,
+                "total": tasks.len(),
+            }
+        })),
+    )
 }
 
 // ─── Cost Manager & Economy Mode Handlers ───────────────────────────────────
 
 async fn cost_summary(State(state): State<AppState>) -> impl IntoResponse {
     let summary = state.cost_manager.get_summary().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "summary": summary,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "summary": summary,
+        })),
+    )
 }
 
 async fn cost_config_get(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.cost_manager.get_config().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "config": config,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "config": config,
+        })),
+    )
 }
 
 async fn cost_config_update(
@@ -2357,10 +2726,13 @@ async fn cost_config_update(
     Json(config): Json<BudgetConfig>,
 ) -> impl IntoResponse {
     state.cost_manager.update_config(config.clone()).await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "config": config,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "config": config,
+        })),
+    )
 }
 
 async fn cost_records_clear(State(state): State<AppState>) -> impl IntoResponse {
@@ -2380,10 +2752,13 @@ struct CostModeRequest {
 
 async fn cost_mode_get(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.cost_manager.get_config().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "mode": config.mode,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "mode": config.mode,
+        })),
+    )
 }
 
 async fn cost_mode_set(
@@ -2393,28 +2768,37 @@ async fn cost_mode_set(
     let mut config = state.cost_manager.get_config().await;
     config.mode = req.mode;
     state.cost_manager.update_config(config).await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "mode": state.cost_manager.get_config().await.mode,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "mode": state.cost_manager.get_config().await.mode,
+        })),
+    )
 }
 
 // ─── LSP Handlers ───────────────────────────────────────────────────────────
 
 async fn lsp_available_servers(State(state): State<AppState>) -> impl IntoResponse {
-    let servers: Vec<serde_json::Value> = state.lsp_manager
+    let servers: Vec<serde_json::Value> = state
+        .lsp_manager
         .available_servers()
         .iter()
-        .map(|s| serde_json::json!({
-            "language": s.language,
-            "file_extensions": s.file_extensions,
-            "command": s.command,
-        }))
+        .map(|s| {
+            serde_json::json!({
+                "language": s.language,
+                "file_extensions": s.file_extensions,
+                "command": s.command,
+            })
+        })
         .collect();
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "servers": servers,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "servers": servers,
+        })),
+    )
 }
 
 async fn lsp_start_for_workspace(
@@ -2425,17 +2809,28 @@ async fn lsp_start_for_workspace(
     let workspace = state.sandbox_manager.get_workspace(&ws_id).await;
     let path = match workspace {
         Some(ws) => std::path::PathBuf::from(&ws.path),
-        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Workspace not found"}))),
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "Workspace not found"})),
+            )
+        }
     };
 
     match state.lsp_manager.start_for_workspace(path).await {
-        Ok(languages) => (StatusCode::OK, Json(serde_json::json!({
-            "success": true,
-            "languages_started": languages,
-        }))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-            "error": e,
-        }))),
+        Ok(languages) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "languages_started": languages,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": e,
+            })),
+        ),
     }
 }
 
@@ -2444,39 +2839,51 @@ async fn lsp_workspace_diagnostics(
     axum::extract::Path(ws_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     let diagnostics = state.lsp_manager.all_diagnostics().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "workspace_id": ws_id,
-        "diagnostics": diagnostics,
-        "total_files": diagnostics.len(),
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "workspace_id": ws_id,
+            "diagnostics": diagnostics,
+            "total_files": diagnostics.len(),
+        })),
+    )
 }
 
 async fn lsp_all_diagnostics(State(state): State<AppState>) -> impl IntoResponse {
     let diagnostics = state.lsp_manager.all_diagnostics().await;
     let total_issues: usize = diagnostics.values().map(|d| d.len()).sum();
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "diagnostics": diagnostics,
-        "total_files": diagnostics.len(),
-        "total_issues": total_issues,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "diagnostics": diagnostics,
+            "total_files": diagnostics.len(),
+            "total_issues": total_issues,
+        })),
+    )
 }
 
 async fn lsp_shutdown(State(state): State<AppState>) -> impl IntoResponse {
     state.lsp_manager.shutdown_all().await;
-    (StatusCode::OK, Json(serde_json::json!({"success": true, "message": "All LSP servers shut down"})))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "message": "All LSP servers shut down"})),
+    )
 }
 
 // ─── ACP Handlers ───────────────────────────────────────────────────────────
 
 async fn acp_list_agents(State(state): State<AppState>) -> impl IntoResponse {
     let agents = state.acp_router.list_agents().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "agents": agents,
-        "total": agents.len(),
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "agents": agents,
+            "total": agents.len(),
+        })),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -2490,14 +2897,22 @@ async fn acp_discover_agents(
     State(state): State<AppState>,
     Json(req): Json<AcpDiscoverRequest>,
 ) -> impl IntoResponse {
-    let agents = state.acp_router
-        .discover(req.query.as_deref(), req.capability.as_deref(), req.agent_type.as_deref())
+    let agents = state
+        .acp_router
+        .discover(
+            req.query.as_deref(),
+            req.capability.as_deref(),
+            req.agent_type.as_deref(),
+        )
         .await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "agents": agents,
-        "total": agents.len(),
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "agents": agents,
+            "total": agents.len(),
+        })),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -2508,18 +2923,30 @@ struct AcpMessageRequest {
     role: String,
 }
 
-fn default_role() -> String { "user".to_string() }
+fn default_role() -> String {
+    "user".to_string()
+}
 
 async fn acp_send_message(
     State(state): State<AppState>,
     Json(req): Json<AcpMessageRequest>,
 ) -> impl IntoResponse {
-    match state.acp_router.send_message(&req.target_id, &req.content, &req.role).await {
-        Ok(msg) => (StatusCode::OK, Json(serde_json::json!({
-            "success": true,
-            "message_id": msg.id,
-        }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .acp_router
+        .send_message(&req.target_id, &req.content, &req.role)
+        .await
+    {
+        Ok(msg) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message_id": msg.id,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2529,7 +2956,10 @@ async fn acp_broadcast(
 ) -> impl IntoResponse {
     match state.acp_router.broadcast(&req.content, &req.role).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2542,9 +2972,9 @@ async fn acp_event_stream(State(state): State<AppState>) -> impl IntoResponse {
         futures_util::future::ready(match msg {
             Ok(acp_msg) => {
                 let data = serde_json::to_string(&acp_msg).unwrap_or_default();
-                Some(Ok::<Event, std::convert::Infallible>(Event::default()
-                    .event("acp_message")
-                    .data(data)))
+                Some(Ok::<Event, std::convert::Infallible>(
+                    Event::default().event("acp_message").data(data),
+                ))
             }
             Err(_) => None,
         })
@@ -2571,7 +3001,9 @@ struct SubagentSpawnRequest {
     temperature: Option<f32>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 async fn subagent_spawn(
     State(state): State<AppState>,
@@ -2594,7 +3026,11 @@ async fn subagent_spawn(
     let default_cfg = state.cost_manager.get_config().await;
     let provider = req.provider.unwrap_or_else(|| "openai".to_string());
     let model = req.model.unwrap_or_else(|| {
-        if default_cfg.mode == "economy" { "gpt-4o-mini".to_string() } else { "gpt-4o".to_string() }
+        if default_cfg.mode == "economy" {
+            "gpt-4o-mini".to_string()
+        } else {
+            "gpt-4o".to_string()
+        }
     });
 
     let config = SubagentConfig {
@@ -2609,29 +3045,41 @@ async fn subagent_spawn(
     };
 
     match state.subagent_pool.spawn(config).await {
-        Ok(subagent_state) => (StatusCode::CREATED, Json(serde_json::json!({
-            "success": true,
-            "subagent": subagent_state,
-        }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(subagent_state) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "success": true,
+                "subagent": subagent_state,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
 async fn subagent_list(State(state): State<AppState>) -> impl IntoResponse {
     let agents = state.subagent_pool.list_agents().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "subagents": agents,
-        "total": agents.len(),
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "subagents": agents,
+            "total": agents.len(),
+        })),
+    )
 }
 
 async fn subagent_stats(State(state): State<AppState>) -> impl IntoResponse {
     let stats = state.subagent_pool.stats_async().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "stats": stats,
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "stats": stats,
+        })),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -2655,18 +3103,28 @@ async fn subagent_delegate(
         subagents::SubagentPool::infer_capability_static(&req.description, &req.task_data)
     });
 
-    match state.subagent_pool.delegate(
-        &req.description,
-        req.task_data,
-        &capability,
-        req.priority.unwrap_or(5),
-        req.timeout_secs,
-    ).await {
-        Ok(result) => (StatusCode::OK, Json(serde_json::json!({
-            "success": result.success,
-            "result": result,
-        }))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))),
+    match state
+        .subagent_pool
+        .delegate(
+            &req.description,
+            req.task_data,
+            &capability,
+            req.priority.unwrap_or(5),
+            req.timeout_secs,
+        )
+        .await
+    {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": result.success,
+                "result": result,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2674,12 +3132,22 @@ async fn subagent_delegate_auto(
     State(state): State<AppState>,
     Json(req): Json<SubagentDelegateRequest>,
 ) -> impl IntoResponse {
-    match state.subagent_pool.delegate_auto(&req.description, req.task_data).await {
-        Ok(result) => (StatusCode::OK, Json(serde_json::json!({
-            "success": result.success,
-            "result": result,
-        }))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))),
+    match state
+        .subagent_pool
+        .delegate_auto(&req.description, req.task_data)
+        .await
+    {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": result.success,
+                "result": result,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2689,8 +3157,14 @@ async fn subagent_get(
 ) -> impl IntoResponse {
     let agents = state.subagent_pool.list_agents().await;
     match agents.iter().find(|a| a.id == id) {
-        Some(agent) => (StatusCode::OK, Json(serde_json::json!({"success": true, "subagent": agent}))),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Subagent not found"}))),
+        Some(agent) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "subagent": agent})),
+        ),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Subagent not found"})),
+        ),
     }
 }
 
@@ -2706,7 +3180,10 @@ async fn subagent_terminate(
 
 async fn subagent_terminate_all(State(state): State<AppState>) -> impl IntoResponse {
     state.subagent_pool.terminate_all().await;
-    (StatusCode::OK, Json(serde_json::json!({"success": true, "message": "All subagents terminated"})))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "message": "All subagents terminated"})),
+    )
 }
 
 async fn subagent_event_stream(
@@ -2767,14 +3244,17 @@ async fn subagent_pool_event_stream(State(state): State<AppState>) -> impl IntoR
 async fn github_auth_status(State(state): State<AppState>) -> impl IntoResponse {
     let auth = state.github_client.get_auth().await;
     let is_configured = state.github_client.is_configured().await;
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "configured": is_configured,
-        "auth_type": auth.auth_type,
-        "username": auth.username,
-        "has_pat": auth.pat.is_some(),
-        "has_app": auth.app_id.is_some(),
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "configured": is_configured,
+            "auth_type": auth.auth_type,
+            "username": auth.username,
+            "has_pat": auth.pat.is_some(),
+            "has_app": auth.app_id.is_some(),
+        })),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -2872,7 +3352,10 @@ async fn github_list_repos(
     let org = params.get("org").map(|s| s.as_str());
 
     let result = if let Some(owner) = owner {
-        state.github_client.list_repos_for_owner(owner, 1, 100).await
+        state
+            .github_client
+            .list_repos_for_owner(owner, 1, 100)
+            .await
     } else if let Some(org) = org {
         state.github_client.list_org_repos(org, 1, 100).await
     } else {
@@ -2880,8 +3363,14 @@ async fn github_list_repos(
     };
 
     match result {
-        Ok(repos) => (StatusCode::OK, Json(serde_json::json!({"success": true, "repos": repos, "total": repos.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(repos) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "repos": repos, "total": repos.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2891,8 +3380,14 @@ async fn github_suggest_targets(
 ) -> impl IntoResponse {
     let query = params.get("query").map(|s| s.as_str());
     match state.github_client.suggest_targets(query).await {
-        Ok(suggestions) => (StatusCode::OK, Json(serde_json::json!({"success": true, "suggestions": suggestions}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(suggestions) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "suggestions": suggestions})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2902,8 +3397,14 @@ async fn github_search_repos(
 ) -> impl IntoResponse {
     let query = params.get("query").map(|s| s.as_str()).unwrap_or("");
     match state.github_client.search_repos(query, 1, 30).await {
-        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "search": result}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "search": result})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2912,7 +3413,10 @@ async fn github_get_repo(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     match state.github_client.get_repo(&owner, &repo).await {
-        Ok(r) => (StatusCode::OK, Json(serde_json::json!({"success": true, "repo": r}))),
+        Ok(r) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "repo": r})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -2922,8 +3426,16 @@ async fn github_list_branches(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     match state.github_client.get_all_branches(&owner, &repo).await {
-        Ok(branches) => (StatusCode::OK, Json(serde_json::json!({"success": true, "branches": branches, "total": branches.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(branches) => (
+            StatusCode::OK,
+            Json(
+                serde_json::json!({"success": true, "branches": branches, "total": branches.len()}),
+            ),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2932,7 +3444,10 @@ async fn github_get_branch(
     axum::extract::Path((owner, repo, branch)): axum::extract::Path<(String, String, String)>,
 ) -> impl IntoResponse {
     match state.github_client.get_branch(&owner, &repo, &branch).await {
-        Ok(b) => (StatusCode::OK, Json(serde_json::json!({"success": true, "branch": b}))),
+        Ok(b) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "branch": b})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -2954,23 +3469,52 @@ async fn github_create_branch(
     } else if let Some(ref b) = req.base_branch {
         match state.github_client.get_branch(&owner, &repo, b).await {
             Ok(br) => br.commit.sha,
-            Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": e})),
+                )
+            }
         }
     } else {
         match state.github_client.get_repo(&owner, &repo).await {
             Ok(r) => {
-                match state.github_client.get_branch(&owner, &repo, &r.default_branch).await {
+                match state
+                    .github_client
+                    .get_branch(&owner, &repo, &r.default_branch)
+                    .await
+                {
                     Ok(br) => br.commit.sha,
-                    Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+                    Err(e) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(serde_json::json!({"error": e})),
+                        )
+                    }
                 }
             }
-            Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": e})),
+                )
+            }
         }
     };
 
-    match state.github_client.create_branch(&owner, &repo, &req.branch_name, &sha).await {
-        Ok(branch) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "branch": branch}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .create_branch(&owner, &repo, &req.branch_name, &sha)
+        .await
+    {
+        Ok(branch) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "branch": branch})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2978,9 +3522,16 @@ async fn github_delete_branch(
     State(state): State<AppState>,
     axum::extract::Path((owner, repo, branch)): axum::extract::Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    match state.github_client.delete_branch(&owner, &repo, &branch).await {
+    match state
+        .github_client
+        .delete_branch(&owner, &repo, &branch)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -2995,9 +3546,19 @@ async fn github_list_issues(
     let labels = params.get("labels").map(|s| s.as_str());
     let assignee = params.get("assignee").map(|s| s.as_str());
 
-    match state.github_client.list_issues(&owner, &repo, state_filter, labels, assignee, 1, 50).await {
-        Ok(issues) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issues": issues, "total": issues.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .list_issues(&owner, &repo, state_filter, labels, assignee, 1, 50)
+        .await
+    {
+        Ok(issues) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "issues": issues, "total": issues.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3006,7 +3567,10 @@ async fn github_get_issue(
     axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
 ) -> impl IntoResponse {
     match state.github_client.get_issue(&owner, &repo, number).await {
-        Ok(issue) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issue": issue}))),
+        Ok(issue) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "issue": issue})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -3018,14 +3582,37 @@ async fn github_create_issue(
 ) -> impl IntoResponse {
     let title = req["title"].as_str().unwrap_or("Untitled");
     let body = req["body"].as_str().unwrap_or("");
-    let labels: Option<Vec<String>> = req["labels"].as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-    let assignees: Option<Vec<String>> = req["assignees"].as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+    let labels: Option<Vec<String>> = req["labels"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    });
+    let assignees: Option<Vec<String>> = req["assignees"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    });
 
-    match state.github_client.create_issue(&owner, &repo, title, body, labels.as_deref(), assignees.as_deref()).await {
-        Ok(issue) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "issue": issue}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .create_issue(
+            &owner,
+            &repo,
+            title,
+            body,
+            labels.as_deref(),
+            assignees.as_deref(),
+        )
+        .await
+    {
+        Ok(issue) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "issue": issue})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3037,12 +3624,33 @@ async fn github_update_issue(
     let title = req.get("title").and_then(|v| v.as_str());
     let body = req.get("body").and_then(|v| v.as_str());
     let state_val = req.get("state").and_then(|v| v.as_str());
-    let labels: Option<Vec<String>> = req.get("labels").and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+    let labels: Option<Vec<String>> = req.get("labels").and_then(|v| v.as_array()).map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    });
 
-    match state.github_client.update_issue(&owner, &repo, number, title, body, state_val, labels.as_deref()).await {
-        Ok(issue) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issue": issue}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .update_issue(
+            &owner,
+            &repo,
+            number,
+            title,
+            body,
+            state_val,
+            labels.as_deref(),
+        )
+        .await
+    {
+        Ok(issue) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "issue": issue})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3051,8 +3659,14 @@ async fn github_close_issue(
     axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
 ) -> impl IntoResponse {
     match state.github_client.close_issue(&owner, &repo, number).await {
-        Ok(issue) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issue": issue}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(issue) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "issue": issue})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3062,9 +3676,19 @@ async fn github_add_comment(
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let body = req["body"].as_str().unwrap_or("");
-    match state.github_client.create_issue_comment(&owner, &repo, number, body).await {
-        Ok(comment) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "comment": comment}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .create_issue_comment(&owner, &repo, number, body)
+        .await
+    {
+        Ok(comment) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "comment": comment})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3076,9 +3700,19 @@ async fn github_list_prs(
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let state_filter = params.get("state").map(|s| s.as_str());
-    match state.github_client.list_pull_requests(&owner, &repo, state_filter, 1, 50).await {
-        Ok(prs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "pull_requests": prs, "total": prs.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .list_pull_requests(&owner, &repo, state_filter, 1, 50)
+        .await
+    {
+        Ok(prs) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "pull_requests": prs, "total": prs.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3086,8 +3720,15 @@ async fn github_get_pr(
     State(state): State<AppState>,
     axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
 ) -> impl IntoResponse {
-    match state.github_client.get_pull_request(&owner, &repo, number).await {
-        Ok(pr) => (StatusCode::OK, Json(serde_json::json!({"success": true, "pull_request": pr}))),
+    match state
+        .github_client
+        .get_pull_request(&owner, &repo, number)
+        .await
+    {
+        Ok(pr) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "pull_request": pr})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -3103,9 +3744,19 @@ async fn github_create_pr(
     let base = req["base"].as_str().unwrap_or("main");
     let draft = req["draft"].as_bool().unwrap_or(false);
 
-    match state.github_client.create_pull_request(&owner, &repo, title, body, head, base, draft).await {
-        Ok(pr) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "pull_request": pr}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .create_pull_request(&owner, &repo, title, body, head, base, draft)
+        .await
+    {
+        Ok(pr) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "pull_request": pr})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3116,9 +3767,19 @@ async fn github_merge_pr(
 ) -> impl IntoResponse {
     let title = req.get("commit_title").and_then(|v| v.as_str());
     let method = req.get("merge_method").and_then(|v| v.as_str());
-    match state.github_client.merge_pull_request(&owner, &repo, number, title, method).await {
-        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "result": result}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .merge_pull_request(&owner, &repo, number, title, method)
+        .await
+    {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "result": result})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3127,7 +3788,10 @@ async fn github_get_pr_diff(
     axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
 ) -> impl IntoResponse {
     match state.github_client.get_pr_diff(&owner, &repo, number).await {
-        Ok(diff) => (StatusCode::OK, Json(serde_json::json!({"success": true, "diff": diff}))),
+        Ok(diff) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "diff": diff})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -3140,8 +3804,15 @@ async fn github_get_contents(
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let ref_name = params.get("ref").map(|s| s.as_str());
-    match state.github_client.get_contents(&owner, &repo, &path, ref_name).await {
-        Ok(contents) => (StatusCode::OK, Json(serde_json::json!({"success": true, "contents": contents}))),
+    match state
+        .github_client
+        .get_contents(&owner, &repo, &path, ref_name)
+        .await
+    {
+        Ok(contents) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "contents": contents})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -3155,9 +3826,19 @@ async fn github_write_file(
     let message = req["message"].as_str().unwrap_or("Update via ORA Agent");
     let branch = req.get("branch").and_then(|v| v.as_str());
 
-    match state.github_client.write_file(&owner, &repo, &path, content, message, branch).await {
-        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "result": result}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .write_file(&owner, &repo, &path, content, message, branch)
+        .await
+    {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "result": result})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3169,9 +3850,19 @@ async fn github_delete_file(
     let message = req["message"].as_str().unwrap_or("Delete via ORA Agent");
     let branch = req.get("branch").and_then(|v| v.as_str());
 
-    match state.github_client.delete_file(&owner, &repo, &path, message, branch).await {
-        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "result": result}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .delete_file(&owner, &repo, &path, message, branch)
+        .await
+    {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "result": result})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3183,9 +3874,19 @@ async fn github_list_commits(
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let branch = params.get("branch").map(|s| s.as_str());
-    match state.github_client.list_commits(&owner, &repo, branch, 1, 50).await {
-        Ok(commits) => (StatusCode::OK, Json(serde_json::json!({"success": true, "commits": commits, "total": commits.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .list_commits(&owner, &repo, branch, 1, 50)
+        .await
+    {
+        Ok(commits) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "commits": commits, "total": commits.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3194,7 +3895,10 @@ async fn github_get_commit(
     axum::extract::Path((owner, repo, sha)): axum::extract::Path<(String, String, String)>,
 ) -> impl IntoResponse {
     match state.github_client.get_commit(&owner, &repo, &sha).await {
-        Ok(commit) => (StatusCode::OK, Json(serde_json::json!({"success": true, "commit": commit}))),
+        Ok(commit) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "commit": commit})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -3206,9 +3910,19 @@ async fn github_compare(
 ) -> impl IntoResponse {
     let base = params.get("base").map(|s| s.as_str()).unwrap_or("main");
     let head = params.get("head").map(|s| s.as_str()).unwrap_or("HEAD");
-    match state.github_client.compare_commits(&owner, &repo, base, head).await {
-        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "comparison": result}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .compare_commits(&owner, &repo, base, head)
+        .await
+    {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "comparison": result})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3219,8 +3933,16 @@ async fn github_list_workflows(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     match state.github_client.list_workflows(&owner, &repo).await {
-        Ok(workflows) => (StatusCode::OK, Json(serde_json::json!({"success": true, "workflows": workflows, "total": workflows.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(workflows) => (
+            StatusCode::OK,
+            Json(
+                serde_json::json!({"success": true, "workflows": workflows, "total": workflows.len()}),
+            ),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3233,9 +3955,16 @@ async fn github_trigger_workflow(
     let ref_name = req["ref"].as_str().unwrap_or("main");
     let inputs = req.get("inputs").cloned().unwrap_or(serde_json::json!({}));
 
-    match state.github_client.trigger_workflow(&owner, &repo, workflow_id, ref_name, inputs).await {
+    match state
+        .github_client
+        .trigger_workflow(&owner, &repo, workflow_id, ref_name, inputs)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3246,9 +3975,19 @@ async fn github_list_workflow_runs(
 ) -> impl IntoResponse {
     let branch = params.get("branch").map(|s| s.as_str());
     let status = params.get("status").map(|s| s.as_str());
-    match state.github_client.list_workflow_runs(&owner, &repo, branch, status, 1, 30).await {
-        Ok(runs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "workflow_runs": runs, "total": runs.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .list_workflow_runs(&owner, &repo, branch, status, 1, 30)
+        .await
+    {
+        Ok(runs) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "workflow_runs": runs, "total": runs.len()})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3258,9 +3997,21 @@ async fn github_list_releases(
     State(state): State<AppState>,
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
-    match state.github_client.list_releases(&owner, &repo, 1, 20).await {
-        Ok(releases) => (StatusCode::OK, Json(serde_json::json!({"success": true, "releases": releases, "total": releases.len()}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .list_releases(&owner, &repo, 1, 20)
+        .await
+    {
+        Ok(releases) => (
+            StatusCode::OK,
+            Json(
+                serde_json::json!({"success": true, "releases": releases, "total": releases.len()}),
+            ),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3269,7 +4020,10 @@ async fn github_get_latest_release(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     match state.github_client.get_latest_release(&owner, &repo).await {
-        Ok(release) => (StatusCode::OK, Json(serde_json::json!({"success": true, "release": release}))),
+        Ok(release) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "release": release})),
+        ),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
     }
 }
@@ -3285,9 +4039,19 @@ async fn github_create_release(
     let draft = req["draft"].as_bool().unwrap_or(false);
     let prerelease = req["prerelease"].as_bool().unwrap_or(false);
 
-    match state.github_client.create_release(&owner, &repo, tag_name, name, body, draft, prerelease).await {
-        Ok(release) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "release": release}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    match state
+        .github_client
+        .create_release(&owner, &repo, tag_name, name, body, draft, prerelease)
+        .await
+    {
+        Ok(release) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "release": release})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3298,8 +4062,14 @@ async fn github_fork_repo(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     match state.github_client.fork_repo(&owner, &repo).await {
-        Ok(forked) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "fork": forked}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(forked) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "fork": forked})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3307,7 +4077,10 @@ async fn github_fork_repo(
 
 async fn github_list_actions(State(state): State<AppState>) -> impl IntoResponse {
     let actions = state.github_actions.list_actions().await;
-    (StatusCode::OK, Json(serde_json::json!({"success": true, "actions": actions, "total": actions.len()})))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "actions": actions, "total": actions.len()})),
+    )
 }
 
 async fn github_get_action(
@@ -3315,8 +4088,14 @@ async fn github_get_action(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     match state.github_actions.get_action(&id).await {
-        Some(action) => (StatusCode::OK, Json(serde_json::json!({"success": true, "action": action}))),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Action not found"}))),
+        Some(action) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "action": action})),
+        ),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Action not found"})),
+        ),
     }
 }
 
@@ -3326,9 +4105,7 @@ async fn github_execute_action(
 ) -> impl IntoResponse {
     use github::GitHubActionType;
 
-    let action_type = GitHubActionType::from_str(
-        req["action_type"].as_str().unwrap_or("custom")
-    );
+    let action_type = GitHubActionType::from_str(req["action_type"].as_str().unwrap_or("custom"));
     let repo_owner = req["repo_owner"].as_str().unwrap_or("");
     let repo_name = req["repo_name"].as_str().unwrap_or("");
 
@@ -3348,9 +4125,15 @@ async fn github_execute_action(
     match state.github_actions.execute(&mut action).await {
         Ok(result) => {
             let _ = state.github_actions.queue_action(action.clone()).await;
-            (StatusCode::OK, Json(serde_json::json!({"success": true, "action": action, "result": result})))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"success": true, "action": action, "result": result})),
+            )
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3358,8 +4141,14 @@ async fn github_execute_action(
 
 async fn github_rate_limit(State(state): State<AppState>) -> impl IntoResponse {
     match state.github_client.rate_limit().await {
-        Ok(limit) => (StatusCode::OK, Json(serde_json::json!({"success": true, "rate_limit": limit}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        Ok(limit) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "rate_limit": limit})),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        ),
     }
 }
 
@@ -3374,13 +4163,12 @@ fn load_config_from_env() -> (ProviderType, ProviderConfig) {
     // the operator hasn't configured an explicit base URL yet. This avoids the
     // "AI nicht verfügbar" state on a fresh install where Ollama runs locally.
     let configured_base_url = system_config::ai_base_url();
-    let base_url = if configured_base_url.trim().is_empty()
-        && matches!(provider, ProviderType::Local)
-    {
-        "http://127.0.0.1:11434".to_string()
-    } else {
-        configured_base_url
-    };
+    let base_url =
+        if configured_base_url.trim().is_empty() && matches!(provider, ProviderType::Local) {
+            "http://127.0.0.1:11434".to_string()
+        } else {
+            configured_base_url
+        };
 
     let config = ProviderConfig {
         api_key: system_config::ai_api_key(),
@@ -3396,7 +4184,9 @@ fn load_config_from_env() -> (ProviderType, ProviderConfig) {
 // PROACTIVE MESSAGING (Phase 6)
 // ============================================================================
 
-async fn notification_stream(State(state): State<AppState>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+async fn notification_stream(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let db_opt = state.db.clone();
 
     let stream = async_stream::stream! {
@@ -4108,10 +4898,7 @@ async fn delete_memory(
     };
 
     match mm.delete(id).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({"success": true})),
-        ),
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Failed to delete memory", "details": e.to_string()})),
@@ -4150,7 +4937,9 @@ async fn search_memories(
         ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Failed to search memories", "details": e.to_string()})),
+            Json(
+                serde_json::json!({"error": "Failed to search memories", "details": e.to_string()}),
+            ),
         ),
     }
 }
@@ -4179,7 +4968,9 @@ async fn list_active_tasks(State(state): State<AppState>) -> impl IntoResponse {
         ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Failed to list active tasks", "details": e.to_string()})),
+            Json(
+                serde_json::json!({"error": "Failed to list active tasks", "details": e.to_string()}),
+            ),
         ),
     }
 }
@@ -4203,7 +4994,9 @@ async fn create_active_task(
         ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Failed to create active task", "details": e.to_string()})),
+            Json(
+                serde_json::json!({"error": "Failed to create active task", "details": e.to_string()}),
+            ),
         ),
     }
 }
@@ -4233,7 +5026,9 @@ async fn update_active_task(
         if let Err(e) = mm.set_task_enabled(id, enabled).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "Failed to update task", "details": e.to_string()})),
+                Json(
+                    serde_json::json!({"error": "Failed to update task", "details": e.to_string()}),
+                ),
             );
         }
     }
@@ -4241,17 +5036,14 @@ async fn update_active_task(
     // Name / description update
     if req.name.is_some() || req.description.is_some() {
         if let Err(e) = mm
-            .update_task(
-                id,
-                req.name.as_deref(),
-                req.description.as_deref(),
-                None,
-            )
+            .update_task(id, req.name.as_deref(), req.description.as_deref(), None)
             .await
         {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "Failed to update task fields", "details": e.to_string()})),
+                Json(
+                    serde_json::json!({"error": "Failed to update task fields", "details": e.to_string()}),
+                ),
             );
         }
     }
@@ -4318,7 +5110,9 @@ async fn detect_tasks_from_conversation(
         ),
         None => (
             StatusCode::OK,
-            Json(serde_json::json!({"success": false, "message": "No task detected in conversation"})),
+            Json(
+                serde_json::json!({"success": false, "message": "No task detected in conversation"}),
+            ),
         ),
     }
 }
@@ -4342,8 +5136,8 @@ async fn execute_task_command(
             }
         }
         "disable" => mm.set_task_enabled(task_id, false).await,
-        "resume"  => mm.set_task_enabled(task_id, true).await,
-        "delete"  => mm.delete_task(task_id).await,
+        "resume" => mm.set_task_enabled(task_id, true).await,
+        "delete" => mm.delete_task(task_id).await,
         other => {
             tracing::warn!("Unknown task action from AI: {}", other);
             return;
@@ -4351,7 +5145,11 @@ async fn execute_task_command(
     };
 
     match result {
-        Ok(()) => tracing::info!("Task command '{}' on {} executed successfully", action, task_id),
+        Ok(()) => tracing::info!(
+            "Task command '{}' on {} executed successfully",
+            action,
+            task_id
+        ),
         Err(e) => tracing::error!("Task command '{}' on {} failed: {}", action, task_id, e),
     }
 }
@@ -4387,7 +5185,10 @@ async fn confirm_task_action(
 
     execute_task_command(mm, req.task_id, &req.action, req.resume_at).await;
 
-    (StatusCode::OK, Json(serde_json::json!({"success": true, "action": req.action})))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "action": req.action})),
+    )
 }
 
 // ─── Instant Task API ─────────────────────────────────────────────────────────
@@ -4405,7 +5206,10 @@ async fn get_instant_task(
     };
 
     match database::instant_tasks::get_by_id(db, id).await {
-        Ok(Some(task)) => (StatusCode::OK, Json(serde_json::to_value(&task).unwrap_or_default())),
+        Ok(Some(task)) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(&task).unwrap_or_default()),
+        ),
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "Instant task not found"})),
@@ -4457,7 +5261,7 @@ async fn stream_instant_task(
         let data = serde_json::json!({"error": "Instant task engine not available"});
         let s = stream::once(async move {
             Ok::<Event, std::convert::Infallible>(
-                Event::default().event("error").data(data.to_string())
+                Event::default().event("error").data(data.to_string()),
             )
         });
         return Sse::new(s).keep_alive(KeepAlive::default()).into_response();
@@ -4487,7 +5291,9 @@ async fn stream_instant_task(
         ))
     });
 
-    Sse::new(sse_stream).keep_alive(KeepAlive::default()).into_response()
+    Sse::new(sse_stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 // ─── Pi.dev API Handlers ───────────────────────────────────────────────────
@@ -4525,7 +5331,9 @@ async fn create_pidev_session(
     let config = PiDevSessionConfig {
         workspace_id: req.workspace_id,
         workspace_path: req.workspace_path,
-        image: req.image.unwrap_or_else(|| "pi-dev-agent:latest".to_string()),
+        image: req
+            .image
+            .unwrap_or_else(|| "pi-dev-agent:latest".to_string()),
         api_key: req.api_key,
         cpu_limit: req.cpu_limit,
         memory_limit: req.memory_limit,
@@ -4534,12 +5342,30 @@ async fn create_pidev_session(
         allowed_domains: req.allowed_domains.unwrap_or_default(),
         session_timeout_secs: req.session_timeout_secs.unwrap_or(3600),
         security_level,
-        plugins: req.plugins.unwrap_or_else(|| vec![
-            PluginConfig { package_name: "pi-subagents".into(), version: None, config: None },
-            PluginConfig { package_name: "pi-web-access".into(), version: None, config: None },
-            PluginConfig { package_name: "@juicesharp/rpiv-todo".into(), version: None, config: None },
-            PluginConfig { package_name: "@juicesharp/rpiv-ask-user-question".into(), version: None, config: None },
-        ]),
+        plugins: req.plugins.unwrap_or_else(|| {
+            vec![
+                PluginConfig {
+                    package_name: "pi-subagents".into(),
+                    version: None,
+                    config: None,
+                },
+                PluginConfig {
+                    package_name: "pi-web-access".into(),
+                    version: None,
+                    config: None,
+                },
+                PluginConfig {
+                    package_name: "@juicesharp/rpiv-todo".into(),
+                    version: None,
+                    config: None,
+                },
+                PluginConfig {
+                    package_name: "@juicesharp/rpiv-ask-user-question".into(),
+                    version: None,
+                    config: None,
+                },
+            ]
+        }),
         auto_approve_workspace: req.auto_approve_workspace.unwrap_or(true),
         max_tool_calls: req.max_tool_calls.unwrap_or(500),
         extensions: req.extensions.unwrap_or_default(),
@@ -4551,9 +5377,7 @@ async fn create_pidev_session(
     }
 }
 
-async fn list_pidev_sessions(
-    State(state): State<AppState>,
-) -> Json<Vec<PiDevSession>> {
+async fn list_pidev_sessions(State(state): State<AppState>) -> Json<Vec<PiDevSession>> {
     Json(state.pi_dev.list_sessions().await)
 }
 
@@ -4688,7 +5512,11 @@ async fn approve_pidev_action(
     axum::extract::Path(session_id): axum::extract::Path<String>,
     Json(req): Json<ApproveDenyRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    match state.pi_dev.approve_action(&session_id, &req.event_id).await {
+    match state
+        .pi_dev
+        .approve_action(&session_id, &req.event_id)
+        .await
+    {
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((StatusCode::BAD_REQUEST, e)),
     }
@@ -4761,7 +5589,10 @@ async fn unregister_app_capabilities(
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     let removed = state.app_capabilities.unregister(&app_id).await;
-    (StatusCode::OK, Json(serde_json::json!({ "removed": removed })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "removed": removed })),
+    )
 }
 
 /// List all registered app capabilities, grouped by app.
@@ -4815,7 +5646,9 @@ async fn get_system_state(State(state): State<AppState>) -> Json<serde_json::Val
 }
 
 #[derive(Deserialize)]
-struct SetStateRequest { state: String }
+struct SetStateRequest {
+    state: String,
+}
 
 async fn set_system_state(
     State(state): State<AppState>,
@@ -4884,7 +5717,9 @@ async fn update_protection_rule(
     State(state): State<AppState>,
     Json(req): Json<UpdateRuleRequest>,
 ) -> StatusCode {
-    state.guard.update_rule(&req.rule_id, req.enabled, req.threshold);
+    state
+        .guard
+        .update_rule(&req.rule_id, req.enabled, req.threshold);
     StatusCode::OK
 }
 
@@ -4892,13 +5727,18 @@ async fn get_loop_detections(State(state): State<AppState>) -> Json<Vec<LoopDete
     Json(state.guard.get_loop_detections())
 }
 
-async fn get_recovery_actions(State(state): State<AppState>) -> Json<Vec<system_guard::RecoveryAction>> {
+async fn get_recovery_actions(
+    State(state): State<AppState>,
+) -> Json<Vec<system_guard::RecoveryAction>> {
     Json(state.guard.get_recovery_actions())
 }
 
 async fn apply_recovery(State(state): State<AppState>) -> StatusCode {
     if let Some(action) = state.guard.take_recovery_action() {
-        info!("Applied recovery for agent {}: {}", action.agent_id, action.reason);
+        info!(
+            "Applied recovery for agent {}: {}",
+            action.agent_id, action.reason
+        );
         StatusCode::OK
     } else {
         StatusCode::NOT_FOUND
@@ -4908,7 +5748,9 @@ async fn apply_recovery(State(state): State<AppState>) -> StatusCode {
 // ─── Model Router Handlers ─────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct ClassifyRequest { message: String }
+struct ClassifyRequest {
+    message: String,
+}
 
 async fn classify_task_handler(
     State(state): State<AppState>,
@@ -4919,13 +5761,20 @@ async fn classify_task_handler(
 }
 
 #[derive(Deserialize)]
-struct RouteRequest { message: String, force_provider: Option<String> }
+struct RouteRequest {
+    message: String,
+    force_provider: Option<String>,
+}
 
 async fn route_task_handler(
     State(state): State<AppState>,
     Json(req): Json<RouteRequest>,
 ) -> Json<RoutingDecision> {
-    Json(state.router.route(&req.message, req.force_provider.as_deref()))
+    Json(
+        state
+            .router
+            .route(&req.message, req.force_provider.as_deref()),
+    )
 }
 
 async fn get_router_config(State(state): State<AppState>) -> Json<RouterConfig> {
@@ -4961,13 +5810,18 @@ async fn query_memories(
 }
 
 #[derive(Deserialize)]
-struct ContextRequest { query: String, limit: Option<usize> }
+struct ContextRequest {
+    query: String,
+    limit: Option<usize>,
+}
 
 async fn get_memory_context(
     State(state): State<AppState>,
     Json(req): Json<ContextRequest>,
 ) -> Json<serde_json::Value> {
-    let ctx = state.memory_store.build_context(&req.query, req.limit.unwrap_or(5));
+    let ctx = state
+        .memory_store
+        .build_context(&req.query, req.limit.unwrap_or(5));
     Json(serde_json::json!({"context": ctx}))
 }
 
@@ -5002,7 +5856,11 @@ async fn get_scheduled_task(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<ScheduledTask>, StatusCode> {
-    state.scheduler.get_task(&id).map(Json).ok_or(StatusCode::NOT_FOUND)
+    state
+        .scheduler
+        .get_task(&id)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 async fn remove_scheduled_task(
@@ -5014,7 +5872,9 @@ async fn remove_scheduled_task(
 }
 
 #[derive(Deserialize)]
-struct ToggleRequest { enabled: bool }
+struct ToggleRequest {
+    enabled: bool,
+}
 
 async fn toggle_scheduled_task(
     State(state): State<AppState>,
@@ -5026,13 +5886,20 @@ async fn toggle_scheduled_task(
 }
 
 #[derive(Deserialize)]
-struct HistoryQuery { task_id: Option<String>, limit: Option<usize> }
+struct HistoryQuery {
+    task_id: Option<String>,
+    limit: Option<usize>,
+}
 
 async fn get_scheduler_history(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
 ) -> Json<Vec<TaskRun>> {
-    Json(state.scheduler.get_run_history(query.task_id.as_deref(), query.limit.unwrap_or(50)))
+    Json(
+        state
+            .scheduler
+            .get_run_history(query.task_id.as_deref(), query.limit.unwrap_or(50)),
+    )
 }
 
 async fn stream_scheduler_events(
@@ -5056,35 +5923,63 @@ async fn stream_scheduler_events(
 // ─── ORA Features Handlers ─────────────────────────────────────────────────
 
 // Collaboration
-async fn list_collab_plans(State(state): State<AppState>) -> Json<Vec<ora_features::multi_agent::CollaborationPlan>> {
+async fn list_collab_plans(
+    State(state): State<AppState>,
+) -> Json<Vec<ora_features::multi_agent::CollaborationPlan>> {
     Json(state.collaboration.list_plans())
 }
 
-#[derive(Deserialize)] struct CreatePlanRequest { goal: String }
-async fn create_collab_plan(State(state): State<AppState>, Json(req): Json<CreatePlanRequest>) -> Json<ora_features::multi_agent::CollaborationPlan> {
+#[derive(Deserialize)]
+struct CreatePlanRequest {
+    goal: String,
+}
+async fn create_collab_plan(
+    State(state): State<AppState>,
+    Json(req): Json<CreatePlanRequest>,
+) -> Json<ora_features::multi_agent::CollaborationPlan> {
     Json(state.collaboration.create_plan(&req.goal))
 }
 
-async fn get_collab_plan(State(state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<ora_features::multi_agent::CollaborationPlan>, StatusCode> {
-    state.collaboration.get_plan(&id).map(Json).ok_or(StatusCode::NOT_FOUND)
+async fn get_collab_plan(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<ora_features::multi_agent::CollaborationPlan>, StatusCode> {
+    state
+        .collaboration
+        .get_plan(&id)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 // Code Review
-async fn submit_code_review(State(_state): State<AppState>, Json(req): Json<code_review::ReviewRequest>) -> Json<serde_json::Value> {
+async fn submit_code_review(
+    State(_state): State<AppState>,
+    Json(req): Json<code_review::ReviewRequest>,
+) -> Json<serde_json::Value> {
     let prompt = code_review::build_review_prompt(&req);
-    Json(serde_json::json!({"prompt": prompt, "note": "Submit this prompt to an AI provider for review results"}))
+    Json(
+        serde_json::json!({"prompt": prompt, "note": "Submit this prompt to an AI provider for review results"}),
+    )
 }
 
 // Self-Healing
-async fn get_health_checks(State(state): State<AppState>) -> Json<Vec<ora_features::self_healing::HealthCheck>> {
+async fn get_health_checks(
+    State(state): State<AppState>,
+) -> Json<Vec<ora_features::self_healing::HealthCheck>> {
     Json(state.self_healing.get_checks())
 }
 
 async fn run_health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
     // Simulate health checks
-    state.self_healing.update_check("disk", "healthy", Some("Disk: 45% free"));
-    state.self_healing.update_check("memory", "healthy", Some("Memory: 62% used"));
-    state.self_healing.update_check("db", "healthy", Some("DB: connected"));
+    state
+        .self_healing
+        .update_check("disk", "healthy", Some("Disk: 45% free"));
+    state
+        .self_healing
+        .update_check("memory", "healthy", Some("Memory: 62% used"));
+    state
+        .self_healing
+        .update_check("db", "healthy", Some("DB: connected"));
     Json(serde_json::json!({"status": "All checks passed"}))
 }
 
@@ -5098,18 +5993,28 @@ async fn get_cost_summary(State(state): State<AppState>) -> Json<serde_json::Val
     }))
 }
 
-async fn get_cost_records(State(state): State<AppState>) -> Json<Vec<ora_features::cost_intel::CostRecord>> {
+async fn get_cost_records(
+    State(state): State<AppState>,
+) -> Json<Vec<ora_features::cost_intel::CostRecord>> {
     Json(state.cost_tracker.get_records(100))
 }
 
-async fn suggest_cheaper_provider(State(state): State<AppState>, axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>) -> Json<serde_json::Value> {
-    let provider = params.get("provider").map(|s| s.as_str()).unwrap_or("openai");
+async fn suggest_cheaper_provider(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let provider = params
+        .get("provider")
+        .map(|s| s.as_str())
+        .unwrap_or("openai");
     let suggestion = state.cost_tracker.suggest_cheaper(provider);
     Json(serde_json::json!({"suggestion": suggestion}))
 }
 
 // Learning from Mistakes
-async fn get_mistakes(State(state): State<AppState>) -> Json<Vec<ora_features::mistake_learner::Mistake>> {
+async fn get_mistakes(
+    State(state): State<AppState>,
+) -> Json<Vec<ora_features::mistake_learner::Mistake>> {
     Json(state.mistake_learner.get_mistakes())
 }
 
@@ -5117,8 +6022,14 @@ async fn get_avoid_list(State(state): State<AppState>) -> Json<Vec<String>> {
     Json(state.mistake_learner.get_avoid_list())
 }
 
-#[derive(Deserialize)] struct WarningRequest { task: String }
-async fn get_learning_warning(State(state): State<AppState>, Json(req): Json<WarningRequest>) -> Json<serde_json::Value> {
+#[derive(Deserialize)]
+struct WarningRequest {
+    task: String,
+}
+async fn get_learning_warning(
+    State(state): State<AppState>,
+    Json(req): Json<WarningRequest>,
+) -> Json<serde_json::Value> {
     let warning = state.mistake_learner.build_warning(&req.task);
     Json(serde_json::json!({"warning": warning}))
 }
@@ -5140,7 +6051,11 @@ async fn get_company_status(State(state): State<AppState>) -> Json<serde_json::V
 
 async fn toggle_company(State(state): State<AppState>) -> Json<serde_json::Value> {
     let currently = state.company.is_enabled();
-    if currently { state.company.disable(); } else { state.company.enable(); }
+    if currently {
+        state.company.disable();
+    } else {
+        state.company.enable();
+    }
     Json(serde_json::json!({"enabled": state.company.is_enabled()}))
 }
 
@@ -5148,8 +6063,15 @@ async fn get_company_agents(State(state): State<AppState>) -> Json<Vec<CompanyAg
     Json(state.company.get_agents())
 }
 
-#[derive(Deserialize)] struct UpdateAgentRequest { agent_id: String, is_active: bool }
-async fn update_company_agent(State(state): State<AppState>, Json(req): Json<UpdateAgentRequest>) -> StatusCode {
+#[derive(Deserialize)]
+struct UpdateAgentRequest {
+    agent_id: String,
+    is_active: bool,
+}
+async fn update_company_agent(
+    State(state): State<AppState>,
+    Json(req): Json<UpdateAgentRequest>,
+) -> StatusCode {
     state.company.set_agent_active(&req.agent_id, req.is_active);
     StatusCode::OK
 }
@@ -5158,26 +6080,57 @@ async fn get_company_projects(State(state): State<AppState>) -> Json<Vec<Company
     Json(state.company.get_projects())
 }
 
-#[derive(Deserialize)] struct CreateProjectRequest { name: String, description: String }
-async fn create_company_project(State(state): State<AppState>, Json(req): Json<CreateProjectRequest>) -> Json<CompanyProject> {
+#[derive(Deserialize)]
+struct CreateProjectRequest {
+    name: String,
+    description: String,
+}
+async fn create_company_project(
+    State(state): State<AppState>,
+    Json(req): Json<CreateProjectRequest>,
+) -> Json<CompanyProject> {
     Json(state.company.create_project(&req.name, &req.description))
 }
 
-#[derive(Deserialize)] struct AddTaskRequest { title: String, role: String, priority: u8 }
-async fn add_company_task(State(state): State<AppState>, axum::extract::Path(project_id): axum::extract::Path<String>, Json(req): Json<AddTaskRequest>) -> Result<Json<CompanyTask>, StatusCode> {
+#[derive(Deserialize)]
+struct AddTaskRequest {
+    title: String,
+    role: String,
+    priority: u8,
+}
+async fn add_company_task(
+    State(state): State<AppState>,
+    axum::extract::Path(project_id): axum::extract::Path<String>,
+    Json(req): Json<AddTaskRequest>,
+) -> Result<Json<CompanyTask>, StatusCode> {
     let role = match req.role.as_str() {
-        "developer" => CompanyRole::Developer, "qa" => CompanyRole::QATester,
-        "devops" => CompanyRole::DevOps, "data" => CompanyRole::DataAnalyst,
-        "security" => CompanyRole::SecurityOfficer, "pm" => CompanyRole::ProductManager,
-        "cto" => CompanyRole::CTO, "ceo" => CompanyRole::CEO,
-        "writer" => CompanyRole::TechnicalWriter, "ux" => CompanyRole::UXDesigner,
+        "developer" => CompanyRole::Developer,
+        "qa" => CompanyRole::QATester,
+        "devops" => CompanyRole::DevOps,
+        "data" => CompanyRole::DataAnalyst,
+        "security" => CompanyRole::SecurityOfficer,
+        "pm" => CompanyRole::ProductManager,
+        "cto" => CompanyRole::CTO,
+        "ceo" => CompanyRole::CEO,
+        "writer" => CompanyRole::TechnicalWriter,
+        "ux" => CompanyRole::UXDesigner,
         _ => CompanyRole::Developer,
     };
-    state.company.add_task(&project_id, &req.title, role, req.priority).map(Json).ok_or(StatusCode::NOT_FOUND)
+    state
+        .company
+        .add_task(&project_id, &req.title, role, req.priority)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
-#[derive(Deserialize)] struct DistributeRequest { task_description: String }
-async fn distribute_company_task(State(state): State<AppState>, Json(req): Json<DistributeRequest>) -> Json<CompanyTask> {
+#[derive(Deserialize)]
+struct DistributeRequest {
+    task_description: String,
+}
+async fn distribute_company_task(
+    State(state): State<AppState>,
+    Json(req): Json<DistributeRequest>,
+) -> Json<CompanyTask> {
     Json(state.company.distribute_task(&req.task_description))
 }
 
@@ -5185,27 +6138,50 @@ async fn get_briefing_config(State(state): State<AppState>) -> Json<BriefingConf
     Json(state.company.get_briefing_config())
 }
 
-async fn update_briefing_config(State(state): State<AppState>, Json(config): Json<BriefingConfig>) -> StatusCode {
-    state.company.update_briefing_config(config); StatusCode::OK
+async fn update_briefing_config(
+    State(state): State<AppState>,
+    Json(config): Json<BriefingConfig>,
+) -> StatusCode {
+    state.company.update_briefing_config(config);
+    StatusCode::OK
 }
 
-#[derive(Deserialize)] struct StartBriefingRequest { reason: Option<String> }
-async fn start_company_briefing(State(state): State<AppState>, Json(req): Json<StartBriefingRequest>) -> Result<Json<BriefingSession>, StatusCode> {
+#[derive(Deserialize)]
+struct StartBriefingRequest {
+    reason: Option<String>,
+}
+async fn start_company_briefing(
+    State(state): State<AppState>,
+    Json(req): Json<StartBriefingRequest>,
+) -> Result<Json<BriefingSession>, StatusCode> {
     let trigger = if let Some(reason) = req.reason {
         BriefingTrigger::UserCalled { reason }
     } else {
         BriefingTrigger::Scheduled
     };
-    state.company.start_briefing(trigger).map(Json).ok_or(StatusCode::SERVICE_UNAVAILABLE)
+    state
+        .company
+        .start_briefing(trigger)
+        .map(Json)
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)
 }
 
-#[derive(Deserialize)] struct CompleteBriefingRequest {
+#[derive(Deserialize)]
+struct CompleteBriefingRequest {
     discussions: Vec<virtual_company::DiscussionPoint>,
     decisions: Vec<String>,
     action_items: Vec<virtual_company::ActionItem>,
 }
-async fn complete_company_briefing(State(state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>, Json(req): Json<CompleteBriefingRequest>) -> Result<Json<BriefingSession>, StatusCode> {
-    state.company.complete_briefing(&id, req.discussions, req.decisions, req.action_items).map(Json).ok_or(StatusCode::NOT_FOUND)
+async fn complete_company_briefing(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<CompleteBriefingRequest>,
+) -> Result<Json<BriefingSession>, StatusCode> {
+    state
+        .company
+        .complete_briefing(&id, req.discussions, req.decisions, req.action_items)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 async fn get_briefing_history(State(state): State<AppState>) -> Json<Vec<BriefingSession>> {
@@ -5223,7 +6199,10 @@ async fn get_messaging_config(State(state): State<AppState>) -> Json<MessagingCo
     Json(state.messaging.get_config())
 }
 
-async fn update_messaging_config(State(state): State<AppState>, Json(cfg): Json<MessagingConfig>) -> StatusCode {
+async fn update_messaging_config(
+    State(state): State<AppState>,
+    Json(cfg): Json<MessagingConfig>,
+) -> StatusCode {
     state.messaging.update_config(cfg);
     StatusCode::OK
 }
@@ -5245,46 +6224,98 @@ async fn setup_telegram_webhook_handler(State(state): State<AppState>) -> Json<M
     Json(state.messaging.setup_telegram_webhook().await)
 }
 
-async fn telegram_webhook_handler(State(state): State<AppState>, body: String) -> impl IntoResponse {
+async fn telegram_webhook_handler(
+    State(state): State<AppState>,
+    body: String,
+) -> impl IntoResponse {
     if let Ok(update) = serde_json::from_str::<serde_json::Value>(&body) {
         if let Some(msg) = state.messaging.process_telegram_message(update).await {
             // Process through ORA AI
             let response = state.messaging.process_incoming(msg.clone()).await;
-            state.messaging.send_telegram_message(&msg.chat_id, &response).await;
+            state
+                .messaging
+                .send_telegram_message(&msg.chat_id, &response)
+                .await;
         }
     }
     StatusCode::OK
 }
 
-#[derive(Deserialize)] struct TelegramSendRequest { chat_id: String, text: String }
-async fn send_telegram_handler(State(state): State<AppState>, Json(req): Json<TelegramSendRequest>) -> Json<MessageResult> {
-    Json(state.messaging.send_telegram_message(&req.chat_id, &req.text).await)
+#[derive(Deserialize)]
+struct TelegramSendRequest {
+    chat_id: String,
+    text: String,
+}
+async fn send_telegram_handler(
+    State(state): State<AppState>,
+    Json(req): Json<TelegramSendRequest>,
+) -> Json<MessageResult> {
+    Json(
+        state
+            .messaging
+            .send_telegram_message(&req.chat_id, &req.text)
+            .await,
+    )
 }
 
-async fn whatsapp_webhook_handler(State(state): State<AppState>, body: String) -> impl IntoResponse {
+async fn whatsapp_webhook_handler(
+    State(state): State<AppState>,
+    body: String,
+) -> impl IntoResponse {
     if let Some(msg) = state.messaging.process_whatsapp_message(&body).await {
         let response = state.messaging.process_incoming(msg.clone()).await;
-        state.messaging.send_whatsapp_message(&msg.from, &response).await;
+        state
+            .messaging
+            .send_whatsapp_message(&msg.from, &response)
+            .await;
     }
     // Twilio expects TwiML or empty 200
-    (StatusCode::OK, "<?xml version=\"1.0\"?><Response></Response>")
+    (
+        StatusCode::OK,
+        "<?xml version=\"1.0\"?><Response></Response>",
+    )
 }
 
-#[derive(Deserialize)] struct WhatsAppSendRequest { to: String, text: String }
-async fn send_whatsapp_handler(State(state): State<AppState>, Json(req): Json<WhatsAppSendRequest>) -> Json<MessageResult> {
-    Json(state.messaging.send_whatsapp_message(&req.to, &req.text).await)
+#[derive(Deserialize)]
+struct WhatsAppSendRequest {
+    to: String,
+    text: String,
+}
+async fn send_whatsapp_handler(
+    State(state): State<AppState>,
+    Json(req): Json<WhatsAppSendRequest>,
+) -> Json<MessageResult> {
+    Json(
+        state
+            .messaging
+            .send_whatsapp_message(&req.to, &req.text)
+            .await,
+    )
 }
 
-#[derive(Deserialize)] struct BroadcastRequest { text: String }
+#[derive(Deserialize)]
+struct BroadcastRequest {
+    text: String,
+}
 #[axum::debug_handler]
-async fn broadcast_message(State(state): State<AppState>, Json(req): Json<BroadcastRequest>) -> Json<Vec<MessageResult>> {
+async fn broadcast_message(
+    State(state): State<AppState>,
+    Json(req): Json<BroadcastRequest>,
+) -> Json<Vec<MessageResult>> {
     Json(state.messaging.broadcast(&req.text).await)
 }
 
 // ─── DLP Guard & AI Token Handlers ─────────────────────────────────────────
 
-#[derive(Deserialize)] struct ScanRequest { text: String, is_output: Option<bool> }
-async fn scan_for_sensitive_data(State(state): State<AppState>, Json(req): Json<ScanRequest>) -> Json<DlpScanResult> {
+#[derive(Deserialize)]
+struct ScanRequest {
+    text: String,
+    is_output: Option<bool>,
+}
+async fn scan_for_sensitive_data(
+    State(state): State<AppState>,
+    Json(req): Json<ScanRequest>,
+) -> Json<DlpScanResult> {
     if req.is_output.unwrap_or(false) {
         Json(state.dlp.scan_output(&req.text))
     } else {
@@ -5296,20 +6327,36 @@ async fn get_dlp_stats(State(state): State<AppState>) -> Json<dlp_guard::DlpStat
     Json(state.dlp.get_stats())
 }
 
-#[derive(Deserialize)] struct AddPatternRequest { pattern: String, name: String, severity: String }
-async fn add_dlp_pattern(State(state): State<AppState>, Json(req): Json<AddPatternRequest>) -> Result<StatusCode, (StatusCode, String)> {
+#[derive(Deserialize)]
+struct AddPatternRequest {
+    pattern: String,
+    name: String,
+    severity: String,
+}
+async fn add_dlp_pattern(
+    State(state): State<AppState>,
+    Json(req): Json<AddPatternRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
     let severity = match req.severity.as_str() {
         "critical" => dlp_guard::Severity::Critical,
         "warning" => dlp_guard::Severity::Warning,
         _ => dlp_guard::Severity::Info,
     };
-    state.dlp.add_custom_pattern(&req.pattern, &req.name, severity)
+    state
+        .dlp
+        .add_custom_pattern(&req.pattern, &req.name, severity)
         .map(|_| StatusCode::OK)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
 
-#[derive(Deserialize)] struct GenerateTokenRequest { label: String }
-async fn generate_ai_token(State(state): State<AppState>, Json(req): Json<GenerateTokenRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+#[derive(Deserialize)]
+struct GenerateTokenRequest {
+    label: String,
+}
+async fn generate_ai_token(
+    State(state): State<AppState>,
+    Json(req): Json<GenerateTokenRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     match state.ai_token_mgr.generate_token(&req.label) {
         Ok(token) => {
             // Register with DLP immediately
@@ -5323,16 +6370,29 @@ async fn generate_ai_token(State(state): State<AppState>, Json(req): Json<Genera
     }
 }
 
-#[derive(Deserialize)] struct RevokeTokenRequest { token_hash: Option<String>, reason: String }
-async fn revoke_ai_token(State(state): State<AppState>, Json(req): Json<RevokeTokenRequest>) -> StatusCode {
+#[derive(Deserialize)]
+struct RevokeTokenRequest {
+    token_hash: Option<String>,
+    reason: String,
+}
+async fn revoke_ai_token(
+    State(state): State<AppState>,
+    Json(req): Json<RevokeTokenRequest>,
+) -> StatusCode {
     if let Some(hash) = req.token_hash {
         state.ai_token_mgr.revoke_token(&hash, &req.reason);
     }
     StatusCode::OK
 }
 
-#[derive(Deserialize)] struct RevokeAllRequest { reason: String }
-async fn revoke_all_ai_tokens(State(state): State<AppState>, Json(req): Json<RevokeAllRequest>) -> StatusCode {
+#[derive(Deserialize)]
+struct RevokeAllRequest {
+    reason: String,
+}
+async fn revoke_all_ai_tokens(
+    State(state): State<AppState>,
+    Json(req): Json<RevokeAllRequest>,
+) -> StatusCode {
     state.ai_token_mgr.revoke_all(&req.reason);
     StatusCode::OK
 }
@@ -5379,7 +6439,10 @@ async fn main() -> anyhow::Result<()> {
             Some(pool)
         }
         Err(e) => {
-            error!("Database connection failed: {}. Running without database features.", e);
+            error!(
+                "Database connection failed: {}. Running without database features.",
+                e
+            );
             None
         }
     };
@@ -5402,7 +6465,9 @@ async fn main() -> anyhow::Result<()> {
     };
     let stt_provider = providers::create_provider(providers::ProviderType::IoraStt, stt_config);
     if stt_provider.is_available().await {
-        orchestrator.register_provider("iora_stt".to_string(), stt_provider).await;
+        orchestrator
+            .register_provider("iora_stt".to_string(), stt_provider)
+            .await;
         info!("IORA STT (faster-whisper) registered at {}", stt_url);
     } else {
         info!("IORA STT not available at {} – skipping", stt_url);
@@ -5416,7 +6481,9 @@ async fn main() -> anyhow::Result<()> {
     };
     let tts_provider = providers::create_provider(providers::ProviderType::IoraTts, tts_config);
     if tts_provider.is_available().await {
-        orchestrator.register_provider("iora_tts".to_string(), tts_provider).await;
+        orchestrator
+            .register_provider("iora_tts".to_string(), tts_provider)
+            .await;
         info!("IORA TTS (Kokoro) registered at {}", tts_url);
     } else {
         info!("IORA TTS not available at {} – skipping", tts_url);
@@ -5435,7 +6502,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize conversation manager if database is available
     let conversation_manager = if let Some(ref db_pool) = db {
-        let manager = Arc::new(ConversationManager::new(db_pool.clone(), orchestrator.clone()));
+        let manager = Arc::new(ConversationManager::new(
+            db_pool.clone(),
+            orchestrator.clone(),
+        ));
         manager.start().await;
         info!("Conversation manager started successfully");
         Some(manager)
@@ -5447,7 +6517,10 @@ async fn main() -> anyhow::Result<()> {
     // Initialize tool executor with headless Chrome
     let mut tool_executor = ToolExecutor::new();
     if let Err(e) = tool_executor.init_browser() {
-        error!("Failed to initialize headless Chrome: {}. Tool execution will be limited.", e);
+        error!(
+            "Failed to initialize headless Chrome: {}. Tool execution will be limited.",
+            e
+        );
     } else {
         info!("Headless Chrome browser initialized for tool execution");
     }
@@ -5489,10 +6562,8 @@ async fn main() -> anyhow::Result<()> {
             project_root,
             evo_config,
         ));
-        let scheduler = EvolutionScheduler::new(
-            orch.clone(),
-            self_evolution::EvolutionConfig::default(),
-        );
+        let scheduler =
+            EvolutionScheduler::new(orch.clone(), self_evolution::EvolutionConfig::default());
         tokio::spawn(async move {
             scheduler.start().await;
         });
@@ -5506,7 +6577,7 @@ async fn main() -> anyhow::Result<()> {
     // Initialize sandbox manager (works in memory – no DB needed)
     let sandbox_dir = system_config::sandbox_dir();
     let sandbox_manager = Arc::new(SandboxManager::new(std::path::PathBuf::from(&sandbox_dir)));
-    
+
     let agent_task_executor = {
         let executor = Arc::new(AgentTaskExecutor::new(sandbox_manager.clone()));
         info!("Agent task executor initialized");
@@ -5531,8 +6602,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize Subagent Pool for hierarchical task delegation
     let default_provider = shared_provider.read().await.name().to_string();
-    let default_model = system_config::ai_model()
-        .unwrap_or_else(|| "gpt-4o-mini".to_string());
+    let default_model = system_config::ai_model().unwrap_or_else(|| "gpt-4o-mini".to_string());
     let subagent_pool = Arc::new(SubagentPool::new(&default_provider, &default_model));
     info!("Subagent pool initialized");
 
@@ -5581,8 +6651,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Initialize pi.dev controller
-    let sandbox_base = std::env::var("IORA_SANDBOX_BASE")
-        .unwrap_or_else(|_| "/tmp/iora-sandboxes".to_string());
+    let sandbox_base =
+        std::env::var("IORA_SANDBOX_BASE").unwrap_or_else(|_| "/tmp/iora-sandboxes".to_string());
     let pi_dev = Arc::new(PiDevController::new(sandbox_base));
     info!("Pi.dev controller initialized");
 
@@ -5592,7 +6662,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize system event bus
     let event_bus = Arc::new(SystemEventBus::new(4096));
-    event_bus.system_event("startup", "IORA Assist system event bus initialized", "info");
+    event_bus.system_event(
+        "startup",
+        "IORA Assist system event bus initialized",
+        "info",
+    );
     info!("System event bus initialized");
 
     // Initialize system guard
@@ -5677,7 +6751,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/voice/stt/models", get(list_stt_models))
         .route("/api/assist/voice/tts/voices", get(list_tts_voices))
         .route("/api/assist/entities/discover", get(discover_entities))
-        .route("/api/assist/automations/suggestions", get(get_automation_suggestions))
+        .route(
+            "/api/assist/automations/suggestions",
+            get(get_automation_suggestions),
+        )
         .route("/api/assist/context", get(get_smart_home_context))
         .route("/api/assist/video/analyze", post(analyze_video))
         // Proactive Messaging (Phase 6)
@@ -5697,81 +6774,198 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/models", get(list_global_models))
         .route("/api/assist/models/refresh", post(refresh_all_models))
         .route("/api/assist/config/threads", get(list_conversation_threads))
-        .route("/api/assist/config/threads", post(create_conversation_thread))
+        .route(
+            "/api/assist/config/threads",
+            post(create_conversation_thread),
+        )
         .route("/api/assist/config/tasks", get(list_autonomous_tasks))
-        .route("/api/assist/config/notifications", get(list_pending_notifications))
-        .route("/api/assist/config/notifications/send", post(send_notification))
+        .route(
+            "/api/assist/config/notifications",
+            get(list_pending_notifications),
+        )
+        .route(
+            "/api/assist/config/notifications/send",
+            post(send_notification),
+        )
         .route("/api/assist/config/stats", get(get_orchestrator_stats))
         // Tool Execution API (Internet Search & External Tools)
         .route("/api/assist/tools/execute", post(execute_tool))
         .route("/api/assist/tools/search", post(search_internet))
         .route("/api/assist/tools/scrape", post(scrape_webpage))
-        .route("/api/assist/tools/screenshot", post(take_webpage_screenshot))
+        .route(
+            "/api/assist/tools/screenshot",
+            post(take_webpage_screenshot),
+        )
         // Memory API
         .route("/api/assist/memory", get(list_memories))
         .route("/api/assist/memory", post(create_memory))
         .route("/api/assist/memory/search", post(search_memories))
-        .route("/api/assist/memory/:id", axum::routing::delete(delete_memory))
+        .route(
+            "/api/assist/memory/:id",
+            axum::routing::delete(delete_memory),
+        )
         // Active Tasks API – list, create
         .route("/api/assist/tasks/active", get(list_active_tasks))
         .route("/api/assist/tasks/active", post(create_active_task))
         // Active Tasks API – update (pause/resume/edit), delete by id
-        .route("/api/assist/tasks/active/:id", axum::routing::patch(update_active_task))
-        .route("/api/assist/tasks/active/:id", axum::routing::delete(delete_active_task))
+        .route(
+            "/api/assist/tasks/active/:id",
+            axum::routing::patch(update_active_task),
+        )
+        .route(
+            "/api/assist/tasks/active/:id",
+            axum::routing::delete(delete_active_task),
+        )
         // Multi-message conversation task detection
-        .route("/api/assist/tasks/detect", post(detect_tasks_from_conversation))
+        .route(
+            "/api/assist/tasks/detect",
+            post(detect_tasks_from_conversation),
+        )
         // User-confirmed task action (after AI asked for confirmation)
         .route("/api/assist/tasks/confirm", post(confirm_task_action))
         // Instant Tasks API – real-time one-shot tasks
         .route("/api/assist/tasks/instant/:id", get(get_instant_task))
-        .route("/api/assist/tasks/instant/:id/stream", get(stream_instant_task))
+        .route(
+            "/api/assist/tasks/instant/:id/stream",
+            get(stream_instant_task),
+        )
         // Self-Evolution API
         .route("/api/assist/evolution/cycle", post(trigger_evolution_cycle))
-        .route("/api/assist/evolution/proposals", get(list_evolution_proposals))
+        .route(
+            "/api/assist/evolution/proposals",
+            get(list_evolution_proposals),
+        )
         .route("/api/assist/evolution/knowledge", post(store_knowledge))
         .route("/api/assist/evolution/knowledge", get(search_knowledge))
         .route("/api/assist/evolution/status", get(get_evolution_status))
         // Sandbox & Agent Task API
-        .route("/api/assist/workspaces", get(list_workspaces).post(create_workspace))
-        .route("/api/assist/workspaces/:id", get(get_workspace).delete(delete_workspace))
-        .route("/api/assist/workspaces/:id/files", get(list_workspace_files))
-        .route("/api/assist/workspaces/:ws_id/files/*file_path", get(read_workspace_file).put(write_workspace_file))
-        .route("/api/assist/workspaces/:id/git/status", get(workspace_git_status))
-        .route("/api/assist/workspaces/:id/git/commit", post(workspace_git_commit))
-        .route("/api/assist/workspaces/:id/git/push", post(workspace_git_push))
-        .route("/api/assist/workspaces/:id/git/branch", post(workspace_git_create_branch))
-        .route("/api/assist/workspaces/:id/git/pr", post(workspace_create_pr))
+        .route(
+            "/api/assist/workspaces",
+            get(list_workspaces).post(create_workspace),
+        )
+        .route(
+            "/api/assist/workspaces/:id",
+            get(get_workspace).delete(delete_workspace),
+        )
+        .route(
+            "/api/assist/workspaces/:id/files",
+            get(list_workspace_files),
+        )
+        .route(
+            "/api/assist/workspaces/:ws_id/files/*file_path",
+            get(read_workspace_file).put(write_workspace_file),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/status",
+            get(workspace_git_status),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/commit",
+            post(workspace_git_commit),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/push",
+            post(workspace_git_push),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/branch",
+            post(workspace_git_create_branch),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/pr",
+            post(workspace_create_pr),
+        )
         .route("/api/assist/workspaces/:id/git/log", get(workspace_git_log))
-        .route("/api/assist/workspaces/:id/git/branches", get(workspace_git_branches))
-        .route("/api/assist/workspaces/:id/git/checkout", post(workspace_git_checkout))
-        .route("/api/assist/workspaces/:id/git/delete-branch", post(workspace_git_delete_branch))
-        .route("/api/assist/workspaces/:id/git/stash", post(workspace_git_stash))
-        .route("/api/assist/workspaces/:id/git/stash-pop", post(workspace_git_stash_pop))
-        .route("/api/assist/workspaces/:id/git/stash-list", get(workspace_git_stash_list))
-        .route("/api/assist/workspaces/:id/git/reset", post(workspace_git_reset))
-        .route("/api/assist/workspaces/:id/git/revert", post(workspace_git_revert))
-        .route("/api/assist/workspaces/:id/git/merge", post(workspace_git_merge))
-        .route("/api/assist/workspaces/:id/git/rebase", post(workspace_git_rebase))
-        .route("/api/assist/workspaces/:id/git/blame", post(workspace_git_blame))
-        .route("/api/assist/workspaces/:id/git/fetch", post(workspace_git_fetch))
-        .route("/api/assist/workspaces/:id/git/diff-between", post(workspace_git_diff_between))
-        .route("/api/assist/agent/tasks", get(list_agent_tasks).post(create_agent_task))
-        .route("/api/assist/agent/tasks/:id", get(get_agent_task).delete(cancel_agent_task))
-        .route("/api/assist/agent/tasks/events", get(stream_agent_task_events))
+        .route(
+            "/api/assist/workspaces/:id/git/branches",
+            get(workspace_git_branches),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/checkout",
+            post(workspace_git_checkout),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/delete-branch",
+            post(workspace_git_delete_branch),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/stash",
+            post(workspace_git_stash),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/stash-pop",
+            post(workspace_git_stash_pop),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/stash-list",
+            get(workspace_git_stash_list),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/reset",
+            post(workspace_git_reset),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/revert",
+            post(workspace_git_revert),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/merge",
+            post(workspace_git_merge),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/rebase",
+            post(workspace_git_rebase),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/blame",
+            post(workspace_git_blame),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/fetch",
+            post(workspace_git_fetch),
+        )
+        .route(
+            "/api/assist/workspaces/:id/git/diff-between",
+            post(workspace_git_diff_between),
+        )
+        .route(
+            "/api/assist/agent/tasks",
+            get(list_agent_tasks).post(create_agent_task),
+        )
+        .route(
+            "/api/assist/agent/tasks/:id",
+            get(get_agent_task).delete(cancel_agent_task),
+        )
+        .route(
+            "/api/assist/agent/tasks/events",
+            get(stream_agent_task_events),
+        )
         .route("/api/assist/agent/stats", get(agent_task_stats))
         // OpenAI-Compatible API (Proxy für andere Dienste)
         .route("/v1/chat/completions", post(openai_chat_completions))
         .route("/v1/models", get(list_available_models))
         // ─── Cost Manager & Economy Mode API ──────────────────────────
         .route("/api/assist/cost/summary", get(cost_summary))
-        .route("/api/assist/cost/config", get(cost_config_get).put(cost_config_update))
+        .route(
+            "/api/assist/cost/config",
+            get(cost_config_get).put(cost_config_update),
+        )
         .route("/api/assist/cost/records/clear", post(cost_records_clear))
         .route("/api/assist/cost/cache/clear", post(cost_cache_clear))
-        .route("/api/assist/cost/mode", get(cost_mode_get).put(cost_mode_set))
+        .route(
+            "/api/assist/cost/mode",
+            get(cost_mode_get).put(cost_mode_set),
+        )
         // ─── LSP API ─────────────────────────────────────────────────
         .route("/api/assist/lsp/servers", get(lsp_available_servers))
-        .route("/api/assist/lsp/workspaces/:id/start", post(lsp_start_for_workspace))
-        .route("/api/assist/lsp/workspaces/:id/diagnostics", get(lsp_workspace_diagnostics))
+        .route(
+            "/api/assist/lsp/workspaces/:id/start",
+            post(lsp_start_for_workspace),
+        )
+        .route(
+            "/api/assist/lsp/workspaces/:id/diagnostics",
+            get(lsp_workspace_diagnostics),
+        )
         .route("/api/assist/lsp/diagnostics", get(lsp_all_diagnostics))
         .route("/api/assist/lsp/shutdown", post(lsp_shutdown))
         // ─── ACP API ─────────────────────────────────────────────────
@@ -5785,74 +6979,222 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/subagents/list", get(subagent_list))
         .route("/api/assist/subagents/stats", get(subagent_stats))
         .route("/api/assist/subagents/delegate", post(subagent_delegate))
-        .route("/api/assist/subagents/delegate/auto", post(subagent_delegate_auto))
-        .route("/api/assist/subagents/:id", get(subagent_get).delete(subagent_terminate))
-        .route("/api/assist/subagents/:id/events", get(subagent_event_stream))
-        .route("/api/assist/subagents/terminate-all", post(subagent_terminate_all))
-        .route("/api/assist/subagents/events", get(subagent_pool_event_stream))
+        .route(
+            "/api/assist/subagents/delegate/auto",
+            post(subagent_delegate_auto),
+        )
+        .route(
+            "/api/assist/subagents/:id",
+            get(subagent_get).delete(subagent_terminate),
+        )
+        .route(
+            "/api/assist/subagents/:id/events",
+            get(subagent_event_stream),
+        )
+        .route(
+            "/api/assist/subagents/terminate-all",
+            post(subagent_terminate_all),
+        )
+        .route(
+            "/api/assist/subagents/events",
+            get(subagent_pool_event_stream),
+        )
         // ─── GitHub Integration API ───────────────────────────────────
-        .route("/api/assist/github/auth", get(github_auth_status).post(github_auth_set).delete(github_auth_delete))
+        .route(
+            "/api/assist/github/auth",
+            get(github_auth_status)
+                .post(github_auth_set)
+                .delete(github_auth_delete),
+        )
         .route("/api/assist/github/repos", get(github_list_repos))
-        .route("/api/assist/github/repos/suggest", get(github_suggest_targets))
+        .route(
+            "/api/assist/github/repos/suggest",
+            get(github_suggest_targets),
+        )
         .route("/api/assist/github/repos/search", get(github_search_repos))
-        .route("/api/assist/github/repos/:owner/:repo", get(github_get_repo))
-        .route("/api/assist/github/repos/:owner/:repo/branches", get(github_list_branches))
-        .route("/api/assist/github/repos/:owner/:repo/branches/create", post(github_create_branch))
-        .route("/api/assist/github/repos/:owner/:repo/branches/:branch", get(github_get_branch).delete(github_delete_branch))
-        .route("/api/assist/github/repos/:owner/:repo/issues", get(github_list_issues).post(github_create_issue))
-        .route("/api/assist/github/repos/:owner/:repo/issues/:number", get(github_get_issue).patch(github_update_issue))
-        .route("/api/assist/github/repos/:owner/:repo/issues/:number/close", post(github_close_issue))
-        .route("/api/assist/github/repos/:owner/:repo/issues/:number/comment", post(github_add_comment))
-        .route("/api/assist/github/repos/:owner/:repo/pulls", get(github_list_prs).post(github_create_pr))
-        .route("/api/assist/github/repos/:owner/:repo/pulls/:number", get(github_get_pr))
-        .route("/api/assist/github/repos/:owner/:repo/pulls/:number/merge", post(github_merge_pr))
-        .route("/api/assist/github/repos/:owner/:repo/pulls/:number/diff", get(github_get_pr_diff))
-        .route("/api/assist/github/repos/:owner/:repo/contents/*path", get(github_get_contents).put(github_write_file).delete(github_delete_file))
-        .route("/api/assist/github/repos/:owner/:repo/commits", get(github_list_commits))
-        .route("/api/assist/github/repos/:owner/:repo/commits/:sha", get(github_get_commit))
-        .route("/api/assist/github/repos/:owner/:repo/compare", get(github_compare))
-        .route("/api/assist/github/repos/:owner/:repo/workflows", get(github_list_workflows))
-        .route("/api/assist/github/repos/:owner/:repo/workflows/trigger", post(github_trigger_workflow))
-        .route("/api/assist/github/repos/:owner/:repo/workflows/runs", get(github_list_workflow_runs))
-        .route("/api/assist/github/repos/:owner/:repo/releases", get(github_list_releases).post(github_create_release))
-        .route("/api/assist/github/repos/:owner/:repo/releases/latest", get(github_get_latest_release))
-        .route("/api/assist/github/repos/:owner/:repo/fork", post(github_fork_repo))
-        .route("/api/assist/github/actions", get(github_list_actions).post(github_execute_action))
+        .route(
+            "/api/assist/github/repos/:owner/:repo",
+            get(github_get_repo),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/branches",
+            get(github_list_branches),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/branches/create",
+            post(github_create_branch),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/branches/:branch",
+            get(github_get_branch).delete(github_delete_branch),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/issues",
+            get(github_list_issues).post(github_create_issue),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/issues/:number",
+            get(github_get_issue).patch(github_update_issue),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/issues/:number/close",
+            post(github_close_issue),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/issues/:number/comment",
+            post(github_add_comment),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/pulls",
+            get(github_list_prs).post(github_create_pr),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/pulls/:number",
+            get(github_get_pr),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/pulls/:number/merge",
+            post(github_merge_pr),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/pulls/:number/diff",
+            get(github_get_pr_diff),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/contents/*path",
+            get(github_get_contents)
+                .put(github_write_file)
+                .delete(github_delete_file),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/commits",
+            get(github_list_commits),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/commits/:sha",
+            get(github_get_commit),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/compare",
+            get(github_compare),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/workflows",
+            get(github_list_workflows),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/workflows/trigger",
+            post(github_trigger_workflow),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/workflows/runs",
+            get(github_list_workflow_runs),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/releases",
+            get(github_list_releases).post(github_create_release),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/releases/latest",
+            get(github_get_latest_release),
+        )
+        .route(
+            "/api/assist/github/repos/:owner/:repo/fork",
+            post(github_fork_repo),
+        )
+        .route(
+            "/api/assist/github/actions",
+            get(github_list_actions).post(github_execute_action),
+        )
         .route("/api/assist/github/actions/:id", get(github_get_action))
         .route("/api/assist/github/ratelimit", get(github_rate_limit))
         // ─── Pi.dev Docker Sandbox & Plugin Management ───
-        .route("/api/assist/pidev/sessions", get(list_pidev_sessions).post(create_pidev_session))
-        .route("/api/assist/pidev/sessions/:id", get(get_pidev_session).delete(stop_pidev_session))
+        .route(
+            "/api/assist/pidev/sessions",
+            get(list_pidev_sessions).post(create_pidev_session),
+        )
+        .route(
+            "/api/assist/pidev/sessions/:id",
+            get(get_pidev_session).delete(stop_pidev_session),
+        )
         .route("/api/assist/pidev/sessions/:id/run", post(run_pidev_task))
-        .route("/api/assist/pidev/sessions/:id/bridge", get(get_pidev_bridge))
-        .route("/api/assist/pidev/sessions/:id/control", post(control_pidev_session))
-        .route("/api/assist/pidev/sessions/:id/events", get(stream_pidev_events))
-        .route("/api/assist/pidev/sessions/:id/approve", post(approve_pidev_action))
-        .route("/api/assist/pidev/sessions/:id/deny", post(deny_pidev_action))
-        .route("/api/assist/pidev/sessions/:id/security", get(get_pidev_security_events))
+        .route(
+            "/api/assist/pidev/sessions/:id/bridge",
+            get(get_pidev_bridge),
+        )
+        .route(
+            "/api/assist/pidev/sessions/:id/control",
+            post(control_pidev_session),
+        )
+        .route(
+            "/api/assist/pidev/sessions/:id/events",
+            get(stream_pidev_events),
+        )
+        .route(
+            "/api/assist/pidev/sessions/:id/approve",
+            post(approve_pidev_action),
+        )
+        .route(
+            "/api/assist/pidev/sessions/:id/deny",
+            post(deny_pidev_action),
+        )
+        .route(
+            "/api/assist/pidev/sessions/:id/security",
+            get(get_pidev_security_events),
+        )
         .route("/api/assist/pidev/plugins", get(list_pidev_plugins))
-        .route("/api/assist/pidev/plugins/install", post(install_pidev_plugin))
+        .route(
+            "/api/assist/pidev/plugins/install",
+            post(install_pidev_plugin),
+        )
         // ─── App Capability Registry (app-provided assist tools & services) ───
-        .route("/api/assist/apps/:app_id/capabilities", post(register_app_capabilities).delete(unregister_app_capabilities))
+        .route(
+            "/api/assist/apps/:app_id/capabilities",
+            post(register_app_capabilities).delete(unregister_app_capabilities),
+        )
         .route("/api/assist/apps/capabilities", get(list_app_capabilities))
         .route("/api/assist/tools", get(list_app_tools))
         // ─── System Event Stream (admin live log) ───
         .route("/api/assist/system/events", get(stream_system_events))
         // ─── System Guard – Protection & Control ───
-        .route("/api/assist/system/state", get(get_system_state).post(set_system_state))
+        .route(
+            "/api/assist/system/state",
+            get(get_system_state).post(set_system_state),
+        )
         .route("/api/assist/system/pause", post(pause_system_handler))
         .route("/api/assist/system/resume", post(resume_system_handler))
-        .route("/api/assist/system/emergency-stop", post(emergency_stop_handler))
-        .route("/api/assist/system/agents/:id/pause", post(pause_agent_handler))
-        .route("/api/assist/system/agents/:id/resume", post(resume_agent_handler))
-        .route("/api/assist/system/agents/:id/stop", post(stop_agent_handler))
-        .route("/api/assist/system/rules", get(get_protection_rules).put(update_protection_rule))
+        .route(
+            "/api/assist/system/emergency-stop",
+            post(emergency_stop_handler),
+        )
+        .route(
+            "/api/assist/system/agents/:id/pause",
+            post(pause_agent_handler),
+        )
+        .route(
+            "/api/assist/system/agents/:id/resume",
+            post(resume_agent_handler),
+        )
+        .route(
+            "/api/assist/system/agents/:id/stop",
+            post(stop_agent_handler),
+        )
+        .route(
+            "/api/assist/system/rules",
+            get(get_protection_rules).put(update_protection_rule),
+        )
         .route("/api/assist/system/loops", get(get_loop_detections))
-        .route("/api/assist/system/recovery", get(get_recovery_actions).post(apply_recovery))
+        .route(
+            "/api/assist/system/recovery",
+            get(get_recovery_actions).post(apply_recovery),
+        )
         // ─── Model Router ───
         .route("/api/assist/router/classify", post(classify_task_handler))
         .route("/api/assist/router/route", post(route_task_handler))
-        .route("/api/assist/router/config", get(get_router_config).put(update_router_config))
+        .route(
+            "/api/assist/router/config",
+            get(get_router_config).put(update_router_config),
+        )
         .route("/api/assist/router/usage", get(get_router_usage))
         // ─── Memory System ───
         .route("/api/assist/memory/all", get(get_all_memories))
@@ -5860,13 +7202,25 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/memory/context", post(get_memory_context))
         .route("/api/assist/memory/clear", post(clear_memories))
         // ─── Autonomous Scheduler ───
-        .route("/api/assist/scheduler/tasks", get(list_scheduled_tasks).post(add_scheduled_task))
-        .route("/api/assist/scheduler/tasks/:id", get(get_scheduled_task).delete(remove_scheduled_task))
-        .route("/api/assist/scheduler/tasks/:id/toggle", post(toggle_scheduled_task))
+        .route(
+            "/api/assist/scheduler/tasks",
+            get(list_scheduled_tasks).post(add_scheduled_task),
+        )
+        .route(
+            "/api/assist/scheduler/tasks/:id",
+            get(get_scheduled_task).delete(remove_scheduled_task),
+        )
+        .route(
+            "/api/assist/scheduler/tasks/:id/toggle",
+            post(toggle_scheduled_task),
+        )
         .route("/api/assist/scheduler/history", get(get_scheduler_history))
         .route("/api/assist/scheduler/events", get(stream_scheduler_events))
         // ─── ORA Features ───
-        .route("/api/assist/collaboration/plans", get(list_collab_plans).post(create_collab_plan))
+        .route(
+            "/api/assist/collaboration/plans",
+            get(list_collab_plans).post(create_collab_plan),
+        )
         .route("/api/assist/collaboration/plans/:id", get(get_collab_plan))
         .route("/api/assist/review", post(submit_code_review))
         .route("/api/assist/health", get(get_health_checks))
@@ -5877,24 +7231,69 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/learning/avoid-list", get(get_avoid_list))
         .route("/api/assist/learning/warning", post(get_learning_warning))
         // ─── Virtual Company & Briefing ───
-        .route("/api/assist/company/status", get(get_company_status).post(toggle_company))
-        .route("/api/assist/company/agents", get(get_company_agents).put(update_company_agent))
-        .route("/api/assist/company/projects", get(get_company_projects).post(create_company_project))
-        .route("/api/assist/company/projects/:id/tasks", post(add_company_task))
-        .route("/api/assist/company/distribute", post(distribute_company_task))
-        .route("/api/assist/company/briefing/config", get(get_briefing_config).put(update_briefing_config))
-        .route("/api/assist/company/briefing/start", post(start_company_briefing))
-        .route("/api/assist/company/briefing/:id/complete", post(complete_company_briefing))
-        .route("/api/assist/company/briefing/history", get(get_briefing_history))
+        .route(
+            "/api/assist/company/status",
+            get(get_company_status).post(toggle_company),
+        )
+        .route(
+            "/api/assist/company/agents",
+            get(get_company_agents).put(update_company_agent),
+        )
+        .route(
+            "/api/assist/company/projects",
+            get(get_company_projects).post(create_company_project),
+        )
+        .route(
+            "/api/assist/company/projects/:id/tasks",
+            post(add_company_task),
+        )
+        .route(
+            "/api/assist/company/distribute",
+            post(distribute_company_task),
+        )
+        .route(
+            "/api/assist/company/briefing/config",
+            get(get_briefing_config).put(update_briefing_config),
+        )
+        .route(
+            "/api/assist/company/briefing/start",
+            post(start_company_briefing),
+        )
+        .route(
+            "/api/assist/company/briefing/:id/complete",
+            post(complete_company_briefing),
+        )
+        .route(
+            "/api/assist/company/briefing/history",
+            get(get_briefing_history),
+        )
         .route("/api/assist/company/briefing/next", get(get_next_briefing))
         // ─── Messaging (Email, Telegram, WhatsApp) ───
-        .route("/api/assist/messaging/config", get(get_messaging_config).put(update_messaging_config))
+        .route(
+            "/api/assist/messaging/config",
+            get(get_messaging_config).put(update_messaging_config),
+        )
         .route("/api/assist/messaging/email/test", post(send_test_email))
-        .route("/api/assist/messaging/telegram/setup", post(setup_telegram_webhook_handler))
-        .route("/api/assist/messaging/telegram/webhook", post(telegram_webhook_handler))
-        .route("/api/assist/messaging/telegram/send", post(send_telegram_handler))
-        .route("/api/assist/messaging/whatsapp/webhook", post(whatsapp_webhook_handler))
-        .route("/api/assist/messaging/whatsapp/send", post(send_whatsapp_handler))
+        .route(
+            "/api/assist/messaging/telegram/setup",
+            post(setup_telegram_webhook_handler),
+        )
+        .route(
+            "/api/assist/messaging/telegram/webhook",
+            post(telegram_webhook_handler),
+        )
+        .route(
+            "/api/assist/messaging/telegram/send",
+            post(send_telegram_handler),
+        )
+        .route(
+            "/api/assist/messaging/whatsapp/webhook",
+            post(whatsapp_webhook_handler),
+        )
+        .route(
+            "/api/assist/messaging/whatsapp/send",
+            post(send_whatsapp_handler),
+        )
         .route("/api/assist/messaging/broadcast", post(broadcast_message))
         // ─── DLP Guard & AI Token ───
         .route("/api/assist/dlp/scan", post(scan_for_sensitive_data))
@@ -5911,11 +7310,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     info!("ORA AI (iora-assist) listening on {}", addr);
-    let _hb = iora_shared::heartbeat::spawn_default(
-        "iora-assist",
-        addr.port(),
-        "ORA AI assistant",
-    );
+    let _hb = iora_shared::heartbeat::spawn_default("iora-assist", addr.port(), "ORA AI assistant");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 

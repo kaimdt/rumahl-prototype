@@ -71,7 +71,11 @@ impl BackupScheduler {
         let now = Utc::now();
         let last_run = *self.last_run.read().await;
         let mut should_run = false;
-        for event in schedule.upcoming(Utc).take(0).chain(schedule.after(&(now - chrono::Duration::minutes(2))).take(1)) {
+        for event in schedule.upcoming(Utc).take(0).chain(
+            schedule
+                .after(&(now - chrono::Duration::minutes(2)))
+                .take(1),
+        ) {
             if event <= now && Some(event) > last_run {
                 should_run = true;
                 break;
@@ -91,8 +95,8 @@ impl BackupScheduler {
         };
         let engine = self.engine.clone();
         let name = format!("scheduled-{}", now.format("%Y%m%d-%H%M%S"));
-        let res = tokio::task::spawn_blocking(move || engine.create_backup(&name, &options))
-            .await?;
+        let res =
+            tokio::task::spawn_blocking(move || engine.create_backup(&name, &options)).await?;
         match res {
             Ok(b) => {
                 info!("scheduled backup created: {}", b.name);

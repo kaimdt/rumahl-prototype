@@ -15,12 +15,12 @@ pub struct AuthState {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,       // user ID
+    pub sub: String, // user ID
     pub username: String,
     pub role: String,
     pub is_admin: bool,
-    pub exp: usize,        // expiration time
-    pub iat: usize,        // issued at
+    pub exp: usize, // expiration time
+    pub iat: usize, // issued at
 }
 
 /// Extract and validate JWT token from Authorization header
@@ -44,7 +44,7 @@ pub async fn auth_middleware(
     // Validate JWT
     let mut validation = Validation::default();
     validation.validate_exp = true;
-    
+
     let token_data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
@@ -57,7 +57,10 @@ pub async fn auth_middleware(
 
     // Check admin permissions
     if !token_data.claims.is_admin {
-        tracing::warn!("Non-admin user attempted to access control center: {}", token_data.claims.username);
+        tracing::warn!(
+            "Non-admin user attempted to access control center: {}",
+            token_data.claims.username
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -89,7 +92,7 @@ pub async fn optional_auth_middleware(
             }
         }
     }
-    
+
     next.run(request).await
 }
 

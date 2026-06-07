@@ -1,0 +1,53 @@
+name: Bot Task
+description: Aufgabe fur den Hermes GitHub Bot. Der Bot erstellt automatisch einen Branch, arbeitet die Tasks ab und erstellt einen Pull Request.
+title: "[Bot] "
+labels: ["bot"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Beschreibe was der Bot machen soll. Der Bot:
+        1. Erstellt einen Feature-Branch
+        2. Arbeitet die Tasks der Reihe nach ab
+        3. Fuhrt bei jedem Schritt Tests aus
+        4. Erstellt einen Pull Request mit Checkliste
+        5. Markiert den PR als ready wenn alles erledigt ist
+        
+        **Wichtig:** Immer `@kaimdt-agent` im Text erwahnen damit der Bot startet.
+        
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung
+      description: Was soll gemacht werden? Kurze Zusammenfassung.
+      placeholder: "Fuge eine neue API-Route hinzu die..."
+    validations:
+      required: true
+      
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Konkrete Arbeitsschritte als Checkliste. Der Bot hackt diese automatisch ab.
+      value: |
+        ### Tasks
+        - [ ] Task 1: Beschreibung
+        - [ ] Task 2: Beschreibung
+        - [ ] Task 3: Beschreibung
+      render: markdown
+    validations:
+      required: true
+      
+  - type: textarea
+    id: context
+    attributes:
+      label: Kontext
+      description: Zusatzliche Infos, Links, Dateien die der Bot kennen sollte.
+      placeholder: "Relevante Dateien: src/handler.rs, frontend/src/App.tsx..."
+      
+  - type: input
+    id: branch
+    attributes:
+      label: Branch-Name (optional)
+      description: Wenn leer, generiert der Bot feat/issue-{nr}-{slug}
+      placeholder: "feat/new-api-route"

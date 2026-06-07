@@ -117,13 +117,15 @@ impl MigrationTracker {
         .fetch_all(&self.pool)
         .await?
         .into_iter()
-        .map(|(service, migration, checksum, applied_at, execution_time_ms)| MigrationRecord {
-            service,
-            migration,
-            checksum,
-            applied_at,
-            execution_time_ms,
-        })
+        .map(
+            |(service, migration, checksum, applied_at, execution_time_ms)| MigrationRecord {
+                service,
+                migration,
+                checksum,
+                applied_at,
+                execution_time_ms,
+            },
+        )
         .collect();
 
         Ok(records)
@@ -140,26 +142,26 @@ impl MigrationTracker {
         .fetch_all(&self.pool)
         .await?
         .into_iter()
-        .map(|(service, migration, checksum, applied_at, execution_time_ms)| MigrationRecord {
-            service,
-            migration,
-            checksum,
-            applied_at,
-            execution_time_ms,
-        })
+        .map(
+            |(service, migration, checksum, applied_at, execution_time_ms)| MigrationRecord {
+                service,
+                migration,
+                checksum,
+                applied_at,
+                execution_time_ms,
+            },
+        )
         .collect();
 
         Ok(records)
     }
 
     pub async fn remove_migration(&self, service: &str, migration: &str) -> Result<()> {
-        sqlx::query(
-            "DELETE FROM _iora_migrations WHERE service = $1 AND migration = $2",
-        )
-        .bind(service)
-        .bind(migration)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM _iora_migrations WHERE service = $1 AND migration = $2")
+            .bind(service)
+            .bind(migration)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -177,7 +179,12 @@ impl MigrationTracker {
         Ok(sql)
     }
 
-    pub async fn validate_checksum(&self, service: &str, migration: &str, expected: &str) -> Result<bool> {
+    pub async fn validate_checksum(
+        &self,
+        service: &str,
+        migration: &str,
+        expected: &str,
+    ) -> Result<bool> {
         let stored: Option<String> = sqlx::query_scalar(
             "SELECT checksum FROM _iora_migrations WHERE service = $1 AND migration = $2",
         )
@@ -189,7 +196,12 @@ impl MigrationTracker {
         Ok(stored.as_deref() == Some(expected))
     }
 
-    pub async fn update_checksum(&self, service: &str, migration: &str, checksum: &str) -> Result<()> {
+    pub async fn update_checksum(
+        &self,
+        service: &str,
+        migration: &str,
+        checksum: &str,
+    ) -> Result<()> {
         sqlx::query(
             "UPDATE _iora_migrations SET checksum = $3 WHERE service = $1 AND migration = $2",
         )

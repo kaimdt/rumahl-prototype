@@ -70,10 +70,7 @@ pub enum BridgeEvent {
 #[derive(Debug, Clone)]
 pub enum ConnEvent {
     /// Bridge is reachable and responding. Carries status info.
-    Online {
-        build: String,
-        hostname: String,
-    },
+    Online { build: String, hostname: String },
     /// Bridge connection was lost.
     Offline,
     /// Persistent SSH master session is established.
@@ -108,11 +105,7 @@ impl BridgeConnection {
     /// `host` is the VM host (e.g. "127.0.0.1").
     /// `port` is the bridge port (default 8101).
     /// `tx` is the channel to emit events to.
-    pub fn start(
-        host: String,
-        port: u16,
-        tx: mpsc::UnboundedSender<ConnEvent>,
-    ) -> Self {
+    pub fn start(host: String, port: u16, tx: mpsc::UnboundedSender<ConnEvent>) -> Self {
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
         tokio::spawn(async move {
@@ -146,7 +139,11 @@ pub async fn health_check(host: &str, port: u16) -> Result<()> {
     let client = HttpClient::builder()
         .timeout(Duration::from_secs(3))
         .build()?;
-    let resp = client.get(&url).send().await.context("health check request")?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .context("health check request")?;
     if resp.status().is_success() {
         Ok(())
     } else {
@@ -186,10 +183,9 @@ async fn connection_loop(
 
     loop {
         // Check if we should stop
-        if (*cancel.borrow() || cancel.has_changed().unwrap_or(false))
-            && *cancel.borrow() {
-                return;
-            }
+        if (*cancel.borrow() || cancel.has_changed().unwrap_or(false)) && *cancel.borrow() {
+            return;
+        }
 
         // Attempt to connect to the SSE stream
         match connect_sse_stream(&url).await {
@@ -283,9 +279,7 @@ async fn connection_loop(
 ///
 /// Uses a long-lived connection — the bridge sends heartbeats every 5 seconds.
 /// Parses SSE text/event-stream lines into structured BridgeEvent values.
-async fn connect_sse_stream(
-    url: &str,
-) -> Result<tokio::sync::mpsc::Receiver<BridgeEvent>> {
+async fn connect_sse_stream(url: &str) -> Result<tokio::sync::mpsc::Receiver<BridgeEvent>> {
     use tokio_stream::StreamExt;
 
     let client = HttpClient::builder()
@@ -293,11 +287,7 @@ async fn connect_sse_stream(
         .timeout(Duration::from_secs(10))
         .build()?;
 
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .context("SSE connect")?;
+    let resp = client.get(url).send().await.context("SSE connect")?;
 
     if !resp.status().is_success() {
         anyhow::bail!("SSE stream returned {}", resp.status());
@@ -413,20 +403,31 @@ impl Drop for SshSession {
 /// Build SSH arguments for the master connection.
 fn ssh_master_args(host: &str, port: u16, ssh_key: &std::path::Path) -> Vec<String> {
     let mut args = vec![
-        "-M".into(),          // master mode
-        "-N".into(),          // no remote command
-        "-o".into(), "StrictHostKeyChecking=no".into(),
-        "-o".into(), "UserKnownHostsFile=/dev/null".into(),
-        "-o".into(), "IdentitiesOnly=yes".into(),
-        "-o".into(), "BatchMode=yes".into(),
-        "-o".into(), "ConnectTimeout=10".into(),
-        "-o".into(), "ServerAliveInterval=30".into(),
-        "-o".into(), "ServerAliveCountMax=10".into(),
-        "-o".into(), "TCPKeepAlive=yes".into(),
-        "-o".into(), "AddressFamily=inet".into(),
+        "-M".into(), // master mode
+        "-N".into(), // no remote command
+        "-o".into(),
+        "StrictHostKeyChecking=no".into(),
+        "-o".into(),
+        "UserKnownHostsFile=/dev/null".into(),
+        "-o".into(),
+        "IdentitiesOnly=yes".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        "ConnectTimeout=10".into(),
+        "-o".into(),
+        "ServerAliveInterval=30".into(),
+        "-o".into(),
+        "ServerAliveCountMax=10".into(),
+        "-o".into(),
+        "TCPKeepAlive=yes".into(),
+        "-o".into(),
+        "AddressFamily=inet".into(),
         // Keep master alive even after all client sessions close.
-        "-o".into(), "ControlPersist=yes".into(),
-        "-o".into(), "LogLevel=ERROR".into(),
+        "-o".into(),
+        "ControlPersist=yes".into(),
+        "-o".into(),
+        "LogLevel=ERROR".into(),
     ];
 
     // ControlPath for multiplexing (Unix only; Windows uses named pipes implicitly).
@@ -493,8 +494,7 @@ async fn ssh_master_loop(
         {
             command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        match command.spawn()
-        {
+        match command.spawn() {
             Ok(mut child) => {
                 // SSH master is running! Reset backoff, emit online.
                 backoff_secs = 1;
@@ -517,7 +517,11 @@ async fn ssh_master_loop(
                 let _ = tx.send(ConnEvent::SshOffline);
                 let code = status
                     .as_ref()
-                    .map(|s| s.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into()))
+                    .map(|s| {
+                        s.code()
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| "signal".into())
+                    })
                     .unwrap_or_else(|e| e.to_string());
                 let _ = tx.send(ConnEvent::Error(format!(
                     "SSH master exited (code: {code}), reconnecting in {backoff_secs}s..."

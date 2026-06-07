@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
+use uuid::Uuid;
 
 /// IORA Developer App
 ///
@@ -43,7 +43,11 @@ fn developer_app_token() -> &'static str {
             let token: String = (0..48)
                 .map(|_| {
                     let n: u8 = rand::random::<u8>() % 36;
-                    if n < 10 { (b'0' + n) as char } else { (b'a' + n - 10) as char }
+                    if n < 10 {
+                        (b'0' + n) as char
+                    } else {
+                        (b'a' + n - 10) as char
+                    }
                 })
                 .collect();
             warn!(
@@ -156,7 +160,10 @@ async fn check_developer_mode(
                         }
                     }
                 }
-                warn!("API key authentication rejected for key prefix {}", &key_str.chars().take(8).collect::<String>());
+                warn!(
+                    "API key authentication rejected for key prefix {}",
+                    &key_str.chars().take(8).collect::<String>()
+                );
             }
         }
     }
@@ -262,11 +269,7 @@ async fn detect_os_dev_mode() -> serde_json::Value {
         Ok(c) => c,
         Err(_) => return serde_json::json!({ "enabled": true, "bridge": "unavailable" }),
     };
-    match client
-        .get("http://127.0.0.1:8101/dev/status")
-        .send()
-        .await
-    {
+    match client.get("http://127.0.0.1:8101/dev/status").send().await {
         Ok(r) if r.status().is_success() => {
             let body: serde_json::Value = r.json().await.unwrap_or_default();
             serde_json::json!({
@@ -320,7 +323,7 @@ async fn public_deployment_info(
         }
         None => HttpResponse::NotFound().json(serde_json::json!({
             "error": "No deployment info found"
-        }))
+        })),
     }
 }
 
@@ -338,10 +341,7 @@ async fn public_deployment_info(
     )
 )]
 #[get("/api/public/app-metrics/{app_id}")]
-async fn public_app_metrics(
-    data: web::Data<AppState>,
-    path: web::Path<String>,
-) -> impl Responder {
+async fn public_app_metrics(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     let _app_id = path.into_inner();
 
     // Check if Developer Mode is enabled
@@ -357,17 +357,15 @@ async fn public_app_metrics(
     let metrics_url = format!("{}/api/developer/metrics", data.supervisor_url);
 
     match client.get(&metrics_url).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<serde_json::Value>().await {
-                Ok(metrics) => HttpResponse::Ok().json(metrics),
-                Err(_) => HttpResponse::InternalServerError().json(serde_json::json!({
-                    "error": "Failed to parse metrics"
-                }))
-            }
-        }
+        Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
+            Ok(metrics) => HttpResponse::Ok().json(metrics),
+            Err(_) => HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Failed to parse metrics"
+            })),
+        },
         _ => HttpResponse::InternalServerError().json(serde_json::json!({
             "error": "Failed to get metrics"
-        }))
+        })),
     }
 }
 
@@ -415,7 +413,7 @@ async fn hotreload_upload(
     };
 
     // Calculate checksum
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(&package_bytes);
     let checksum = format!("{:x}", hasher.finalize());
@@ -475,12 +473,16 @@ async fn hotreload_upload(
 
             {
                 let mut history = data.hot_reload_history.write().await;
-                history.entry(payload.app_id.clone())
+                history
+                    .entry(payload.app_id.clone())
                     .or_insert_with(Vec::new)
                     .push(entry);
             }
 
-            info!("Hot reload completed successfully for app: {}", payload.app_id);
+            info!(
+                "Hot reload completed successfully for app: {}",
+                payload.app_id
+            );
 
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
@@ -493,9 +495,15 @@ async fn hotreload_upload(
         }
         Ok(resp) => {
             let status_code = resp.status();
-            let error_msg = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_msg = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
 
-            error!("Hot reload failed for app {}: {}", payload.app_id, error_msg);
+            error!(
+                "Hot reload failed for app {}: {}",
+                payload.app_id, error_msg
+            );
 
             {
                 let mut statuses = data.deployment_status.write().await;
@@ -630,11 +638,9 @@ async fn hotreload_rollback(
                 "message": "Rollback initiated"
             }))
         }
-        None => {
-            HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "No previous version available for rollback"
-            }))
-        }
+        None => HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "No previous version available for rollback"
+        })),
     }
 }
 
@@ -667,20 +673,16 @@ async fn hotreload_history(
 
     let history = data.hot_reload_history.read().await;
     match history.get(&app_id) {
-        Some(entries) => {
-            HttpResponse::Ok().json(serde_json::json!({
-                "app_id": app_id,
-                "history": entries,
-                "total": entries.len()
-            }))
-        }
-        None => {
-            HttpResponse::Ok().json(serde_json::json!({
-                "app_id": app_id,
-                "history": [],
-                "total": 0
-            }))
-        }
+        Some(entries) => HttpResponse::Ok().json(serde_json::json!({
+            "app_id": app_id,
+            "history": entries,
+            "total": entries.len()
+        })),
+        None => HttpResponse::Ok().json(serde_json::json!({
+            "app_id": app_id,
+            "history": [],
+            "total": 0
+        })),
     }
 }
 
@@ -736,7 +738,10 @@ async fn ide_deploy(
         }
         Ok(resp) => {
             let status = resp.status();
-            let error_msg = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_msg = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             HttpResponse::build(status).json(serde_json::json!({
                 "error": "Deployment failed",
                 "details": error_msg
@@ -768,10 +773,7 @@ async fn ide_deploy(
     )
 )]
 #[get("/api/ide/logs/{app_id}/stream")]
-async fn ide_logs_stream(
-    data: web::Data<AppState>,
-    path: web::Path<String>,
-) -> impl Responder {
+async fn ide_logs_stream(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     let app_id = path.into_inner();
     let container_name = format!("iora-app-{}", app_id);
 
@@ -779,7 +781,10 @@ async fn ide_logs_stream(
 
     // Forward streaming request to supervisor
     let supervisor_url = data.supervisor_url.clone();
-    let log_url = format!("{}/api/developer/logs/{}/stream", supervisor_url, container_name);
+    let log_url = format!(
+        "{}/api/developer/logs/{}/stream",
+        supervisor_url, container_name
+    );
 
     // Create SSE stream that forwards from supervisor
     let stream = async_stream::stream! {
@@ -824,10 +829,7 @@ async fn ide_logs_stream(
     )
 )]
 #[get("/api/ide/metrics")]
-async fn ide_metrics(
-    req: HttpRequest,
-    data: web::Data<AppState>,
-) -> impl Responder {
+async fn ide_metrics(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(response) = check_developer_mode(&req, &data).await {
         return response;
     }
@@ -837,17 +839,15 @@ async fn ide_metrics(
     let metrics_url = format!("{}/api/developer/metrics", data.supervisor_url);
 
     match client.get(&metrics_url).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<serde_json::Value>().await {
-                Ok(metrics) => HttpResponse::Ok().json(metrics),
-                Err(e) => {
-                    error!("Failed to parse metrics response: {}", e);
-                    HttpResponse::InternalServerError().json(serde_json::json!({
-                        "error": "Failed to parse metrics"
-                    }))
-                }
+        Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
+            Ok(metrics) => HttpResponse::Ok().json(metrics),
+            Err(e) => {
+                error!("Failed to parse metrics response: {}", e);
+                HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": "Failed to parse metrics"
+                }))
             }
-        }
+        },
         Ok(resp) => {
             let status = resp.status();
             HttpResponse::build(status).json(serde_json::json!({
@@ -926,12 +926,27 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     info!("Starting IORA Developer App v{}", env!("CARGO_PKG_VERSION"));
-    info!("Developer App Token: {}", if DEVELOPER_APP_TOKEN_BUILDTIME.map(|t| t != "dev-token-placeholder" && !t.is_empty()).unwrap_or(false) { "***configured at build time***" } else if std::env::var("IORA_DEVELOPER_APP_TOKEN").map(|t| !t.is_empty()).unwrap_or(false) { "***configured via environment***" } else { "***ephemeral (logged once)***" });
+    info!(
+        "Developer App Token: {}",
+        if DEVELOPER_APP_TOKEN_BUILDTIME
+            .map(|t| t != "dev-token-placeholder" && !t.is_empty())
+            .unwrap_or(false)
+        {
+            "***configured at build time***"
+        } else if std::env::var("IORA_DEVELOPER_APP_TOKEN")
+            .map(|t| !t.is_empty())
+            .unwrap_or(false)
+        {
+            "***configured via environment***"
+        } else {
+            "***ephemeral (logged once)***"
+        }
+    );
 
     let supervisor_url = std::env::var("SUPERVISOR_URL")
         .unwrap_or_else(|_| "http://iora-supervisor:8097".to_string());
-    let iora_api_url = std::env::var("IORA_API_URL")
-        .unwrap_or_else(|_| "http://iora-api:8080".to_string());
+    let iora_api_url =
+        std::env::var("IORA_API_URL").unwrap_or_else(|_| "http://iora-api:8080".to_string());
 
     info!("Supervisor URL: {}", supervisor_url);
     info!("IORA API URL: {}", iora_api_url);
@@ -958,7 +973,10 @@ async fn main() -> std::io::Result<()> {
                     if let Ok(status) = resp.json::<DevModeStatus>().await {
                         let mut dev_mode = dev_mode_sync.write().await;
                         if *dev_mode != status.developer_mode {
-                            info!("Developer mode status changed to: {}", status.developer_mode);
+                            info!(
+                                "Developer mode status changed to: {}",
+                                status.developer_mode
+                            );
                             *dev_mode = status.developer_mode;
 
                             // If disabled, exit the app since it's no longer allowed to run
@@ -988,7 +1006,10 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(8099);
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
-    info!("Swagger UI available at: http://localhost:{}/swagger-ui/", port);
+    info!(
+        "Swagger UI available at: http://localhost:{}/swagger-ui/",
+        port
+    );
 
     HttpServer::new(move || {
         App::new()
@@ -996,7 +1017,7 @@ async fn main() -> std::io::Result<()> {
             // Swagger UI
             .service(
                 SwaggerUi::new("/swagger-ui/{_:.*}")
-                    .url("/api-docs/openapi.json", ApiDoc::openapi())
+                    .url("/api-docs/openapi.json", ApiDoc::openapi()),
             )
             // System endpoints
             .service(health)

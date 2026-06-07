@@ -13,18 +13,17 @@
 //   ├── Subagent: Task Executor (sandbox code execution)
 //   └── Subagent: Planner (task decomposition, planning)
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
-use crate::acp::{
-    self, AcpRouter,
-    AgentCapability, AgentId, AgentInfo, AgentStatus,
+use crate::acp::{self, AcpRouter, AgentCapability, AgentId, AgentInfo, AgentStatus};
+use crate::providers::{
+    create_provider, provider_type_from_str, AIProvider, ChatMessage, ProviderConfig, ProviderType,
 };
-use crate::providers::{AIProvider, ChatMessage, ProviderConfig, ProviderType, create_provider, provider_type_from_str};
 
 // ─── Subagent Types ────────────────────────────────────────────────────────
 
@@ -73,7 +72,9 @@ impl SubagentType {
                     name: "code.review".into(),
                     description: "Review code for bugs, style issues, and improvements".into(),
                     version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"code": {"type": "string"}, "language": {"type": "string"}}})),
+                    input_schema: Some(
+                        serde_json::json!({"type": "object", "properties": {"code": {"type": "string"}, "language": {"type": "string"}}}),
+                    ),
                     output_schema: None,
                     estimated_cost: Some(0.001),
                     avg_latency_secs: Some(5.0),
@@ -95,7 +96,9 @@ impl SubagentType {
                     name: "web.search".into(),
                     description: "Search the internet for information".into(),
                     version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"query": {"type": "string"}}})),
+                    input_schema: Some(
+                        serde_json::json!({"type": "object", "properties": {"query": {"type": "string"}}}),
+                    ),
                     output_schema: None,
                     estimated_cost: Some(0.001),
                     avg_latency_secs: Some(3.0),
@@ -105,85 +108,85 @@ impl SubagentType {
                     name: "web.scrape".into(),
                     description: "Scrape and extract content from web pages".into(),
                     version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"url": {"type": "string"}}})),
+                    input_schema: Some(
+                        serde_json::json!({"type": "object", "properties": {"url": {"type": "string"}}}),
+                    ),
                     output_schema: None,
                     estimated_cost: Some(0.002),
                     avg_latency_secs: Some(5.0),
                     tags: vec!["web".into(), "scrape".into()],
                 },
             ],
-            Self::TaskExecutor => vec![
-                AgentCapability {
-                    name: "code.modify".into(),
-                    description: "Modify code files in a sandbox workspace".into(),
-                    version: "1.0".into(),
-                    input_schema: None,
-                    output_schema: None,
-                    estimated_cost: Some(0.005),
-                    avg_latency_secs: Some(15.0),
-                    tags: vec!["code".into(), "modify".into(), "execute".into()],
-                },
-            ],
-            Self::Planner => vec![
-                AgentCapability {
-                    name: "task.decompose".into(),
-                    description: "Decompose a complex task into subtasks".into(),
-                    version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"task": {"type": "string"}}})),
-                    output_schema: None,
-                    estimated_cost: Some(0.003),
-                    avg_latency_secs: Some(8.0),
-                    tags: vec!["planning".into(), "decomposition".into()],
-                },
-            ],
-            Self::Summarizer => vec![
-                AgentCapability {
-                    name: "text.summarize".into(),
-                    description: "Summarize long texts concisely".into(),
-                    version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"text": {"type": "string"}}})),
-                    output_schema: None,
-                    estimated_cost: Some(0.001),
-                    avg_latency_secs: Some(3.0),
-                    tags: vec!["text".into(), "summarize".into()],
-                },
-            ],
-            Self::CodeGenerator => vec![
-                AgentCapability {
-                    name: "code.generate".into(),
-                    description: "Generate code from specifications".into(),
-                    version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"spec": {"type": "string"}, "language": {"type": "string"}}})),
-                    output_schema: None,
-                    estimated_cost: Some(0.005),
-                    avg_latency_secs: Some(10.0),
-                    tags: vec!["code".into(), "generate".into()],
-                },
-            ],
-            Self::Debugger => vec![
-                AgentCapability {
-                    name: "code.debug".into(),
-                    description: "Debug code using error logs and diagnostics".into(),
-                    version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"error": {"type": "string"}, "code": {"type": "string"}}})),
-                    output_schema: None,
-                    estimated_cost: Some(0.004),
-                    avg_latency_secs: Some(12.0),
-                    tags: vec!["debug".into(), "diagnostics".into()],
-                },
-            ],
-            Self::Translator => vec![
-                AgentCapability {
-                    name: "text.translate".into(),
-                    description: "Translate text between languages".into(),
-                    version: "1.0".into(),
-                    input_schema: Some(serde_json::json!({"type": "object", "properties": {"text": {"type": "string"}, "from": {"type": "string"}, "to": {"type": "string"}}})),
-                    output_schema: None,
-                    estimated_cost: Some(0.0005),
-                    avg_latency_secs: Some(2.0),
-                    tags: vec!["translate".into(), "language".into()],
-                },
-            ],
+            Self::TaskExecutor => vec![AgentCapability {
+                name: "code.modify".into(),
+                description: "Modify code files in a sandbox workspace".into(),
+                version: "1.0".into(),
+                input_schema: None,
+                output_schema: None,
+                estimated_cost: Some(0.005),
+                avg_latency_secs: Some(15.0),
+                tags: vec!["code".into(), "modify".into(), "execute".into()],
+            }],
+            Self::Planner => vec![AgentCapability {
+                name: "task.decompose".into(),
+                description: "Decompose a complex task into subtasks".into(),
+                version: "1.0".into(),
+                input_schema: Some(
+                    serde_json::json!({"type": "object", "properties": {"task": {"type": "string"}}}),
+                ),
+                output_schema: None,
+                estimated_cost: Some(0.003),
+                avg_latency_secs: Some(8.0),
+                tags: vec!["planning".into(), "decomposition".into()],
+            }],
+            Self::Summarizer => vec![AgentCapability {
+                name: "text.summarize".into(),
+                description: "Summarize long texts concisely".into(),
+                version: "1.0".into(),
+                input_schema: Some(
+                    serde_json::json!({"type": "object", "properties": {"text": {"type": "string"}}}),
+                ),
+                output_schema: None,
+                estimated_cost: Some(0.001),
+                avg_latency_secs: Some(3.0),
+                tags: vec!["text".into(), "summarize".into()],
+            }],
+            Self::CodeGenerator => vec![AgentCapability {
+                name: "code.generate".into(),
+                description: "Generate code from specifications".into(),
+                version: "1.0".into(),
+                input_schema: Some(
+                    serde_json::json!({"type": "object", "properties": {"spec": {"type": "string"}, "language": {"type": "string"}}}),
+                ),
+                output_schema: None,
+                estimated_cost: Some(0.005),
+                avg_latency_secs: Some(10.0),
+                tags: vec!["code".into(), "generate".into()],
+            }],
+            Self::Debugger => vec![AgentCapability {
+                name: "code.debug".into(),
+                description: "Debug code using error logs and diagnostics".into(),
+                version: "1.0".into(),
+                input_schema: Some(
+                    serde_json::json!({"type": "object", "properties": {"error": {"type": "string"}, "code": {"type": "string"}}}),
+                ),
+                output_schema: None,
+                estimated_cost: Some(0.004),
+                avg_latency_secs: Some(12.0),
+                tags: vec!["debug".into(), "diagnostics".into()],
+            }],
+            Self::Translator => vec![AgentCapability {
+                name: "text.translate".into(),
+                description: "Translate text between languages".into(),
+                version: "1.0".into(),
+                input_schema: Some(
+                    serde_json::json!({"type": "object", "properties": {"text": {"type": "string"}, "from": {"type": "string"}, "to": {"type": "string"}}}),
+                ),
+                output_schema: None,
+                estimated_cost: Some(0.0005),
+                avg_latency_secs: Some(2.0),
+                tags: vec!["translate".into(), "language".into()],
+            }],
             Self::Custom(_) => Vec::new(),
         }
     }
@@ -321,13 +324,35 @@ pub struct SubagentResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SubagentEvent {
-    Spawned { agent: AgentInfo },
-    TaskStarted { agent_id: String, task_id: String },
-    TaskProgress { agent_id: String, task_id: String, progress: f32, message: String },
-    TaskCompleted { agent_id: String, result: SubagentResult },
-    TaskFailed { agent_id: String, task_id: String, error: String },
-    Terminated { agent_id: String },
-    Heartbeat { agent_id: String, state: SubagentState },
+    Spawned {
+        agent: AgentInfo,
+    },
+    TaskStarted {
+        agent_id: String,
+        task_id: String,
+    },
+    TaskProgress {
+        agent_id: String,
+        task_id: String,
+        progress: f32,
+        message: String,
+    },
+    TaskCompleted {
+        agent_id: String,
+        result: SubagentResult,
+    },
+    TaskFailed {
+        agent_id: String,
+        task_id: String,
+        error: String,
+    },
+    Terminated {
+        agent_id: String,
+    },
+    Heartbeat {
+        agent_id: String,
+        state: SubagentState,
+    },
 }
 
 impl Subagent {
@@ -336,12 +361,17 @@ impl Subagent {
         let (event_tx, _) = broadcast::channel(128);
 
         let agent_type_str = config.agent_type.as_str().to_string();
-        let name = config.name.clone()
-            .unwrap_or_else(|| format!("{}-{}", agent_type_str.clone(), &Uuid::new_v4().to_string()[..8]));
+        let name = config.name.clone().unwrap_or_else(|| {
+            format!(
+                "{}-{}",
+                agent_type_str.clone(),
+                &Uuid::new_v4().to_string()[..8]
+            )
+        });
 
         let capabilities = config.agent_type.default_capabilities();
-        let _provider_enum = provider_type_from_str(&config.provider)
-            .unwrap_or(ProviderType::OpenAI);
+        let _provider_enum =
+            provider_type_from_str(&config.provider).unwrap_or(ProviderType::OpenAI);
 
         let agent_info = AgentInfo {
             id: Uuid::new_v4().to_string(),
@@ -555,8 +585,14 @@ impl Subagent {
 
         // Add mode-specific instructions
         prompt.push_str("\n\n### Mode\n");
-        prompt.push_str(&format!("Provider: {}, Model: {}\n", self.config.provider, self.config.model));
-        prompt.push_str(&format!("Temperature: {:.1}\n", self.config.temperature.unwrap_or(0.3)));
+        prompt.push_str(&format!(
+            "Provider: {}, Model: {}\n",
+            self.config.provider, self.config.model
+        ));
+        prompt.push_str(&format!(
+            "Temperature: {:.1}\n",
+            self.config.temperature.unwrap_or(0.3)
+        ));
 
         if let Some(ref custom) = self.config.custom_prompt {
             prompt.push_str("\n### Custom Instructions\n");
@@ -642,7 +678,10 @@ impl SubagentPool {
         let provider = create_provider(provider_enum, provider_config);
 
         if !provider.is_available().await {
-            return Err(format!("Provider '{}' is not available for subagent", config.provider));
+            return Err(format!(
+                "Provider '{}' is not available for subagent",
+                config.provider
+            ));
         }
 
         let subagent = Arc::new(Subagent::new(config, provider));
@@ -681,7 +720,10 @@ impl SubagentPool {
         // Find an idle agent with the required capability
         let agents = self.agents.read().await;
         let capable_agent = agents.values().find(|a| {
-            a.info.capabilities.iter().any(|c| c.name == required_capability)
+            a.info
+                .capabilities
+                .iter()
+                .any(|c| c.name == required_capability)
         });
 
         let task_id = Uuid::new_v4().to_string();
@@ -703,12 +745,16 @@ impl SubagentPool {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(timeout_secs.unwrap_or(300)),
                 sender.send(task),
-            ).await {
+            )
+            .await
+            {
                 Ok(Ok(())) => {
                     match tokio::time::timeout(
                         std::time::Duration::from_secs(timeout_secs.unwrap_or(300)),
                         result_rx,
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(Ok(result)) => Ok(result),
                         Ok(Err(_)) => Err("Subagent dropped before responding".into()),
                         Err(_) => Err("Task timed out".into()),
@@ -743,12 +789,17 @@ impl SubagentPool {
             let agents = self.agents.read().await;
             if let Some(agent) = agents.get(&state.id) {
                 let sender = agent.task_sender();
-                sender.send(task).await.map_err(|e| format!("Send error: {}", e))?;
+                sender
+                    .send(task)
+                    .await
+                    .map_err(|e| format!("Send error: {}", e))?;
 
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(timeout_secs.unwrap_or(300)),
                     result_rx,
-                ).await {
+                )
+                .await
+                {
                     Ok(Ok(result)) => Ok(result),
                     Ok(Err(_)) => Err("Subagent dropped before responding".into()),
                     Err(_) => Err("Task timed out".into()),
@@ -767,7 +818,8 @@ impl SubagentPool {
     ) -> Result<SubagentResult, String> {
         // Analyze the task to determine required capability
         let cap = Self::infer_capability(description, &task_data);
-        self.delegate(description, task_data, &cap, 5, Some(120)).await
+        self.delegate(description, task_data, &cap, 5, Some(120))
+            .await
     }
 
     /// Infer which capability is needed from the task description
@@ -779,27 +831,49 @@ impl SubagentPool {
     pub fn infer_capability_static(description: &str, _task_data: &serde_json::Value) -> String {
         let desc_lower = description.to_lowercase();
 
-        if desc_lower.contains("review") || desc_lower.contains("audit") || desc_lower.contains("lint")
-            || desc_lower.contains("diagnostic") || desc_lower.contains("check code") {
+        if desc_lower.contains("review")
+            || desc_lower.contains("audit")
+            || desc_lower.contains("lint")
+            || desc_lower.contains("diagnostic")
+            || desc_lower.contains("check code")
+        {
             "code.review".into()
-        } else if desc_lower.contains("search") || desc_lower.contains("find information")
-            || desc_lower.contains("research") || desc_lower.contains("look up") {
+        } else if desc_lower.contains("search")
+            || desc_lower.contains("find information")
+            || desc_lower.contains("research")
+            || desc_lower.contains("look up")
+        {
             "web.search".into()
-        } else if desc_lower.contains("modify") || desc_lower.contains("change")
-            || desc_lower.contains("implement") || desc_lower.contains("write code")
-            || desc_lower.contains("refactor") {
+        } else if desc_lower.contains("modify")
+            || desc_lower.contains("change")
+            || desc_lower.contains("implement")
+            || desc_lower.contains("write code")
+            || desc_lower.contains("refactor")
+        {
             "code.modify".into()
-        } else if desc_lower.contains("plan") || desc_lower.contains("decompose")
-            || desc_lower.contains("break down") || desc_lower.contains("steps") {
+        } else if desc_lower.contains("plan")
+            || desc_lower.contains("decompose")
+            || desc_lower.contains("break down")
+            || desc_lower.contains("steps")
+        {
             "task.decompose".into()
-        } else if desc_lower.contains("summarize") || desc_lower.contains("summary")
-            || desc_lower.contains("condense") || desc_lower.contains("tldr") {
+        } else if desc_lower.contains("summarize")
+            || desc_lower.contains("summary")
+            || desc_lower.contains("condense")
+            || desc_lower.contains("tldr")
+        {
             "text.summarize".into()
-        } else if desc_lower.contains("generate") || desc_lower.contains("create")
-            || desc_lower.contains("build") || desc_lower.contains("scaffold") {
+        } else if desc_lower.contains("generate")
+            || desc_lower.contains("create")
+            || desc_lower.contains("build")
+            || desc_lower.contains("scaffold")
+        {
             "code.generate".into()
-        } else if desc_lower.contains("debug") || desc_lower.contains("fix")
-            || desc_lower.contains("error") || desc_lower.contains("bug") {
+        } else if desc_lower.contains("debug")
+            || desc_lower.contains("fix")
+            || desc_lower.contains("error")
+            || desc_lower.contains("bug")
+        {
             "code.debug".into()
         } else if desc_lower.contains("translate") {
             "text.translate".into()
@@ -823,7 +897,9 @@ impl SubagentPool {
         let agents = self.agents.read().await;
         let mut counts = HashMap::new();
         for agent in agents.values() {
-            *counts.entry(agent.config.agent_type.as_str().to_string()).or_default() += 1;
+            *counts
+                .entry(agent.config.agent_type.as_str().to_string())
+                .or_default() += 1;
         }
         counts
     }
@@ -864,7 +940,9 @@ impl SubagentPool {
 
         for agent in agents.values() {
             let state = agent.get_state().await;
-            *by_type.entry(agent.config.agent_type.as_str().to_string()).or_default() += 1;
+            *by_type
+                .entry(agent.config.agent_type.as_str().to_string())
+                .or_default() += 1;
             total_tasks += state.task_count;
             total_completed += state.completed_tasks;
             total_failed += state.failed_tasks;
