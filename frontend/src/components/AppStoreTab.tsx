@@ -9,6 +9,8 @@ import {
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
 import { AppDetailDialog } from './AppDetailDialog'
+import { loadTranslationBundlesFromAssets } from '@/i18n/external'
+import { supportedLngs } from '@/i18n'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -209,6 +211,25 @@ export function AppStoreTab({ token }: { token: string }) {
       }
 
       setApps(appList)
+
+      // Load i18n bundles for any apps that provide translations
+      for (const app of appList) {
+        if (app.i18n?.assets_base_url) {
+          const namespace = `app-${app.id}`
+          loadTranslationBundlesFromAssets({
+            assetsBaseUrl: app.i18n.assets_base_url,
+            namespace,
+            languages: supportedLngs,
+          }).then((result) => {
+            if (result.loaded.length > 0) {
+              console.log(`Loaded i18n bundles for app ${app.id}:`, result.loaded)
+            }
+            if (result.failed.length > 0) {
+              console.warn(`Failed to load i18n for app ${app.id}:`, result.failed)
+            }
+          })
+        }
+      }
     } catch (e) {
       setError((e as Error).message)
     }

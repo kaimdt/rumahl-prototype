@@ -899,7 +899,7 @@ impl ThemeState {
 
 // ─── Helper functions ───────────────────────────────────────────────
 
-fn mime_type(path: &str) -> &'static str {
+pub fn mime_type(path: &str) -> &'static str {
     if path.ends_with(".css") {
         "text/css"
     } else if path.ends_with(".js") {

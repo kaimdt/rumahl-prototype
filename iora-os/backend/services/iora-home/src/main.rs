@@ -2139,6 +2139,12 @@ async fn main() -> anyhow::Result<()> {
             "/api/apps/integrations",
             get(app_runtime_handler::app_integrations),
         )
+        // App/plugin static assets — serves files from the app's install directory.
+        // Used by i18n bundle loading: `<assets_base_url>/i18n/<lng>.json`.
+        .route(
+            "/api/apps/assets/:app_id/*path",
+            get(serve_app_asset),
+        )
         .route(
             "/api/apps/:app_id/capabilities",
             get(app_runtime_handler::app_capabilities),
@@ -7298,6 +7304,53 @@ async fn local_appstore_jobs_stream(
     Sse::new(combined).keep_alive(KeepAlive::default())
 }
 
+/// GET /api/apps/assets/:app_id/*path
+/// Serves static files from a locally installed app's directory.
+/// Convention matches theme assets: `<assets_base_url>/i18n/<lng>.json`.
+async fn serve_app_asset(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
+) -> Result<Response, (StatusCode, String)> {
+    // Path traversal protection
+    let clean = path
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .to_string();
+    if clean.contains("..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
+    }
+
+    // Find the app's directory
+    let apps = state.local_appstore.list().await;
+    let has_app = apps.iter().any(|a| a.id == app_id);
+    if !has_app {
+        return Err((StatusCode::NOT_FOUND, format!("App '{}' not found", app_id)));
+    }
+
+    let app_dir = state.local_appstore.base_dir().join(&app_id);
+    let file = app_dir.join(&clean);
+
+    // Ensure file exists and is within the app directory
+    if !file.exists() || !file.starts_with(&app_dir) {
+        return Err((StatusCode::NOT_FOUND, "File not found".into()));
+    }
+
+    let data = tokio::fs::read(&file)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "File not found".into()))?;
+
+    let mime = theme_handler::mime_type(&clean);
+    let mut headers = HeaderMap::new();
+    let mime_value = header::HeaderValue::from_str(mime)
+        .unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream"));
+    headers.insert(header::CONTENT_TYPE, mime_value);
+    headers.insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("public, max-age=3600"),
+    );
+    Ok((headers, data).into_response())
+}
+
 /// Register a system app via the local app-store.
 ///
 /// The frontend calls this when developer mode is toggled, so the Developer App
@@ -9505,6 +9558,7 @@ async fn app_detail_get(
         "installed_at": app.installed_at,
         "source": app.source,
         "permissions": app.manifest.permissions,
+        "i18n": app.manifest.i18n.as_ref().map(|c| serde_json::json!({ "assets_base_url": c.assets_base_url })).unwrap_or(serde_json::Value::Null),
         "custom_pages": app.custom_pages,
         "ports": app.ports,
         "docker_config": app.docker_config,
