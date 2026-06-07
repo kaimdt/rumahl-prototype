@@ -238,3 +238,9 @@ ora/
 ## License
 
 MIT
+
+---
+
+## Bot Status
+
+*Zuletzt geprüft: Sun Jun  7 05:15:59 PM CEST 2026 — Bot-Workflow intakt (Issue #68)*
