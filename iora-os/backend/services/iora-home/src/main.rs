@@ -9558,7 +9558,7 @@ async fn app_detail_get(
         "installed_at": app.installed_at,
         "source": app.source,
         "permissions": app.manifest.permissions,
-        "i18n": app.manifest.i18n.as_ref().map(|c| serde_json::json!({ "assets_base_url": c.assets_base_url })).unwrap_or(serde_json::Value::Null),
+        "i18n": app.manifest.extra.get("i18n").cloned().unwrap_or(serde_json::Value::Null),
         "custom_pages": app.custom_pages,
         "ports": app.ports,
         "docker_config": app.docker_config,
