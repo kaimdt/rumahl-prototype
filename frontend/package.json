@@ -64,6 +64,7 @@
         "cmdk": "^1.1.1",
         "codemirror": "^6.0.2",
         "colorthief": "^3.3.0",
+        "csstype": "^3.2.3",
         "date-fns": "^3.6.0",
         "dompurify": "^3.4.5",
         "embla-carousel-react": "^8.5.2",
