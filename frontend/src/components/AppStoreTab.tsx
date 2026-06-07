@@ -9,6 +9,8 @@ import {
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
 import { AppDetailDialog } from './AppDetailDialog'
+import { loadTranslationBundlesFromAssets } from '@/i18n/external'
+import { supportedLngs } from '@/i18n'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -48,6 +50,17 @@ interface AppInfo {
   services?: any[]
   permission_grants?: Array<{ permission: string; risk_level?: string; is_active?: boolean }>
   denied_permissions?: string[]
+  /**
+   * Optional i18n configuration for the app.
+   * Convention: translation files are served at `<assets_base_url>/i18n/<lng>.json`
+   * (e.g. `/api/apps/<id>/assets/i18n/en.json`). The system loads these bundles
+   * into a namespace scoped to the app (e.g. `app-<id>`) so translations can be
+   * accessed via `t('app-<id>:key.path')` in the frontend.
+   */
+  i18n?: {
+    /** Base URL from which i18n bundles are served */
+    assets_base_url: string
+  }
 }
 
 interface PortInfo {
@@ -198,6 +211,25 @@ export function AppStoreTab({ token }: { token: string }) {
       }
 
       setApps(appList)
+
+      // Load i18n bundles for any apps that provide translations
+      for (const app of appList) {
+        if (app.i18n?.assets_base_url) {
+          const namespace = `app-${app.id}`
+          loadTranslationBundlesFromAssets({
+            assetsBaseUrl: app.i18n.assets_base_url,
+            namespace,
+            languages: supportedLngs,
+          }).then((result) => {
+            if (result.loaded.length > 0) {
+              console.log(`Loaded i18n bundles for app ${app.id}:`, result.loaded)
+            }
+            if (result.failed.length > 0) {
+              console.warn(`Failed to load i18n for app ${app.id}:`, result.failed)
+            }
+          })
+        }
+      }
     } catch (e) {
       setError((e as Error).message)
     }

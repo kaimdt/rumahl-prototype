@@ -10,8 +10,11 @@ use std::collections::HashMap;
 
 use crate::{
     app_capabilities::{AssistToolDefinition, LifecycleHooks, ServiceExport},
-    app_database::AppDatabaseConfig, app_messaging::MessagingConfig, app_scheduler::ScheduleConfig,
-    app_storage::StorageConfig, app_webhooks::WebhookConfig,
+    app_database::AppDatabaseConfig,
+    app_messaging::MessagingConfig,
+    app_scheduler::ScheduleConfig,
+    app_storage::StorageConfig,
+    app_webhooks::WebhookConfig,
 };
 
 /// Complete app/plugin manifest
@@ -123,6 +126,17 @@ pub struct AppManifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<crate::theme::ThemeDefinition>,
 
+    /// --- New in v2.5: App/Plugin i18n support ---
+    ///
+    /// If the app/plugin provides its own i18n translation bundles, define
+    /// them here. The convention is that translation files are served at
+    /// `<assets_base_url>/i18n/<lng>.json` (e.g. `.../i18n/en.json`).
+    /// The system loads these bundles into a namespace scoped to the app/plugin
+    /// (e.g. `app-<id>` or `plugin-<id>`) so translations can be accessed via
+    /// `t('namespace:key')` in the frontend.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n: Option<I18nConfig>,
+
     /// --- New in v2.4: Extended App/Plugin capabilities ---
 
     /// AI tools (functions) the app/plugin exposes to IORA Assist and pi.dev
@@ -144,6 +158,19 @@ pub struct AppManifest {
     /// represented by a dedicated typed manifest field.
     #[serde(default, flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+/// Configuration for app/plugin-provided i18n translation bundles.
+///
+/// Convention: translation files are served at `<assets_base_url>/i18n/<lng>.json`,
+/// matching the same convention used by themes in `loadTranslationBundlesFromAssets`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct I18nConfig {
+    /// Base URL from which i18n bundles are served.
+    /// Expected layout under this URL:
+    ///   <assets_base_url>/i18n/en.json
+    ///   <assets_base_url>/i18n/de.json
+    pub assets_base_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

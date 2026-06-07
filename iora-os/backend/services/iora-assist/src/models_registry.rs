@@ -45,12 +45,9 @@ impl ModelsRegistry {
     ) -> Result<(usize, bool), String> {
         let Some(ptype) = provider_type_from_str(&provider_row.provider_type) else {
             let msg = format!("unknown provider_type '{}'", provider_row.provider_type);
-            let _ = database::models_registry::record_fetch_error(
-                &self.pool,
-                provider_row.id,
-                &msg,
-            )
-            .await;
+            let _ =
+                database::models_registry::record_fetch_error(&self.pool, provider_row.id, &msg)
+                    .await;
             return Err(msg);
         };
         let cfg = ProviderConfig {
@@ -75,10 +72,7 @@ impl ModelsRegistry {
                 .and_then(|v| v.as_str())
                 .map(str::to_string),
         };
-        let is_live = matches!(
-            provider_row.provider_type.as_str(),
-            "local" | "desktop"
-        );
+        let is_live = matches!(provider_row.provider_type.as_str(), "local" | "desktop");
         let provider = create_provider(ptype, cfg.clone());
         let models = match provider.list_models().await {
             Ok(list) => list,
@@ -93,26 +87,16 @@ impl ModelsRegistry {
                 return Err(msg);
             }
         };
-        let pairs: Vec<(String, String)> = models
-            .into_iter()
-            .map(|m| (m.id, m.name))
-            .collect();
+        let pairs: Vec<(String, String)> = models.into_iter().map(|m| (m.id, m.name)).collect();
         let count = pairs.len();
-        if let Err(e) = database::models_registry::replace_models(
-            &self.pool,
-            provider_row.id,
-            &pairs,
-            is_live,
-        )
-        .await
+        if let Err(e) =
+            database::models_registry::replace_models(&self.pool, provider_row.id, &pairs, is_live)
+                .await
         {
             let msg = format!("db write failed: {}", e);
-            let _ = database::models_registry::record_fetch_error(
-                &self.pool,
-                provider_row.id,
-                &msg,
-            )
-            .await;
+            let _ =
+                database::models_registry::record_fetch_error(&self.pool, provider_row.id, &msg)
+                    .await;
             return Err(msg);
         }
         Ok((count, is_live))
@@ -120,14 +104,13 @@ impl ModelsRegistry {
 
     /// Refresh all providers, optionally restricted to local/desktop ones.
     pub async fn refresh_all(&self, only_live: bool) -> usize {
-        let providers =
-            match database::providers::get_all_enabled_providers(&self.pool).await {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::warn!("models_registry: list providers failed: {}", e);
-                    return 0;
-                }
-            };
+        let providers = match database::providers::get_all_enabled_providers(&self.pool).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("models_registry: list providers failed: {}", e);
+                return 0;
+            }
+        };
         let mut total_models = 0usize;
         for p in providers {
             let is_local = matches!(p.provider_type.as_str(), "local" | "desktop");

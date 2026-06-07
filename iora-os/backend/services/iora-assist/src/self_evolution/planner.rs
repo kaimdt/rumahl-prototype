@@ -12,7 +12,7 @@ pub struct EvolutionStep {
     pub tool_name: String,
     pub params: serde_json::Value,
     #[serde(default)]
-    pub depends_on: Vec<String>,  // IDs of steps this one depends on
+    pub depends_on: Vec<String>, // IDs of steps this one depends on
     #[serde(default)]
     pub estimated_tokens: u32,
     #[serde(default)]
@@ -114,7 +114,9 @@ impl SelfEvolutionPlanner {
         goal: &str,
         context: Option<String>,
     ) -> Result<EvolutionPlan, String> {
-        let tool_descriptions: Vec<String> = self.tools.iter()
+        let tool_descriptions: Vec<String> = self
+            .tools
+            .iter()
             .map(|t| format!("- {}: {}", t.name(), t.description()))
             .collect();
 
@@ -156,19 +158,28 @@ Output format: Return ONLY valid JSON matching this schema:
             format!("Goal: {}", goal)
         };
 
-        let response = self.provider.chat(
-            vec![ChatMessage { role: "user".to_string(), content: user_message }],
-            Some(system_prompt),
-        ).await.map_err(|e| e.to_string())?;
+        let response = self
+            .provider
+            .chat(
+                vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: user_message,
+                }],
+                Some(system_prompt),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
 
         // Parse the JSON plan from the AI response
         let plan_json: serde_json::Value = serde_json::from_str(&response.message)
             .map_err(|e| format!("Failed to parse generated plan as JSON: {}", e))?;
 
-        let title = plan_json["title"].as_str().unwrap_or("Untitled Plan").to_string();
-        let description = plan_json["description"].as_str()
-            .unwrap_or("").to_string();
-        
+        let title = plan_json["title"]
+            .as_str()
+            .unwrap_or("Untitled Plan")
+            .to_string();
+        let description = plan_json["description"].as_str().unwrap_or("").to_string();
+
         let steps_value = &plan_json["steps"];
         let steps: Vec<EvolutionStep> = serde_json::from_value(steps_value.clone())
             .map_err(|e| format!("Failed to parse plan steps: {}", e))?;
@@ -193,7 +204,7 @@ Output format: Return ONLY valid JSON matching this schema:
         plan.status = PlanStatus::Executing;
 
         let mut results = Vec::new();
-        let mut completed_steps: std::collections::HashSet<String> = 
+        let mut completed_steps: std::collections::HashSet<String> =
             std::collections::HashSet::new();
 
         // Topological sort of steps based on dependencies
@@ -202,7 +213,9 @@ Output format: Return ONLY valid JSON matching this schema:
         for (idx, step_id) in step_order.iter().enumerate() {
             plan.current_step = Some(idx);
 
-            let step = plan.steps.iter_mut()
+            let step = plan
+                .steps
+                .iter_mut()
                 .find(|s| s.id == *step_id)
                 .ok_or_else(|| format!("Step '{}' not found", step_id))?;
 
@@ -217,20 +230,22 @@ Output format: Return ONLY valid JSON matching this schema:
             }
 
             // Find the right tool
-            let tool = self.tools.iter()
+            let tool = self
+                .tools
+                .iter()
                 .find(|t| t.name() == step.tool_name)
                 .ok_or_else(|| format!("Unknown tool: {}", step.tool_name))?;
 
             // Execute the step
             step.status = StepStatus::Running;
-            
+
             let output_result = tool.execute(&step.params).await;
 
             let result = match output_result {
                 Ok(output) => {
                     step.status = StepStatus::Completed;
                     completed_steps.insert(step.id.clone());
-                    
+
                     StepResult {
                         step_id: step.id.clone(),
                         success: true,
@@ -242,7 +257,7 @@ Output format: Return ONLY valid JSON matching this schema:
                 }
                 Err(e) => {
                     step.status = StepStatus::Failed;
-                    
+
                     StepResult {
                         step_id: step.id.clone(),
                         success: false,
@@ -282,7 +297,10 @@ Output format: Return ONLY valid JSON matching this schema:
             in_stack: &mut std::collections::HashSet<String>,
         ) -> Result<(), String> {
             if in_stack.contains(step_id) {
-                return Err(format!("Circular dependency detected involving '{}'", step_id));
+                return Err(format!(
+                    "Circular dependency detected involving '{}'",
+                    step_id
+                ));
             }
             if visited.contains(step_id) {
                 return Ok(());
@@ -290,7 +308,9 @@ Output format: Return ONLY valid JSON matching this schema:
 
             in_stack.insert(step_id.to_string());
 
-            let step = steps.iter().find(|s| s.id == *step_id)
+            let step = steps
+                .iter()
+                .find(|s| s.id == *step_id)
                 .ok_or_else(|| format!("Step '{}' not found", step_id))?;
 
             for dep in &step.depends_on {

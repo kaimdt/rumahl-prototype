@@ -141,7 +141,11 @@ impl MigrationRunner {
             .take(steps as usize)
             .collect::<Vec<_>>();
 
-        println!("\n{} - Rolling back {} migration(s):", service, to_rollback.len());
+        println!(
+            "\n{} - Rolling back {} migration(s):",
+            service,
+            to_rollback.len()
+        );
 
         for migration in to_rollback {
             print!("  Rolling back {}... ", migration.migration);
@@ -152,7 +156,8 @@ impl MigrationRunner {
             }
 
             // Get rollback SQL
-            let rollback_sql = self.tracker
+            let rollback_sql = self
+                .tracker
                 .get_rollback_sql(service, &migration.migration)
                 .await?;
 
@@ -189,7 +194,10 @@ impl MigrationRunner {
             services.sort();
 
             println!("\n{:─<100}", "");
-            println!("{:<20} {:<10} {:<10} {:<50}", "Service", "Applied", "Pending", "Latest Migration");
+            println!(
+                "{:<20} {:<10} {:<10} {:<50}",
+                "Service", "Applied", "Pending", "Latest Migration"
+            );
             println!("{:─<100}", "");
 
             for svc in services {
@@ -197,7 +205,10 @@ impl MigrationRunner {
                 let total = migrations.get(&svc).map(|m| m.len()).unwrap_or(0);
                 let pending = total - applied.len();
 
-                let latest = applied.last().map(|m| m.migration.clone()).unwrap_or_else(|| "-".to_string());
+                let latest = applied
+                    .last()
+                    .map(|m| m.migration.clone())
+                    .unwrap_or_else(|| "-".to_string());
 
                 println!(
                     "{:<20} {:<10} {:<10} {:<50}",
@@ -218,7 +229,11 @@ impl MigrationRunner {
         Ok(())
     }
 
-    async fn print_service_status(&self, service: &str, migrations: &HashMap<String, Vec<Migration>>) -> Result<()> {
+    async fn print_service_status(
+        &self,
+        service: &str,
+        migrations: &HashMap<String, Vec<Migration>>,
+    ) -> Result<()> {
         let applied = self.tracker.get_applied_migrations(service).await?;
         let all = migrations
             .get(service)
@@ -230,14 +245,13 @@ impl MigrationRunner {
         for migration in all {
             let is_applied = applied.iter().any(|a| a.migration == migration.name);
 
-            let status = if is_applied { "✓ Applied" } else { "  Pending" };
+            let status = if is_applied {
+                "✓ Applied"
+            } else {
+                "  Pending"
+            };
 
-            println!(
-                "{} {} - {}",
-                status,
-                migration.number,
-                migration.name
-            );
+            println!("{} {} - {}", status, migration.number, migration.name);
         }
 
         println!("{:─<80}\n", "");
@@ -348,10 +362,7 @@ impl MigrationRunner {
             for migration in service_migrations {
                 if let Some(applied_mig) = applied.iter().find(|a| a.migration == migration.name) {
                     if applied_mig.checksum != migration.checksum {
-                        println!(
-                            "  Updating {} / {} checksum",
-                            service, migration.name
-                        );
+                        println!("  Updating {} / {} checksum", service, migration.name);
 
                         self.tracker
                             .update_checksum(service, &migration.name, &migration.checksum)
@@ -405,14 +416,17 @@ impl MigrationRunner {
 
             let checksum = calculate_checksum(&sql);
 
-            migrations.entry(service.clone()).or_default().push(Migration {
-                service,
-                name,
-                path: path.to_path_buf(),
-                sql,
-                checksum,
-                number,
-            });
+            migrations
+                .entry(service.clone())
+                .or_default()
+                .push(Migration {
+                    service,
+                    name,
+                    path: path.to_path_buf(),
+                    sql,
+                    checksum,
+                    number,
+                });
         }
 
         // Sort migrations by number within each service

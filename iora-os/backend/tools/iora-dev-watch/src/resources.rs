@@ -66,12 +66,20 @@ pub struct ResourceHistory {
 
 impl ResourceHistory {
     pub fn new(max_len: usize) -> Self {
-        Self { cpu: VecDeque::with_capacity(max_len), ram: VecDeque::with_capacity(max_len), max_len }
+        Self {
+            cpu: VecDeque::with_capacity(max_len),
+            ram: VecDeque::with_capacity(max_len),
+            max_len,
+        }
     }
 
     pub fn push(&mut self, cpu: f64, ram: f64) {
-        if self.cpu.len() >= self.max_len { self.cpu.pop_front(); }
-        if self.ram.len() >= self.max_len { self.ram.pop_front(); }
+        if self.cpu.len() >= self.max_len {
+            self.cpu.pop_front();
+        }
+        if self.ram.len() >= self.max_len {
+            self.ram.pop_front();
+        }
         self.cpu.push_back(cpu);
         self.ram.push_back(ram);
     }
@@ -99,10 +107,7 @@ pub async fn ssh_collect(
     {
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let output = command
-        .output()
-        .await
-        .context("ssh resource collection")?;
+    let output = command.output().await.context("ssh resource collection")?;
 
     if !output.status.success() {
         anyhow::bail!("ssh exited with {}", output.status);
@@ -112,14 +117,22 @@ pub async fn ssh_collect(
 
 fn ssh_args(host: &str, port: u16, ssh_key: &std::path::Path) -> Vec<String> {
     vec![
-        "-o".into(), "StrictHostKeyChecking=no".into(),
-        "-o".into(), "UserKnownHostsFile=/dev/null".into(),
-        "-o".into(), "IdentitiesOnly=yes".into(),
-        "-o".into(), "BatchMode=yes".into(),
-        "-o".into(), "ConnectTimeout=5".into(),
-        "-o".into(), "LogLevel=ERROR".into(),
-        "-i".into(), ssh_key.to_string_lossy().to_string(),
-        "-p".into(), port.to_string(),
+        "-o".into(),
+        "StrictHostKeyChecking=no".into(),
+        "-o".into(),
+        "UserKnownHostsFile=/dev/null".into(),
+        "-o".into(),
+        "IdentitiesOnly=yes".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        "ConnectTimeout=5".into(),
+        "-o".into(),
+        "LogLevel=ERROR".into(),
+        "-i".into(),
+        ssh_key.to_string_lossy().to_string(),
+        "-p".into(),
+        port.to_string(),
         format!("root@{host}"),
     ]
 }
@@ -160,7 +173,9 @@ df -B1 / 2>/dev/null | tail -1
 
     for line in proc_text.lines() {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         // CPU line: "cpu  user nice system idle iowait irq softirq steal ..."
         if line.starts_with("cpu ") {
@@ -179,18 +194,29 @@ df -B1 / 2>/dev/null | tail -1
 
                 // Compute CPU % from delta against previous sample
                 if let Some(prev_data) = prev.and_then(|p| p.cpu_raw.as_ref()) {
-                    let prev_total = prev_data.user + prev_data.nice + prev_data.system
-                        + prev_data.idle + prev_data.iowait + prev_data.irq
-                        + prev_data.softirq + prev_data.steal;
-                    let cur_total = tick.user + tick.nice + tick.system
-                        + tick.idle + tick.iowait + tick.irq
-                        + tick.softirq + tick.steal;
+                    let prev_total = prev_data.user
+                        + prev_data.nice
+                        + prev_data.system
+                        + prev_data.idle
+                        + prev_data.iowait
+                        + prev_data.irq
+                        + prev_data.softirq
+                        + prev_data.steal;
+                    let cur_total = tick.user
+                        + tick.nice
+                        + tick.system
+                        + tick.idle
+                        + tick.iowait
+                        + tick.irq
+                        + tick.softirq
+                        + tick.steal;
 
                     let total_delta = cur_total.saturating_sub(prev_total);
                     let idle_delta = tick.idle.saturating_sub(prev_data.idle);
 
                     if total_delta > 0 {
-                        data.cpu_percent = ((total_delta - idle_delta) as f64 / total_delta as f64 * 100.0)
+                        data.cpu_percent = ((total_delta - idle_delta) as f64 / total_delta as f64
+                            * 100.0)
                             .clamp(0.0, 100.0);
                     }
                 }
@@ -256,7 +282,9 @@ df -B1 / 2>/dev/null | tail -1
 
     // Compute RAM used
     if data.ram_total_bytes > 0 {
-        data.ram_used_bytes = data.ram_total_bytes.saturating_sub(data.ram_available_bytes);
+        data.ram_used_bytes = data
+            .ram_total_bytes
+            .saturating_sub(data.ram_available_bytes);
     }
 
     // Compute active cores from loadavg (approximate)

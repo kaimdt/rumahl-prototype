@@ -17,8 +17,8 @@ pub mod plugin_manager;
 pub mod security_monitor;
 
 use docker_sandbox::{DockerSandbox, SandboxConfig, SandboxStatus};
-use plugin_manager::{PluginManager, PluginInfo, PluginTool};
-use security_monitor::{SecurityPolicy, SecurityEvent, SecurityMonitor, ActionVerdict};
+use plugin_manager::{PluginInfo, PluginManager, PluginTool};
+use security_monitor::{ActionVerdict, SecurityEvent, SecurityMonitor, SecurityPolicy};
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -33,9 +33,9 @@ pub struct PiDevSessionConfig {
     /// API key for pi.dev authentication
     pub api_key: String,
     /// Resource limits
-    pub cpu_limit: Option<String>,     // e.g. "2.0"
-    pub memory_limit: Option<String>,  // e.g. "4g"
-    pub disk_limit: Option<String>,    // e.g. "10g"
+    pub cpu_limit: Option<String>, // e.g. "2.0"
+    pub memory_limit: Option<String>, // e.g. "4g"
+    pub disk_limit: Option<String>,   // e.g. "10g"
     /// Network policy
     pub network_enabled: bool,
     pub allowed_domains: Vec<String>,
@@ -105,14 +105,39 @@ pub struct PiDevSession {
 /// Event streamed to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PiDevSessionEvent {
-    StatusChanged { session_id: String, status: SessionStatus },
-    SecurityAlert { session_id: String, event: SecurityEvent, requires_approval: bool },
-    ToolExecuted { session_id: String, tool: String, args_summary: String, result: String },
-    Output { session_id: String, line: String },
-    PluginInstalled { session_id: String, plugin: PluginInfo },
-    Progress { session_id: String, message: String, percent: f32 },
+    StatusChanged {
+        session_id: String,
+        status: SessionStatus,
+    },
+    SecurityAlert {
+        session_id: String,
+        event: SecurityEvent,
+        requires_approval: bool,
+    },
+    ToolExecuted {
+        session_id: String,
+        tool: String,
+        args_summary: String,
+        result: String,
+    },
+    Output {
+        session_id: String,
+        line: String,
+    },
+    PluginInstalled {
+        session_id: String,
+        plugin: PluginInfo,
+    },
+    Progress {
+        session_id: String,
+        message: String,
+        percent: f32,
+    },
     /// The live bridge state for a session was updated (LocalUp-style monitoring).
-    BridgeUpdated { session_id: String, state: BridgeState },
+    BridgeUpdated {
+        session_id: String,
+        state: BridgeState,
+    },
 }
 
 // ─── Bridge & Control (LocalUp-style live monitoring + remote control) ───────
@@ -241,7 +266,10 @@ impl PiDevController {
         for plugin_cfg in &config.plugins {
             match self.plugins.resolve_plugin(plugin_cfg).await {
                 Ok(info) => installed_plugins.push(info),
-                Err(e) => warn!("Failed to resolve plugin {}: {}", plugin_cfg.package_name, e),
+                Err(e) => warn!(
+                    "Failed to resolve plugin {}: {}",
+                    plugin_cfg.package_name, e
+                ),
             }
         }
 
@@ -256,7 +284,8 @@ impl PiDevController {
             network_enabled: config.network_enabled,
             allowed_domains: config.allowed_domains.clone(),
             session_timeout_secs: config.session_timeout_secs,
-            plugin_packages: installed_plugins.iter()
+            plugin_packages: installed_plugins
+                .iter()
                 .map(|p| p.package_name.clone())
                 .collect(),
             extensions: config.extensions.clone(),
@@ -288,11 +317,15 @@ impl PiDevController {
         tokio::spawn(async move {
             match this.docker.create_container(&sandbox_config).await {
                 Ok(container_id) => {
-                    info!("Pi.dev container {} created for session {}", container_id, sid);
+                    info!(
+                        "Pi.dev container {} created for session {}",
+                        container_id, sid
+                    );
                     this.update_session(&sid, |s| {
                         s.docker_container_id = Some(container_id.clone());
                         s.status = SessionStatus::Running;
-                    }).await;
+                    })
+                    .await;
 
                     let _ = this.event_tx.send(PiDevSessionEvent::StatusChanged {
                         session_id: sid.clone(),
@@ -306,7 +339,8 @@ impl PiDevController {
                     error!("Failed to create pi.dev container: {}", e);
                     this.update_session(&sid, |s| {
                         s.status = SessionStatus::Failed { error: e.clone() };
-                    }).await;
+                    })
+                    .await;
 
                     let _ = this.event_tx.send(PiDevSessionEvent::StatusChanged {
                         session_id: sid,
@@ -333,7 +367,8 @@ impl PiDevController {
     pub async fn stop_session(&self, session_id: &str) -> Result<(), String> {
         let container_id = {
             let sessions = self.sessions.read().await;
-            sessions.get(session_id)
+            sessions
+                .get(session_id)
                 .and_then(|s| s.docker_container_id.clone())
         };
 
@@ -343,7 +378,8 @@ impl PiDevController {
 
         self.update_session(session_id, |s| {
             s.status = SessionStatus::Terminated;
-        }).await;
+        })
+        .await;
 
         let _ = self.event_tx.send(PiDevSessionEvent::StatusChanged {
             session_id: session_id.to_string(),
@@ -354,12 +390,9 @@ impl PiDevController {
     }
 
     /// Approve a security-sensitive action
-    pub async fn approve_action(
-        &self,
-        session_id: &str,
-        event_id: &str,
-    ) -> Result<(), String> {
-        let _session = self.get_session(session_id)
+    pub async fn approve_action(&self, session_id: &str, event_id: &str) -> Result<(), String> {
+        let _session = self
+            .get_session(session_id)
             .await
             .ok_or("Session not found")?;
 
@@ -367,7 +400,8 @@ impl PiDevController {
 
         self.update_session(session_id, |s| {
             s.status = SessionStatus::Running;
-        }).await;
+        })
+        .await;
 
         let _ = self.event_tx.send(PiDevSessionEvent::StatusChanged {
             session_id: session_id.to_string(),
@@ -378,11 +412,7 @@ impl PiDevController {
     }
 
     /// Deny a security-sensitive action
-    pub async fn deny_action(
-        &self,
-        session_id: &str,
-        event_id: &str,
-    ) -> Result<(), String> {
+    pub async fn deny_action(&self, session_id: &str, event_id: &str) -> Result<(), String> {
         self.security.deny(session_id, event_id).await?;
 
         let _ = self.event_tx.send(PiDevSessionEvent::SecurityAlert {
@@ -403,7 +433,9 @@ impl PiDevController {
 
     /// Get installed plugins for a session
     pub async fn get_session_plugins(&self, session_id: &str) -> Vec<PluginInfo> {
-        self.sessions.read().await
+        self.sessions
+            .read()
+            .await
             .get(session_id)
             .map(|s| s.installed_plugins.clone())
             .unwrap_or_default()
@@ -416,7 +448,9 @@ impl PiDevController {
 
     /// Get security events for a session
     pub async fn get_security_events(&self, session_id: &str) -> Vec<SecurityEvent> {
-        self.sessions.read().await
+        self.sessions
+            .read()
+            .await
             .get(session_id)
             .map(|s| s.security_events.clone())
             .unwrap_or_default()
@@ -437,7 +471,10 @@ impl PiDevController {
         provider: Option<String>,
         model: Option<String>,
     ) -> Result<Option<i64>, String> {
-        let session = self.get_session(session_id).await.ok_or("Session not found")?;
+        let session = self
+            .get_session(session_id)
+            .await
+            .ok_or("Session not found")?;
         let container_id = session
             .docker_container_id
             .clone()
@@ -562,7 +599,8 @@ impl PiDevController {
                     .or_else(|| value.get("args").cloned())
                     .unwrap_or_else(|| serde_json::json!({}));
 
-                self.update_session(session_id, |s| s.tool_calls_made += 1).await;
+                self.update_session(session_id, |s| s.tool_calls_made += 1)
+                    .await;
 
                 // Update the live bridge: count the tool call, surface the
                 // active tool as status, and track file mutations.
@@ -840,16 +878,15 @@ impl PiDevController {
                 message = "Session resumed".to_string();
             }
             "set_model" => {
-                let m = model
-                    .clone()
-                    .ok_or("set_model requires a 'model' value")?;
+                let m = model.clone().ok_or("set_model requires a 'model' value")?;
                 self.control
                     .write()
                     .await
                     .entry(session_id.to_string())
                     .or_default()
                     .model_override = Some(m.clone());
-                self.update_bridge(session_id, |b| b.model = m.clone()).await;
+                self.update_bridge(session_id, |b| b.model = m.clone())
+                    .await;
                 message = format!("Model override set to {}", m);
             }
             "set_thinking" => {
@@ -901,7 +938,8 @@ impl PiDevController {
     // ─── Internal helpers ───────────────────────────────────────────────────
 
     async fn update_session<F>(&self, session_id: &str, f: F)
-    where F: FnOnce(&mut PiDevSession)
+    where
+        F: FnOnce(&mut PiDevSession),
     {
         let mut sessions = self.sessions.write().await;
         if let Some(s) = sessions.get_mut(session_id) {
@@ -913,7 +951,8 @@ impl PiDevController {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         let timeout = {
             let sessions = self.sessions.read().await;
-            sessions.get(session_id)
+            sessions
+                .get(session_id)
                 .map(|s| s.config.session_timeout_secs)
                 .unwrap_or(3600)
         };
@@ -934,18 +973,24 @@ impl PiDevController {
                 Ok(SandboxStatus { running: true, .. }) => {
                     // Container is healthy — continue monitoring
                 }
-                Ok(SandboxStatus { running: false, error: Some(e), .. }) => {
+                Ok(SandboxStatus {
+                    running: false,
+                    error: Some(e),
+                    ..
+                }) => {
                     error!("Container {} stopped with error: {}", container_id, e);
                     self.update_session(session_id, |s| {
                         s.status = SessionStatus::Failed { error: e };
-                    }).await;
+                    })
+                    .await;
                     break;
                 }
                 Ok(_) => {
                     // Container stopped normally
                     self.update_session(session_id, |s| {
                         s.status = SessionStatus::Completed;
-                    }).await;
+                    })
+                    .await;
                     let _ = self.event_tx.send(PiDevSessionEvent::StatusChanged {
                         session_id: session_id.to_string(),
                         status: SessionStatus::Completed,
@@ -972,9 +1017,11 @@ fn now_millis() -> i64 {
 /// (write/edit/create/replace/patch/insert/delete) by name.
 fn file_change_from_tool(tool: &str, args: &serde_json::Value) -> Option<BridgeFileChange> {
     let lower = tool.to_lowercase();
-    let is_file_tool = ["write", "edit", "create", "replace", "patch", "insert", "delete"]
-        .iter()
-        .any(|kw| lower.contains(kw));
+    let is_file_tool = [
+        "write", "edit", "create", "replace", "patch", "insert", "delete",
+    ]
+    .iter()
+    .any(|kw| lower.contains(kw));
     if !is_file_tool {
         return None;
     }

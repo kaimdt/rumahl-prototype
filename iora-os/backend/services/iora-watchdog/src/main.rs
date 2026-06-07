@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::State,
@@ -11,8 +15,8 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
+use serde::{Deserialize, Serialize};
 use sysinfo::System;
 use tokio::sync::{broadcast, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
@@ -108,7 +112,7 @@ struct RecoveryRecord {
 struct ServiceStatus {
     name: String,
     url: String,
-    status: String,  // healthy, degraded, unhealthy, unreachable
+    status: String, // healthy, degraded, unhealthy, unreachable
     response_time_ms: Option<u64>,
     last_check: String,
     last_success: Option<String>,
@@ -120,7 +124,7 @@ struct ServiceStatus {
 struct WatchdogEvent {
     event_type: String,
     service_name: Option<String>,
-    severity: String,  // info, warning, critical
+    severity: String, // info, warning, critical
     message: String,
     timestamp: String,
 }
@@ -152,10 +156,7 @@ async fn check_service_health(url: &str) -> (String, Option<u64>) {
     let start = Instant::now();
     let health_url = format!("{}/health", url.trim_end_matches('/'));
 
-    match tokio::time::timeout(
-        Duration::from_secs(5),
-        reqwest::get(&health_url)
-    ).await {
+    match tokio::time::timeout(Duration::from_secs(5), reqwest::get(&health_url)).await {
         Ok(Ok(response)) => {
             let elapsed = start.elapsed().as_millis() as u64;
             if response.status().is_success() {
@@ -233,7 +234,11 @@ async fn health_check_loop(state: AppState) {
                         }
                     };
                     if should_attempt {
-                        state.last_recovery.write().await.insert(name.clone(), Instant::now());
+                        state
+                            .last_recovery
+                            .write()
+                            .await
+                            .insert(name.clone(), Instant::now());
                         attempt_recovery(&state, &name).await;
                     }
                 }
@@ -251,7 +256,8 @@ async fn health_check_loop(state: AppState) {
                         event_type: "core_down".to_string(),
                         service_name: Some("iora-core".to_string()),
                         severity: "critical".to_string(),
-                        message: "Core orchestrator is down - watchdog is now handling events".to_string(),
+                        message: "Core orchestrator is down - watchdog is now handling events"
+                            .to_string(),
                         timestamp: now.clone(),
                     });
                 } else if was_core_down && !*core_down {
@@ -306,7 +312,10 @@ async fn attempt_recovery(state: &AppState, service_name: &str) {
     // haven't seen a recovery yet, back off — restart-loops won't fix it
     // and we don't want to flood the cluster.
     if state.notified.read().await.contains_key(&svc) {
-        warn!("Skipping auto-recovery for {} (already escalated to system notification)", svc);
+        warn!(
+            "Skipping auto-recovery for {} (already escalated to system notification)",
+            svc
+        );
         return;
     }
 
@@ -354,7 +363,15 @@ async fn attempt_recovery(state: &AppState, service_name: &str) {
                 message: format!("Recovery failed (attempt {attempts}): {detail}"),
                 timestamp: now.clone(),
             });
-            push_recovery_record(state, svc.clone(), "restart", false, detail.clone(), now.clone()).await;
+            push_recovery_record(
+                state,
+                svc.clone(),
+                "restart",
+                false,
+                detail.clone(),
+                now.clone(),
+            )
+            .await;
 
             // Escalate: gather logs + try heuristic self-fix.
             if attempts == SELF_FIX_AFTER_FAILED_RESTARTS {
@@ -366,7 +383,11 @@ async fn attempt_recovery(state: &AppState, service_name: &str) {
             if attempts >= NOTIFY_AFTER_FAILED_RECOVERIES {
                 let logs = gather_service_logs(state.recovery_mode, &svc).await;
                 escalate_to_system_notification(state, &svc, &detail, &logs).await;
-                state.notified.write().await.insert(svc.clone(), Instant::now());
+                state
+                    .notified
+                    .write()
+                    .await
+                    .insert(svc.clone(), Instant::now());
             }
         }
     }
@@ -388,9 +409,7 @@ async fn attempt_self_fix(state: &AppState, service: &str) {
         || lower.contains("eaddrinuse")
         || lower.contains("bind: address in use")
     {
-        if let Some(port) = extract_port_from_log(&logs)
-            .or_else(|| guess_default_port(service))
-        {
+        if let Some(port) = extract_port_from_log(&logs).or_else(|| guess_default_port(service)) {
             if free_tcp_port(port).await {
                 applied.push(format!("freed TCP port {port}"));
             }
@@ -399,22 +418,25 @@ async fn attempt_self_fix(state: &AppState, service: &str) {
 
     // ── Heuristic 2: stale Docker container in "Created"/"Exited" state ─
     if mode == RecoveryMode::Docker
-        && (lower.contains("container is not running")
-            || lower.contains("no such container"))
+        && (lower.contains("container is not running") || lower.contains("no such container"))
     {
         let container = format!("iora-{service}");
-        if run_blocking_cmd("docker", &["rm", "-f", &container]).await.is_ok() {
+        if run_blocking_cmd("docker", &["rm", "-f", &container])
+            .await
+            .is_ok()
+        {
             applied.push(format!("removed stale container {container}"));
         }
     }
 
     // ── Heuristic 3: PostgreSQL dependency unreachable ──────────────────
-    if (lower.contains("could not connect to server")
-        || lower.contains("connection refused"))
+    if (lower.contains("could not connect to server") || lower.contains("connection refused"))
         && (lower.contains("postgres") || lower.contains("5432"))
     {
         let pg_restart = match mode {
-            RecoveryMode::Systemd => run_blocking_cmd("systemctl", &["restart", "postgresql"]).await,
+            RecoveryMode::Systemd => {
+                run_blocking_cmd("systemctl", &["restart", "postgresql"]).await
+            }
             RecoveryMode::Docker => run_blocking_cmd("docker", &["restart", "iora-postgres"]).await,
             RecoveryMode::Disabled => Err("disabled".to_string()),
         };
@@ -456,12 +478,34 @@ async fn attempt_self_fix(state: &AppState, service: &str) {
     let now = Utc::now().to_rfc3339();
     match result {
         Ok(detail) => {
-            info!("post-self-fix restart succeeded for {}: {}", service, detail);
-            push_recovery_record(state, service.to_string(), "post_self_fix_restart", true, detail, now).await;
+            info!(
+                "post-self-fix restart succeeded for {}: {}",
+                service, detail
+            );
+            push_recovery_record(
+                state,
+                service.to_string(),
+                "post_self_fix_restart",
+                true,
+                detail,
+                now,
+            )
+            .await;
         }
         Err(detail) => {
-            warn!("post-self-fix restart still failing for {}: {}", service, detail);
-            push_recovery_record(state, service.to_string(), "post_self_fix_restart", false, detail, now).await;
+            warn!(
+                "post-self-fix restart still failing for {}: {}",
+                service, detail
+            );
+            push_recovery_record(
+                state,
+                service.to_string(),
+                "post_self_fix_restart",
+                false,
+                detail,
+                now,
+            )
+            .await;
         }
     }
 }
@@ -528,9 +572,7 @@ async fn gather_service_logs(mode: RecoveryMode, service: &str) -> String {
 fn extract_port_from_log(log: &str) -> Option<u16> {
     for line in log.lines() {
         let l = line.to_ascii_lowercase();
-        if !(l.contains("address already in use")
-            || l.contains("eaddrinuse")
-            || l.contains("bind"))
+        if !(l.contains("address already in use") || l.contains("eaddrinuse") || l.contains("bind"))
         {
             continue;
         }
@@ -578,12 +620,20 @@ fn guess_default_port(service: &str) -> Option<u16> {
 /// platforms this is a no-op that returns false.
 async fn free_tcp_port(port: u16) -> bool {
     let port_str = port.to_string();
-    if run_blocking_cmd("fuser", &["-k", &format!("{port}/tcp")]).await.is_ok() {
+    if run_blocking_cmd("fuser", &["-k", &format!("{port}/tcp")])
+        .await
+        .is_ok()
+    {
         tokio::time::sleep(Duration::from_millis(500)).await;
         return true;
     }
     // Fallback: lsof + kill
-    if let Ok(out) = run_blocking_cmd_output("lsof", &["-tiTCP:".to_string() + &port_str + ",STATE:LISTEN"]).await {
+    if let Ok(out) = run_blocking_cmd_output(
+        "lsof",
+        &["-tiTCP:".to_string() + &port_str + ",STATE:LISTEN"],
+    )
+    .await
+    {
         let pids: Vec<String> = out
             .lines()
             .filter_map(|l| l.trim().parse::<u32>().ok())
@@ -646,7 +696,8 @@ async fn escalate_to_system_notification(
     last_error: &str,
     logs: &str,
 ) {
-    let (Some(base), Some(token)) = (state.iora_home_url.as_ref(), state.internal_token.as_ref()) else {
+    let (Some(base), Some(token)) = (state.iora_home_url.as_ref(), state.internal_token.as_ref())
+    else {
         warn!(
             "Cannot escalate {} to system notification: IORA_HOME_URL or IORA_INTERNAL_TOKEN unset",
             service
@@ -654,7 +705,10 @@ async fn escalate_to_system_notification(
         return;
     };
 
-    let url = format!("{}/api/internal/system-notifications", base.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/internal/system-notifications",
+        base.trim_end_matches('/')
+    );
     let body = serde_json::json!({
         "category": "watchdog",
         "severity": "critical",
@@ -814,10 +868,7 @@ async fn health_text(State(state): State<AppState>) -> impl IntoResponse {
         Utc::now().to_rfc3339(),
     );
 
-    (
-        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-        body,
-    )
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body)
 }
 
 async fn get_status(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -854,7 +905,11 @@ async fn register_service(
         uptime_percent: 100.0,
     };
 
-    state.services.write().await.insert(req.name.clone(), service_status);
+    state
+        .services
+        .write()
+        .await
+        .insert(req.name.clone(), service_status);
 
     info!("Registered service: {} at {}", req.name, req.url);
 
@@ -899,7 +954,7 @@ async fn get_metrics(State(state): State<AppState>) -> Json<SystemMetrics> {
     let sys = state.system.read().await;
 
     let cpu_usage = sys.global_cpu_info().cpu_usage();
-    let memory_used = sys.used_memory() / 1024 / 1024;  // Convert to MB
+    let memory_used = sys.used_memory() / 1024 / 1024; // Convert to MB
     let memory_total = sys.total_memory() / 1024 / 1024;
     let memory_percent = if memory_total > 0 {
         (memory_used as f32 / memory_total as f32) * 100.0
@@ -952,9 +1007,7 @@ async fn main() -> anyhow::Result<()> {
     let (events_tx, _) = broadcast::channel(1000);
 
     let recovery_threshold = system_config::recovery_threshold();
-    let recovery_cooldown = Duration::from_secs(
-        system_config::recovery_cooldown_secs(),
-    );
+    let recovery_cooldown = Duration::from_secs(system_config::recovery_cooldown_secs());
     let recovery_mode = RecoveryMode::from_env();
     info!(
         "Auto-recovery: mode={:?} threshold={} cooldown={}s",
@@ -994,10 +1047,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/watchdog/health", get(health))
         .route("/api/watchdog/health/text", get(health_text))
         .route("/api/watchdog/status", get(get_status))
-        .route("/api/watchdog/services", get(list_services).post(register_service))
+        .route(
+            "/api/watchdog/services",
+            get(list_services).post(register_service),
+        )
         .route("/api/watchdog/heartbeat", post(receive_heartbeat))
         .route("/api/watchdog/metrics", get(get_metrics))
-        .route("/api/watchdog/events", get(events_stream).post(broadcast_event))
+        .route(
+            "/api/watchdog/events",
+            get(events_stream).post(broadcast_event),
+        )
         .route("/api/watchdog/recovery", get(get_recovery_history))
         .layer(CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())

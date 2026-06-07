@@ -9,6 +9,8 @@ import type {
   PluginManifest,
 } from './types'
 import { toast } from 'sonner'
+import { loadTranslationBundlesFromAssets } from '@/i18n/external'
+import { supportedLngs } from '@/i18n'
 
 /**
  * Plugin Registry
@@ -228,6 +230,23 @@ class PluginRegistry {
           break
         default:
           throw new Error(`Unknown plugin type: ${manifest.type}`)
+      }
+
+      // Load plugin-provided i18n bundles (optional)
+      if (manifest.i18n?.assets_base_url) {
+        const namespace = `plugin-${manifest.metadata.id}`
+        loadTranslationBundlesFromAssets({
+          assetsBaseUrl: manifest.i18n.assets_base_url,
+          namespace,
+          languages: supportedLngs,
+        }).then((result) => {
+          if (result.loaded.length > 0) {
+            console.log(`Loaded i18n bundles for plugin ${manifest.metadata.id}:`, result.loaded)
+          }
+          if (result.failed.length > 0) {
+            console.warn(`Failed to load i18n for plugin ${manifest.metadata.id}:`, result.failed)
+          }
+        })
       }
 
       toast.success(`Plugin ${manifest.metadata.name} loaded successfully`)

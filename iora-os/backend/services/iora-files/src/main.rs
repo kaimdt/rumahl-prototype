@@ -21,8 +21,8 @@ use axum::{
     Router,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
@@ -42,9 +42,9 @@ struct AppState {
     storage_root: PathBuf,
     jwt_secret: String,
     #[allow(dead_code)]
-    max_file_size: usize,           // bytes
-    default_quota_bytes: i64,       // per user
-    base_url: String,               // for share link URLs
+    max_file_size: usize, // bytes
+    default_quota_bytes: i64, // per user
+    base_url: String,         // for share link URLs
 }
 
 // ─── Models ─────────────────────────────────────────────────────────────────
@@ -228,17 +228,13 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let database_url =
-        system_config::database_url_for("iora-files");
-    let storage_root =
-        PathBuf::from(system_config::files_storage_dir());
-    let jwt_secret =
-        system_config::jwt_secret();
+    let database_url = system_config::database_url_for("iora-files");
+    let storage_root = PathBuf::from(system_config::files_storage_dir());
+    let jwt_secret = system_config::jwt_secret();
     let port: u16 = system_config::service_port("iora-files", 8100);
     let max_file_size: usize = system_config::files_max_size_bytes();
     let default_quota: i64 = system_config::files_default_quota();
-    let base_url =
-        system_config::files_base_url(port);
+    let base_url = system_config::files_base_url(port);
 
     // Ensure storage directory exists
     fs::create_dir_all(&storage_root).await?;
@@ -279,7 +275,10 @@ async fn main() -> Result<()> {
     let app = Router::new()
         // Public share link access (no auth required)
         .route("/api/files/shared/:token", get(get_shared_file))
-        .route("/api/files/shared/:token/download", get(download_shared_file))
+        .route(
+            "/api/files/shared/:token/download",
+            get(download_shared_file),
+        )
         .route("/api/files/shared/:token/info", get(shared_file_info))
         // Health
         .route("/health", get(health_check))
@@ -322,11 +321,8 @@ async fn main() -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("IORA Files listening on {}", addr);
-    let _hb = iora_shared::heartbeat::spawn_default(
-        "iora-files",
-        addr.port(),
-        "File sharing service",
-    );
+    let _hb =
+        iora_shared::heartbeat::spawn_default("iora-files", addr.port(), "File sharing service");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -362,24 +358,28 @@ async fn upload_file(
     let folder_id: Option<String> = None;
     let mut file_data: Option<(String, Vec<u8>)> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("Multipart error: {}", e))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Multipart error: {}", e)))?
+    {
         let name = field.name().unwrap_or("").to_string();
         if name.as_str() == "file" {
-            let original_name = field
-                .file_name()
-                .unwrap_or("unnamed")
-                .to_string();
-            let data = field.bytes().await.map_err(|e| {
-                (StatusCode::BAD_REQUEST, format!("Read error: {}", e))
-            })?;
+            let original_name = field.file_name().unwrap_or("unnamed").to_string();
+            let data = field
+                .bytes()
+                .await
+                .map_err(|e| (StatusCode::BAD_REQUEST, format!("Read error: {}", e)))?;
             file_data = Some((original_name, data.to_vec()));
         }
     }
 
-    let (original_name, data) = file_data
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "No file field in upload".to_string()))?;
+    let (original_name, data) = file_data.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "No file field in upload".to_string(),
+        )
+    })?;
 
     // Validate filename is safe
     let sanitized_name = sanitize_filename(&original_name);
@@ -409,13 +409,19 @@ async fn upload_file(
     let storage_filename = format!("{}.{}", file_id, ext);
     let user_dir = state.storage_root.join(&user_id);
     fs::create_dir_all(&user_dir).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Storage error: {}", e),
+        )
     })?;
     let storage_path = user_dir.join(&storage_filename);
     iora_shared::upload_store::atomic_write_async(&storage_path, &data)
         .await
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {}", e))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Write error: {}", e),
+            )
         })?;
 
     let size = data.len() as i64;
@@ -491,7 +497,11 @@ async fn list_files(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
-        let deleted_filter = if query.include_deleted.unwrap_or(false) { "" } else { "AND deleted_at IS NULL" };
+        let deleted_filter = if query.include_deleted.unwrap_or(false) {
+            ""
+        } else {
+            "AND deleted_at IS NULL"
+        };
         let sql = format!(
             "SELECT * FROM files WHERE owner_id = ? AND parent_folder_id IS ? {} ORDER BY is_folder DESC, original_name ASC",
             deleted_filter
@@ -543,12 +553,18 @@ async fn download_file(
     let file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     if file.is_folder {
-        return Err((StatusCode::BAD_REQUEST, "Cannot download a folder directly".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Cannot download a folder directly".to_string(),
+        ));
     }
 
     let full_path = state.storage_root.join(&file.storage_path);
     let data = fs::read(&full_path).await.map_err(|e| {
-        (StatusCode::NOT_FOUND, format!("File not found on disk: {}", e))
+        (
+            StatusCode::NOT_FOUND,
+            format!("File not found on disk: {}", e),
+        )
     })?;
 
     log_activity(&state, &file_id, &user_id, "download", None).await;
@@ -592,7 +608,9 @@ async fn delete_file(
 
     log_activity(&state, &file_id, &user_id, "delete", None).await;
 
-    Ok(Json(serde_json::json!({ "deleted": true, "file_id": file_id })))
+    Ok(Json(
+        serde_json::json!({ "deleted": true, "file_id": file_id }),
+    ))
 }
 
 // ─── Restore File ───────────────────────────────────────────────────────────
@@ -620,17 +638,21 @@ async fn restore_file(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Re-consume quota
-    sqlx::query("UPDATE storage_quotas SET used_bytes = used_bytes + ?, updated_at = ? WHERE user_id = ?")
-        .bind(file.size_bytes)
-        .bind(Utc::now().to_rfc3339())
-        .bind(&user_id)
-        .execute(&state.db)
-        .await
-        .ok();
+    sqlx::query(
+        "UPDATE storage_quotas SET used_bytes = used_bytes + ?, updated_at = ? WHERE user_id = ?",
+    )
+    .bind(file.size_bytes)
+    .bind(Utc::now().to_rfc3339())
+    .bind(&user_id)
+    .execute(&state.db)
+    .await
+    .ok();
 
     log_activity(&state, &file_id, &user_id, "restore", None).await;
 
-    Ok(Json(serde_json::json!({ "restored": true, "file_id": file_id })))
+    Ok(Json(
+        serde_json::json!({ "restored": true, "file_id": file_id }),
+    ))
 }
 
 // ─── Move File ──────────────────────────────────────────────────────────────
@@ -667,7 +689,14 @@ async fn move_file(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    log_activity(&state, &file_id, &user_id, "move", Some(serde_json::json!({"target": body.target_folder_id}))).await;
+    log_activity(
+        &state,
+        &file_id,
+        &user_id,
+        "move",
+        Some(serde_json::json!({"target": body.target_folder_id})),
+    )
+    .await;
 
     Ok(Json(serde_json::json!({ "moved": true })))
 }
@@ -696,9 +725,18 @@ async fn rename_file(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    log_activity(&state, &file_id, &user_id, "rename", Some(serde_json::json!({"new_name": safe_name}))).await;
+    log_activity(
+        &state,
+        &file_id,
+        &user_id,
+        "rename",
+        Some(serde_json::json!({"new_name": safe_name})),
+    )
+    .await;
 
-    Ok(Json(serde_json::json!({ "renamed": true, "new_name": safe_name })))
+    Ok(Json(
+        serde_json::json!({ "renamed": true, "new_name": safe_name }),
+    ))
 }
 
 // ─── Versions ───────────────────────────────────────────────────────────────
@@ -712,7 +750,7 @@ async fn list_versions(
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let versions: Vec<FileVersion> = sqlx::query_as(
-        "SELECT * FROM file_versions WHERE file_id = ? ORDER BY version_number DESC"
+        "SELECT * FROM file_versions WHERE file_id = ? ORDER BY version_number DESC",
     )
     .bind(&file_id)
     .fetch_all(&state.db)
@@ -774,9 +812,9 @@ async fn create_share_link(
     let token = generate_share_token();
     let now = Utc::now().to_rfc3339();
 
-    let expires_at = body.expires_in_hours.map(|hours| {
-        (Utc::now() + chrono::Duration::hours(hours)).to_rfc3339()
-    });
+    let expires_at = body
+        .expires_in_hours
+        .map(|hours| (Utc::now() + chrono::Duration::hours(hours)).to_rfc3339());
 
     let password_hash = if let Some(ref pw) = body.password {
         // Use simple SHA-256 for share link passwords (not user auth)
@@ -804,7 +842,14 @@ async fn create_share_link(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    log_activity(&state, &body.file_id, &user_id, "share", Some(serde_json::json!({"token": &token}))).await;
+    log_activity(
+        &state,
+        &body.file_id,
+        &user_id,
+        "share",
+        Some(serde_json::json!({"token": &token})),
+    )
+    .await;
 
     Ok(Json(ShareLinkResponse {
         id: share_id,
@@ -823,7 +868,7 @@ async fn list_share_links(
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
     let links: Vec<ShareLink> = sqlx::query_as(
-        "SELECT * FROM share_links WHERE created_by = ? AND is_active = 1 ORDER BY created_at DESC"
+        "SELECT * FROM share_links WHERE created_by = ? AND is_active = 1 ORDER BY created_at DESC",
     )
     .bind(&user_id)
     .fetch_all(&state.db)
@@ -858,12 +903,13 @@ async fn shared_file_info(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let link = validate_share_link(&state, &token).await?;
 
-    let file: FileRecord = sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
-        .bind(&link.file_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+    let file: FileRecord =
+        sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
+            .bind(&link.file_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
 
     Ok(Json(serde_json::json!({
         "filename": file.original_name,
@@ -885,12 +931,13 @@ async fn get_shared_file(
     let link = validate_share_link(&state, &token).await?;
     verify_share_password(&link, &access.password)?;
 
-    let file: FileRecord = sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
-        .bind(&link.file_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+    let file: FileRecord =
+        sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
+            .bind(&link.file_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
 
     Ok(Json(file))
 }
@@ -910,16 +957,20 @@ async fn download_shared_file(
         }
     }
 
-    let file: FileRecord = sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
-        .bind(&link.file_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+    let file: FileRecord =
+        sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
+            .bind(&link.file_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
 
     let full_path = state.storage_root.join(&file.storage_path);
     let data = fs::read(&full_path).await.map_err(|e| {
-        (StatusCode::NOT_FOUND, format!("File not found on disk: {}", e))
+        (
+            StatusCode::NOT_FOUND,
+            format!("File not found on disk: {}", e),
+        )
     })?;
 
     // Increment download count
@@ -950,7 +1001,10 @@ async fn set_permission(
     let _file = get_file_with_access(&state, &body.file_id, &user_id, "admin").await?;
 
     if !["read", "write", "admin"].contains(&body.permission.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid permission level".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid permission level".to_string(),
+        ));
     }
 
     let perm_id = Uuid::new_v4().to_string();
@@ -986,7 +1040,8 @@ async fn set_permission(
         &user_id,
         "permission_change",
         Some(serde_json::json!({"grantee": body.grantee_id, "permission": body.permission})),
-    ).await;
+    )
+    .await;
 
     let perm: FilePermission = sqlx::query_as("SELECT * FROM file_permissions WHERE id = ?")
         .bind(&perm_id)
@@ -1005,13 +1060,12 @@ async fn list_permissions(
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
-    let perms: Vec<FilePermission> = sqlx::query_as(
-        "SELECT * FROM file_permissions WHERE file_id = ?"
-    )
-    .bind(&file_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let perms: Vec<FilePermission> =
+        sqlx::query_as("SELECT * FROM file_permissions WHERE file_id = ?")
+            .bind(&file_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(perms))
 }
@@ -1024,11 +1078,12 @@ async fn revoke_permission(
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
     // Verify user owns the file this permission belongs to
-    let perm: Option<FilePermission> = sqlx::query_as("SELECT * FROM file_permissions WHERE id = ?")
-        .bind(&perm_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let perm: Option<FilePermission> =
+        sqlx::query_as("SELECT * FROM file_permissions WHERE id = ?")
+            .bind(&perm_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if let Some(perm) = perm {
         let _file = get_file_with_access(&state, &perm.file_id, &user_id, "admin").await?;
@@ -1050,11 +1105,12 @@ async fn get_quota(
 ) -> Result<Json<QuotaResponse>, (StatusCode, String)> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)?;
 
-    let quota: Option<StorageQuota> = sqlx::query_as("SELECT * FROM storage_quotas WHERE user_id = ?")
-        .bind(&user_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let quota: Option<StorageQuota> =
+        sqlx::query_as("SELECT * FROM storage_quotas WHERE user_id = ?")
+            .bind(&user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let (quota_bytes, used_bytes) = match quota {
         Some(q) => (q.quota_bytes, q.used_bytes),
@@ -1087,7 +1143,7 @@ async fn get_activity(
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let activity: Vec<FileActivity> = sqlx::query_as(
-        "SELECT * FROM file_activity WHERE file_id = ? ORDER BY created_at DESC LIMIT 100"
+        "SELECT * FROM file_activity WHERE file_id = ? ORDER BY created_at DESC LIMIT 100",
     )
     .bind(&file_id)
     .fetch_all(&state.db)
@@ -1103,11 +1159,19 @@ fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, (Sta
     let auth_header = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization header".to_string(),
+            )
+        })?;
 
-    let token = auth_header
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid Authorization format".to_string()))?;
+    let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid Authorization format".to_string(),
+        )
+    })?;
 
     auth::verify_token(token, jwt_secret)
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)))
@@ -1119,12 +1183,13 @@ async fn get_file_with_access(
     user_id: &str,
     required_permission: &str,
 ) -> Result<FileRecord, (StatusCode, String)> {
-    let file: FileRecord = sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
-        .bind(file_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+    let file: FileRecord =
+        sqlx::query_as("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
+            .bind(file_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
 
     // Owner has full access
     if file.owner_id == user_id {
@@ -1132,14 +1197,13 @@ async fn get_file_with_access(
     }
 
     // Check explicit permissions
-    let perm: Option<FilePermission> = sqlx::query_as(
-        "SELECT * FROM file_permissions WHERE file_id = ? AND grantee_id = ?"
-    )
-    .bind(file_id)
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let perm: Option<FilePermission> =
+        sqlx::query_as("SELECT * FROM file_permissions WHERE file_id = ? AND grantee_id = ?")
+            .bind(file_id)
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let has_access = match perm {
         Some(p) => match required_permission {
@@ -1152,18 +1216,26 @@ async fn get_file_with_access(
     };
 
     if !has_access {
-        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        ));
     }
 
     Ok(file)
 }
 
-async fn ensure_quota(state: &AppState, user_id: &str, additional_bytes: i64) -> Result<(), (StatusCode, String)> {
-    let quota: Option<StorageQuota> = sqlx::query_as("SELECT * FROM storage_quotas WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+async fn ensure_quota(
+    state: &AppState,
+    user_id: &str,
+    additional_bytes: i64,
+) -> Result<(), (StatusCode, String)> {
+    let quota: Option<StorageQuota> =
+        sqlx::query_as("SELECT * FROM storage_quotas WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let (quota_bytes, used_bytes) = match quota {
         Some(q) => (q.quota_bytes, q.used_bytes),
@@ -1183,15 +1255,22 @@ async fn ensure_quota(state: &AppState, user_id: &str, additional_bytes: i64) ->
     Ok(())
 }
 
-async fn validate_share_link(state: &AppState, token: &str) -> Result<ShareLink, (StatusCode, String)> {
-    let link: ShareLink = sqlx::query_as(
-        "SELECT * FROM share_links WHERE token = ? AND is_active = 1"
-    )
-    .bind(token)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, "Share link not found or expired".to_string()))?;
+async fn validate_share_link(
+    state: &AppState,
+    token: &str,
+) -> Result<ShareLink, (StatusCode, String)> {
+    let link: ShareLink =
+        sqlx::query_as("SELECT * FROM share_links WHERE token = ? AND is_active = 1")
+            .bind(token)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    "Share link not found or expired".to_string(),
+                )
+            })?;
 
     // Check expiration
     if let Some(ref expires) = link.expires_at {
@@ -1205,7 +1284,10 @@ async fn validate_share_link(state: &AppState, token: &str) -> Result<ShareLink,
     Ok(link)
 }
 
-fn verify_share_password(link: &ShareLink, provided: &Option<String>) -> Result<(), (StatusCode, String)> {
+fn verify_share_password(
+    link: &ShareLink,
+    provided: &Option<String>,
+) -> Result<(), (StatusCode, String)> {
     if let Some(ref stored_hash) = link.password_hash {
         let pw = provided
             .as_ref()
@@ -1250,7 +1332,13 @@ async fn build_breadcrumb(state: &AppState, folder_id: &str) -> Vec<FolderBreadc
     path
 }
 
-async fn log_activity(state: &AppState, file_id: &str, user_id: &str, action: &str, details: Option<serde_json::Value>) {
+async fn log_activity(
+    state: &AppState,
+    file_id: &str,
+    user_id: &str,
+    action: &str,
+    details: Option<serde_json::Value>,
+) {
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let details_str = details.map(|d| d.to_string());
@@ -1275,7 +1363,12 @@ fn sanitize_filename(name: &str) -> String {
     // Remove path separators and dangerous characters
     let sanitized: String = name
         .chars()
-        .filter(|c| !matches!(c, '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .filter(|c| {
+            !matches!(
+                c,
+                '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+            )
+        })
         .collect();
 
     // Remove leading dots (hidden files) and trim

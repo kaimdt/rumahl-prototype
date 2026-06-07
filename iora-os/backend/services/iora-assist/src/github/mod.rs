@@ -12,10 +12,10 @@
 // - Releases: List, get, create
 // - Webhooks: List, create, test
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 // ─── Authentication ────────────────────────────────────────────────────────
@@ -88,13 +88,18 @@ impl GitHubAuth {
         match self.auth_type.as_str() {
             "pat" => self.pat.as_ref().map(|t| format!("Bearer {}", t)),
             "oauth" => self.oauth_token.as_ref().map(|t| format!("Bearer {}", t)),
-            "app" => self.installation_id.as_ref().map(|t| format!("Bearer {}", t)),
+            "app" => self
+                .installation_id
+                .as_ref()
+                .map(|t| format!("Bearer {}", t)),
             _ => self.pat.as_ref().map(|t| format!("Bearer {}", t)),
         }
     }
 
     pub fn api_base(&self) -> &str {
-        self.api_base_url.as_deref().unwrap_or("https://api.github.com")
+        self.api_base_url
+            .as_deref()
+            .unwrap_or("https://api.github.com")
     }
 }
 
@@ -351,7 +356,9 @@ impl GitHubClient {
         let auth = self.auth.read().await;
         let url = format!("{}{}", auth.api_base(), path);
 
-        let mut req = self.http.get(&url)
+        let mut req = self
+            .http
+            .get(&url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "IORA-Assist/1.0");
@@ -360,14 +367,22 @@ impl GitHubClient {
             req = req.header("Authorization", header);
         }
 
-        req.send().await.map_err(|e| format!("HTTP request failed: {}", e))
+        req.send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))
     }
 
-    async fn post(&self, path: &str, body: &serde_json::Value) -> Result<reqwest::Response, String> {
+    async fn post(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<reqwest::Response, String> {
         let auth = self.auth.read().await;
         let url = format!("{}{}", auth.api_base(), path);
 
-        let mut req = self.http.post(&url)
+        let mut req = self
+            .http
+            .post(&url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "IORA-Assist/1.0")
@@ -377,14 +392,18 @@ impl GitHubClient {
             req = req.header("Authorization", header);
         }
 
-        req.send().await.map_err(|e| format!("HTTP request failed: {}", e))
+        req.send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))
     }
 
     async fn put(&self, path: &str, body: &serde_json::Value) -> Result<reqwest::Response, String> {
         let auth = self.auth.read().await;
         let url = format!("{}{}", auth.api_base(), path);
 
-        let mut req = self.http.put(&url)
+        let mut req = self
+            .http
+            .put(&url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "IORA-Assist/1.0")
@@ -394,14 +413,22 @@ impl GitHubClient {
             req = req.header("Authorization", header);
         }
 
-        req.send().await.map_err(|e| format!("HTTP request failed: {}", e))
+        req.send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))
     }
 
-    async fn patch(&self, path: &str, body: &serde_json::Value) -> Result<reqwest::Response, String> {
+    async fn patch(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<reqwest::Response, String> {
         let auth = self.auth.read().await;
         let url = format!("{}{}", auth.api_base(), path);
 
-        let mut req = self.http.patch(&url)
+        let mut req = self
+            .http
+            .patch(&url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "IORA-Assist/1.0")
@@ -411,14 +438,18 @@ impl GitHubClient {
             req = req.header("Authorization", header);
         }
 
-        req.send().await.map_err(|e| format!("HTTP request failed: {}", e))
+        req.send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))
     }
 
     async fn delete(&self, path: &str) -> Result<reqwest::Response, String> {
         let auth = self.auth.read().await;
         let url = format!("{}{}", auth.api_base(), path);
 
-        let mut req = self.http.delete(&url)
+        let mut req = self
+            .http
+            .delete(&url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "IORA-Assist/1.0");
@@ -427,19 +458,28 @@ impl GitHubClient {
             req = req.header("Authorization", header);
         }
 
-        req.send().await.map_err(|e| format!("HTTP request failed: {}", e))
+        req.send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))
     }
 
-    async fn parse_response<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> Result<T, String> {
+    async fn parse_response<T: serde::de::DeserializeOwned>(
+        response: reqwest::Response,
+    ) -> Result<T, String> {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(format!("GitHub API error ({}): {}", status.as_u16(), body));
         }
-        response.json::<T>().await.map_err(|e| format!("JSON parse error: {}", e))
+        response
+            .json::<T>()
+            .await
+            .map_err(|e| format!("JSON parse error: {}", e))
     }
 
-    async fn parse_response_optional<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> Result<Option<T>, String> {
+    async fn parse_response_optional<T: serde::de::DeserializeOwned>(
+        response: reqwest::Response,
+    ) -> Result<Option<T>, String> {
         let status = response.status();
         if status == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -448,7 +488,10 @@ impl GitHubClient {
             let body = response.text().await.unwrap_or_default();
             return Err(format!("GitHub API error ({}): {}", status.as_u16(), body));
         }
-        let val = response.json::<T>().await.map_err(|e| format!("JSON parse error: {}", e))?;
+        let val = response
+            .json::<T>()
+            .await
+            .map_err(|e| format!("JSON parse error: {}", e))?;
         Ok(Some(val))
     }
 
@@ -476,29 +519,56 @@ impl GitHubClient {
 
     /// List repositories for the authenticated user
     pub async fn list_my_repos(&self, page: u32, per_page: u32) -> Result<Vec<GitHubRepo>, String> {
-        let path = format!("/user/repos?type=all&sort=updated&direction=desc&page={}&per_page={}", page, per_page);
+        let path = format!(
+            "/user/repos?type=all&sort=updated&direction=desc&page={}&per_page={}",
+            page, per_page
+        );
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// List repositories for a specific owner (user or org)
-    pub async fn list_repos_for_owner(&self, owner: &str, page: u32, per_page: u32) -> Result<Vec<GitHubRepo>, String> {
-        let path = format!("/users/{}/repos?type=all&sort=updated&page={}&per_page={}", owner, page, per_page);
+    pub async fn list_repos_for_owner(
+        &self,
+        owner: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<GitHubRepo>, String> {
+        let path = format!(
+            "/users/{}/repos?type=all&sort=updated&page={}&per_page={}",
+            owner, page, per_page
+        );
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// List org repositories
-    pub async fn list_org_repos(&self, org: &str, page: u32, per_page: u32) -> Result<Vec<GitHubRepo>, String> {
-        let path = format!("/orgs/{}/repos?type=all&sort=updated&page={}&per_page={}", org, page, per_page);
+    pub async fn list_org_repos(
+        &self,
+        org: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<GitHubRepo>, String> {
+        let path = format!(
+            "/orgs/{}/repos?type=all&sort=updated&page={}&per_page={}",
+            org, page, per_page
+        );
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// Search repositories
-    pub async fn search_repos(&self, query: &str, page: u32, per_page: u32) -> Result<GitHubSearchResult, String> {
+    pub async fn search_repos(
+        &self,
+        query: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<GitHubSearchResult, String> {
         let encoded = urlencoding::encode(query);
-        let path = format!("/search/repositories?q={}&sort=stars&order=desc&page={}&per_page={}", encoded, page, per_page);
+        let path = format!(
+            "/search/repositories?q={}&sort=stars&order=desc&page={}&per_page={}",
+            encoded, page, per_page
+        );
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
@@ -542,7 +612,10 @@ impl GitHubClient {
         }
 
         // Cache
-        self.repo_cache.write().await.insert(cache_key, (all_repos.clone(), Utc::now()));
+        self.repo_cache
+            .write()
+            .await
+            .insert(cache_key, (all_repos.clone(), Utc::now()));
 
         Ok(all_repos)
     }
@@ -556,21 +629,39 @@ impl GitHubClient {
     // ─── Branches ───────────────────────────────────────────────────────
 
     /// List branches for a repository
-    pub async fn list_branches(&self, owner: &str, repo: &str, page: u32, per_page: u32) -> Result<Vec<GitHubBranch>, String> {
-        let path = format!("/repos/{}/{}/branches?page={}&per_page={}", owner, repo, page, per_page);
+    pub async fn list_branches(
+        &self,
+        owner: &str,
+        repo: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<GitHubBranch>, String> {
+        let path = format!(
+            "/repos/{}/{}/branches?page={}&per_page={}",
+            owner, repo, page, per_page
+        );
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// Get a single branch
-    pub async fn get_branch(&self, owner: &str, repo: &str, branch: &str) -> Result<GitHubBranch, String> {
+    pub async fn get_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+    ) -> Result<GitHubBranch, String> {
         let path = format!("/repos/{}/{}/branches/{}", owner, repo, branch);
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// Get all branches for a repo (with caching)
-    pub async fn get_all_branches(&self, owner: &str, repo: &str) -> Result<Vec<GitHubBranch>, String> {
+    pub async fn get_all_branches(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<GitHubBranch>, String> {
         let cache_key = format!("{}/{}", owner, repo);
         {
             let cache = self.branch_cache.read().await;
@@ -597,12 +688,21 @@ impl GitHubClient {
             page += 1;
         }
 
-        self.branch_cache.write().await.insert(cache_key, (all_branches.clone(), Utc::now()));
+        self.branch_cache
+            .write()
+            .await
+            .insert(cache_key, (all_branches.clone(), Utc::now()));
         Ok(all_branches)
     }
 
     /// Create a branch (from a base SHA or branch name)
-    pub async fn create_branch(&self, owner: &str, repo: &str, branch_name: &str, base_sha: &str) -> Result<GitHubBranch, String> {
+    pub async fn create_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch_name: &str,
+        base_sha: &str,
+    ) -> Result<GitHubBranch, String> {
         let path = format!("/repos/{}/{}/git/refs", owner, repo);
         let body = serde_json::json!({
             "ref": format!("refs/heads/{}", branch_name),
@@ -617,7 +717,10 @@ impl GitHubClient {
     pub async fn delete_branch(&self, owner: &str, repo: &str, branch: &str) -> Result<(), String> {
         let path = format!("/repos/{}/{}/git/refs/heads/{}", owner, repo, branch);
         let _ = self.delete(&path).await?;
-        self.branch_cache.write().await.remove(&format!("{}/{}", owner, repo));
+        self.branch_cache
+            .write()
+            .await
+            .remove(&format!("{}/{}", owner, repo));
         Ok(())
     }
 
@@ -625,21 +728,40 @@ impl GitHubClient {
 
     /// List issues for a repo
     pub async fn list_issues(
-        &self, owner: &str, repo: &str,
-        state: Option<&str>, labels: Option<&str>,
-        assignee: Option<&str>, page: u32, per_page: u32,
+        &self,
+        owner: &str,
+        repo: &str,
+        state: Option<&str>,
+        labels: Option<&str>,
+        assignee: Option<&str>,
+        page: u32,
+        per_page: u32,
     ) -> Result<Vec<GitHubIssue>, String> {
-        let mut path = format!("/repos/{}/{}/issues?page={}&per_page={}", owner, repo, page, per_page);
-        if let Some(s) = state { path.push_str(&format!("&state={}", s)); }
-        if let Some(l) = labels { path.push_str(&format!("&labels={}", urlencoding::encode(l))); }
-        if let Some(a) = assignee { path.push_str(&format!("&assignee={}", a)); }
+        let mut path = format!(
+            "/repos/{}/{}/issues?page={}&per_page={}",
+            owner, repo, page, per_page
+        );
+        if let Some(s) = state {
+            path.push_str(&format!("&state={}", s));
+        }
+        if let Some(l) = labels {
+            path.push_str(&format!("&labels={}", urlencoding::encode(l)));
+        }
+        if let Some(a) = assignee {
+            path.push_str(&format!("&assignee={}", a));
+        }
 
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// Get a single issue
-    pub async fn get_issue(&self, owner: &str, repo: &str, issue_number: u64) -> Result<GitHubIssue, String> {
+    pub async fn get_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        issue_number: u64,
+    ) -> Result<GitHubIssue, String> {
         let path = format!("/repos/{}/{}/issues/{}", owner, repo, issue_number);
         let response = self.get(&path).await?;
         Self::parse_response(response).await
@@ -647,8 +769,11 @@ impl GitHubClient {
 
     /// Create an issue
     pub async fn create_issue(
-        &self, owner: &str, repo: &str,
-        title: &str, body: &str,
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: &str,
         labels: Option<&[String]>,
         assignees: Option<&[String]>,
     ) -> Result<GitHubIssue, String> {
@@ -657,8 +782,12 @@ impl GitHubClient {
             "title": title,
             "body": body,
         });
-        if let Some(l) = labels { json["labels"] = serde_json::json!(l); }
-        if let Some(a) = assignees { json["assignees"] = serde_json::json!(a); }
+        if let Some(l) = labels {
+            json["labels"] = serde_json::json!(l);
+        }
+        if let Some(a) = assignees {
+            json["assignees"] = serde_json::json!(a);
+        }
 
         let response = self.post(&path, &json).await?;
         Self::parse_response(response).await
@@ -666,28 +795,53 @@ impl GitHubClient {
 
     /// Update an issue
     pub async fn update_issue(
-        &self, owner: &str, repo: &str, issue_number: u64,
-        title: Option<&str>, body: Option<&str>,
-        state: Option<&str>, labels: Option<&[String]>,
+        &self,
+        owner: &str,
+        repo: &str,
+        issue_number: u64,
+        title: Option<&str>,
+        body: Option<&str>,
+        state: Option<&str>,
+        labels: Option<&[String]>,
     ) -> Result<GitHubIssue, String> {
         let path = format!("/repos/{}/{}/issues/{}", owner, repo, issue_number);
         let mut json = serde_json::json!({});
-        if let Some(t) = title { json["title"] = serde_json::json!(t); }
-        if let Some(b) = body { json["body"] = serde_json::json!(b); }
-        if let Some(s) = state { json["state"] = serde_json::json!(s); }
-        if let Some(l) = labels { json["labels"] = serde_json::json!(l); }
+        if let Some(t) = title {
+            json["title"] = serde_json::json!(t);
+        }
+        if let Some(b) = body {
+            json["body"] = serde_json::json!(b);
+        }
+        if let Some(s) = state {
+            json["state"] = serde_json::json!(s);
+        }
+        if let Some(l) = labels {
+            json["labels"] = serde_json::json!(l);
+        }
 
         let response = self.patch(&path, &json).await?;
         Self::parse_response(response).await
     }
 
     /// Close an issue
-    pub async fn close_issue(&self, owner: &str, repo: &str, issue_number: u64) -> Result<GitHubIssue, String> {
-        self.update_issue(owner, repo, issue_number, None, None, Some("closed"), None).await
+    pub async fn close_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        issue_number: u64,
+    ) -> Result<GitHubIssue, String> {
+        self.update_issue(owner, repo, issue_number, None, None, Some("closed"), None)
+            .await
     }
 
     /// Add labels to an issue
-    pub async fn add_labels(&self, owner: &str, repo: &str, issue_number: u64, labels: &[String]) -> Result<Vec<GitHubLabel>, String> {
+    pub async fn add_labels(
+        &self,
+        owner: &str,
+        repo: &str,
+        issue_number: u64,
+        labels: &[String],
+    ) -> Result<Vec<GitHubLabel>, String> {
         let path = format!("/repos/{}/{}/issues/{}/labels", owner, repo, issue_number);
         let body = serde_json::json!({ "labels": labels });
         let response = self.post(&path, &body).await?;
@@ -696,7 +850,11 @@ impl GitHubClient {
 
     /// Add a comment to an issue
     pub async fn create_issue_comment(
-        &self, owner: &str, repo: &str, issue_number: u64, body: &str,
+        &self,
+        owner: &str,
+        repo: &str,
+        issue_number: u64,
+        body: &str,
     ) -> Result<serde_json::Value, String> {
         let path = format!("/repos/{}/{}/issues/{}/comments", owner, repo, issue_number);
         let json = serde_json::json!({ "body": body });
@@ -708,18 +866,32 @@ impl GitHubClient {
 
     /// List PRs for a repo
     pub async fn list_pull_requests(
-        &self, owner: &str, repo: &str,
-        state: Option<&str>, page: u32, per_page: u32,
+        &self,
+        owner: &str,
+        repo: &str,
+        state: Option<&str>,
+        page: u32,
+        per_page: u32,
     ) -> Result<Vec<GitHubPullRequest>, String> {
-        let mut path = format!("/repos/{}/{}/pulls?page={}&per_page={}", owner, repo, page, per_page);
-        if let Some(s) = state { path.push_str(&format!("&state={}", s)); }
+        let mut path = format!(
+            "/repos/{}/{}/pulls?page={}&per_page={}",
+            owner, repo, page, per_page
+        );
+        if let Some(s) = state {
+            path.push_str(&format!("&state={}", s));
+        }
 
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// Get a single PR
-    pub async fn get_pull_request(&self, owner: &str, repo: &str, pr_number: u64) -> Result<GitHubPullRequest, String> {
+    pub async fn get_pull_request(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<GitHubPullRequest, String> {
         let path = format!("/repos/{}/{}/pulls/{}", owner, repo, pr_number);
         let response = self.get(&path).await?;
         Self::parse_response(response).await
@@ -727,9 +899,13 @@ impl GitHubClient {
 
     /// Create a pull request
     pub async fn create_pull_request(
-        &self, owner: &str, repo: &str,
-        title: &str, body: &str,
-        head: &str, base: &str,
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: &str,
+        head: &str,
+        base: &str,
         draft: bool,
     ) -> Result<GitHubPullRequest, String> {
         let path = format!("/repos/{}/{}/pulls", owner, repo);
@@ -746,13 +922,21 @@ impl GitHubClient {
 
     /// Merge a pull request
     pub async fn merge_pull_request(
-        &self, owner: &str, repo: &str, pr_number: u64,
-        commit_title: Option<&str>, merge_method: Option<&str>,
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+        commit_title: Option<&str>,
+        merge_method: Option<&str>,
     ) -> Result<serde_json::Value, String> {
         let path = format!("/repos/{}/{}/pulls/{}/merge", owner, repo, pr_number);
         let mut json = serde_json::json!({});
-        if let Some(t) = commit_title { json["commit_title"] = serde_json::json!(t); }
-        if let Some(m) = merge_method { json["merge_method"] = serde_json::json!(m); }
+        if let Some(t) = commit_title {
+            json["commit_title"] = serde_json::json!(t);
+        }
+        if let Some(m) = merge_method {
+            json["merge_method"] = serde_json::json!(m);
+        }
 
         let response = self.put(&path, &json).await?;
         Self::parse_response(response).await
@@ -760,21 +944,35 @@ impl GitHubClient {
 
     /// Request reviewers for a PR
     pub async fn request_reviewers(
-        &self, owner: &str, repo: &str, pr_number: u64, reviewers: &[String],
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+        reviewers: &[String],
     ) -> Result<serde_json::Value, String> {
-        let path = format!("/repos/{}/{}/pulls/{}/requested_reviewers", owner, repo, pr_number);
+        let path = format!(
+            "/repos/{}/{}/pulls/{}/requested_reviewers",
+            owner, repo, pr_number
+        );
         let json = serde_json::json!({ "reviewers": reviewers });
         let response = self.post(&path, &json).await?;
         Self::parse_response(response).await
     }
 
     /// Get PR diff as text
-    pub async fn get_pr_diff(&self, owner: &str, repo: &str, pr_number: u64) -> Result<String, String> {
+    pub async fn get_pr_diff(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<String, String> {
         let path = format!("/repos/{}/{}/pulls/{}", owner, repo, pr_number);
         let auth = self.auth.read().await;
         let url = format!("{}{}", auth.api_base(), path);
 
-        let mut req = self.http.get(&url)
+        let mut req = self
+            .http
+            .get(&url)
             .header("Accept", "application/vnd.github.v3.diff")
             .header("User-Agent", "IORA-Assist/1.0");
 
@@ -788,19 +986,38 @@ impl GitHubClient {
             let body = response.text().await.unwrap_or_default();
             return Err(format!("GitHub API error ({}): {}", status.as_u16(), body));
         }
-        response.text().await.map_err(|e| format!("Response error: {}", e))
+        response
+            .text()
+            .await
+            .map_err(|e| format!("Response error: {}", e))
     }
 
     // ─── Contents / Files ───────────────────────────────────────────────
 
     /// Get file/directory contents
-    pub async fn get_contents(&self, owner: &str, repo: &str, path_str: &str, ref_name: Option<&str>) -> Result<Vec<GitHubContent>, String> {
-        let mut api_path = format!("/repos/{}/{}/contents/{}", owner, repo, path_str.trim_start_matches('/'));
-        if let Some(r) = ref_name { api_path.push_str(&format!("?ref={}", r)); }
+    pub async fn get_contents(
+        &self,
+        owner: &str,
+        repo: &str,
+        path_str: &str,
+        ref_name: Option<&str>,
+    ) -> Result<Vec<GitHubContent>, String> {
+        let mut api_path = format!(
+            "/repos/{}/{}/contents/{}",
+            owner,
+            repo,
+            path_str.trim_start_matches('/')
+        );
+        if let Some(r) = ref_name {
+            api_path.push_str(&format!("?ref={}", r));
+        }
 
         let response = self.get(&api_path).await?;
         // Content can be a single file object or an array of directory entries
-        let text = response.text().await.map_err(|e| format!("Response error: {}", e))?;
+        let text = response
+            .text()
+            .await
+            .map_err(|e| format!("Response error: {}", e))?;
 
         // Try as array first
         if let Ok(items) = serde_json::from_str::<Vec<GitHubContent>>(&text) {
@@ -808,12 +1025,21 @@ impl GitHubClient {
         } else if let Ok(item) = serde_json::from_str::<GitHubContent>(&text) {
             Ok(vec![item])
         } else {
-            Err(format!("Failed to parse content response: {}", &text[..text.len().min(200)]))
+            Err(format!(
+                "Failed to parse content response: {}",
+                &text[..text.len().min(200)]
+            ))
         }
     }
 
     /// Read a file (decoded content)
-    pub async fn read_file(&self, owner: &str, repo: &str, file_path: &str, ref_name: Option<&str>) -> Result<String, String> {
+    pub async fn read_file(
+        &self,
+        owner: &str,
+        repo: &str,
+        file_path: &str,
+        ref_name: Option<&str>,
+    ) -> Result<String, String> {
         let items = self.get_contents(owner, repo, file_path, ref_name).await?;
         let item = items.first().ok_or("File not found")?;
 
@@ -830,10 +1056,20 @@ impl GitHubClient {
 
     /// Create or update a file
     pub async fn write_file(
-        &self, owner: &str, repo: &str, file_path: &str,
-        content: &str, message: &str, branch: Option<&str>,
+        &self,
+        owner: &str,
+        repo: &str,
+        file_path: &str,
+        content: &str,
+        message: &str,
+        branch: Option<&str>,
     ) -> Result<serde_json::Value, String> {
-        let path = format!("/repos/{}/{}/contents/{}", owner, repo, file_path.trim_start_matches('/'));
+        let path = format!(
+            "/repos/{}/{}/contents/{}",
+            owner,
+            repo,
+            file_path.trim_start_matches('/')
+        );
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
 
@@ -841,7 +1077,9 @@ impl GitHubClient {
             "message": message,
             "content": encoded,
         });
-        if let Some(b) = branch { json["branch"] = serde_json::json!(b); }
+        if let Some(b) = branch {
+            json["branch"] = serde_json::json!(b);
+        }
 
         // Check if file exists to get SHA (need to use sha for updates)
         match self.get_contents(owner, repo, file_path, branch).await {
@@ -859,30 +1097,50 @@ impl GitHubClient {
 
     /// Delete a file
     pub async fn delete_file(
-        &self, owner: &str, repo: &str, file_path: &str,
-        message: &str, branch: Option<&str>,
+        &self,
+        owner: &str,
+        repo: &str,
+        file_path: &str,
+        message: &str,
+        branch: Option<&str>,
     ) -> Result<serde_json::Value, String> {
-        let path = format!("/repos/{}/{}/contents/{}", owner, repo, file_path.trim_start_matches('/'));
+        let path = format!(
+            "/repos/{}/{}/contents/{}",
+            owner,
+            repo,
+            file_path.trim_start_matches('/')
+        );
 
         // Get SHA of the file
         let items = self.get_contents(owner, repo, file_path, branch).await?;
-        let sha = items.first().map(|i| i.sha.clone()).ok_or("File not found")?;
+        let sha = items
+            .first()
+            .map(|i| i.sha.clone())
+            .ok_or("File not found")?;
 
         let mut json = serde_json::json!({
             "message": message,
             "sha": sha,
         });
-        if let Some(b) = branch { json["branch"] = serde_json::json!(b); }
+        if let Some(b) = branch {
+            json["branch"] = serde_json::json!(b);
+        }
 
         let response = self.delete_with_body(&path, &json).await?;
         Self::parse_response(response).await
     }
 
-    async fn delete_with_body(&self, path: &str, body: &serde_json::Value) -> Result<reqwest::Response, String> {
+    async fn delete_with_body(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<reqwest::Response, String> {
         let auth = self.auth.read().await;
         let url = format!("{}{}", auth.api_base(), path);
 
-        let mut req = self.http.delete(&url)
+        let mut req = self
+            .http
+            .delete(&url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "IORA-Assist/1.0")
@@ -892,25 +1150,41 @@ impl GitHubClient {
             req = req.header("Authorization", header);
         }
 
-        req.send().await.map_err(|e| format!("HTTP request failed: {}", e))
+        req.send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))
     }
 
     // ─── Commits ────────────────────────────────────────────────────────
 
     /// List commits for a repo
     pub async fn list_commits(
-        &self, owner: &str, repo: &str,
-        branch: Option<&str>, page: u32, per_page: u32,
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: Option<&str>,
+        page: u32,
+        per_page: u32,
     ) -> Result<Vec<GitHubCommit>, String> {
-        let mut path = format!("/repos/{}/{}/commits?page={}&per_page={}", owner, repo, page, per_page);
-        if let Some(b) = branch { path.push_str(&format!("&sha={}", b)); }
+        let mut path = format!(
+            "/repos/{}/{}/commits?page={}&per_page={}",
+            owner, repo, page, per_page
+        );
+        if let Some(b) = branch {
+            path.push_str(&format!("&sha={}", b));
+        }
 
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// Get a single commit
-    pub async fn get_commit(&self, owner: &str, repo: &str, sha: &str) -> Result<GitHubCommit, String> {
+    pub async fn get_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> Result<GitHubCommit, String> {
         let path = format!("/repos/{}/{}/commits/{}", owner, repo, sha);
         let response = self.get(&path).await?;
         Self::parse_response(response).await
@@ -918,7 +1192,11 @@ impl GitHubClient {
 
     /// Compare two commits/branches
     pub async fn compare_commits(
-        &self, owner: &str, repo: &str, base: &str, head: &str,
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
     ) -> Result<serde_json::Value, String> {
         let path = format!("/repos/{}/{}/compare/{}...{}", owner, repo, base, head);
         let response = self.get(&path).await?;
@@ -928,20 +1206,34 @@ impl GitHubClient {
     // ─── Workflows / Actions ────────────────────────────────────────────
 
     /// List workflows
-    pub async fn list_workflows(&self, owner: &str, repo: &str) -> Result<Vec<GitHubWorkflow>, String> {
+    pub async fn list_workflows(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<GitHubWorkflow>, String> {
         let path = format!("/repos/{}/{}/actions/workflows", owner, repo);
         let response = self.get(&path).await?;
         #[derive(Deserialize)]
-        struct WorkflowList { workflows: Vec<GitHubWorkflow> }
+        struct WorkflowList {
+            workflows: Vec<GitHubWorkflow>,
+        }
         let list: WorkflowList = Self::parse_response(response).await?;
         Ok(list.workflows)
     }
 
     /// Trigger a workflow dispatch
     pub async fn trigger_workflow(
-        &self, owner: &str, repo: &str, workflow_id: u64, ref_name: &str, inputs: serde_json::Value,
+        &self,
+        owner: &str,
+        repo: &str,
+        workflow_id: u64,
+        ref_name: &str,
+        inputs: serde_json::Value,
     ) -> Result<(), String> {
-        let path = format!("/repos/{}/{}/actions/workflows/{}/dispatches", owner, repo, workflow_id);
+        let path = format!(
+            "/repos/{}/{}/actions/workflows/{}/dispatches",
+            owner, repo, workflow_id
+        );
         let json = serde_json::json!({
             "ref": ref_name,
             "inputs": inputs,
@@ -950,28 +1242,52 @@ impl GitHubClient {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(format!("Workflow trigger failed ({}): {}", status.as_u16(), body));
+            return Err(format!(
+                "Workflow trigger failed ({}): {}",
+                status.as_u16(),
+                body
+            ));
         }
         Ok(())
     }
 
     /// List workflow runs
     pub async fn list_workflow_runs(
-        &self, owner: &str, repo: &str, branch: Option<&str>, status: Option<&str>, page: u32, per_page: u32,
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: Option<&str>,
+        status: Option<&str>,
+        page: u32,
+        per_page: u32,
     ) -> Result<Vec<GitHubWorkflowRun>, String> {
-        let mut path = format!("/repos/{}/{}/actions/runs?page={}&per_page={}", owner, repo, page, per_page);
-        if let Some(b) = branch { path.push_str(&format!("&branch={}", b)); }
-        if let Some(s) = status { path.push_str(&format!("&status={}", s)); }
+        let mut path = format!(
+            "/repos/{}/{}/actions/runs?page={}&per_page={}",
+            owner, repo, page, per_page
+        );
+        if let Some(b) = branch {
+            path.push_str(&format!("&branch={}", b));
+        }
+        if let Some(s) = status {
+            path.push_str(&format!("&status={}", s));
+        }
 
         let response = self.get(&path).await?;
         #[derive(Deserialize)]
-        struct RunList { workflow_runs: Vec<GitHubWorkflowRun> }
+        struct RunList {
+            workflow_runs: Vec<GitHubWorkflowRun>,
+        }
         let list: RunList = Self::parse_response(response).await?;
         Ok(list.workflow_runs)
     }
 
     /// Get a workflow run
-    pub async fn get_workflow_run(&self, owner: &str, repo: &str, run_id: u64) -> Result<GitHubWorkflowRun, String> {
+    pub async fn get_workflow_run(
+        &self,
+        owner: &str,
+        repo: &str,
+        run_id: u64,
+    ) -> Result<GitHubWorkflowRun, String> {
         let path = format!("/repos/{}/{}/actions/runs/{}", owner, repo, run_id);
         let response = self.get(&path).await?;
         Self::parse_response(response).await
@@ -980,14 +1296,27 @@ impl GitHubClient {
     // ─── Releases ───────────────────────────────────────────────────────
 
     /// List releases
-    pub async fn list_releases(&self, owner: &str, repo: &str, page: u32, per_page: u32) -> Result<Vec<GitHubRelease>, String> {
-        let path = format!("/repos/{}/{}/releases?page={}&per_page={}", owner, repo, page, per_page);
+    pub async fn list_releases(
+        &self,
+        owner: &str,
+        repo: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<GitHubRelease>, String> {
+        let path = format!(
+            "/repos/{}/{}/releases?page={}&per_page={}",
+            owner, repo, page, per_page
+        );
         let response = self.get(&path).await?;
         Self::parse_response(response).await
     }
 
     /// Get latest release
-    pub async fn get_latest_release(&self, owner: &str, repo: &str) -> Result<GitHubRelease, String> {
+    pub async fn get_latest_release(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<GitHubRelease, String> {
         let path = format!("/repos/{}/{}/releases/latest", owner, repo);
         let response = self.get(&path).await?;
         Self::parse_response(response).await
@@ -995,9 +1324,14 @@ impl GitHubClient {
 
     /// Create a release
     pub async fn create_release(
-        &self, owner: &str, repo: &str,
-        tag_name: &str, name: &str, body: &str,
-        draft: bool, prerelease: bool,
+        &self,
+        owner: &str,
+        repo: &str,
+        tag_name: &str,
+        name: &str,
+        body: &str,
+        draft: bool,
+        prerelease: bool,
     ) -> Result<GitHubRelease, String> {
         let path = format!("/repos/{}/{}/releases", owner, repo);
         let json = serde_json::json!({
@@ -1052,7 +1386,10 @@ impl GitHubClient {
 
         let mut suggestions = Vec::new();
         for repo in repos.iter().take(20) {
-            let branches = self.list_branches(&repo.owner.login, &repo.name, 1, 5).await.unwrap_or_default();
+            let branches = self
+                .list_branches(&repo.owner.login, &repo.name, 1, 5)
+                .await
+                .unwrap_or_default();
             suggestions.push(serde_json::json!({
                 "full_name": repo.full_name,
                 "owner": repo.owner.login,
@@ -1165,119 +1502,206 @@ impl GitHubActionExecutor {
             GitHubActionType::CreateIssue => {
                 let title = action.params["title"].as_str().unwrap_or("Untitled");
                 let body = action.params["body"].as_str().unwrap_or("");
-                let labels: Option<Vec<String>> = action.params["labels"].as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-                let assignees: Option<Vec<String>> = action.params["assignees"].as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+                let labels: Option<Vec<String>> = action.params["labels"].as_array().map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                });
+                let assignees: Option<Vec<String>> =
+                    action.params["assignees"].as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    });
 
-                self.client.create_issue(
-                    &action.repo_owner, &action.repo_name,
-                    title, body,
-                    labels.as_deref(), assignees.as_deref(),
-                ).await.map(|i| serde_json::to_value(i).unwrap_or_default())?
+                self.client
+                    .create_issue(
+                        &action.repo_owner,
+                        &action.repo_name,
+                        title,
+                        body,
+                        labels.as_deref(),
+                        assignees.as_deref(),
+                    )
+                    .await
+                    .map(|i| serde_json::to_value(i).unwrap_or_default())?
             }
             GitHubActionType::CreatePR => {
                 let title = action.params["title"].as_str().unwrap_or("ORA Agent PR");
                 let body = action.params["body"].as_str().unwrap_or("");
-                let head = action.params["head"].as_str().unwrap_or("feature/ora-agent");
+                let head = action.params["head"]
+                    .as_str()
+                    .unwrap_or("feature/ora-agent");
                 let base = action.params["base"].as_str().unwrap_or("main");
                 let draft = action.params["draft"].as_bool().unwrap_or(false);
 
-                self.client.create_pull_request(
-                    &action.repo_owner, &action.repo_name,
-                    title, body, head, base, draft,
-                ).await.map(|pr| serde_json::to_value(pr).unwrap_or_default())?
+                self.client
+                    .create_pull_request(
+                        &action.repo_owner,
+                        &action.repo_name,
+                        title,
+                        body,
+                        head,
+                        base,
+                        draft,
+                    )
+                    .await
+                    .map(|pr| serde_json::to_value(pr).unwrap_or_default())?
             }
             GitHubActionType::MergePR => {
-                let pr_number = action.params["pr_number"].as_u64().ok_or("Missing pr_number")?;
+                let pr_number = action.params["pr_number"]
+                    .as_u64()
+                    .ok_or("Missing pr_number")?;
                 let commit_title = action.params["commit_title"].as_str();
                 let merge_method = action.params["merge_method"].as_str();
 
-                self.client.merge_pull_request(
-                    &action.repo_owner, &action.repo_name,
-                    pr_number, commit_title, merge_method,
-                ).await?
+                self.client
+                    .merge_pull_request(
+                        &action.repo_owner,
+                        &action.repo_name,
+                        pr_number,
+                        commit_title,
+                        merge_method,
+                    )
+                    .await?
             }
             GitHubActionType::WriteFile => {
-                let file_path = action.params["file_path"].as_str().ok_or("Missing file_path")?;
+                let file_path = action.params["file_path"]
+                    .as_str()
+                    .ok_or("Missing file_path")?;
                 let content = action.params["content"].as_str().ok_or("Missing content")?;
-                let message = action.params["message"].as_str().unwrap_or("Update via ORA Agent");
+                let message = action.params["message"]
+                    .as_str()
+                    .unwrap_or("Update via ORA Agent");
                 let branch = action.branch.as_deref();
 
-                self.client.write_file(
-                    &action.repo_owner, &action.repo_name,
-                    file_path, content, message, branch,
-                ).await?
+                self.client
+                    .write_file(
+                        &action.repo_owner,
+                        &action.repo_name,
+                        file_path,
+                        content,
+                        message,
+                        branch,
+                    )
+                    .await?
             }
             GitHubActionType::DeleteFile => {
-                let file_path = action.params["file_path"].as_str().ok_or("Missing file_path")?;
-                let message = action.params["message"].as_str().unwrap_or("Delete via ORA Agent");
+                let file_path = action.params["file_path"]
+                    .as_str()
+                    .ok_or("Missing file_path")?;
+                let message = action.params["message"]
+                    .as_str()
+                    .unwrap_or("Delete via ORA Agent");
                 let branch = action.branch.as_deref();
 
-                self.client.delete_file(
-                    &action.repo_owner, &action.repo_name,
-                    file_path, message, branch,
-                ).await?
+                self.client
+                    .delete_file(
+                        &action.repo_owner,
+                        &action.repo_name,
+                        file_path,
+                        message,
+                        branch,
+                    )
+                    .await?
             }
             GitHubActionType::TriggerWorkflow => {
-                let workflow_id = action.params["workflow_id"].as_u64().ok_or("Missing workflow_id")?;
+                let workflow_id = action.params["workflow_id"]
+                    .as_u64()
+                    .ok_or("Missing workflow_id")?;
                 let ref_name = action.branch.as_deref().unwrap_or("main");
-                let inputs = action.params.get("inputs").cloned().unwrap_or(serde_json::json!({}));
+                let inputs = action
+                    .params
+                    .get("inputs")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
 
-                self.client.trigger_workflow(
-                    &action.repo_owner, &action.repo_name,
-                    workflow_id, ref_name, inputs,
-                ).await.map(|_| serde_json::json!({"success": true}))?
+                self.client
+                    .trigger_workflow(
+                        &action.repo_owner,
+                        &action.repo_name,
+                        workflow_id,
+                        ref_name,
+                        inputs,
+                    )
+                    .await
+                    .map(|_| serde_json::json!({"success": true}))?
             }
             GitHubActionType::CreateRelease => {
-                let tag_name = action.params["tag_name"].as_str().ok_or("Missing tag_name")?;
+                let tag_name = action.params["tag_name"]
+                    .as_str()
+                    .ok_or("Missing tag_name")?;
                 let name = action.params["name"].as_str().unwrap_or(tag_name);
                 let body = action.params["body"].as_str().unwrap_or("");
                 let draft = action.params["draft"].as_bool().unwrap_or(false);
                 let prerelease = action.params["prerelease"].as_bool().unwrap_or(false);
 
-                self.client.create_release(
-                    &action.repo_owner, &action.repo_name,
-                    tag_name, name, body, draft, prerelease,
-                ).await.map(|r| serde_json::to_value(r).unwrap_or_default())?
+                self.client
+                    .create_release(
+                        &action.repo_owner,
+                        &action.repo_name,
+                        tag_name,
+                        name,
+                        body,
+                        draft,
+                        prerelease,
+                    )
+                    .await
+                    .map(|r| serde_json::to_value(r).unwrap_or_default())?
             }
             GitHubActionType::AddComment => {
-                let issue_number = action.params["issue_number"].as_u64().ok_or("Missing issue_number")?;
+                let issue_number = action.params["issue_number"]
+                    .as_u64()
+                    .ok_or("Missing issue_number")?;
                 let body = action.params["body"].as_str().ok_or("Missing body")?;
 
-                self.client.create_issue_comment(
-                    &action.repo_owner, &action.repo_name,
-                    issue_number, body,
-                ).await?
+                self.client
+                    .create_issue_comment(&action.repo_owner, &action.repo_name, issue_number, body)
+                    .await?
             }
             GitHubActionType::CloseIssue => {
-                let issue_number = action.params["issue_number"].as_u64().ok_or("Missing issue_number")?;
-                self.client.close_issue(
-                    &action.repo_owner, &action.repo_name,
-                    issue_number,
-                ).await.map(|i| serde_json::to_value(i).unwrap_or_default())?
+                let issue_number = action.params["issue_number"]
+                    .as_u64()
+                    .ok_or("Missing issue_number")?;
+                self.client
+                    .close_issue(&action.repo_owner, &action.repo_name, issue_number)
+                    .await
+                    .map(|i| serde_json::to_value(i).unwrap_or_default())?
             }
             GitHubActionType::CreateBranch => {
-                let branch_name = action.params["branch_name"].as_str().ok_or("Missing branch_name")?;
-                let base_sha = action.params.get("base_sha")
+                let branch_name = action.params["branch_name"]
+                    .as_str()
+                    .ok_or("Missing branch_name")?;
+                let base_sha = action
+                    .params
+                    .get("base_sha")
                     .and_then(|v| v.as_str())
                     .map(String::from);
 
                 let sha = if let Some(bs) = base_sha {
                     bs
                 } else if let Some(ref base) = action.branch {
-                    let b = self.client.get_branch(&action.repo_owner, &action.repo_name, base).await?;
+                    let b = self
+                        .client
+                        .get_branch(&action.repo_owner, &action.repo_name, base)
+                        .await?;
                     b.commit.sha
                 } else {
-                    let repo = self.client.get_repo(&action.repo_owner, &action.repo_name).await?;
-                    let b = self.client.get_branch(&action.repo_owner, &action.repo_name, &repo.default_branch).await?;
+                    let repo = self
+                        .client
+                        .get_repo(&action.repo_owner, &action.repo_name)
+                        .await?;
+                    let b = self
+                        .client
+                        .get_branch(&action.repo_owner, &action.repo_name, &repo.default_branch)
+                        .await?;
                     b.commit.sha
                 };
 
-                self.client.create_branch(
-                    &action.repo_owner, &action.repo_name,
-                    branch_name, &sha,
-                ).await.map(|b| serde_json::to_value(b).unwrap_or_default())?
+                self.client
+                    .create_branch(&action.repo_owner, &action.repo_name, branch_name, &sha)
+                    .await
+                    .map(|b| serde_json::to_value(b).unwrap_or_default())?
             }
             GitHubActionType::Custom(custom_type) => {
                 return Err(format!("Unknown custom action type: {}", custom_type));

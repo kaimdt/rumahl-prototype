@@ -115,6 +115,11 @@ pub struct InstalledApp {
     /// Install-time permission audit entries.
     #[serde(default)]
     pub permission_audit: Vec<AppPermissionAuditEntry>,
+    /// Base URL for serving app/plugin static assets.
+    /// Files are served from `<assets_base_url>/<path>`, e.g.,
+    /// `<assets_base_url>/i18n/en.json` for translation bundles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assets_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -436,7 +441,8 @@ impl LocalAppStore {
             .apps
             .get_mut(app_id)
             .ok_or_else(|| anyhow!("app '{}' not found", app_id))?;
-        let requested: std::collections::HashSet<String> = app.manifest.permissions.iter().cloned().collect();
+        let requested: std::collections::HashSet<String> =
+            app.manifest.permissions.iter().cloned().collect();
         let granted: std::collections::HashSet<String> = granted_permissions
             .into_iter()
             .filter(|permission| requested.contains(permission))
@@ -589,6 +595,7 @@ impl LocalAppStore {
             permission_grants: Vec::new(),
             denied_permissions: Vec::new(),
             permission_audit: Vec::new(),
+            assets_base_url: None,
         })
         .await
     }
@@ -652,6 +659,7 @@ impl LocalAppStore {
             permission_grants: Vec::new(),
             denied_permissions: Vec::new(),
             permission_audit: Vec::new(),
+            assets_base_url: None,
         }).await
     }
 
@@ -714,6 +722,7 @@ impl LocalAppStore {
             permission_grants: Vec::new(),
             denied_permissions: Vec::new(),
             permission_audit: Vec::new(),
+            assets_base_url: None,
         }).await
     }
 
@@ -1144,6 +1153,7 @@ impl LocalAppStore {
             permission_grants,
             denied_permissions,
             permission_audit,
+            assets_base_url: Some(format!("/api/apps/assets/{}", manifest.id)),
         };
 
         let app_dir = self.base_dir.join(&app.id);

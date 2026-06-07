@@ -55,9 +55,11 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await;
 
-    sqlx::query(include_str!("../migrations/008_provider_models_and_secrets.sql"))
-        .execute(pool)
-        .await?;
+    sqlx::query(include_str!(
+        "../migrations/008_provider_models_and_secrets.sql"
+    ))
+    .execute(pool)
+    .await?;
 
     tracing::info!("Database migrations completed successfully");
     Ok(())
@@ -98,7 +100,7 @@ pub mod conversations {
         user_id: Option<Uuid>,
     ) -> Result<ConversationThread, sqlx::Error> {
         let thread = sqlx::query_as::<_, ConversationThread>(
-            "INSERT INTO conversation_threads (user_id) VALUES ($1) RETURNING *"
+            "INSERT INTO conversation_threads (user_id) VALUES ($1) RETURNING *",
         )
         .bind(user_id)
         .fetch_one(pool)
@@ -121,7 +123,7 @@ pub mod conversations {
             (thread_id, role, content, provider, initiated_by)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
-            "#
+            "#,
         )
         .bind(thread_id)
         .bind(role)
@@ -151,7 +153,7 @@ pub mod conversations {
             WHERE thread_id = $1
             ORDER BY timestamp DESC
             LIMIT $2
-            "#
+            "#,
         )
         .bind(thread_id)
         .bind(limit)
@@ -240,7 +242,7 @@ pub mod tasks {
             (task_id, provider_used, result, success, error_message, execution_duration_ms)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#
+            "#,
         )
         .bind(task_id)
         .bind(provider_used)
@@ -263,14 +265,16 @@ pub mod tasks {
     }
 
     /// Set the `enabled` flag on a task (pause or resume).
-    pub async fn set_enabled(pool: &DbPool, task_id: Uuid, enabled: bool) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE autonomous_tasks SET enabled = $1, updated_at = NOW() WHERE id = $2"
-        )
-        .bind(enabled)
-        .bind(task_id)
-        .execute(pool)
-        .await?;
+    pub async fn set_enabled(
+        pool: &DbPool,
+        task_id: Uuid,
+        enabled: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE autonomous_tasks SET enabled = $1, updated_at = NOW() WHERE id = $2")
+            .bind(enabled)
+            .bind(task_id)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 
@@ -287,7 +291,7 @@ pub mod tasks {
                    paused_until = $1,
                    paused_temporarily = true,
                    updated_at = NOW()
-               WHERE id = $2"#
+               WHERE id = $2"#,
         )
         .bind(resume_at)
         .bind(task_id)
@@ -308,7 +312,7 @@ pub mod tasks {
                    updated_at = NOW()
                WHERE paused_temporarily = true
                  AND paused_until IS NOT NULL
-                 AND paused_until <= NOW()"#
+                 AND paused_until <= NOW()"#,
         )
         .execute(pool)
         .await?;
@@ -331,7 +335,7 @@ pub mod tasks {
         next_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE autonomous_tasks SET next_execution_at = $1, updated_at = NOW() WHERE id = $2"
+            "UPDATE autonomous_tasks SET next_execution_at = $1, updated_at = NOW() WHERE id = $2",
         )
         .bind(next_at)
         .bind(task_id)
@@ -341,13 +345,15 @@ pub mod tasks {
     }
 
     /// Fetch a single task by id.
-    pub async fn get_by_id(pool: &DbPool, task_id: Uuid) -> Result<Option<AutonomousTask>, sqlx::Error> {
-        let task = sqlx::query_as::<_, AutonomousTask>(
-            "SELECT * FROM autonomous_tasks WHERE id = $1"
-        )
-        .bind(task_id)
-        .fetch_optional(pool)
-        .await?;
+    pub async fn get_by_id(
+        pool: &DbPool,
+        task_id: Uuid,
+    ) -> Result<Option<AutonomousTask>, sqlx::Error> {
+        let task =
+            sqlx::query_as::<_, AutonomousTask>("SELECT * FROM autonomous_tasks WHERE id = $1")
+                .bind(task_id)
+                .fetch_optional(pool)
+                .await?;
         Ok(task)
     }
 
@@ -366,7 +372,7 @@ pub mod tasks {
                   AND (user_id = $1 OR $1 IS NULL)
                 ORDER BY COALESCE(trigger_at, next_execution_at) ASC NULLS LAST
                 LIMIT $2
-                "#
+                "#,
             )
             .bind(user_id)
             .bind(limit)
@@ -381,7 +387,7 @@ pub mod tasks {
                   AND (user_id = $1 OR $1 IS NULL)
                 ORDER BY COALESCE(trigger_at, next_execution_at) ASC NULLS LAST
                 LIMIT $2
-                "#
+                "#,
             )
             .bind(user_id)
             .bind(limit)
@@ -407,7 +413,7 @@ pub mod tasks {
                 next_execution_at = COALESCE($3, next_execution_at),
                 updated_at = NOW()
             WHERE id = $4
-            "#
+            "#,
         )
         .bind(name)
         .bind(description)
@@ -454,7 +460,7 @@ pub mod providers {
             SELECT * FROM provider_configs
             WHERE purpose = $1 AND enabled = true
             ORDER BY priority DESC
-            "#
+            "#,
         )
         .bind(purpose)
         .fetch_all(pool)
@@ -463,9 +469,11 @@ pub mod providers {
         Ok(providers)
     }
 
-    pub async fn get_all_enabled_providers(pool: &DbPool) -> Result<Vec<ProviderConfig>, sqlx::Error> {
+    pub async fn get_all_enabled_providers(
+        pool: &DbPool,
+    ) -> Result<Vec<ProviderConfig>, sqlx::Error> {
         let providers = sqlx::query_as::<_, ProviderConfig>(
-            "SELECT * FROM provider_configs WHERE enabled = true ORDER BY priority DESC"
+            "SELECT * FROM provider_configs WHERE enabled = true ORDER BY priority DESC",
         )
         .fetch_all(pool)
         .await?;
@@ -486,7 +494,7 @@ pub mod providers {
             (provider_type, purpose, config, priority, enabled)
             VALUES ($1, $2, $3, $4, true)
             RETURNING *
-            "#
+            "#,
         )
         .bind(provider_type)
         .bind(purpose)
@@ -543,12 +551,11 @@ pub mod providers {
         pool: &DbPool,
         id: Uuid,
     ) -> Result<Option<ProviderConfig>, sqlx::Error> {
-        let provider = sqlx::query_as::<_, ProviderConfig>(
-            "SELECT * FROM provider_configs WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+        let provider =
+            sqlx::query_as::<_, ProviderConfig>("SELECT * FROM provider_configs WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
         Ok(provider)
     }
 }
@@ -588,7 +595,7 @@ pub mod notifications {
             (user_id, message, notification_type, priority, deliver_at)
             VALUES ($1, $2, $3, $4, COALESCE($5, NOW()))
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(message)
@@ -611,7 +618,7 @@ pub mod notifications {
             WHERE delivered = false AND deliver_at <= NOW()
             ORDER BY priority DESC, deliver_at ASC
             LIMIT $1
-            "#
+            "#,
         )
         .bind(limit)
         .fetch_all(pool)
@@ -622,7 +629,7 @@ pub mod notifications {
 
     pub async fn mark_delivered(pool: &DbPool, notification_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE notification_queue SET delivered = true, delivered_at = NOW() WHERE id = $1"
+            "UPDATE notification_queue SET delivered = true, delivered_at = NOW() WHERE id = $1",
         )
         .bind(notification_id)
         .execute(pool)
@@ -692,12 +699,10 @@ pub mod instant_tasks {
         pool: &DbPool,
         task_id: Uuid,
     ) -> Result<Option<InstantTask>, sqlx::Error> {
-        sqlx::query_as::<_, InstantTask>(
-            "SELECT * FROM instant_tasks WHERE id = $1",
-        )
-        .bind(task_id)
-        .fetch_optional(pool)
-        .await
+        sqlx::query_as::<_, InstantTask>("SELECT * FROM instant_tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_optional(pool)
+            .await
     }
 
     /// Atomically claim one pending task – set status to "processing".
@@ -748,11 +753,7 @@ pub mod instant_tasks {
     }
 
     /// Mark a task as failed.
-    pub async fn fail(
-        pool: &DbPool,
-        task_id: Uuid,
-        error: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn fail(pool: &DbPool, task_id: Uuid, error: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE instant_tasks
@@ -816,17 +817,14 @@ pub mod instant_tasks {
         task_id: Uuid,
         value: bool,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE instant_tasks SET notify_on_complete = $1 WHERE id = $2",
-        )
-        .bind(value)
-        .bind(task_id)
-        .execute(pool)
-        .await?;
+        sqlx::query("UPDATE instant_tasks SET notify_on_complete = $1 WHERE id = $2")
+            .bind(value)
+            .bind(task_id)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 }
-
 
 // ─── Provider models registry & secrets store ──────────────────────────────
 
@@ -953,10 +951,11 @@ pub mod secrets {
     }
 
     pub async fn get(pool: &DbPool, key: &str) -> Result<Option<String>, sqlx::Error> {
-        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM persisted_secrets WHERE key = $1")
-            .bind(key)
-            .fetch_optional(pool)
-            .await?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM persisted_secrets WHERE key = $1")
+                .bind(key)
+                .fetch_optional(pool)
+                .await?;
         Ok(row.map(|(v,)| v))
     }
 

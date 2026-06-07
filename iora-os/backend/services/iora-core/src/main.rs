@@ -12,16 +12,16 @@ use axum::{
 };
 use chrono::Utc;
 use iora_shared::{
-    plugin::{PluginMetadata, PluginRegistry},
-    types::{HealthStatus, IoraEvent, ServiceHealth},
     api_gateway::ApiGateway,
-    widget_registry::WidgetRegistry,
     heartbeat::ServiceHeartbeat,
+    plugin::{PluginMetadata, PluginRegistry},
     system_config,
+    types::{HealthStatus, IoraEvent, ServiceHealth},
+    widget_registry::WidgetRegistry,
 };
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::collections::BTreeMap;
 use tokio::sync::{broadcast, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt as _;
@@ -55,21 +55,21 @@ struct ServiceEntry {
     /// `POST /api/core/services/heartbeat`. Combined with `last_health`
     /// (the reverse-poll result) it gives us a full picture even if one
     /// direction of the link is broken.
-    last_heartbeat:    Option<String>,
+    last_heartbeat: Option<String>,
     /// Seconds since we last received a heartbeat. Computed on read.
     #[serde(skip)]
-    _seen_baseline:    Option<Instant>,
-    last_status:       Option<HealthStatus>,
-    last_message:      Option<String>,
-    version:           Option<String>,
-    pid:               Option<u32>,
-    host:              Option<String>,
-    uptime_seconds:    Option<u64>,
-    metrics:           BTreeMap<String, f64>,
+    _seen_baseline: Option<Instant>,
+    last_status: Option<HealthStatus>,
+    last_message: Option<String>,
+    version: Option<String>,
+    pid: Option<u32>,
+    host: Option<String>,
+    uptime_seconds: Option<u64>,
+    metrics: BTreeMap<String, f64>,
     /// `true` when no heartbeat has arrived within
     /// `HEARTBEAT_STALE_AFTER_SECS`.
-    stale:             bool,
-    heartbeat_count:   u64,
+    stale: bool,
+    heartbeat_count: u64,
 }
 
 // ─── Request / Response bodies ───────────────────────────────────────────────
@@ -137,7 +137,10 @@ async fn list_services(State(state): State<AppState>) -> Json<ServiceListRespons
 // Helper function to send events with error logging
 fn send_event(tx: &broadcast::Sender<IoraEvent>, event: IoraEvent) {
     if let Err(e) = tx.send(event) {
-        tracing::warn!("iora-core: event broadcast failed (channel full or no receivers): {:?}", e);
+        tracing::warn!(
+            "iora-core: event broadcast failed (channel full or no receivers): {:?}",
+            e
+        );
     }
 }
 
@@ -320,7 +323,9 @@ async fn uninstall_plugin(
     };
     send_event(&state.events_tx, event);
 
-    Ok(Json(serde_json::json!({ "message": "Plugin uninstalled", "id": id })))
+    Ok(Json(
+        serde_json::json!({ "message": "Plugin uninstalled", "id": id }),
+    ))
 }
 
 async fn events_sse(
@@ -368,17 +373,19 @@ async fn list_tasks(State(state): State<AppState>) -> Json<serde_json::Value> {
 
     let tasks: Vec<serde_json::Value> = rows
         .into_iter()
-        .map(|(id, name, task_type, enabled, interval_seconds, run_count, error_count)| {
-            serde_json::json!({
-                "id": id,
-                "name": name,
-                "task_type": task_type,
-                "enabled": enabled,
-                "interval_seconds": interval_seconds,
-                "run_count": run_count,
-                "error_count": error_count,
-            })
-        })
+        .map(
+            |(id, name, task_type, enabled, interval_seconds, run_count, error_count)| {
+                serde_json::json!({
+                    "id": id,
+                    "name": name,
+                    "task_type": task_type,
+                    "enabled": enabled,
+                    "interval_seconds": interval_seconds,
+                    "run_count": run_count,
+                    "error_count": error_count,
+                })
+            },
+        )
         .collect();
 
     let total = tasks.len();
@@ -408,13 +415,13 @@ async fn trigger_task(
     }
 
     // Record the manual trigger in analytics
-    let _ = sqlx::query(
-        "INSERT INTO analytics_snapshots (snapshot_type, data) VALUES ($1, $2)",
-    )
-    .bind("task_trigger")
-    .bind(sqlx::types::Json(serde_json::json!({ "task_id": id, "triggered_by": "api" })))
-    .execute(db.as_ref())
-    .await;
+    let _ = sqlx::query("INSERT INTO analytics_snapshots (snapshot_type, data) VALUES ($1, $2)")
+        .bind("task_trigger")
+        .bind(sqlx::types::Json(
+            serde_json::json!({ "task_id": id, "triggered_by": "api" }),
+        ))
+        .execute(db.as_ref())
+        .await;
 
     Json(serde_json::json!({ "message": "task triggered", "id": id }))
 }
@@ -532,7 +539,9 @@ async fn enable_plugin(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let Some(db) = &state.db else {
-        return Ok(Json(serde_json::json!({ "error": "database not connected" })));
+        return Ok(Json(
+            serde_json::json!({ "error": "database not connected" }),
+        ));
     };
 
     match sqlx::query("UPDATE plugins SET enabled = TRUE, updated_at = NOW() WHERE id = $1")
@@ -555,7 +564,9 @@ async fn disable_plugin(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let Some(db) = &state.db else {
-        return Ok(Json(serde_json::json!({ "error": "database not connected" })));
+        return Ok(Json(
+            serde_json::json!({ "error": "database not connected" }),
+        ));
     };
 
     match sqlx::query("UPDATE plugins SET enabled = FALSE, updated_at = NOW() WHERE id = $1")
@@ -587,7 +598,10 @@ async fn list_endpoints_by_provider(
     State(state): State<AppState>,
     Path(provider_id): Path<String>,
 ) -> Json<serde_json::Value> {
-    let endpoints = state.api_gateway.list_endpoints_by_provider(&provider_id).await;
+    let endpoints = state
+        .api_gateway
+        .list_endpoints_by_provider(&provider_id)
+        .await;
     Json(serde_json::json!({
         "endpoints": endpoints,
         "total": endpoints.len()
@@ -616,7 +630,10 @@ async fn list_widgets_by_provider(
     State(state): State<AppState>,
     Path(provider_id): Path<String>,
 ) -> Json<serde_json::Value> {
-    let widgets = state.widget_registry.list_widgets_by_provider(&provider_id).await;
+    let widgets = state
+        .widget_registry
+        .list_widgets_by_provider(&provider_id)
+        .await;
     Json(serde_json::json!({
         "widgets": widgets,
         "total": widgets.len()
@@ -647,25 +664,27 @@ async fn receive_heartbeat(
 ) -> Json<serde_json::Value> {
     let now = Utc::now().to_rfc3339();
     let mut map = state.services.write().await;
-    let entry = map.entry(beat.name.clone()).or_insert_with(|| ServiceEntry {
-        name:           beat.name.clone(),
-        url:            beat.url.clone(),
-        description:    beat.description.clone(),
-        registered_at:  now.clone(),
-        last_health:    None,
-        last_checked:   None,
-        last_heartbeat: None,
-        _seen_baseline: None,
-        last_status:    None,
-        last_message:   None,
-        version:        None,
-        pid:            None,
-        host:           None,
-        uptime_seconds: None,
-        metrics:        BTreeMap::new(),
-        stale:          false,
-        heartbeat_count: 0,
-    });
+    let entry = map
+        .entry(beat.name.clone())
+        .or_insert_with(|| ServiceEntry {
+            name: beat.name.clone(),
+            url: beat.url.clone(),
+            description: beat.description.clone(),
+            registered_at: now.clone(),
+            last_health: None,
+            last_checked: None,
+            last_heartbeat: None,
+            _seen_baseline: None,
+            last_status: None,
+            last_message: None,
+            version: None,
+            pid: None,
+            host: None,
+            uptime_seconds: None,
+            metrics: BTreeMap::new(),
+            stale: false,
+            heartbeat_count: 0,
+        });
 
     // Always refresh registration metadata: a service may have moved
     // ports or been redeployed with a new build between heartbeats.
@@ -677,27 +696,27 @@ async fn receive_heartbeat(
     if !beat.description.is_empty() {
         entry.description = beat.description.clone();
     }
-    entry.last_heartbeat   = Some(beat.timestamp.clone());
-    entry._seen_baseline   = Some(Instant::now());
-    entry.last_status      = Some(beat.status.clone());
-    entry.last_message     = beat.message.clone();
-    entry.version          = Some(beat.version.clone());
-    entry.pid              = Some(beat.pid);
-    entry.host             = Some(beat.host.clone());
-    entry.uptime_seconds   = Some(beat.uptime_seconds);
-    entry.metrics          = beat.metrics.iter().map(|(k, v)| (k.clone(), *v)).collect();
-    entry.stale            = false;
-    entry.heartbeat_count  = entry.heartbeat_count.saturating_add(1);
+    entry.last_heartbeat = Some(beat.timestamp.clone());
+    entry._seen_baseline = Some(Instant::now());
+    entry.last_status = Some(beat.status.clone());
+    entry.last_message = beat.message.clone();
+    entry.version = Some(beat.version.clone());
+    entry.pid = Some(beat.pid);
+    entry.host = Some(beat.host.clone());
+    entry.uptime_seconds = Some(beat.uptime_seconds);
+    entry.metrics = beat.metrics.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    entry.stale = false;
+    entry.heartbeat_count = entry.heartbeat_count.saturating_add(1);
 
     // Send registration event while still holding the lock to prevent duplicate events
     if !was_known {
         let event = IoraEvent {
             event_type: "service.registered".to_string(),
-            source:     "iora-core".to_string(),
-            payload:    serde_json::json!({
+            source: "iora-core".to_string(),
+            payload: serde_json::json!({
                 "name": beat.name, "url": beat.url, "via": "heartbeat",
             }),
-            timestamp:  now.clone(),
+            timestamp: now.clone(),
         };
         send_event(&state.events_tx, event);
     }
@@ -706,13 +725,13 @@ async fn receive_heartbeat(
 
     let event = IoraEvent {
         event_type: "service.heartbeat".to_string(),
-        source:     "iora-core".to_string(),
-        payload:    serde_json::json!({
+        source: "iora-core".to_string(),
+        payload: serde_json::json!({
             "name":   beat.name,
             "status": beat.status,
             "uptime": beat.uptime_seconds,
         }),
-        timestamp:  now.clone(),
+        timestamp: now.clone(),
     };
     send_event(&state.events_tx, event);
 
@@ -737,7 +756,9 @@ async fn services_status(State(state): State<AppState>) -> Json<serde_json::Valu
     let services: Vec<serde_json::Value> = map
         .values()
         .map(|e| {
-            let age_seconds = e._seen_baseline.map(|t| now_ms.saturating_duration_since(t).as_secs());
+            let age_seconds = e
+                ._seen_baseline
+                .map(|t| now_ms.saturating_duration_since(t).as_secs());
             let is_stale = match age_seconds {
                 Some(a) => a > HEARTBEAT_STALE_AFTER_SECS,
                 None => true,
@@ -751,8 +772,8 @@ async fn services_status(State(state): State<AppState>) -> Json<serde_json::Valu
                 e.last_status.clone().unwrap_or(HealthStatus::Healthy)
             };
             match effective {
-                HealthStatus::Healthy   => healthy   += 1,
-                HealthStatus::Degraded  => degraded  += 1,
+                HealthStatus::Healthy => healthy += 1,
+                HealthStatus::Degraded => degraded += 1,
                 HealthStatus::Unhealthy => unhealthy += 1,
             }
             if is_stale {
@@ -819,13 +840,19 @@ async fn watch_heartbeat_freshness(state: AppState) {
             }
         }
         for name in newly_stale {
-            tracing::warn!("iora-core: service '{}' missed heartbeats; marking stale", name);
-            send_event(&state.events_tx, IoraEvent {
-                event_type: "service.stale".into(),
-                source:     "iora-core".into(),
-                payload:    serde_json::json!({ "name": name }),
-                timestamp:  Utc::now().to_rfc3339(),
-            });
+            tracing::warn!(
+                "iora-core: service '{}' missed heartbeats; marking stale",
+                name
+            );
+            send_event(
+                &state.events_tx,
+                IoraEvent {
+                    event_type: "service.stale".into(),
+                    source: "iora-core".into(),
+                    payload: serde_json::json!({ "name": name }),
+                    timestamp: Utc::now().to_rfc3339(),
+                },
+            );
         }
     }
 }
@@ -842,7 +869,9 @@ async fn poll_service_health(state: AppState) {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         let entries: Vec<(String, String)> = {
             let map = state.services.read().await;
-            map.values().map(|e| (e.name.clone(), e.url.clone())).collect()
+            map.values()
+                .map(|e| (e.name.clone(), e.url.clone()))
+                .collect()
         };
 
         for (name, url) in entries {
@@ -958,7 +987,11 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
             // any single statement rolls back everything. This avoids
             // "already exists" / FK errors on retry after partial failure.
             let mut tx = pool.begin().await.map_err(|e| {
-                tracing::error!("iora-core: failed to begin transaction for migration {}: {}", name, e);
+                tracing::error!(
+                    "iora-core: failed to begin transaction for migration {}: {}",
+                    name,
+                    e
+                );
                 e
             })?;
 
@@ -967,32 +1000,38 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
             let statement_trimmed = sql.trim();
 
             // Check if this appears to be a multi-statement SQL
-            let has_multiple_statements = statement_trimmed.matches(';').count() > 1 ||
-                (statement_trimmed.contains(';') && !statement_trimmed.ends_with(';'));
+            let has_multiple_statements = statement_trimmed.matches(';').count() > 1
+                || (statement_trimmed.contains(';') && !statement_trimmed.ends_with(';'));
 
             if has_multiple_statements {
                 let statements = split_sql_statements(statement_trimmed);
                 for stmt in &statements {
-                    sqlx::query(stmt.as_str()).execute(&mut *tx).await.map_err(|e| {
-                        tracing::error!(
-                            "iora-core: migration {} failed on statement (rolling back): {}",
-                            name,
+                    sqlx::query(stmt.as_str())
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!(
+                                "iora-core: migration {} failed on statement (rolling back): {}",
+                                name,
+                                e
+                            );
                             e
-                        );
-                        e
-                    })?;
+                        })?;
                 }
             } else {
                 // Single statement, execute directly
                 if !statement_trimmed.is_empty() && !statement_trimmed.starts_with("--") {
-                    sqlx::query(statement_trimmed).execute(&mut *tx).await.map_err(|e| {
-                        tracing::error!(
-                            "iora-core: migration {} failed (rolling back): {}",
-                            name,
+                    sqlx::query(statement_trimmed)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!(
+                                "iora-core: migration {} failed (rolling back): {}",
+                                name,
+                                e
+                            );
                             e
-                        );
-                        e
-                    })?;
+                        })?;
                 }
             }
 
@@ -1046,7 +1085,7 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let (events_tx, _) = broadcast::channel(1024);  // Increased from 256 to 1024 to handle burst events
+    let (events_tx, _) = broadcast::channel(1024); // Increased from 256 to 1024 to handle burst events
 
     let state = AppState {
         services: Arc::new(RwLock::new(HashMap::new())),
@@ -1078,16 +1117,25 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/core/plugins/:id/enable", post(enable_plugin))
         .route("/api/core/plugins/:id/disable", post(disable_plugin))
         .route("/api/core/api-endpoints", get(list_api_endpoints))
-        .route("/api/core/api-endpoints/provider/:provider_id", get(list_endpoints_by_provider))
+        .route(
+            "/api/core/api-endpoints/provider/:provider_id",
+            get(list_endpoints_by_provider),
+        )
         .route("/api/core/widgets", get(list_widgets))
         .route("/api/core/widgets/available", get(list_available_widgets))
         .route("/api/core/widgets/:widget_id", get(get_widget))
-        .route("/api/core/widgets/provider/:provider_id", get(list_widgets_by_provider))
+        .route(
+            "/api/core/widgets/provider/:provider_id",
+            get(list_widgets_by_provider),
+        )
         .route("/api/core/events", get(events_sse).post(broadcast_event))
         .route("/api/core/tasks", get(list_tasks))
         .route("/api/core/tasks/:id/trigger", post(trigger_task))
         .route("/api/core/analytics/persons", get(get_person_analytics))
-        .route("/api/core/analytics/snapshots", get(list_analytics_snapshots))
+        .route(
+            "/api/core/analytics/snapshots",
+            get(list_analytics_snapshots),
+        )
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -1119,14 +1167,20 @@ mod tests {
     fn test_semicolon_in_single_quoted_string() {
         let sql = "INSERT INTO t VALUES ('hello;world'); SELECT 2;";
         let result = split_sql_statements(sql);
-        assert_eq!(result, vec!["INSERT INTO t VALUES ('hello;world')", "SELECT 2"]);
+        assert_eq!(
+            result,
+            vec!["INSERT INTO t VALUES ('hello;world')", "SELECT 2"]
+        );
     }
 
     #[test]
     fn test_semicolon_in_double_quoted_string() {
         let sql = "INSERT INTO t VALUES (\"val;ue\"); SELECT 2;";
         let result = split_sql_statements(sql);
-        assert_eq!(result, vec!["INSERT INTO t VALUES (\"val;ue\")", "SELECT 2"]);
+        assert_eq!(
+            result,
+            vec!["INSERT INTO t VALUES (\"val;ue\")", "SELECT 2"]
+        );
     }
 
     #[test]
@@ -1146,21 +1200,34 @@ mod tests {
     fn test_mixed_quotes() {
         let sql = "SELECT 'single\"quote' AS a, \"double'quote\" AS b;";
         let result = split_sql_statements(sql);
-        assert_eq!(result, vec!["SELECT 'single\"quote' AS a, \"double'quote\" AS b"]);
+        assert_eq!(
+            result,
+            vec!["SELECT 'single\"quote' AS a, \"double'quote\" AS b"]
+        );
     }
 
     #[test]
     fn test_create_table_with_defaults() {
         let sql = "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT 'unknown');";
         let result = split_sql_statements(sql);
-        assert_eq!(result, vec!["CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT 'unknown')"]);
+        assert_eq!(
+            result,
+            vec!["CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT 'unknown')"]
+        );
     }
 
     #[test]
     fn test_multiline_statement() {
-        let sql = "CREATE TABLE t (\n  id INTEGER,\n  name TEXT\n);\nINSERT INTO t VALUES (1, 'test');";
+        let sql =
+            "CREATE TABLE t (\n  id INTEGER,\n  name TEXT\n);\nINSERT INTO t VALUES (1, 'test');";
         let result = split_sql_statements(sql);
-        assert_eq!(result, vec!["CREATE TABLE t (\n  id INTEGER,\n  name TEXT\n)", "INSERT INTO t VALUES (1, 'test')"]);
+        assert_eq!(
+            result,
+            vec![
+                "CREATE TABLE t (\n  id INTEGER,\n  name TEXT\n)",
+                "INSERT INTO t VALUES (1, 'test')"
+            ]
+        );
     }
 
     #[test]
@@ -1202,7 +1269,10 @@ mod tests {
         while rx.try_recv().is_ok() {
             count += 1;
         }
-        assert_eq!(count, 200, "All 200 events should be received at capacity 1024");
+        assert_eq!(
+            count, 200,
+            "All 200 events should be received at capacity 1024"
+        );
     }
 
     /// The send_event helper should not panic when the channel is full.

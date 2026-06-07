@@ -507,9 +507,7 @@ impl Permission {
             }
             Permission::ServiceExport => "Einen RPC-Dienst für andere Apps bereitstellen",
             Permission::ServiceCall => "RPC-Dienste anderer Apps aufrufen",
-            Permission::LifecycleHookRegister => {
-                "Lifecycle-/System-Ereignis-Hooks registrieren"
-            }
+            Permission::LifecycleHookRegister => "Lifecycle-/System-Ereignis-Hooks registrieren",
         }
     }
 

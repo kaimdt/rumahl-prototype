@@ -114,15 +114,21 @@ impl MemoryStore {
             .filter(|m| {
                 // Category filter
                 if let Some(ref cat) = query.category {
-                    if m.category != *cat { return false; }
+                    if m.category != *cat {
+                        return false;
+                    }
                 }
                 // Importance filter
                 if let Some(min_imp) = query.min_importance {
-                    if m.importance < min_imp { return false; }
+                    if m.importance < min_imp {
+                        return false;
+                    }
                 }
                 // Tag filter
                 if let Some(ref tags) = query.tags {
-                    if !tags.iter().any(|t| m.tags.contains(t)) { return false; }
+                    if !tags.iter().any(|t| m.tags.contains(t)) {
+                        return false;
+                    }
                 }
                 // Keyword match
                 let content_lower = m.content.to_lowercase();
@@ -136,7 +142,9 @@ impl MemoryStore {
         results.sort_by(|a, b| {
             let score_a = a.importance * (1.0 + a.access_count as f32 / 10.0);
             let score_b = b.importance * (1.0 + b.access_count as f32 / 10.0);
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         results.truncate(query.max_results);
@@ -157,9 +165,15 @@ impl MemoryStore {
     pub fn extract_from_response(&self, agent_id: &str, response: &str) -> Vec<String> {
         let mut new_ids = Vec::new();
         let indicators = [
-            "I learned that", "Note:", "IMPORTANT:", "Remember:",
-            "Key insight:", "Pattern detected:", "Best practice:",
-            "Architecture note:", "LESSON:",
+            "I learned that",
+            "Note:",
+            "IMPORTANT:",
+            "Remember:",
+            "Key insight:",
+            "Pattern detected:",
+            "Best practice:",
+            "Architecture note:",
+            "LESSON:",
         ];
 
         for line in response.lines() {
@@ -178,7 +192,14 @@ impl MemoryStore {
                         let memory = Memory {
                             id: uuid::Uuid::new_v4().to_string(),
                             category: MemoryCategory::LearnedLesson,
-                            key: format!("auto-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("mem")),
+                            key: format!(
+                                "auto-{}",
+                                uuid::Uuid::new_v4()
+                                    .to_string()
+                                    .split('-')
+                                    .next()
+                                    .unwrap_or("mem")
+                            ),
                             content: content.clone(),
                             importance: 0.6,
                             access_count: 0,
@@ -191,7 +212,10 @@ impl MemoryStore {
 
                         let id = self.store(memory);
                         new_ids.push(id);
-                        info!("MemoryStore: Auto-extracted memory '{}'", &content[..60.min(content.len())]);
+                        info!(
+                            "MemoryStore: Auto-extracted memory '{}'",
+                            &content[..60.min(content.len())]
+                        );
                     }
                 }
             }

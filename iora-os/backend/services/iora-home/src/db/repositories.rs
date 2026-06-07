@@ -1257,12 +1257,11 @@ impl ConfigRepository {
         &self,
         token_hash: &str,
     ) -> anyhow::Result<Option<RefreshToken>> {
-        let token = sqlx::query_as::<_, RefreshToken>(
-            "SELECT * FROM refresh_tokens WHERE token_hash = $1",
-        )
-        .bind(token_hash)
-        .fetch_optional(&self.pool)
-        .await?;
+        let token =
+            sqlx::query_as::<_, RefreshToken>("SELECT * FROM refresh_tokens WHERE token_hash = $1")
+                .bind(token_hash)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(token)
     }
 
@@ -1332,12 +1331,11 @@ impl ConfigRepository {
 
     /// Check whether a JWT with the given id has been blacklisted.
     pub async fn is_jwt_blacklisted(&self, jti: &str) -> anyhow::Result<bool> {
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT COUNT(*) as cnt FROM jwt_blacklist WHERE jti = $1",
-        )
-        .bind(jti)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT COUNT(*) as cnt FROM jwt_blacklist WHERE jti = $1")
+                .bind(jti)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| r.0 > 0).unwrap_or(false))
     }
 

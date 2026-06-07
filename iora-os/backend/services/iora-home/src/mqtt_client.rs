@@ -22,10 +22,7 @@ impl Default for MqttConfig {
             port: 1883,
             username: None,
             password: None,
-            client_id: format!(
-                "mdt-dashboard-{}",
-                &uuid::Uuid::new_v4().to_string()[..8]
-            ),
+            client_id: format!("mdt-dashboard-{}", &uuid::Uuid::new_v4().to_string()[..8]),
             use_tls: false,
         }
     }
@@ -247,12 +244,7 @@ impl MqttClient {
 
     /// Get current status
     pub async fn status(&self) -> MqttStatus {
-        let config_safe = self
-            .config
-            .read()
-            .await
-            .as_ref()
-            .map(MqttConfigSafe::from);
+        let config_safe = self.config.read().await.as_ref().map(MqttConfigSafe::from);
         MqttStatus {
             connected: *self.connected.read().await,
             config: config_safe,

@@ -63,7 +63,12 @@ enum Cmd {
 fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Keygen { out_dir, name } => cmd_keygen(&out_dir, &name),
-        Cmd::Manifest { root, key, out, extra } => cmd_manifest(&root, &key, &out, &extra),
+        Cmd::Manifest {
+            root,
+            key,
+            out,
+            extra,
+        } => cmd_manifest(&root, &key, &out, &extra),
         Cmd::File { key, r#in } => cmd_file(&key, &r#in),
     }
 }
@@ -74,9 +79,9 @@ fn cmd_keygen(out_dir: &Path, name: &str) -> Result<()> {
     let sk = SigningKey::generate(&mut csprng);
     let vk: VerifyingKey = sk.verifying_key();
     let priv_path = out_dir.join(format!("{name}.key"));
-    let pub_path  = out_dir.join(format!("{name}.pub"));
+    let pub_path = out_dir.join(format!("{name}.pub"));
     fs::write(&priv_path, hex::encode(sk.to_bytes()))?;
-    fs::write(&pub_path,  hex::encode(vk.to_bytes()))?;
+    fs::write(&pub_path, hex::encode(vk.to_bytes()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -104,7 +109,7 @@ struct Manifest {
 
 #[derive(Serialize)]
 struct ManifestEntry {
-    path: String,   // absolute path on the device, e.g. /opt/iora/update/…
+    path: String, // absolute path on the device, e.g. /opt/iora/update/…
     sha256: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     mode: Option<String>,

@@ -104,19 +104,19 @@ async fn main() -> Result<()> {
 
     // Setup logging
     let log_level = if cli.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt()
-        .with_env_filter(log_level)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(log_level).init();
 
     // Get admin URL
-    let admin_url = cli.admin_url
+    let admin_url = cli
+        .admin_url
         .or_else(|| std::env::var("POSTGRES_ADMIN_URL").ok())
         .or_else(|| std::env::var("DATABASE_URL").ok())
         .unwrap_or_else(|| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
 
     tracing::info!("Connecting to PostgreSQL as admin...");
 
-    let manager = DatabaseManager::new(&admin_url, &cli.config).await
+    let manager = DatabaseManager::new(&admin_url, &cli.config)
+        .await
         .context("Failed to initialize database manager")?;
 
     match cli.command {
@@ -139,15 +139,24 @@ async fn main() -> Result<()> {
             manager.print_status().await?;
         }
 
-        Commands::Create { service, database, conn_limit } => {
+        Commands::Create {
+            service,
+            database,
+            conn_limit,
+        } => {
             let db_name = database.unwrap_or_else(|| format!("iora_{}", service));
-            manager.create_service(&service, &db_name, conn_limit).await?;
+            manager
+                .create_service(&service, &db_name, conn_limit)
+                .await?;
             println!("✓ Created database '{}' for service '{}'", db_name, service);
         }
 
         Commands::Drop { service, yes } => {
             if !yes {
-                print!("Are you sure you want to drop database and user for '{}'? [y/N]: ", service);
+                print!(
+                    "Are you sure you want to drop database and user for '{}'? [y/N]: ",
+                    service
+                );
                 use std::io::{self, BufRead};
                 let stdin = io::stdin();
                 let line = stdin.lock().lines().next().unwrap_or(Ok(String::new()))?;
@@ -163,8 +172,7 @@ async fn main() -> Result<()> {
         Commands::Export { format, output } => {
             let content = manager.export_connection_strings(&format).await?;
             if let Some(path) = output {
-                std::fs::write(&path, content)
-                    .context("Failed to write output file")?;
+                std::fs::write(&path, content).context("Failed to write output file")?;
                 println!("✓ Exported to {}", path.display());
             } else {
                 println!("{}", content);

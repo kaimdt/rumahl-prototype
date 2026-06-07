@@ -36,9 +36,9 @@ impl Cache {
             }
         }
 
-        self.store.get(key).and_then(|entry| {
-            serde_json::from_slice(&entry).ok()
-        })
+        self.store
+            .get(key)
+            .and_then(|entry| serde_json::from_slice(&entry).ok())
     }
 
     pub fn set<T: Serialize>(&self, key: String, value: T, ttl: Duration) {

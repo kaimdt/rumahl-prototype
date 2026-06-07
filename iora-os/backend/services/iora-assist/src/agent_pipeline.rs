@@ -6,7 +6,9 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info};
 
 use crate::agent_task_executor::AgentTaskEvent;
-use crate::providers::{create_provider, provider_type_from_str, ChatMessage, ProviderConfig, ProviderType};
+use crate::providers::{
+    create_provider, provider_type_from_str, ChatMessage, ProviderConfig, ProviderType,
+};
 use crate::sandbox::{SandboxManager, TaskOutputLine, WorkspaceFile};
 
 /// Status einer Pipeline-Phase
@@ -51,7 +53,7 @@ pub struct PlanStep {
     pub description: String,
     pub reason: String,
     pub estimated_complexity: String, // "low" | "medium" | "high"
-    pub dependencies: Vec<String>, // Dateien, die zuerst bearbeitet werden müssen
+    pub dependencies: Vec<String>,    // Dateien, die zuerst bearbeitet werden müssen
 }
 
 /// Der vollständige Plan vom Cloud-Analyzer
@@ -141,10 +143,7 @@ impl AgentPipeline {
             stream: None,
         };
         tokio::spawn(async move {
-            let _ = tx.send(AgentTaskEvent::Output {
-                task_id: tid,
-                line,
-            });
+            let _ = tx.send(AgentTaskEvent::Output { task_id: tid, line });
         });
     }
 
@@ -155,25 +154,50 @@ impl AgentPipeline {
         task_description: &str,
         pipeline_config: PipelineConfig,
     ) -> Result<(), String> {
-        let _workspace = self.sandbox.get_workspace(workspace_id).await
+        let _workspace = self
+            .sandbox
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
 
         // Prüfe Provider-Verfügbarkeit
-        let cloud_available = self.check_provider(&pipeline_config.cloud_provider, &pipeline_config.cloud_model, None, None).await;
-        let executor_available = self.check_provider(&pipeline_config.executor_provider, &pipeline_config.executor_model, None, None).await;
+        let cloud_available = self
+            .check_provider(
+                &pipeline_config.cloud_provider,
+                &pipeline_config.cloud_model,
+                None,
+                None,
+            )
+            .await;
+        let executor_available = self
+            .check_provider(
+                &pipeline_config.executor_provider,
+                &pipeline_config.executor_model,
+                None,
+                None,
+            )
+            .await;
 
         if !cloud_available {
-            return Err(format!("Cloud-Planner-Provider '{}' nicht verfügbar", pipeline_config.cloud_provider));
+            return Err(format!(
+                "Cloud-Planner-Provider '{}' nicht verfügbar",
+                pipeline_config.cloud_provider
+            ));
         }
         if !executor_available {
-            return Err(format!("Executor-Provider '{}' nicht verfügbar", pipeline_config.executor_provider));
+            return Err(format!(
+                "Executor-Provider '{}' nicht verfügbar",
+                pipeline_config.executor_provider
+            ));
         }
 
         info!(
             "Starting pipeline for workspace {}: Cloud={}/{} Executor={}/{}",
             workspace_id,
-            pipeline_config.cloud_provider, pipeline_config.cloud_model,
-            pipeline_config.executor_provider, pipeline_config.executor_model,
+            pipeline_config.cloud_provider,
+            pipeline_config.cloud_model,
+            pipeline_config.executor_provider,
+            pipeline_config.executor_model,
         );
 
         let pipeline = self.clone();
@@ -184,7 +208,11 @@ impl AgentPipeline {
         tokio::spawn(async move {
             // Phase 1: Cloud Planning
             pipeline.set_phase(PipelinePhase::Planning);
-            pipeline.emit_output(&ws_id, "system", "Phase 1/4: Cloud AI analysiert Codebasis…".to_string());
+            pipeline.emit_output(
+                &ws_id,
+                "system",
+                "Phase 1/4: Cloud AI analysiert Codebasis…".to_string(),
+            );
 
             let plan = match pipeline.phase_planning(&ws_id, &task_desc, &cfg).await {
                 Ok(p) => p,
@@ -196,7 +224,14 @@ impl AgentPipeline {
 
             // Phase 2: Skeletonizing
             pipeline.set_phase(PipelinePhase::Skeletonizing);
-            pipeline.emit_output(&ws_id, "system", format!("Phase 2/4: Erstelle Skeleton mit {} Datei(en)…", plan.files_to_include.len()));
+            pipeline.emit_output(
+                &ws_id,
+                "system",
+                format!(
+                    "Phase 2/4: Erstelle Skeleton mit {} Datei(en)…",
+                    plan.files_to_include.len()
+                ),
+            );
 
             let skeleton_dir = match pipeline.phase_skeletonize(&ws_id, &plan, &cfg).await {
                 Some(d) => d,
@@ -208,24 +243,42 @@ impl AgentPipeline {
 
             // Phase 3: Execution
             pipeline.set_phase(PipelinePhase::Executing);
-            pipeline.emit_output(&ws_id, "system", format!("Phase 3/4: Führe {} Änderung(en) aus…", plan.steps.len()));
+            pipeline.emit_output(
+                &ws_id,
+                "system",
+                format!("Phase 3/4: Führe {} Änderung(en) aus…", plan.steps.len()),
+            );
 
-            if let Err(e) = pipeline.phase_execute(&ws_id, &skeleton_dir, &plan, &cfg).await {
+            if let Err(e) = pipeline
+                .phase_execute(&ws_id, &skeleton_dir, &plan, &cfg)
+                .await
+            {
                 pipeline.set_phase(PipelinePhase::Failed(format!("Execution failed: {}", e)));
                 return;
             }
 
             // Phase 4: Reassembly + Validation
             pipeline.set_phase(PipelinePhase::Reassembling);
-            pipeline.emit_output(&ws_id, "system", "Phase 4/4: Setze Änderungen zurück und validiere…".to_string());
+            pipeline.emit_output(
+                &ws_id,
+                "system",
+                "Phase 4/4: Setze Änderungen zurück und validiere…".to_string(),
+            );
 
-            if let Err(e) = pipeline.phase_reassemble(&ws_id, &skeleton_dir, &plan, &cfg).await {
+            if let Err(e) = pipeline
+                .phase_reassemble(&ws_id, &skeleton_dir, &plan, &cfg)
+                .await
+            {
                 pipeline.set_phase(PipelinePhase::Failed(format!("Reassembly failed: {}", e)));
                 return;
             }
 
             pipeline.set_phase(PipelinePhase::Completed);
-            pipeline.emit_output(&ws_id, "success", "✅ Pipeline erfolgreich abgeschlossen!".to_string());
+            pipeline.emit_output(
+                &ws_id,
+                "success",
+                "✅ Pipeline erfolgreich abgeschlossen!".to_string(),
+            );
         });
 
         Ok(())
@@ -238,16 +291,24 @@ impl AgentPipeline {
         task_description: &str,
         config: &PipelineConfig,
     ) -> Result<ExecutionPlan, String> {
-        let workspace = self.sandbox.get_workspace(workspace_id).await
+        let workspace = self
+            .sandbox
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
 
         // Liste alle Dateien (rekursiv)
         let all_files = self.sandbox.list_files(workspace_id, None).await?;
-        let source_files: Vec<_> = all_files.iter()
+        let source_files: Vec<_> = all_files
+            .iter()
             .filter(|f| !f.is_dir && f.size_bytes < config.max_file_size)
             .collect();
 
-        self.emit_output(workspace_id, "info", format!("Analysiere {} Datei(en)…", source_files.len()));
+        self.emit_output(
+            workspace_id,
+            "info",
+            format!("Analysiere {} Datei(en)…", source_files.len()),
+        );
 
         // Baue Projekt-Übersicht (Dateibaum + wichtige Dateien)
         let mut project_overview = String::new();
@@ -260,41 +321,68 @@ impl AgentPipeline {
         project_overview.push_str("\n## Dateistruktur\n");
 
         // Gruppiere nach Verzeichnis
-        let mut dirs: std::collections::BTreeMap<String, Vec<&WorkspaceFile>> = std::collections::BTreeMap::new();
+        let mut dirs: std::collections::BTreeMap<String, Vec<&WorkspaceFile>> =
+            std::collections::BTreeMap::new();
         for f in &source_files {
             let path = std::path::Path::new(&f.path);
-            let dir = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+            let dir = path
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
             dirs.entry(dir).or_default().push(f);
         }
 
         for (dir, files) in &dirs {
             project_overview.push_str(&format!("\n📁 {}/\n", dir));
             for f in files {
-                let marker = if f.name.ends_with(".rs") || f.name.ends_with(".ts") || f.name.ends_with(".tsx")
-                    || f.name.ends_with(".py") || f.name.ends_with(".go") || f.name.ends_with(".js")
-                    || f.name == "Cargo.toml" || f.name == "package.json"
-                { "📄" } else { "📎" };
-                project_overview.push_str(&format!("  {} {} ({} B)\n", marker, f.name, f.size_bytes));
+                let marker = if f.name.ends_with(".rs")
+                    || f.name.ends_with(".ts")
+                    || f.name.ends_with(".tsx")
+                    || f.name.ends_with(".py")
+                    || f.name.ends_with(".go")
+                    || f.name.ends_with(".js")
+                    || f.name == "Cargo.toml"
+                    || f.name == "package.json"
+                {
+                    "📄"
+                } else {
+                    "📎"
+                };
+                project_overview
+                    .push_str(&format!("  {} {} ({} B)\n", marker, f.name, f.size_bytes));
             }
         }
 
         // Lese Schlüsseldateien für Kontext
         let mut key_files_content = String::new();
-        let key_extensions = [".rs", ".ts", ".tsx", ".js", ".py", ".go", "Cargo.toml", "package.json"];
-        
+        let key_extensions = [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".py",
+            ".go",
+            "Cargo.toml",
+            "package.json",
+        ];
+
         for f in source_files.iter().take(20) {
             if key_extensions.iter().any(|ext| f.path.ends_with(ext)) {
                 if let Ok(content) = self.sandbox.read_file(workspace_id, &f.path).await {
                     if content.len() < 50_000 {
-                        key_files_content.push_str(&format!("\n=== {} ===\n{}\n", f.path, &content[..content.len().min(10_000)]));
+                        key_files_content.push_str(&format!(
+                            "\n=== {} ===\n{}\n",
+                            f.path,
+                            &content[..content.len().min(10_000)]
+                        ));
                     }
                 }
             }
         }
 
         // Cloud AI Prompt
-        let cloud_provider_enum = provider_type_from_str(&config.cloud_provider)
-            .unwrap_or(ProviderType::Anthropic);
+        let cloud_provider_enum =
+            provider_type_from_str(&config.cloud_provider).unwrap_or(ProviderType::Anthropic);
 
         let cloud_config = ProviderConfig {
             api_key: None, // Wird aus Umgebungsvariablen oder DB geladen
@@ -306,7 +394,10 @@ impl AgentPipeline {
         let provider = create_provider(cloud_provider_enum, cloud_config);
         let available = provider.is_available().await;
         if !available {
-            return Err(format!("Cloud provider '{}' nicht verfügbar", config.cloud_provider));
+            return Err(format!(
+                "Cloud provider '{}' nicht verfügbar",
+                config.cloud_provider
+            ));
         }
 
         let planning_prompt = format!(
@@ -348,22 +439,32 @@ impl AgentPipeline {
   "notes": []
 }}
 "#,
-            task_description,
-            project_overview,
-            key_files_content,
+            task_description, project_overview, key_files_content,
         );
 
-        self.emit_output(workspace_id, "info", "Sende Planungsanfrage an Cloud AI…".to_string());
+        self.emit_output(
+            workspace_id,
+            "info",
+            "Sende Planungsanfrage an Cloud AI…".to_string(),
+        );
 
         let messages = vec![
-            ChatMessage { role: "system".to_string(), content: "You are a JSON-only code planning assistant. Output ONLY valid JSON.".to_string() },
-            ChatMessage { role: "user".to_string(), content: planning_prompt },
+            ChatMessage {
+                role: "system".to_string(),
+                content: "You are a JSON-only code planning assistant. Output ONLY valid JSON."
+                    .to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: planning_prompt,
+            },
         ];
 
         match provider.chat(messages, None).await {
             Ok(response) => {
                 // Parse JSON from response
-                let cleaned = response.message
+                let cleaned = response
+                    .message
                     .trim()
                     .trim_start_matches("```json")
                     .trim_start_matches("```")
@@ -372,12 +473,16 @@ impl AgentPipeline {
 
                 match serde_json::from_str::<ExecutionPlan>(cleaned) {
                     Ok(plan) => {
-                        self.emit_output(workspace_id, "success", format!(
-                            "Plan erstellt: {} Änderung(en) an {} Datei(en) (Risiko: {})",
-                            plan.estimated_total_changes,
-                            plan.files_to_include.len(),
-                            plan.risk_assessment,
-                        ));
+                        self.emit_output(
+                            workspace_id,
+                            "success",
+                            format!(
+                                "Plan erstellt: {} Änderung(en) an {} Datei(en) (Risiko: {})",
+                                plan.estimated_total_changes,
+                                plan.files_to_include.len(),
+                                plan.risk_assessment,
+                            ),
+                        );
                         Ok(plan)
                     }
                     Err(e) => {
@@ -414,7 +519,11 @@ impl AgentPipeline {
                 }
                 match std::fs::copy(&src, &dst) {
                     Ok(_) => self.emit_output(workspace_id, "info", format!("  📦 {}", file_path)),
-                    Err(e) => self.emit_output(workspace_id, "warn", format!("  ⚠️  {}: {}", file_path, e)),
+                    Err(e) => self.emit_output(
+                        workspace_id,
+                        "warn",
+                        format!("  ⚠️  {}: {}", file_path, e),
+                    ),
                 }
             }
         }
@@ -425,10 +534,14 @@ impl AgentPipeline {
             std::fs::write(&plan_path, &json).ok();
         }
 
-        self.emit_output(workspace_id, "success", format!(
-            "Skeleton erstellt mit {} Datei(en) in .ora-skeleton/",
-            plan.files_to_include.len()
-        ));
+        self.emit_output(
+            workspace_id,
+            "success",
+            format!(
+                "Skeleton erstellt mit {} Datei(en) in .ora-skeleton/",
+                plan.files_to_include.len()
+            ),
+        );
 
         Some(skeleton_base.to_string_lossy().to_string())
     }
@@ -441,8 +554,8 @@ impl AgentPipeline {
         plan: &ExecutionPlan,
         config: &PipelineConfig,
     ) -> Result<(), String> {
-        let executor_provider_enum = provider_type_from_str(&config.executor_provider)
-            .unwrap_or(ProviderType::DeepSeek);
+        let executor_provider_enum =
+            provider_type_from_str(&config.executor_provider).unwrap_or(ProviderType::DeepSeek);
 
         let executor_config = ProviderConfig {
             api_key: None,
@@ -453,19 +566,28 @@ impl AgentPipeline {
 
         let provider = create_provider(executor_provider_enum, executor_config);
         if !provider.is_available().await {
-            return Err(format!("Executor provider '{}' nicht verfügbar", config.executor_provider));
+            return Err(format!(
+                "Executor provider '{}' nicht verfügbar",
+                config.executor_provider
+            ));
         }
 
         // Process each step
         for (i, step) in plan.steps.iter().enumerate() {
-            self.emit_output(workspace_id, "info", format!(
-                "[{}/{}] {}: {}",
-                i + 1, plan.steps.len(),
-                step.action, step.file_path,
-            ));
+            self.emit_output(
+                workspace_id,
+                "info",
+                format!(
+                    "[{}/{}] {}: {}",
+                    i + 1,
+                    plan.steps.len(),
+                    step.action,
+                    step.file_path,
+                ),
+            );
 
             let full_path = std::path::PathBuf::from(_skeleton_dir).join(&step.file_path);
-            
+
             // Read current file content
             let current_content = if full_path.exists() {
                 std::fs::read_to_string(&full_path).unwrap_or_default()
@@ -517,7 +639,11 @@ impl AgentPipeline {
                 Ok(response) => {
                     if step.action == "delete" {
                         std::fs::remove_file(&full_path).ok();
-                        self.emit_output(workspace_id, "success", format!("  🗑️  {} gelöscht", step.file_path));
+                        self.emit_output(
+                            workspace_id,
+                            "success",
+                            format!("  🗑️  {} gelöscht", step.file_path),
+                        );
                     } else if step.action == "rename" {
                         // Handle rename
                         if let Some(ref new_path) = step.new_path {
@@ -526,11 +652,16 @@ impl AgentPipeline {
                                 std::fs::create_dir_all(parent).ok();
                             }
                             std::fs::rename(&full_path, &new_full).ok();
-                            self.emit_output(workspace_id, "success", format!("  📝 {} → {}", step.file_path, new_path));
+                            self.emit_output(
+                                workspace_id,
+                                "success",
+                                format!("  📝 {} → {}", step.file_path, new_path),
+                            );
                         }
                     } else {
                         // Write the new content
-                        let new_content = response.message
+                        let new_content = response
+                            .message
                             .trim()
                             .trim_start_matches("```")
                             .trim_end_matches("```")
@@ -539,23 +670,36 @@ impl AgentPipeline {
                         if let Some(parent) = full_path.parent() {
                             std::fs::create_dir_all(parent).ok();
                         }
-                        
+
                         let size_before = current_content.len();
                         std::fs::write(&full_path, new_content)
                             .map_err(|e| format!("Failed to write {}: {}", step.file_path, e))?;
                         let size_after = new_content.len();
 
-                        self.emit_output(workspace_id, "success", format!(
-                            "  {} ({}B → {}B, {:+.1}%)",
-                            step.file_path,
-                            size_before,
-                            size_after,
-                            if size_before > 0 { (size_after as f64 - size_before as f64) / size_before as f64 * 100.0 } else { 100.0 },
-                        ));
+                        self.emit_output(
+                            workspace_id,
+                            "success",
+                            format!(
+                                "  {} ({}B → {}B, {:+.1}%)",
+                                step.file_path,
+                                size_before,
+                                size_after,
+                                if size_before > 0 {
+                                    (size_after as f64 - size_before as f64) / size_before as f64
+                                        * 100.0
+                                } else {
+                                    100.0
+                                },
+                            ),
+                        );
                     }
                 }
                 Err(e) => {
-                    self.emit_output(workspace_id, "error", format!("  ❌ {}: {}", step.file_path, e));
+                    self.emit_output(
+                        workspace_id,
+                        "error",
+                        format!("  ❌ {}: {}", step.file_path, e),
+                    );
                     return Err(format!("Execution failed for {}: {}", step.file_path, e));
                 }
             }
@@ -572,21 +716,33 @@ impl AgentPipeline {
         plan: &ExecutionPlan,
         config: &PipelineConfig,
     ) -> Result<(), String> {
-        let workspace = self.sandbox.get_workspace(workspace_id).await
+        let workspace = self
+            .sandbox
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let project_dir = std::path::PathBuf::from(&workspace.path);
         let skel_dir = std::path::PathBuf::from(skeleton_dir);
 
         // 1. Copy all changed files back to the project
-        self.emit_output(workspace_id, "info", "Kopiere geänderte Dateien zurück…".to_string());
+        self.emit_output(
+            workspace_id,
+            "info",
+            "Kopiere geänderte Dateien zurück…".to_string(),
+        );
         let mut copied_files = 0u32;
 
         for entry in walkdir::WalkDir::new(&skel_dir)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file() && e.path().file_name().and_then(|n| n.to_str()) != Some("_plan.json"))
+            .filter(|e| {
+                e.file_type().is_file()
+                    && e.path().file_name().and_then(|n| n.to_str()) != Some("_plan.json")
+            })
         {
-            let relative = entry.path().strip_prefix(&skel_dir)
+            let relative = entry
+                .path()
+                .strip_prefix(&skel_dir)
                 .map_err(|e| format!("Path error: {}", e))?;
             let dest = project_dir.join(relative);
 
@@ -597,15 +753,27 @@ impl AgentPipeline {
             match std::fs::copy(entry.path(), &dest) {
                 Ok(_) => {
                     copied_files += 1;
-                    self.emit_output(workspace_id, "info", format!("  ↩️  {}", relative.display()));
+                    self.emit_output(
+                        workspace_id,
+                        "info",
+                        format!("  ↩️  {}", relative.display()),
+                    );
                 }
                 Err(e) => {
-                    self.emit_output(workspace_id, "error", format!("  ❌ {}: {}", relative.display(), e));
+                    self.emit_output(
+                        workspace_id,
+                        "error",
+                        format!("  ❌ {}: {}", relative.display(), e),
+                    );
                 }
             }
         }
 
-        self.emit_output(workspace_id, "success", format!("{} Datei(en) zurückkopiert", copied_files));
+        self.emit_output(
+            workspace_id,
+            "success",
+            format!("{} Datei(en) zurückkopiert", copied_files),
+        );
 
         // 2. Clean up skeleton directory
         std::fs::remove_dir_all(&skel_dir).ok();
@@ -613,9 +781,17 @@ impl AgentPipeline {
         // 3. Run git diff to show all changes
         let diff_result = self.sandbox.git_status(workspace_id).await;
         if let Ok(diffs) = diff_result {
-            self.emit_output(workspace_id, "info", format!("→ {} geänderte Datei(en) im Git-Diff", diffs.len()));
+            self.emit_output(
+                workspace_id,
+                "info",
+                format!("→ {} geänderte Datei(en) im Git-Diff", diffs.len()),
+            );
             for d in &diffs {
-                self.emit_output(workspace_id, "info", format!("  {} {}", d.status, d.file_path));
+                self.emit_output(
+                    workspace_id,
+                    "info",
+                    format!("  {} {}", d.status, d.file_path),
+                );
             }
         }
 
@@ -630,7 +806,10 @@ impl AgentPipeline {
             for step in &plan.steps {
                 let full_path = project_dir.join(&step.file_path);
                 if step.action != "delete" && !full_path.exists() {
-                    issues.push(format!("⚠️  {} existiert nicht (sollte erstellt worden sein)", step.file_path));
+                    issues.push(format!(
+                        "⚠️  {} existiert nicht (sollte erstellt worden sein)",
+                        step.file_path
+                    ));
                 }
             }
 
@@ -639,8 +818,14 @@ impl AgentPipeline {
                 .into_iter()
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().is_file())
-                .filter(|e| e.path().extension().map(|e| e == "rs" || e == "ts" || e == "tsx" || e == "js" || e == "py").unwrap_or(false))
-                .take(100) // Limit check
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|e| e == "rs" || e == "ts" || e == "tsx" || e == "js" || e == "py")
+                        .unwrap_or(false)
+                })
+                .take(100)
+            // Limit check
             {
                 if let Ok(meta) = entry.metadata() {
                     if meta.len() == 0 {
@@ -650,25 +835,44 @@ impl AgentPipeline {
             }
 
             if issues.is_empty() {
-                self.emit_output(workspace_id, "success", "✅ Validierung: Keine Probleme gefunden".to_string());
+                self.emit_output(
+                    workspace_id,
+                    "success",
+                    "✅ Validierung: Keine Probleme gefunden".to_string(),
+                );
             } else {
                 for issue in &issues {
                     self.emit_output(workspace_id, "warn", issue.clone());
                 }
-                self.emit_output(workspace_id, "warn", format!("⚠️  {} Validierungs-Warnung(en)", issues.len()));
+                self.emit_output(
+                    workspace_id,
+                    "warn",
+                    format!("⚠️  {} Validierungs-Warnung(en)", issues.len()),
+                );
             }
         }
 
         // Refresh sandbox
         let _ = self.sandbox.list_workspaces().await;
-        self.emit_output(workspace_id, "success", "✅ Reassembly abgeschlossen!".to_string());
+        self.emit_output(
+            workspace_id,
+            "success",
+            "✅ Reassembly abgeschlossen!".to_string(),
+        );
 
         Ok(())
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────
-    async fn check_provider(&self, provider_type: &str, model: &str, api_key: Option<&str>, base_url: Option<&str>) -> bool {
-        let provider_enum = provider_type_from_str(provider_type).unwrap_or(ProviderType::Anthropic);
+    async fn check_provider(
+        &self,
+        provider_type: &str,
+        model: &str,
+        api_key: Option<&str>,
+        base_url: Option<&str>,
+    ) -> bool {
+        let provider_enum =
+            provider_type_from_str(provider_type).unwrap_or(ProviderType::Anthropic);
         let config = ProviderConfig {
             api_key: api_key.map(|s| s.to_string()),
             base_url: base_url.map(|s| s.to_string()),

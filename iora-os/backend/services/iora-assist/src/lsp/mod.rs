@@ -7,11 +7,11 @@
 // - Completions, hover info, go-to-definition
 // - JSON-RPC communication with external LSP processes
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Mutex as TokioMutex;
@@ -269,24 +269,31 @@ impl LspClient {
             .output()
             .await;
 
-        let command_path = if which_result.is_ok() && which_result.as_ref().unwrap().status.success() {
-            String::from_utf8_lossy(&which_result.unwrap().stdout).trim().to_string()
-        } else {
-            // Try common paths
-            let candidates = [
-                format!("/usr/local/bin/{}", config.command),
-                format!("/opt/homebrew/bin/{}", config.command),
-                format!("{}/.local/bin/{}", std::env::var("HOME").unwrap_or_default(), config.command),
-            ];
-            let mut found = None;
-            for c in &candidates {
-                if std::path::Path::new(c).exists() {
-                    found = Some(c.clone());
-                    break;
+        let command_path =
+            if which_result.is_ok() && which_result.as_ref().unwrap().status.success() {
+                String::from_utf8_lossy(&which_result.unwrap().stdout)
+                    .trim()
+                    .to_string()
+            } else {
+                // Try common paths
+                let candidates = [
+                    format!("/usr/local/bin/{}", config.command),
+                    format!("/opt/homebrew/bin/{}", config.command),
+                    format!(
+                        "{}/.local/bin/{}",
+                        std::env::var("HOME").unwrap_or_default(),
+                        config.command
+                    ),
+                ];
+                let mut found = None;
+                for c in &candidates {
+                    if std::path::Path::new(c).exists() {
+                        found = Some(c.clone());
+                        break;
+                    }
                 }
-            }
-            found.unwrap_or_else(|| config.command.clone())
-        };
+                found.unwrap_or_else(|| config.command.clone())
+            };
 
         let mut cmd = Command::new(&command_path);
         for arg in &config.args {
@@ -299,11 +306,17 @@ impl LspClient {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to start LSP server '{}': {}", config.command, e))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to start LSP server '{}': {}", config.command, e))?;
 
-        let stdout = child.stdout.take()
+        let stdout = child
+            .stdout
+            .take()
             .ok_or_else(|| "No stdout for LSP child".to_string())?;
-        let stdin = child.stdin.take()
+        let stdin = child
+            .stdin
+            .take()
             .ok_or_else(|| "No stdin for LSP child".to_string())?;
 
         self.child = Some(child);
@@ -370,13 +383,19 @@ impl LspClient {
     }
 
     async fn send_initialized(&self) -> Result<(), String> {
-        self.send_notification("initialized", Some(serde_json::json!({}))).await
+        self.send_notification("initialized", Some(serde_json::json!({})))
+            .await
     }
 
     // ─── Public API ──────────────────────────────────────────────────────
 
     /// Open a document in the LSP server
-    pub async fn open_document(&self, file_path: &str, content: &str, language: &str) -> Result<(), String> {
+    pub async fn open_document(
+        &self,
+        file_path: &str,
+        content: &str,
+        language: &str,
+    ) -> Result<(), String> {
         let uri = Self::file_uri(file_path);
         let params = serde_json::json!({
             "textDocument": {
@@ -386,7 +405,8 @@ impl LspClient {
                 "text": content,
             }
         });
-        self.send_notification("textDocument/didOpen", Some(params)).await
+        self.send_notification("textDocument/didOpen", Some(params))
+            .await
     }
 
     /// Change document content
@@ -401,7 +421,8 @@ impl LspClient {
                 "text": content,
             }],
         });
-        self.send_notification("textDocument/didChange", Some(params)).await
+        self.send_notification("textDocument/didChange", Some(params))
+            .await
     }
 
     /// Close a document
@@ -410,7 +431,8 @@ impl LspClient {
         let params = serde_json::json!({
             "textDocument": { "uri": uri }
         });
-        self.send_notification("textDocument/didClose", Some(params)).await
+        self.send_notification("textDocument/didClose", Some(params))
+            .await
     }
 
     /// Get diagnostics for a file
@@ -419,7 +441,8 @@ impl LspClient {
         let params = serde_json::json!({
             "textDocument": { "uri": uri }
         });
-        self.send_request("textDocument/diagnostic", Some(params)).await?;
+        self.send_request("textDocument/diagnostic", Some(params))
+            .await?;
 
         // Return accumulated diagnostics for this file
         Ok(self.diagnostics.get(file_path).cloned().unwrap_or_default())
@@ -446,32 +469,65 @@ impl LspClient {
             }
         });
 
-        let response = self.send_request("textDocument/completion", Some(params)).await?;
+        let response = self
+            .send_request("textDocument/completion", Some(params))
+            .await?;
 
-        let items: Vec<CompletionItem> = if let Some(items) = response.get("items").and_then(|i| i.as_array()) {
-            items.iter().filter_map(|item| {
-                Some(CompletionItem {
-                    label: item.get("label")?.as_str()?.to_string(),
-                    kind: item.get("kind").and_then(|k| {
-                        Some(match k.as_i64()? {
-                            1 => "Text", 2 => "Method", 3 => "Function", 4 => "Constructor",
-                            5 => "Field", 6 => "Variable", 7 => "Class", 8 => "Interface",
-                            9 => "Module", 10 => "Property", 11 => "Unit", 12 => "Value",
-                            13 => "Enum", 14 => "Keyword", 15 => "Snippet", 16 => "Color",
-                            17 => "File", 18 => "Reference", 19 => "Folder", 20 => "EnumMember",
-                            21 => "Constant", 22 => "Struct", 23 => "Event", 24 => "Operator",
-                            25 => "TypeParameter",
-                            _ => "Unknown",
-                        }.to_string())
-                    }),
-                    detail: item.get("detail").and_then(|d| d.as_str()).map(|s| s.to_string()),
-                    insert_text: item.get("insertText").and_then(|t| t.as_str()).map(|s| s.to_string()),
-                    score: item.get("score").and_then(|s| s.as_f64()),
-                })
-            }).collect()
-        } else {
-            Vec::new()
-        };
+        let items: Vec<CompletionItem> =
+            if let Some(items) = response.get("items").and_then(|i| i.as_array()) {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        Some(CompletionItem {
+                            label: item.get("label")?.as_str()?.to_string(),
+                            kind: item.get("kind").and_then(|k| {
+                                Some(
+                                    match k.as_i64()? {
+                                        1 => "Text",
+                                        2 => "Method",
+                                        3 => "Function",
+                                        4 => "Constructor",
+                                        5 => "Field",
+                                        6 => "Variable",
+                                        7 => "Class",
+                                        8 => "Interface",
+                                        9 => "Module",
+                                        10 => "Property",
+                                        11 => "Unit",
+                                        12 => "Value",
+                                        13 => "Enum",
+                                        14 => "Keyword",
+                                        15 => "Snippet",
+                                        16 => "Color",
+                                        17 => "File",
+                                        18 => "Reference",
+                                        19 => "Folder",
+                                        20 => "EnumMember",
+                                        21 => "Constant",
+                                        22 => "Struct",
+                                        23 => "Event",
+                                        24 => "Operator",
+                                        25 => "TypeParameter",
+                                        _ => "Unknown",
+                                    }
+                                    .to_string(),
+                                )
+                            }),
+                            detail: item
+                                .get("detail")
+                                .and_then(|d| d.as_str())
+                                .map(|s| s.to_string()),
+                            insert_text: item
+                                .get("insertText")
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string()),
+                            score: item.get("score").and_then(|s| s.as_f64()),
+                        })
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         Ok(items)
     }
@@ -489,18 +545,26 @@ impl LspClient {
             "position": { "line": line, "character": character },
         });
 
-        let response = self.send_request("textDocument/hover", Some(params)).await?;
+        let response = self
+            .send_request("textDocument/hover", Some(params))
+            .await?;
 
         if let Some(contents) = response.get("contents") {
             let content_str = if let Some(s) = contents.as_str() {
                 s.to_string()
             } else if let Some(arr) = contents.as_array() {
                 arr.iter()
-                    .filter_map(|c| c.as_str().or_else(|| c.get("value").and_then(|v| v.as_str())))
+                    .filter_map(|c| {
+                        c.as_str()
+                            .or_else(|| c.get("value").and_then(|v| v.as_str()))
+                    })
                     .collect::<Vec<_>>()
                     .join("\n")
             } else if let Some(o) = contents.as_object() {
-                o.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                o.get("value")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
             } else {
                 String::new()
             };
@@ -527,7 +591,9 @@ impl LspClient {
             "position": { "line": line, "character": character },
         });
 
-        let response = self.send_request("textDocument/definition", Some(params)).await?;
+        let response = self
+            .send_request("textDocument/definition", Some(params))
+            .await?;
 
         parse_locations(&response)
     }
@@ -546,7 +612,9 @@ impl LspClient {
             "context": { "includeDeclaration": true },
         });
 
-        let response = self.send_request("textDocument/references", Some(params)).await?;
+        let response = self
+            .send_request("textDocument/references", Some(params))
+            .await?;
         parse_locations(&response)
     }
 
@@ -557,7 +625,9 @@ impl LspClient {
             "textDocument": { "uri": uri }
         });
 
-        let response = self.send_request("textDocument/documentSymbol", Some(params)).await?;
+        let response = self
+            .send_request("textDocument/documentSymbol", Some(params))
+            .await?;
 
         let symbols: Vec<Symbol> = if let Some(arr) = response.as_array() {
             arr.iter().filter_map(parse_symbol).collect()
@@ -579,11 +649,16 @@ impl LspClient {
             },
         });
 
-        let response = self.send_request("textDocument/formatting", Some(params)).await?;
+        let response = self
+            .send_request("textDocument/formatting", Some(params))
+            .await?;
 
         if let Some(edits) = response.as_array() {
             // Return the new text from text edits
-            Ok(edits.iter().map(|e| serde_json::to_string(e).unwrap_or_default()).collect())
+            Ok(edits
+                .iter()
+                .map(|e| serde_json::to_string(e).unwrap_or_default())
+                .collect())
         } else {
             Ok(Vec::new())
         }
@@ -594,10 +669,7 @@ impl LspClient {
         if let Some(mut child) = self.child.take() {
             let _ = self.send_request("shutdown", None).await;
             let _ = self.send_notification("exit", None).await;
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                child.wait(),
-            ).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
         }
         Ok(())
     }
@@ -608,7 +680,11 @@ impl LspClient {
         format!("file://{}", file_path)
     }
 
-    async fn send_request(&self, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn send_request(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
         // Build a JSON-RPC request and write it to the LSP server's stdin
         // using the standard `Content-Length: N\r\n\r\n<json>` framing.
         let stdin = self
@@ -630,7 +706,10 @@ impl LspClient {
             .write_all(frame.as_bytes())
             .await
             .map_err(|e| format!("LSP write failed: {e}"))?;
-        guard.flush().await.map_err(|e| format!("LSP flush failed: {e}"))?;
+        guard
+            .flush()
+            .await
+            .map_err(|e| format!("LSP flush failed: {e}"))?;
         // Note: the response is consumed by the reader task and surfaced via
         // the diagnostics map / pending oneshots; for fire-and-forget calls
         // we return Null. Callers expecting a value should use the pending
@@ -638,7 +717,11 @@ impl LspClient {
         Ok(serde_json::Value::Null)
     }
 
-    async fn send_notification(&self, method: &str, params: Option<serde_json::Value>) -> Result<(), String> {
+    async fn send_notification(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<(), String> {
         let stdin = self
             .stdin
             .as_ref()
@@ -656,12 +739,18 @@ impl LspClient {
             .write_all(frame.as_bytes())
             .await
             .map_err(|e| format!("LSP write failed: {e}"))?;
-        guard.flush().await.map_err(|e| format!("LSP flush failed: {e}"))?;
+        guard
+            .flush()
+            .await
+            .map_err(|e| format!("LSP flush failed: {e}"))?;
         tracing::debug!("LSP notification sent: {}", method);
         Ok(())
     }
 
-    async fn read_responses(_client_id: String, stdout: impl tokio::io::AsyncRead + Unpin + Send + 'static) {
+    async fn read_responses(
+        _client_id: String,
+        stdout: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    ) {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
 
@@ -676,7 +765,9 @@ impl LspClient {
                     // Try to parse as JSON-RPC
                     if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&line) {
                         tracing::debug!("LSP response: id={}", response.id);
-                    } else if let Ok(notification) = serde_json::from_str::<JsonRpcNotification>(&line) {
+                    } else if let Ok(notification) =
+                        serde_json::from_str::<JsonRpcNotification>(&line)
+                    {
                         tracing::debug!("LSP notification: {}", notification.method);
                         if notification.method == "textDocument/publishDiagnostics" {
                             // Store diagnostics
@@ -686,7 +777,11 @@ impl LspClient {
                                     let diags: Vec<Diagnostic> = params
                                         .get("diagnostics")
                                         .and_then(|d| d.as_array())
-                                        .map(|arr| arr.iter().filter_map(|d| parse_diagnostic(d, file_path)).collect())
+                                        .map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|d| parse_diagnostic(d, file_path))
+                                                .collect()
+                                        })
                                         .unwrap_or_default();
                                     tracing::info!(
                                         "LSP diagnostics for {}: {} issues",
@@ -738,7 +833,9 @@ impl LspManager {
         language: &str,
         workspace_path: PathBuf,
     ) -> Result<(), String> {
-        let config = self.configs.iter()
+        let config = self
+            .configs
+            .iter()
             .find(|c| c.language == language)
             .ok_or_else(|| format!("No LSP config for language: {}", language))?
             .clone();
@@ -746,12 +843,18 @@ impl LspManager {
         let mut client = LspClient::new(language, workspace_path);
         client.start(&config).await?;
 
-        self.clients.write().await.insert(language.to_string(), client);
+        self.clients
+            .write()
+            .await
+            .insert(language.to_string(), client);
         Ok(())
     }
 
     /// Start LSP servers for all relevant languages in a workspace
-    pub async fn start_for_workspace(&self, workspace_path: PathBuf) -> Result<Vec<String>, String> {
+    pub async fn start_for_workspace(
+        &self,
+        workspace_path: PathBuf,
+    ) -> Result<Vec<String>, String> {
         let mut started = Vec::new();
 
         // Detect languages in the workspace
@@ -801,7 +904,9 @@ impl LspManager {
             .and_then(|e| e.to_str())
             .unwrap_or("");
 
-        let lang = self.configs.iter()
+        let lang = self
+            .configs
+            .iter()
             .find(|c| c.file_extensions.iter().any(|e| e == ext))
             .map(|c| c.language.clone())
             .ok_or_else(|| format!("No LSP for extension: .{}", ext))?;
@@ -828,7 +933,8 @@ impl LspManager {
 
     /// Get diagnostics for a specific file
     pub async fn file_diagnostics(&self, file_path: &str) -> Vec<Diagnostic> {
-        self.all_diagnostics().await
+        self.all_diagnostics()
+            .await
             .remove(file_path)
             .unwrap_or_default()
     }
@@ -859,11 +965,16 @@ fn parse_diagnostic(value: &serde_json::Value, file_path: &str) -> Option<Diagno
         range,
         severity: DiagnosticSeverity::from(value.get("severity")?.as_i64()? as i32),
         message: value.get("message")?.as_str()?.to_string(),
-        source: value.get("source").and_then(|s| s.as_str()).map(|s| s.to_string()),
+        source: value
+            .get("source")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string()),
         code: value.get("code").and_then(|c| {
             if let Some(s) = c.as_str() {
                 Some(s.to_string())
-            } else { c.as_i64().map(|n| n.to_string()) }
+            } else {
+                c.as_i64().map(|n| n.to_string())
+            }
         }),
     })
 }
@@ -883,12 +994,15 @@ fn parse_range(value: &serde_json::Value) -> Option<Range> {
 
 fn parse_locations(value: &serde_json::Value) -> Result<Vec<Location>, String> {
     if let Some(arr) = value.as_array() {
-        Ok(arr.iter().filter_map(|loc| {
-            Some(Location {
-                uri: loc.get("uri")?.as_str()?.to_string(),
-                range: parse_range(loc.get("range")?)?,
+        Ok(arr
+            .iter()
+            .filter_map(|loc| {
+                Some(Location {
+                    uri: loc.get("uri")?.as_str()?.to_string(),
+                    range: parse_range(loc.get("range")?)?,
+                })
             })
-        }).collect())
+            .collect())
     } else if let Some(uri) = value.get("uri").and_then(|u| u.as_str()) {
         // Single location
         Ok(vec![Location {
@@ -904,19 +1018,42 @@ fn parse_symbol(value: &serde_json::Value) -> Option<Symbol> {
     Some(Symbol {
         name: value.get("name")?.as_str()?.to_string(),
         kind: match value.get("kind")?.as_i64()? {
-            1 => "File", 2 => "Module", 3 => "Namespace", 4 => "Package",
-            5 => "Class", 6 => "Method", 7 => "Property", 8 => "Field",
-            9 => "Constructor", 10 => "Enum", 11 => "Interface", 12 => "Function",
-            13 => "Variable", 14 => "Constant", 15 => "String", 16 => "Number",
-            17 => "Boolean", 18 => "Array", 19 => "Object", 20 => "Key",
-            21 => "Null", 22 => "EnumMember", 23 => "Struct", 24 => "Event",
-            25 => "Operator", 26 => "TypeParameter",
+            1 => "File",
+            2 => "Module",
+            3 => "Namespace",
+            4 => "Package",
+            5 => "Class",
+            6 => "Method",
+            7 => "Property",
+            8 => "Field",
+            9 => "Constructor",
+            10 => "Enum",
+            11 => "Interface",
+            12 => "Function",
+            13 => "Variable",
+            14 => "Constant",
+            15 => "String",
+            16 => "Number",
+            17 => "Boolean",
+            18 => "Array",
+            19 => "Object",
+            20 => "Key",
+            21 => "Null",
+            22 => "EnumMember",
+            23 => "Struct",
+            24 => "Event",
+            25 => "Operator",
+            26 => "TypeParameter",
             _ => "Unknown",
-        }.to_string(),
+        }
+        .to_string(),
         location: Location {
             uri: value.get("location")?.get("uri")?.as_str()?.to_string(),
             range: parse_range(value.get("location")?.get("range")?)?,
         },
-        container_name: value.get("containerName").and_then(|c| c.as_str()).map(|s| s.to_string()),
+        container_name: value
+            .get("containerName")
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string()),
     })
 }

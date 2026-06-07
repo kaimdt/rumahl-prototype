@@ -39,7 +39,8 @@ pub struct PluginManager {
 
 impl PluginManager {
     pub fn new() -> Self {
-        Self { plugin_cache: RwLock::new(HashMap::new()),
+        Self {
+            plugin_cache: RwLock::new(HashMap::new()),
             http_client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .user_agent("IORA-pidev-plugin-manager/1.0")
@@ -61,19 +62,31 @@ impl PluginManager {
 
         // Check if it's a default plugin
         let defaults = self.list_default_plugins().await;
-        if let Some(info) = defaults.into_iter().find(|p| p.package_name == config.package_name) {
-            self.plugin_cache.write().await.insert(config.package_name.clone(), info.clone());
+        if let Some(info) = defaults
+            .into_iter()
+            .find(|p| p.package_name == config.package_name)
+        {
+            self.plugin_cache
+                .write()
+                .await
+                .insert(config.package_name.clone(), info.clone());
             return Ok(info);
         }
 
         // Try to fetch from pi.dev registry
         match self.fetch_from_registry(&config.package_name).await {
             Ok(info) => {
-                self.plugin_cache.write().await.insert(config.package_name.clone(), info.clone());
+                self.plugin_cache
+                    .write()
+                    .await
+                    .insert(config.package_name.clone(), info.clone());
                 Ok(info)
             }
             Err(e) => {
-                warn!("Failed to fetch plugin {} from registry: {}", config.package_name, e);
+                warn!(
+                    "Failed to fetch plugin {} from registry: {}",
+                    config.package_name, e
+                );
                 Err(format!("Plugin {} not found: {}", config.package_name, e))
             }
         }
@@ -88,12 +101,14 @@ impl PluginManager {
     ) -> Result<(), String> {
         // Execute npm install inside the container
         let install_cmd = format!("npm install -g {}", package_name);
-        let output = docker.exec_in_container(
-            container_id,
-            vec!["/bin/sh", "-c", &install_cmd],
-        ).await?;
+        let output = docker
+            .exec_in_container(container_id, vec!["/bin/sh", "-c", &install_cmd])
+            .await?;
 
-        info!("Installed plugin {} in container {}: {}", package_name, container_id, output);
+        info!(
+            "Installed plugin {} in container {}: {}",
+            package_name, container_id, output
+        );
         Ok(())
     }
 
@@ -109,12 +124,15 @@ impl PluginManager {
         for url in &urls {
             match self.http_client.get(url).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    let body: serde_json::Value = resp.json().await
+                    let body: serde_json::Value = resp
+                        .json()
+                        .await
                         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
                     // Parse npm registry format
                     if let Some(name) = body["name"].as_str() {
-                        let latest_version = body["dist-tags"]["latest"].as_str().unwrap_or("latest");
+                        let latest_version =
+                            body["dist-tags"]["latest"].as_str().unwrap_or("latest");
                         let description = body["description"].as_str().unwrap_or("").to_string();
                         let version_info = &body["versions"][latest_version];
 
@@ -139,7 +157,10 @@ impl PluginManager {
             }
         }
 
-        Err(format!("Package {} not found in any registry", package_name))
+        Err(format!(
+            "Package {} not found in any registry",
+            package_name
+        ))
     }
 
     /// Parse tool definitions from pi.dev package metadata

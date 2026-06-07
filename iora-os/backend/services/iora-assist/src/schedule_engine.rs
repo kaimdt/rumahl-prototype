@@ -9,7 +9,7 @@
 //
 // Returns a structured `ParsedSchedule` that the memory module can persist.
 
-use chrono::{Datelike, DateTime, Duration, NaiveTime, Utc, Weekday};
+use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc, Weekday};
 use serde::{Deserialize, Serialize};
 
 // ─── Output types ─────────────────────────────────────────────────────────────
@@ -172,9 +172,7 @@ impl ScheduleEngine {
                     .and_utc();
                 Some(candidate)
             }
-            RecurrenceType::Weekdays => {
-                next_weekday_occurrence(after, time)
-            }
+            RecurrenceType::Weekdays => next_weekday_occurrence(after, time),
             RecurrenceType::Weekly | RecurrenceType::Custom => {
                 next_day_of_week_occurrence(after, time, &schedule.days_of_week)
             }
@@ -188,18 +186,48 @@ impl ScheduleEngine {
 /// Classify the user request into a coarse task type. The default is
 /// "reminder" if no more specific intent is detected.
 fn detect_task_type(lower: &str) -> &'static str {
-    let wakeup = ["wake me", "wecke mich", "wake-up", "morgen weck", "morning alarm"];
+    let wakeup = [
+        "wake me",
+        "wecke mich",
+        "wake-up",
+        "morgen weck",
+        "morning alarm",
+    ];
     let alarm = ["alarm", "wecker", "wakeup", "loud"];
     let automation = [
-        "automation", "automatisierung", "schalte", "schalt ", "turn on",
-        "turn off", "einschalten", "ausschalten", "starte", "stoppe", "trigger",
+        "automation",
+        "automatisierung",
+        "schalte",
+        "schalt ",
+        "turn on",
+        "turn off",
+        "einschalten",
+        "ausschalten",
+        "starte",
+        "stoppe",
+        "trigger",
     ];
-    let notification = ["benachrichtigung", "notification", "notify", "push", "message", "nachricht"];
+    let notification = [
+        "benachrichtigung",
+        "notification",
+        "notify",
+        "push",
+        "message",
+        "nachricht",
+    ];
 
-    if wakeup.iter().any(|w| lower.contains(w)) { return "wakeup"; }
-    if automation.iter().any(|w| lower.contains(w)) { return "automation"; }
-    if alarm.iter().any(|w| lower.contains(w)) { return "alarm"; }
-    if notification.iter().any(|w| lower.contains(w)) { return "notification"; }
+    if wakeup.iter().any(|w| lower.contains(w)) {
+        return "wakeup";
+    }
+    if automation.iter().any(|w| lower.contains(w)) {
+        return "automation";
+    }
+    if alarm.iter().any(|w| lower.contains(w)) {
+        return "alarm";
+    }
+    if notification.iter().any(|w| lower.contains(w)) {
+        return "notification";
+    }
     "reminder"
 }
 
@@ -271,10 +299,7 @@ fn parse_hour(text: &str) -> Option<NaiveTime> {
     // German: "um X uhr" / "um X"
     if let Some(pos) = text.find("um ") {
         let after = &text[pos + 3..];
-        let num_str: String = after
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
         if let Ok(h) = num_str.parse::<u32>() {
             if h < 24 {
                 let rest = after[num_str.len()..].trim_start();
@@ -288,10 +313,7 @@ fn parse_hour(text: &str) -> Option<NaiveTime> {
     // English: "at X pm" / "at Xpm"
     if let Some(pos) = text.find("at ") {
         let after = &text[pos + 3..];
-        let num_str: String = after
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
         if let Ok(mut h) = num_str.parse::<u32>() {
             let rest = after[num_str.len()..].trim_start();
             if rest.starts_with("pm") && h < 12 {
@@ -345,26 +367,25 @@ fn detect_recurrence(lower: &str) -> (RecurrenceType, Vec<u8>) {
     // ── Specific named days ───────────────────────────────────────────────────
     let mut days: Vec<u8> = Vec::new();
     let day_names: &[(&str, &str, u8)] = &[
-        ("montag",    "monday",    1),
-        ("dienstag",  "tuesday",   2),
-        ("mittwoch",  "wednesday", 3),
-        ("donnerstag","thursday",  4),
-        ("freitag",   "friday",    5),
-        ("samstag",   "saturday",  6),
-        ("sonntag",   "sunday",    7),
-        ("mo ",       "mon ",      1),
-        ("di ",       "tue ",      2),
-        ("mi ",       "wed ",      3),
-        ("do ",       "thu ",      4),
-        ("fr ",       "fri ",      5),
-        ("sa ",       "sat ",      6),
-        ("so ",       "sun ",      7),
+        ("montag", "monday", 1),
+        ("dienstag", "tuesday", 2),
+        ("mittwoch", "wednesday", 3),
+        ("donnerstag", "thursday", 4),
+        ("freitag", "friday", 5),
+        ("samstag", "saturday", 6),
+        ("sonntag", "sunday", 7),
+        ("mo ", "mon ", 1),
+        ("di ", "tue ", 2),
+        ("mi ", "wed ", 3),
+        ("do ", "thu ", 4),
+        ("fr ", "fri ", 5),
+        ("sa ", "sat ", 6),
+        ("so ", "sun ", 7),
     ];
     for &(de, en, num) in day_names {
-        if (lower.contains(de) || lower.contains(en))
-            && !days.contains(&num) {
-                days.push(num);
-            }
+        if (lower.contains(de) || lower.contains(en)) && !days.contains(&num) {
+            days.push(num);
+        }
     }
     if days.len() == 1 {
         return (RecurrenceType::Weekly, days);
@@ -434,10 +455,9 @@ fn detect_duration(lower: &str) -> (Option<DateTime<Utc>>, Option<i32>) {
     }
 
     // ── "die nächsten N Tage" / "for the next N days" ─────────────────────────
-    if let Some(days) = extract_number_before(lower, "tagen")
-        .or_else(|| extract_number_before(lower, "tage")
-        .or_else(|| extract_number_before(lower, " days")))
-    {
+    if let Some(days) = extract_number_before(lower, "tagen").or_else(|| {
+        extract_number_before(lower, "tage").or_else(|| extract_number_before(lower, " days"))
+    }) {
         let end = now + Duration::days(days);
         return (Some(end), None);
     }
@@ -477,17 +497,17 @@ fn detect_duration(lower: &str) -> (Option<DateTime<Utc>>, Option<i32>) {
 fn extract_relative_offset(lower: &str) -> Option<Duration> {
     let relative: &[(&str, i64)] = &[
         ("minuten", 60),
-        ("minute",  60),
+        ("minute", 60),
         ("minutes", 60),
-        ("mins",    60),
+        ("mins", 60),
         ("stunden", 3600),
-        ("stunde",  3600),
-        ("hours",   3600),
-        ("hour",    3600),
-        ("tagen",   86400),
-        ("tag",     86400),
-        ("days",    86400),
-        ("day",     86400),
+        ("stunde", 3600),
+        ("hours", 3600),
+        ("hour", 3600),
+        ("tagen", 86400),
+        ("tag", 86400),
+        ("days", 86400),
+        ("day", 86400),
     ];
     for &(unit, secs) in relative {
         if let Some(n) = extract_number_before(lower, unit) {
@@ -571,8 +591,7 @@ fn extract_number_before(text: &str, keyword: &str) -> Option<i64> {
     let before = text[..pos].trim();
     // Convert written-out German numbers
     let last_token = before.split_whitespace().last()?;
-    written_number(last_token)
-        .or_else(|| last_token.parse::<i64>().ok())
+    written_number(last_token).or_else(|| last_token.parse::<i64>().ok())
 }
 
 /// Recognise common German written-out numbers.
@@ -639,7 +658,10 @@ pub fn extract_duration_days(lower: &str) -> Option<i64> {
         return Some(weeks * 7);
     }
     // "eine Woche" / "for a week"
-    if lower.contains("eine woche") || lower.contains("for a week") || lower.contains("for one week") {
+    if lower.contains("eine woche")
+        || lower.contains("for a week")
+        || lower.contains("for one week")
+    {
         return Some(7);
     }
 
@@ -651,8 +673,10 @@ pub fn extract_duration_days(lower: &str) -> Option<i64> {
     {
         return Some(months * 30);
     }
-    if lower.contains("einen monat") || lower.contains("ein monat")
-        || lower.contains("for a month") || lower.contains("for one month")
+    if lower.contains("einen monat")
+        || lower.contains("ein monat")
+        || lower.contains("for a month")
+        || lower.contains("for one month")
     {
         return Some(30);
     }
@@ -688,7 +712,8 @@ mod tests {
 
     #[test]
     fn test_die_naechsten_zwei_wochen() {
-        let s = parse("Erinnere mich die nächsten 2 Wochen um 18 Uhr das ich Wasser trinken soll").unwrap();
+        let s = parse("Erinnere mich die nächsten 2 Wochen um 18 Uhr das ich Wasser trinken soll")
+            .unwrap();
         assert_eq!(s.recurrence_type, RecurrenceType::Daily);
         assert!(s.recurrence_end_at.is_some());
         assert_eq!(s.time_of_day, NaiveTime::from_hms_opt(18, 0, 0));

@@ -305,14 +305,19 @@ async fn handle_system(cmd: SystemCommands) -> Result<()> {
             println!();
 
             let output = StdCommand::new("uname").arg("-a").output()?;
-            println!("  Kernel: {}", String::from_utf8_lossy(&output.stdout).trim());
+            println!(
+                "  Kernel: {}",
+                String::from_utf8_lossy(&output.stdout).trim()
+            );
 
             if let Ok(output) = std::fs::read_to_string("/etc/iora-version") {
                 println!("  IORA OS: {}", output.trim());
             }
 
             if let Ok(output) = std::fs::read_to_string("/proc/uptime") {
-                let uptime_secs: f64 = output.split_whitespace().next()
+                let uptime_secs: f64 = output
+                    .split_whitespace()
+                    .next()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0.0);
                 let days = (uptime_secs / 86400.0) as u64;
@@ -326,7 +331,10 @@ async fn handle_system(cmd: SystemCommands) -> Result<()> {
 
             // CPU
             if let Ok(output) = StdCommand::new("nproc").output() {
-                println!("  CPU Cores: {}", String::from_utf8_lossy(&output.stdout).trim());
+                println!(
+                    "  CPU Cores: {}",
+                    String::from_utf8_lossy(&output.stdout).trim()
+                );
             }
 
             // Memory
@@ -347,9 +355,10 @@ async fn handle_system(cmd: SystemCommands) -> Result<()> {
             if !force
                 && !dialoguer::Confirm::new()
                     .with_prompt("Are you sure you want to reboot?")
-                    .interact()? {
-                    return Ok(());
-                }
+                    .interact()?
+            {
+                return Ok(());
+            }
             println!("{}", "Rebooting system...".bright_yellow());
             StdCommand::new("systemctl").arg("reboot").spawn()?;
         }
@@ -357,9 +366,10 @@ async fn handle_system(cmd: SystemCommands) -> Result<()> {
             if !force
                 && !dialoguer::Confirm::new()
                     .with_prompt("Are you sure you want to shutdown?")
-                    .interact()? {
-                    return Ok(());
-                }
+                    .interact()?
+            {
+                return Ok(());
+            }
             println!("{}", "Shutting down system...".bright_yellow());
             StdCommand::new("systemctl").arg("poweroff").spawn()?;
         }
@@ -376,7 +386,11 @@ async fn handle_system(cmd: SystemCommands) -> Result<()> {
             println!("  Is RPi:   {}", hw.is_raspberry_pi);
             println!("  Is WSL:   {}", hw.is_wsl);
         }
-        SystemCommands::Update { check, yes, channel } => {
+        SystemCommands::Update {
+            check,
+            yes,
+            channel,
+        } => {
             handle_system_update(check, yes, &channel).await?;
         }
     }
@@ -406,20 +420,35 @@ async fn handle_service(base_url: &str, cmd: ServiceCommands) -> Result<()> {
             }
         }
         ServiceCommands::Start { name } => {
-            println!("{} {}", "Starting service".bright_cyan(), name.bright_white());
+            println!(
+                "{} {}",
+                "Starting service".bright_cyan(),
+                name.bright_white()
+            );
             let url = format!("{}:8097/api/supervisor/containers/{}/start", base_url, name);
             client.post(&url).send().await?;
             println!("{}", "✓ Service started".green());
         }
         ServiceCommands::Stop { name } => {
-            println!("{} {}", "Stopping service".bright_cyan(), name.bright_white());
+            println!(
+                "{} {}",
+                "Stopping service".bright_cyan(),
+                name.bright_white()
+            );
             let url = format!("{}:8097/api/supervisor/containers/{}/stop", base_url, name);
             client.post(&url).send().await?;
             println!("{}", "✓ Service stopped".green());
         }
         ServiceCommands::Restart { name } => {
-            println!("{} {}", "Restarting service".bright_cyan(), name.bright_white());
-            let url = format!("{}:8097/api/supervisor/containers/{}/restart", base_url, name);
+            println!(
+                "{} {}",
+                "Restarting service".bright_cyan(),
+                name.bright_white()
+            );
+            let url = format!(
+                "{}:8097/api/supervisor/containers/{}/restart",
+                base_url, name
+            );
             client.post(&url).send().await?;
             println!("{}", "✓ Service restarted".green());
         }
@@ -431,9 +460,18 @@ async fn handle_service(base_url: &str, cmd: ServiceCommands) -> Result<()> {
             for container in containers {
                 if container["name"].as_str() == Some(&name) {
                     println!("{}", format!("Service: {}", name).bright_blue().bold());
-                    println!("  State: {}", container["state"].as_str().unwrap_or("unknown"));
-                    println!("  Status: {}", container["status"].as_str().unwrap_or("unknown"));
-                    println!("  Image: {}", container["image"].as_str().unwrap_or("unknown"));
+                    println!(
+                        "  State: {}",
+                        container["state"].as_str().unwrap_or("unknown")
+                    );
+                    println!(
+                        "  Status: {}",
+                        container["status"].as_str().unwrap_or("unknown")
+                    );
+                    println!(
+                        "  Image: {}",
+                        container["image"].as_str().unwrap_or("unknown")
+                    );
                     return Ok(());
                 }
             }
@@ -470,7 +508,10 @@ async fn handle_app(base_url: &str, cmd: AppCommands) -> Result<()> {
                 rows.push(ContainerRow {
                     name: container["name"].as_str().unwrap_or("unknown").to_string(),
                     state: container["state"].as_str().unwrap_or("unknown").to_string(),
-                    status: container["status"].as_str().unwrap_or("unknown").to_string(),
+                    status: container["status"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string(),
                     image: container["image"].as_str().unwrap_or("unknown").to_string(),
                 });
             }
@@ -490,13 +531,23 @@ async fn handle_app(base_url: &str, cmd: AppCommands) -> Result<()> {
         }
         AppCommands::Restart { name } => {
             println!("{} {}", "Restarting app".bright_cyan(), name.bright_white());
-            let url = format!("{}:8097/api/supervisor/containers/{}/restart", base_url, name);
+            let url = format!(
+                "{}:8097/api/supervisor/containers/{}/restart",
+                base_url, name
+            );
             client.post(&url).send().await?;
             println!("{}", "✓ App restarted".green());
         }
-        AppCommands::Logs { name, lines, follow } => {
+        AppCommands::Logs {
+            name,
+            lines,
+            follow,
+        } => {
             if follow {
-                println!("{} (press Ctrl+C to stop)", "Following logs...".bright_cyan());
+                println!(
+                    "{} (press Ctrl+C to stop)",
+                    "Following logs...".bright_cyan()
+                );
                 // Poll for new log lines every second.
                 let url = format!("{}:8097/api/supervisor/containers/{}/logs", base_url, name);
                 let mut last_seen: Option<String> = None;
@@ -543,11 +594,17 @@ async fn handle_app(base_url: &str, cmd: AppCommands) -> Result<()> {
             let target = match name {
                 Some(n) => n,
                 None => {
-                    eprintln!("{}", "Container name required (e.g. `ora app stats <name>`)".yellow());
+                    eprintln!(
+                        "{}",
+                        "Container name required (e.g. `ora app stats <name>`)".yellow()
+                    );
                     return Ok(());
                 }
             };
-            let url = format!("{}:8097/api/supervisor/containers/{}/stats", base_url, target);
+            let url = format!(
+                "{}:8097/api/supervisor/containers/{}/stats",
+                base_url, target
+            );
             let resp = client.get(&url).send().await?;
             if !resp.status().is_success() {
                 eprintln!("{} status {}", "Stats request failed".red(), resp.status());
@@ -586,17 +643,26 @@ async fn handle_plugin(base_url: &str, cmd: PluginCommands) -> Result<()> {
             let data: Value = resp.json().await?;
 
             if let Some(plugins) = data.get("plugins").and_then(|v| v.as_array()) {
-                println!("{}", "Installed Plugins (Code Extensions)".bright_blue().bold());
+                println!(
+                    "{}",
+                    "Installed Plugins (Code Extensions)".bright_blue().bold()
+                );
                 println!();
                 for plugin in plugins {
-                    println!("  {} - {}",
+                    println!(
+                        "  {} - {}",
                         plugin["name"].as_str().unwrap_or("unknown").bright_white(),
-                        plugin["version"].as_str().unwrap_or("unknown"));
+                        plugin["version"].as_str().unwrap_or("unknown")
+                    );
                 }
             }
         }
         PluginCommands::Install { plugin } => {
-            println!("{} {}", "Installing plugin".bright_cyan(), plugin.bright_white());
+            println!(
+                "{} {}",
+                "Installing plugin".bright_cyan(),
+                plugin.bright_white()
+            );
             let url = format!("{}:8090/api/core/plugins", base_url);
             let resp = client
                 .post(&url)
@@ -610,7 +676,11 @@ async fn handle_plugin(base_url: &str, cmd: PluginCommands) -> Result<()> {
             }
         }
         PluginCommands::Remove { name } => {
-            println!("{} {}", "Removing plugin".bright_cyan(), name.bright_white());
+            println!(
+                "{} {}",
+                "Removing plugin".bright_cyan(),
+                name.bright_white()
+            );
             let url = format!("{}:8090/api/core/plugins/{}", base_url, name);
             client.delete(&url).send().await?;
             println!("{}", "✓ Plugin removed".green());
@@ -621,9 +691,15 @@ async fn handle_plugin(base_url: &str, cmd: PluginCommands) -> Result<()> {
             let plugin: Value = resp.json().await?;
 
             println!("{}", format!("Plugin: {}", name).bright_blue().bold());
-            println!("  Version: {}", plugin["version"].as_str().unwrap_or("unknown"));
+            println!(
+                "  Version: {}",
+                plugin["version"].as_str().unwrap_or("unknown")
+            );
             println!("  Type: {}", plugin["type"].as_str().unwrap_or("unknown"));
-            println!("  Enabled: {}", plugin["enabled"].as_bool().unwrap_or(false));
+            println!(
+                "  Enabled: {}",
+                plugin["enabled"].as_bool().unwrap_or(false)
+            );
         }
         PluginCommands::Enable { name } => {
             let url = format!("{}:8090/api/core/plugins/{}/enable", base_url, name);
@@ -651,17 +727,31 @@ async fn handle_logs(_base_url: &str, cmd: LogsCommands) -> Result<()> {
     match cmd {
         LogsCommands::System { lines, follow } => {
             if follow {
-                StdCommand::new("journalctl").args(["-f", "-n", &lines.to_string()]).spawn()?.wait()?;
+                StdCommand::new("journalctl")
+                    .args(["-f", "-n", &lines.to_string()])
+                    .spawn()?
+                    .wait()?;
             } else {
-                let output = StdCommand::new("journalctl").args(["-n", &lines.to_string()]).output()?;
+                let output = StdCommand::new("journalctl")
+                    .args(["-n", &lines.to_string()])
+                    .output()?;
                 println!("{}", String::from_utf8_lossy(&output.stdout));
             }
         }
-        LogsCommands::Service { name, lines, follow } => {
+        LogsCommands::Service {
+            name,
+            lines,
+            follow,
+        } => {
             if follow {
-                StdCommand::new("journalctl").args(["-u", &name, "-f", "-n", &lines.to_string()]).spawn()?.wait()?;
+                StdCommand::new("journalctl")
+                    .args(["-u", &name, "-f", "-n", &lines.to_string()])
+                    .spawn()?
+                    .wait()?;
             } else {
-                let output = StdCommand::new("journalctl").args(["-u", &name, "-n", &lines.to_string()]).output()?;
+                let output = StdCommand::new("journalctl")
+                    .args(["-u", &name, "-n", &lines.to_string()])
+                    .output()?;
                 println!("{}", String::from_utf8_lossy(&output.stdout));
             }
         }
@@ -680,8 +770,14 @@ async fn handle_security(base_url: &str, cmd: SecurityCommands) -> Result<()> {
 
             println!("{}", "Security Status".bright_blue().bold());
             println!();
-            println!("  Lockdown Level: {}", status["lockdown_level"].as_u64().unwrap_or(0));
-            println!("  Active Threats: {}", status["active_threats"].as_u64().unwrap_or(0));
+            println!(
+                "  Lockdown Level: {}",
+                status["lockdown_level"].as_u64().unwrap_or(0)
+            );
+            println!(
+                "  Active Threats: {}",
+                status["active_threats"].as_u64().unwrap_or(0)
+            );
         }
         SecurityCommands::Alerts => {
             let url = format!("{}:8095/api/security/alerts", base_url);
@@ -691,9 +787,11 @@ async fn handle_security(base_url: &str, cmd: SecurityCommands) -> Result<()> {
             println!("{}", "Security Alerts".bright_blue().bold());
             println!();
             for alert in alerts {
-                println!("  [{}] {}",
+                println!(
+                    "  [{}] {}",
                     alert["severity"].as_str().unwrap_or("unknown"),
-                    alert["message"].as_str().unwrap_or(""));
+                    alert["message"].as_str().unwrap_or("")
+                );
             }
         }
         SecurityCommands::Secrets => {
@@ -704,9 +802,11 @@ async fn handle_security(base_url: &str, cmd: SecurityCommands) -> Result<()> {
             println!("{}", "Secrets".bright_blue().bold());
             println!();
             for secret in secrets {
-                println!("  {} ({})",
+                println!(
+                    "  {} ({})",
                     secret["name"].as_str().unwrap_or("unknown"),
-                    secret["created_at"].as_str().unwrap_or(""));
+                    secret["created_at"].as_str().unwrap_or("")
+                );
             }
         }
         SecurityCommands::AddSecret { name, stdin } => {
@@ -722,7 +822,8 @@ async fn handle_security(base_url: &str, cmd: SecurityCommands) -> Result<()> {
             };
 
             let url = format!("{}:8093/api/secrets", base_url);
-            client.post(&url)
+            client
+                .post(&url)
                 .json(&serde_json::json!({
                     "name": name,
                     "value": value,
@@ -757,12 +858,19 @@ async fn show_status(base_url: &str, verbose: bool) -> Result<()> {
                 for svc in services {
                     let name = svc["name"].as_str().unwrap_or("unknown");
                     let status = svc["status"].as_str().unwrap_or("unknown");
-                    let status_color = if status == "healthy" { status.green() } else { status.red() };
+                    let status_color = if status == "healthy" {
+                        status.green()
+                    } else {
+                        status.red()
+                    };
                     println!("  {} - {}", name, status_color);
 
                     if verbose {
                         println!("    Port: {}", svc["port"]);
-                        println!("    Uptime: {}", format_uptime(svc["uptime_seconds"].as_u64().unwrap_or(0)));
+                        println!(
+                            "    Uptime: {}",
+                            format_uptime(svc["uptime_seconds"].as_u64().unwrap_or(0))
+                        );
                     }
                 }
             }
@@ -775,14 +883,19 @@ async fn show_status(base_url: &str, verbose: bool) -> Result<()> {
         if let Ok(containers) = resp.json::<Vec<Value>>().await {
             println!();
             println!("{}", "Apps (Containers):".bright_cyan());
-            let running = containers.iter().filter(|c| c["state"].as_str() == Some("running")).count();
+            let running = containers
+                .iter()
+                .filter(|c| c["state"].as_str() == Some("running"))
+                .count();
             println!("  Running: {}/{}", running, containers.len());
 
             if verbose {
                 for container in containers {
-                    println!("  {} - {}",
+                    println!(
+                        "  {} - {}",
                         container["name"].as_str().unwrap_or("unknown"),
-                        container["state"].as_str().unwrap_or("unknown"));
+                        container["state"].as_str().unwrap_or("unknown")
+                    );
                 }
             }
         }
@@ -803,7 +916,7 @@ async fn handle_update(check: bool) -> Result<()> {
 struct HardwareInfo {
     arch: String,
     model: String,
-    platform: String,      // "pc" | "rpi3" | "rpi4" | "rpi5" | "generic-arm64" | "unknown"
+    platform: String, // "pc" | "rpi3" | "rpi4" | "rpi5" | "generic-arm64" | "unknown"
     is_raspberry_pi: bool,
     is_wsl: bool,
 }
@@ -824,10 +937,15 @@ fn detect_hardware() -> HardwareInfo {
     let platform = if is_raspberry_pi {
         // Match model strings like "Raspberry Pi 4 Model B Rev 1.4".
         let m = model.to_ascii_lowercase();
-        if m.contains("pi 5") { "rpi5".into() }
-        else if m.contains("pi 4") || m.contains("pi 400") || m.contains("compute module 4") { "rpi4".into() }
-        else if m.contains("pi 3") || m.contains("zero 2") { "rpi3".into() }
-        else { "generic-arm64".into() }
+        if m.contains("pi 5") {
+            "rpi5".into()
+        } else if m.contains("pi 4") || m.contains("pi 400") || m.contains("compute module 4") {
+            "rpi4".into()
+        } else if m.contains("pi 3") || m.contains("zero 2") {
+            "rpi3".into()
+        } else {
+            "generic-arm64".into()
+        }
     } else if arch == "aarch64" {
         "generic-arm64".into()
     } else if arch == "x86_64" {
@@ -837,7 +955,11 @@ fn detect_hardware() -> HardwareInfo {
     };
     HardwareInfo {
         arch,
-        model: if model.is_empty() { "unknown".into() } else { model },
+        model: if model.is_empty() {
+            "unknown".into()
+        } else {
+            model
+        },
         platform,
         is_raspberry_pi,
         is_wsl,
@@ -863,7 +985,7 @@ async fn handle_system_update(check_only: bool, assume_yes: bool, channel: &str)
     let arch_for_server = match hw.arch.as_str() {
         "x86_64" => "x86_64",
         "aarch64" => "aarch64",
-        "armv7l"  => "armhf",
+        "armv7l" => "armhf",
         other => other,
     };
 
@@ -892,23 +1014,39 @@ async fn handle_system_update(check_only: bool, assume_yes: bool, channel: &str)
         eprintln!("{} HTTP {}", "Update server error:".red(), resp.status());
         return Ok(());
     }
-    let data: Value = resp.json().await.context("invalid JSON from update server")?;
+    let data: Value = resp
+        .json()
+        .await
+        .context("invalid JSON from update server")?;
 
-    let available = data.get("update_available").and_then(|v| v.as_bool()).unwrap_or(false);
+    let available = data
+        .get("update_available")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if !available {
         println!("{}", "System is up to date.".green());
         return Ok(());
     }
 
-    let latest = data.get("latest_version").and_then(|v| v.as_str()).unwrap_or("?");
-    let notes = data.get("release_notes").and_then(|v| v.as_str()).unwrap_or("");
+    let latest = data
+        .get("latest_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let notes = data
+        .get("release_notes")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let size = data
         .get("release")
         .and_then(|r| r.get("size"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
 
-    println!("{} {}", "Update available:".yellow().bold(), latest.bright_white());
+    println!(
+        "{} {}",
+        "Update available:".yellow().bold(),
+        latest.bright_white()
+    );
     if size > 0 {
         println!("  Size: {:.1} MiB", size as f64 / 1024.0 / 1024.0);
     }
@@ -945,14 +1083,20 @@ async fn handle_system_update(check_only: bool, assume_yes: bool, channel: &str)
     // with iora-os/post-build.sh so we reuse the signature/checksum logic.
     let helper = "/opt/iora/update/check-update.sh";
     if std::path::Path::new(helper).exists() {
-        println!("{}", "Handing over to /opt/iora/update/check-update.sh...".bright_cyan());
+        println!(
+            "{}",
+            "Handing over to /opt/iora/update/check-update.sh...".bright_cyan()
+        );
         let status = StdCommand::new("sudo")
             .arg(helper)
             .status()
             .context("failed to invoke update helper")?;
         if status.success() {
             println!();
-            println!("{}", "✓ Update installed. Reboot with `ora system reboot` to activate.".green());
+            println!(
+                "{}",
+                "✓ Update installed. Reboot with `ora system reboot` to activate.".green()
+            );
         } else {
             eprintln!("{}", "Update helper exited with an error.".red());
         }
@@ -963,7 +1107,13 @@ async fn handle_system_update(check_only: bool, assume_yes: bool, channel: &str)
              (this system may not be IORA OS)."
                 .yellow()
         );
-        eprintln!("  Download URL: {}", data.get("release").and_then(|r| r.get("download_url")).and_then(|v| v.as_str()).unwrap_or(""));
+        eprintln!(
+            "  Download URL: {}",
+            data.get("release")
+                .and_then(|r| r.get("download_url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+        );
     }
     Ok(())
 }
@@ -974,8 +1124,18 @@ async fn handle_install(base_url: &str, target: &str, yes: bool) -> Result<()> {
     let (kind, name) = split_target(target);
     match kind {
         "plugin" => {
-            println!("{} {}", "Installing plugin".bright_cyan(), name.bright_white());
-            handle_plugin(base_url, PluginCommands::Install { plugin: name.to_string() }).await
+            println!(
+                "{} {}",
+                "Installing plugin".bright_cyan(),
+                name.bright_white()
+            );
+            handle_plugin(
+                base_url,
+                PluginCommands::Install {
+                    plugin: name.to_string(),
+                },
+            )
+            .await
         }
         "app" | "" => {
             // Default to app installation through the supervisor.
@@ -1018,7 +1178,10 @@ async fn handle_install(base_url: &str, target: &str, yes: bool) -> Result<()> {
             Ok(())
         }
         other => {
-            eprintln!("{} unknown target kind `{other}` (use app: or plugin:)", "Error:".red());
+            eprintln!(
+                "{} unknown target kind `{other}` (use app: or plugin:)",
+                "Error:".red()
+            );
             Ok(())
         }
     }
@@ -1027,7 +1190,15 @@ async fn handle_install(base_url: &str, target: &str, yes: bool) -> Result<()> {
 async fn handle_remove(base_url: &str, target: &str, purge: bool) -> Result<()> {
     let (kind, name) = split_target(target);
     match kind {
-        "plugin" => handle_plugin(base_url, PluginCommands::Remove { name: name.to_string() }).await,
+        "plugin" => {
+            handle_plugin(
+                base_url,
+                PluginCommands::Remove {
+                    name: name.to_string(),
+                },
+            )
+            .await
+        }
         "app" | "" => {
             let client = reqwest::Client::new();
             let url = format!(
@@ -1042,7 +1213,10 @@ async fn handle_remove(base_url: &str, target: &str, purge: bool) -> Result<()> 
             Ok(())
         }
         other => {
-            eprintln!("{} unknown target kind `{other}` (use app: or plugin:)", "Error:".red());
+            eprintln!(
+                "{} unknown target kind `{other}` (use app: or plugin:)",
+                "Error:".red()
+            );
             Ok(())
         }
     }
@@ -1099,10 +1273,7 @@ async fn handle_dev(cmd: DevCommands) -> Result<()> {
                     "This is a production image. Dev mode can only be enabled at build time"
                         .yellow()
                 );
-                println!(
-                    "  {}",
-                    "via `iora-os/build.sh --dev`.".yellow()
-                );
+                println!("  {}", "via `iora-os/build.sh --dev`.".yellow());
                 return Ok(());
             }
             // Try the bridge's own status endpoint.
@@ -1141,7 +1312,11 @@ async fn handle_dev(cmd: DevCommands) -> Result<()> {
 }
 
 fn yesno(b: bool) -> colored::ColoredString {
-    if b { "yes".green() } else { "no".red() }
+    if b {
+        "yes".green()
+    } else {
+        "no".red()
+    }
 }
 
 // ─── Version overview ───────────────────────────────────────────────────────
@@ -1200,18 +1375,18 @@ async fn print_version_overview() {
     let base = std::env::var("IORA_URL").unwrap_or_else(|_| "http://localhost".into());
     let base = base.trim_end_matches('/').to_string();
     let services: &[(&str, u16)] = &[
-        ("iora-home",         8080),
-        ("iora-core",         8090),
-        ("iora-api",          8091),
-        ("iora-control",      8092),
-        ("iora-assist",       8093),
-        ("iora-secrets",      8094),
-        ("iora-security",     8095),
-        ("iora-gateway",      8096),
-        ("iora-supervisor",   8097),
-        ("iora-files",        8098),
-        ("iora-appstore",     8100),
-        ("iora-developer-app",8101),
+        ("iora-home", 8080),
+        ("iora-core", 8090),
+        ("iora-api", 8091),
+        ("iora-control", 8092),
+        ("iora-assist", 8093),
+        ("iora-secrets", 8094),
+        ("iora-security", 8095),
+        ("iora-gateway", 8096),
+        ("iora-supervisor", 8097),
+        ("iora-files", 8098),
+        ("iora-appstore", 8100),
+        ("iora-developer-app", 8101),
     ];
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(500))
@@ -1224,14 +1399,7 @@ async fn print_version_overview() {
             let c = client.clone();
             let name = *name;
             tokio::spawn(async move {
-                let v = c
-                    .get(&url)
-                    .send()
-                    .await
-                    .ok()?
-                    .json::<Value>()
-                    .await
-                    .ok()?;
+                let v = c.get(&url).send().await.ok()?.json::<Value>().await.ok()?;
                 v.get("version")
                     .and_then(|x| x.as_str())
                     .map(|s| (name, s.to_string()))

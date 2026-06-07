@@ -200,20 +200,60 @@ pub async fn update_config(
     patch: &serde_json::Value,
 ) -> anyhow::Result<BackupConfig> {
     let mut cfg = load_config(pool).await?.unwrap_or_default();
-    if let Some(v) = patch.get("enabled").and_then(|v| v.as_bool()) { cfg.enabled = v; }
-    if let Some(v) = patch.get("include_databases").and_then(|v| v.as_bool()) { cfg.include_databases = v; }
-    if let Some(v) = patch.get("include_docker_volumes").and_then(|v| v.as_bool()) { cfg.include_docker_volumes = v; }
-    if let Some(v) = patch.get("include_system_config").and_then(|v| v.as_bool()) { cfg.include_system_config = v; }
-    if let Some(v) = patch.get("include_user_data").and_then(|v| v.as_bool()) { cfg.include_user_data = v; }
-    if let Some(v) = patch.get("include_apps").and_then(|v| v.as_bool()) { cfg.include_apps = v; }
-    if let Some(v) = patch.get("schedule_enabled").and_then(|v| v.as_bool()) { cfg.schedule_enabled = v; }
-    if let Some(v) = patch.get("schedule_cron").and_then(|v| v.as_str()) { cfg.schedule_cron = Some(v.to_string()); }
-    if let Some(v) = patch.get("schedule_retention_days").and_then(|v| v.as_i64()) { cfg.schedule_retention_days = v as i32; }
-    if let Some(v) = patch.get("pre_update_enabled").and_then(|v| v.as_bool()) { cfg.pre_update_enabled = v; }
-    if let Some(v) = patch.get("pre_update_retention_count").and_then(|v| v.as_i64()) { cfg.pre_update_retention_count = v as i32; }
-    if let Some(v) = patch.get("remote_storage_enabled").and_then(|v| v.as_bool()) { cfg.remote_storage_enabled = v; }
-    if let Some(v) = patch.get("remote_storage_backend").and_then(|v| v.as_str()) { cfg.remote_storage_backend = Some(v.to_string()); }
-    if let Some(v) = patch.get("remote_storage_config") { cfg.remote_storage_config = Some(v.clone()); }
+    if let Some(v) = patch.get("enabled").and_then(|v| v.as_bool()) {
+        cfg.enabled = v;
+    }
+    if let Some(v) = patch.get("include_databases").and_then(|v| v.as_bool()) {
+        cfg.include_databases = v;
+    }
+    if let Some(v) = patch
+        .get("include_docker_volumes")
+        .and_then(|v| v.as_bool())
+    {
+        cfg.include_docker_volumes = v;
+    }
+    if let Some(v) = patch.get("include_system_config").and_then(|v| v.as_bool()) {
+        cfg.include_system_config = v;
+    }
+    if let Some(v) = patch.get("include_user_data").and_then(|v| v.as_bool()) {
+        cfg.include_user_data = v;
+    }
+    if let Some(v) = patch.get("include_apps").and_then(|v| v.as_bool()) {
+        cfg.include_apps = v;
+    }
+    if let Some(v) = patch.get("schedule_enabled").and_then(|v| v.as_bool()) {
+        cfg.schedule_enabled = v;
+    }
+    if let Some(v) = patch.get("schedule_cron").and_then(|v| v.as_str()) {
+        cfg.schedule_cron = Some(v.to_string());
+    }
+    if let Some(v) = patch
+        .get("schedule_retention_days")
+        .and_then(|v| v.as_i64())
+    {
+        cfg.schedule_retention_days = v as i32;
+    }
+    if let Some(v) = patch.get("pre_update_enabled").and_then(|v| v.as_bool()) {
+        cfg.pre_update_enabled = v;
+    }
+    if let Some(v) = patch
+        .get("pre_update_retention_count")
+        .and_then(|v| v.as_i64())
+    {
+        cfg.pre_update_retention_count = v as i32;
+    }
+    if let Some(v) = patch
+        .get("remote_storage_enabled")
+        .and_then(|v| v.as_bool())
+    {
+        cfg.remote_storage_enabled = v;
+    }
+    if let Some(v) = patch.get("remote_storage_backend").and_then(|v| v.as_str()) {
+        cfg.remote_storage_backend = Some(v.to_string());
+    }
+    if let Some(v) = patch.get("remote_storage_config") {
+        cfg.remote_storage_config = Some(v.clone());
+    }
     cfg.updated_at = Utc::now();
 
     sqlx::query(

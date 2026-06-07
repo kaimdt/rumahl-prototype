@@ -1,10 +1,10 @@
 // Cost Manager – Token Budgeting & Economy Mode
 // Tracks token usage, enforces budgets, routes to cheapest capable model.
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Pricing per 1K tokens (USD)
@@ -23,26 +23,138 @@ impl ModelPricing {
     pub fn known_models() -> HashMap<&'static str, ModelPricing> {
         let mut map = HashMap::new();
         // OpenAI
-        map.insert("gpt-4o", ModelPricing { input_cost_per_1k: 0.0025, output_cost_per_1k: 0.01, tier: "premium".into(), capability_score: 0.95 });
-        map.insert("gpt-4o-mini", ModelPricing { input_cost_per_1k: 0.00015, output_cost_per_1k: 0.0006, tier: "economy".into(), capability_score: 0.80 });
-        map.insert("gpt-3.5-turbo", ModelPricing { input_cost_per_1k: 0.0005, output_cost_per_1k: 0.0015, tier: "economy".into(), capability_score: 0.65 });
+        map.insert(
+            "gpt-4o",
+            ModelPricing {
+                input_cost_per_1k: 0.0025,
+                output_cost_per_1k: 0.01,
+                tier: "premium".into(),
+                capability_score: 0.95,
+            },
+        );
+        map.insert(
+            "gpt-4o-mini",
+            ModelPricing {
+                input_cost_per_1k: 0.00015,
+                output_cost_per_1k: 0.0006,
+                tier: "economy".into(),
+                capability_score: 0.80,
+            },
+        );
+        map.insert(
+            "gpt-3.5-turbo",
+            ModelPricing {
+                input_cost_per_1k: 0.0005,
+                output_cost_per_1k: 0.0015,
+                tier: "economy".into(),
+                capability_score: 0.65,
+            },
+        );
         // Anthropic
-        map.insert("claude-sonnet-4-20250514", ModelPricing { input_cost_per_1k: 0.003, output_cost_per_1k: 0.015, tier: "premium".into(), capability_score: 0.98 });
-        map.insert("claude-3-haiku", ModelPricing { input_cost_per_1k: 0.00025, output_cost_per_1k: 0.00125, tier: "economy".into(), capability_score: 0.70 });
+        map.insert(
+            "claude-sonnet-4-20250514",
+            ModelPricing {
+                input_cost_per_1k: 0.003,
+                output_cost_per_1k: 0.015,
+                tier: "premium".into(),
+                capability_score: 0.98,
+            },
+        );
+        map.insert(
+            "claude-3-haiku",
+            ModelPricing {
+                input_cost_per_1k: 0.00025,
+                output_cost_per_1k: 0.00125,
+                tier: "economy".into(),
+                capability_score: 0.70,
+            },
+        );
         // DeepSeek
-        map.insert("deepseek-chat", ModelPricing { input_cost_per_1k: 0.00014, output_cost_per_1k: 0.00028, tier: "economy".into(), capability_score: 0.78 });
-        map.insert("deepseek-coder", ModelPricing { input_cost_per_1k: 0.00014, output_cost_per_1k: 0.00028, tier: "economy".into(), capability_score: 0.82 });
+        map.insert(
+            "deepseek-chat",
+            ModelPricing {
+                input_cost_per_1k: 0.00014,
+                output_cost_per_1k: 0.00028,
+                tier: "economy".into(),
+                capability_score: 0.78,
+            },
+        );
+        map.insert(
+            "deepseek-coder",
+            ModelPricing {
+                input_cost_per_1k: 0.00014,
+                output_cost_per_1k: 0.00028,
+                tier: "economy".into(),
+                capability_score: 0.82,
+            },
+        );
         // Mistral
-        map.insert("mistral-small", ModelPricing { input_cost_per_1k: 0.001, output_cost_per_1k: 0.003, tier: "economy".into(), capability_score: 0.72 });
-        map.insert("mistral-large", ModelPricing { input_cost_per_1k: 0.004, output_cost_per_1k: 0.012, tier: "premium".into(), capability_score: 0.90 });
+        map.insert(
+            "mistral-small",
+            ModelPricing {
+                input_cost_per_1k: 0.001,
+                output_cost_per_1k: 0.003,
+                tier: "economy".into(),
+                capability_score: 0.72,
+            },
+        );
+        map.insert(
+            "mistral-large",
+            ModelPricing {
+                input_cost_per_1k: 0.004,
+                output_cost_per_1k: 0.012,
+                tier: "premium".into(),
+                capability_score: 0.90,
+            },
+        );
         // Grok
-        map.insert("grok-2", ModelPricing { input_cost_per_1k: 0.005, output_cost_per_1k: 0.015, tier: "premium".into(), capability_score: 0.88 });
+        map.insert(
+            "grok-2",
+            ModelPricing {
+                input_cost_per_1k: 0.005,
+                output_cost_per_1k: 0.015,
+                tier: "premium".into(),
+                capability_score: 0.88,
+            },
+        );
         // Cohere
-        map.insert("command-r", ModelPricing { input_cost_per_1k: 0.0005, output_cost_per_1k: 0.0015, tier: "economy".into(), capability_score: 0.75 });
+        map.insert(
+            "command-r",
+            ModelPricing {
+                input_cost_per_1k: 0.0005,
+                output_cost_per_1k: 0.0015,
+                tier: "economy".into(),
+                capability_score: 0.75,
+            },
+        );
         // Local (free tier)
-        map.insert("local-llama3", ModelPricing { input_cost_per_1k: 0.0, output_cost_per_1k: 0.0, tier: "economy".into(), capability_score: 0.60 });
-        map.insert("local-mistral", ModelPricing { input_cost_per_1k: 0.0, output_cost_per_1k: 0.0, tier: "economy".into(), capability_score: 0.55 });
-        map.insert("local-codestral", ModelPricing { input_cost_per_1k: 0.0, output_cost_per_1k: 0.0, tier: "economy".into(), capability_score: 0.65 });
+        map.insert(
+            "local-llama3",
+            ModelPricing {
+                input_cost_per_1k: 0.0,
+                output_cost_per_1k: 0.0,
+                tier: "economy".into(),
+                capability_score: 0.60,
+            },
+        );
+        map.insert(
+            "local-mistral",
+            ModelPricing {
+                input_cost_per_1k: 0.0,
+                output_cost_per_1k: 0.0,
+                tier: "economy".into(),
+                capability_score: 0.55,
+            },
+        );
+        map.insert(
+            "local-codestral",
+            ModelPricing {
+                input_cost_per_1k: 0.0,
+                output_cost_per_1k: 0.0,
+                tier: "economy".into(),
+                capability_score: 0.65,
+            },
+        );
         map
     }
 
@@ -246,18 +358,21 @@ impl CostManager {
         let records = self.records.read().await;
         let now = Utc::now();
 
-        let daily: f64 = records.iter()
+        let daily: f64 = records
+            .iter()
             .filter(|r| (now - r.timestamp).num_hours() < 24)
             .map(|r| r.estimated_cost_usd)
             .sum();
 
-        let monthly: f64 = records.iter()
+        let monthly: f64 = records
+            .iter()
             .filter(|r| (now - r.timestamp).num_days() < 30)
             .map(|r| r.estimated_cost_usd)
             .sum();
 
         let total: f64 = records.iter().map(|r| r.estimated_cost_usd).sum();
-        let total_tokens: u64 = records.iter()
+        let total_tokens: u64 = records
+            .iter()
             .map(|r| (r.input_tokens + r.output_tokens) as u64)
             .sum();
 
@@ -324,7 +439,8 @@ impl CostManager {
                     pricing.capability_score * 100.0
                 } else {
                     // Balanced: capability / cost ratio
-                    pricing.capability_score / (pricing.input_cost_per_1k + pricing.output_cost_per_1k + 0.0001)
+                    pricing.capability_score
+                        / (pricing.input_cost_per_1k + pricing.output_cost_per_1k + 0.0001)
                 };
 
                 // Tier bonus
@@ -373,7 +489,10 @@ impl CostManager {
     }
 
     /// Build a hash key for caching similar requests
-    pub fn cache_key(messages: &[crate::providers::ChatMessage], system_prompt: Option<&str>) -> String {
+    pub fn cache_key(
+        messages: &[crate::providers::ChatMessage],
+        system_prompt: Option<&str>,
+    ) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -394,7 +513,8 @@ impl CostManager {
             return content.to_string();
         }
 
-        let max_chars = config.max_context_tokens
+        let max_chars = config
+            .max_context_tokens
             .map(|t| t as usize * 4) // ~4 chars per token
             .unwrap_or(128_000);
 
@@ -410,7 +530,8 @@ impl CostManager {
         let tail_start = (content.len() - tail_size).max(head_size);
         let tail = &content[tail_start..];
 
-        format!("{}\n\n[... {} characters truncated to save tokens ...]\n\n{}",
+        format!(
+            "{}\n\n[... {} characters truncated to save tokens ...]\n\n{}",
             head,
             content.len() - head_size - tail_size,
             tail

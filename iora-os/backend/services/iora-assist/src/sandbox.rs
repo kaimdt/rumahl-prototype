@@ -1,10 +1,10 @@
 // Sandbox/Workspace-Manager für IORA Agent Tasks
 // Verwaltet isolierte Arbeitsverzeichnisse mit Git-Integration
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -166,7 +166,12 @@ impl SandboxManager {
     // ─── Workspace Operations ───────────────────────────────────────────────
 
     /// Create a new empty workspace
-    pub async fn create_workspace(&self, name: &str, source: &str, git_url: Option<&str>) -> Result<Workspace, String> {
+    pub async fn create_workspace(
+        &self,
+        name: &str,
+        source: &str,
+        git_url: Option<&str>,
+    ) -> Result<Workspace, String> {
         let id = Uuid::new_v4().to_string();
         let safe_name = sanitize_name(name);
         let workspace_path = self.base_dir.join(&id);
@@ -177,7 +182,11 @@ impl SandboxManager {
 
         // If git URL provided, clone
         let (git_remote, git_branch) = if let Some(url) = git_url {
-            info!("Cloning git repo: {} into {}", url, workspace_path.display());
+            info!(
+                "Cloning git repo: {} into {}",
+                url,
+                workspace_path.display()
+            );
             let output = tokio::process::Command::new("git")
                 .args(["clone", url, "."])
                 .current_dir(&workspace_path)
@@ -201,25 +210,28 @@ impl SandboxManager {
                 .output()
                 .await
                 .ok();
-            
+
             // Create .gitignore
-            std::fs::write(workspace_path.join(".gitignore"), "node_modules/\n.env\ndist/\nbuild/\n")
-                .ok();
-            
+            std::fs::write(
+                workspace_path.join(".gitignore"),
+                "node_modules/\n.env\ndist/\nbuild/\n",
+            )
+            .ok();
+
             tokio::process::Command::new("git")
                 .args(["add", "."])
                 .current_dir(&workspace_path)
                 .output()
                 .await
                 .ok();
-            
+
             tokio::process::Command::new("git")
                 .args(["commit", "-m", "Initial commit"])
                 .current_dir(&workspace_path)
                 .output()
                 .await
                 .ok();
-            
+
             (None, Some("main".to_string()))
         } else {
             (None, None)
@@ -273,7 +285,9 @@ impl SandboxManager {
     pub async fn delete_workspace(&self, id: &str) -> Result<(), String> {
         let ws = {
             let mut workspaces = self.workspaces.write().await;
-            let idx = workspaces.iter().position(|w| w.id == id)
+            let idx = workspaces
+                .iter()
+                .position(|w| w.id == id)
                 .ok_or_else(|| format!("Workspace not found: {}", id))?;
             workspaces.remove(idx)
         };
@@ -296,10 +310,16 @@ impl SandboxManager {
     // ─── File Operations ────────────────────────────────────────────────────
 
     /// List files in a workspace
-    pub async fn list_files(&self, workspace_id: &str, sub_path: Option<&str>) -> Result<Vec<WorkspaceFile>, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn list_files(
+        &self,
+        workspace_id: &str,
+        sub_path: Option<&str>,
+    ) -> Result<Vec<WorkspaceFile>, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
-        
+
         let dir_path = match sub_path {
             Some(p) => PathBuf::from(&ws.path).join(p.trim_start_matches('/')),
             None => PathBuf::from(&ws.path),
@@ -318,13 +338,17 @@ impl SandboxManager {
 
         for entry in entries {
             let meta = entry.metadata().ok();
-            let relative = entry.path().strip_prefix(&ws.path)
+            let relative = entry
+                .path()
+                .strip_prefix(&ws.path)
                 .unwrap_or(entry.path().as_path())
                 .to_string_lossy()
                 .to_string();
 
             let file_size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-            let modified = meta.as_ref().and_then(|m| m.modified().ok())
+            let modified = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
                 .map(|t| {
                     let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                     DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
@@ -346,33 +370,39 @@ impl SandboxManager {
 
     /// Read file contents
     pub async fn read_file(&self, workspace_id: &str, file_path: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
-        
+
         let full_path = PathBuf::from(&ws.path).join(file_path.trim_start_matches('/'));
         if !full_path.exists() || !full_path.is_file() {
             return Err("File not found".to_string());
         }
 
-        std::fs::read_to_string(&full_path)
-            .map_err(|e| format!("Failed to read file: {}", e))
+        std::fs::read_to_string(&full_path).map_err(|e| format!("Failed to read file: {}", e))
     }
 
     /// Write file contents
-    pub async fn write_file(&self, workspace_id: &str, file_path: &str, content: &str) -> Result<(), String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn write_file(
+        &self,
+        workspace_id: &str,
+        file_path: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
-        
+
         let full_path = PathBuf::from(&ws.path).join(file_path.trim_start_matches('/'));
-        
+
         // Create parent directories
         if let Some(parent) = full_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create dirs: {}", e))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dirs: {}", e))?;
         }
 
-        std::fs::write(&full_path, content)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+        std::fs::write(&full_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
 
         // Update workspace timestamp
         let mut ws_list = self.workspaces.write().await;
@@ -387,17 +417,21 @@ impl SandboxManager {
 
     /// Get git status as diff
     pub async fn git_status(&self, workspace_id: &str) -> Result<Vec<FileDiff>, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         git_diff(&PathBuf::from(&ws.path)).await
     }
 
     /// Git add all and commit
     pub async fn git_commit(&self, workspace_id: &str, message: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
-        
+
         // git add -A
         let add = tokio::process::Command::new("git")
             .args(["add", "-A"])
@@ -407,7 +441,10 @@ impl SandboxManager {
             .map_err(|e| format!("Git add failed: {}", e))?;
 
         if !add.status.success() {
-            return Err(format!("Git add failed: {}", String::from_utf8_lossy(&add.stderr)));
+            return Err(format!(
+                "Git add failed: {}",
+                String::from_utf8_lossy(&add.stderr)
+            ));
         }
 
         // git commit
@@ -432,8 +469,15 @@ impl SandboxManager {
     }
 
     /// Git push to remote
-    pub async fn git_push(&self, workspace_id: &str, remote: &str, branch: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_push(
+        &self,
+        workspace_id: &str,
+        remote: &str,
+        branch: &str,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -447,13 +491,23 @@ impl SandboxManager {
         if push.status.success() {
             Ok(String::from_utf8_lossy(&push.stdout).to_string())
         } else {
-            Err(format!("Git push failed: {}", String::from_utf8_lossy(&push.stderr)))
+            Err(format!(
+                "Git push failed: {}",
+                String::from_utf8_lossy(&push.stderr)
+            ))
         }
     }
 
     /// Create a new branch
-    pub async fn git_create_branch(&self, workspace_id: &str, branch_name: &str, base_branch: Option<&str>) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_create_branch(
+        &self,
+        workspace_id: &str,
+        branch_name: &str,
+        base_branch: Option<&str>,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -485,7 +539,7 @@ impl SandboxManager {
                     .await
                     .ok();
             }
-            
+
             // Update workspace branch
             let mut ws_list = self.workspaces.write().await;
             if let Some(w) = ws_list.iter_mut().find(|w| w.id == workspace_id) {
@@ -494,19 +548,42 @@ impl SandboxManager {
 
             Ok(format!("Branch '{}' created", branch_name))
         } else {
-            Err(format!("Failed to create branch: {}", String::from_utf8_lossy(&branch.stderr)))
+            Err(format!(
+                "Failed to create branch: {}",
+                String::from_utf8_lossy(&branch.stderr)
+            ))
         }
     }
 
     /// Create GitHub Pull Request (requires gh CLI or GitHub API)
-    pub async fn create_pull_request(&self, workspace_id: &str, title: &str, body: &str, head_branch: &str, base_branch: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn create_pull_request(
+        &self,
+        workspace_id: &str,
+        title: &str,
+        body: &str,
+        head_branch: &str,
+        base_branch: &str,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
-        
+
         // Try using gh CLI first
         let dir = PathBuf::from(&ws.path);
         let pr = tokio::process::Command::new("gh")
-            .args(["pr", "create", "--title", title, "--body", body, "--base", base_branch, "--head", head_branch])
+            .args([
+                "pr",
+                "create",
+                "--title",
+                title,
+                "--body",
+                body,
+                "--base",
+                base_branch,
+                "--head",
+                head_branch,
+            ])
             .current_dir(&dir)
             .output()
             .await;
@@ -519,21 +596,27 @@ impl SandboxManager {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 Err(format!("PR creation failed: {}", stderr))
             }
-            Err(e) => Err(format!("gh CLI not available: {}", e))
+            Err(e) => Err(format!("gh CLI not available: {}", e)),
         }
     }
 
     // ─── Enhanced Git Operations ────────────────────────────────────────────
 
     /// Git log – commit history
-    pub async fn git_log(&self, workspace_id: &str, max_count: u32) -> Result<Vec<GitCommitEntry>, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_log(
+        &self,
+        workspace_id: &str,
+        max_count: u32,
+    ) -> Result<Vec<GitCommitEntry>, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
         let format = "--format=%H|%an|%ae|%s|%ai";
         let count = format!("--max-count={}", max_count);
-        
+
         let output = tokio::process::Command::new("git")
             .args(["log", format, &count, "--shortstat"])
             .current_dir(&dir)
@@ -542,31 +625,44 @@ impl SandboxManager {
             .map_err(|e| format!("Git log failed: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("Git log failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "Git log failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut entries = Vec::new();
         // (hash, author, email, message, timestamp, files_changed, insertions, deletions)
-        let mut current_entry: Option<(String, String, String, String, String, u32, u32, u32)> = None;
+        let mut current_entry: Option<(String, String, String, String, String, u32, u32, u32)> =
+            None;
 
         for line in stdout.lines() {
             if line.contains('|') && line.chars().filter(|&c| c == '|').count() >= 4 {
                 // Save previous
                 if let Some(entry) = current_entry.take() {
                     entries.push(GitCommitEntry {
-                        hash: entry.0, author: entry.1, email: entry.2,
-                        message: entry.3, timestamp: entry.4,
-                        files_changed: entry.5, insertions: entry.6, deletions: entry.7,
+                        hash: entry.0,
+                        author: entry.1,
+                        email: entry.2,
+                        message: entry.3,
+                        timestamp: entry.4,
+                        files_changed: entry.5,
+                        insertions: entry.6,
+                        deletions: entry.7,
                     });
                 }
                 let parts: Vec<&str> = line.split('|').collect();
                 if parts.len() >= 5 {
                     current_entry = Some((
-                        parts[0].to_string(), parts[1].to_string(),
-                        parts[2].to_string(), parts[3].to_string(),
+                        parts[0].to_string(),
+                        parts[1].to_string(),
+                        parts[2].to_string(),
+                        parts[3].to_string(),
                         parts[4].to_string(),
-                        0, 0, 0,
+                        0,
+                        0,
+                        0,
                     ));
                 }
             } else if line.contains("changed") {
@@ -593,9 +689,14 @@ impl SandboxManager {
         // Save last entry
         if let Some(entry) = current_entry.take() {
             entries.push(GitCommitEntry {
-                hash: entry.0, author: entry.1, email: entry.2,
-                message: entry.3, timestamp: entry.4,
-                files_changed: entry.5, insertions: entry.6, deletions: entry.7,
+                hash: entry.0,
+                author: entry.1,
+                email: entry.2,
+                message: entry.3,
+                timestamp: entry.4,
+                files_changed: entry.5,
+                insertions: entry.6,
+                deletions: entry.7,
             });
         }
 
@@ -604,7 +705,9 @@ impl SandboxManager {
 
     /// List all branches
     pub async fn git_branches(&self, workspace_id: &str) -> Result<Vec<GitBranch>, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -618,12 +721,18 @@ impl SandboxManager {
         let mut branches = Vec::new();
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             let is_current = line.starts_with('*');
             let name = line.trim_start_matches("* ").trim();
             let is_remote = name.starts_with("remotes/");
             branches.push(GitBranch {
-                name: if is_remote { name.trim_start_matches("remotes/").to_string() } else { name.to_string() },
+                name: if is_remote {
+                    name.trim_start_matches("remotes/").to_string()
+                } else {
+                    name.to_string()
+                },
                 is_current,
                 is_remote,
                 last_commit_hash: None,
@@ -637,7 +746,9 @@ impl SandboxManager {
 
     /// Switch/checkout branch
     pub async fn git_checkout(&self, workspace_id: &str, branch: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -656,13 +767,22 @@ impl SandboxManager {
             }
             Ok(format!("Switched to branch '{}'", branch))
         } else {
-            Err(format!("Git checkout failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git checkout failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Delete branch
-    pub async fn git_delete_branch(&self, workspace_id: &str, branch: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_delete_branch(
+        &self,
+        workspace_id: &str,
+        branch: &str,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -676,13 +796,22 @@ impl SandboxManager {
         if output.status.success() {
             Ok(format!("Branch '{}' deleted", branch))
         } else {
-            Err(format!("Git delete branch failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git delete branch failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git stash – push current changes to stash
-    pub async fn git_stash(&self, workspace_id: &str, message: Option<&str>) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_stash(
+        &self,
+        workspace_id: &str,
+        message: Option<&str>,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -712,8 +841,14 @@ impl SandboxManager {
     }
 
     /// Git stash pop
-    pub async fn git_stash_pop(&self, workspace_id: &str, index: Option<u32>) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_stash_pop(
+        &self,
+        workspace_id: &str,
+        index: Option<u32>,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -723,19 +858,27 @@ impl SandboxManager {
             cmd.arg(format!("stash@{{{}}}", idx));
         }
         cmd.current_dir(&dir);
-        
-        let output = cmd.output().await.map_err(|e| format!("Git stash pop failed: {}", e))?;
+
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| format!("Git stash pop failed: {}", e))?;
 
         if output.status.success() {
             Ok("Stash popped".to_string())
         } else {
-            Err(format!("Git stash pop failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git stash pop failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git stash list
     pub async fn git_stash_list(&self, workspace_id: &str) -> Result<Vec<String>, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -754,8 +897,15 @@ impl SandboxManager {
     }
 
     /// Git reset (soft = keep changes, hard = discard)
-    pub async fn git_reset(&self, workspace_id: &str, mode: &str, target: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_reset(
+        &self,
+        workspace_id: &str,
+        mode: &str,
+        target: &str,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -776,13 +926,22 @@ impl SandboxManager {
         if output.status.success() {
             Ok(format!("Reset {} (mode: {}) completed", target, mode))
         } else {
-            Err(format!("Git reset failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git reset failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git revert a commit
-    pub async fn git_revert(&self, workspace_id: &str, commit_hash: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_revert(
+        &self,
+        workspace_id: &str,
+        commit_hash: &str,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -796,13 +955,22 @@ impl SandboxManager {
         if output.status.success() {
             Ok(format!("Reverted commit {}", commit_hash))
         } else {
-            Err(format!("Git revert failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git revert failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git blame for a file
-    pub async fn git_blame(&self, workspace_id: &str, file_path: &str) -> Result<Vec<String>, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_blame(
+        &self,
+        workspace_id: &str,
+        file_path: &str,
+    ) -> Result<Vec<String>, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -820,13 +988,22 @@ impl SandboxManager {
                 .collect();
             Ok(lines)
         } else {
-            Err(format!("Git blame failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git blame failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git merge branch into current
-    pub async fn git_merge(&self, workspace_id: &str, source_branch: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_merge(
+        &self,
+        workspace_id: &str,
+        source_branch: &str,
+    ) -> Result<String, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -840,13 +1017,18 @@ impl SandboxManager {
         if output.status.success() {
             Ok(format!("Merged '{}' into current branch", source_branch))
         } else {
-            Err(format!("Git merge failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git merge failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git rebase
     pub async fn git_rebase(&self, workspace_id: &str, onto: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -860,13 +1042,23 @@ impl SandboxManager {
         if output.status.success() {
             Ok(format!("Rebased onto '{}'", onto))
         } else {
-            Err(format!("Git rebase failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git rebase failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git diff between two branches/commits
-    pub async fn git_diff_between(&self, workspace_id: &str, a: &str, b: &str) -> Result<Vec<FileDiff>, String> {
-        let ws = self.get_workspace(workspace_id).await
+    pub async fn git_diff_between(
+        &self,
+        workspace_id: &str,
+        a: &str,
+        b: &str,
+    ) -> Result<Vec<FileDiff>, String> {
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -880,13 +1072,18 @@ impl SandboxManager {
         if output.status.success() {
             Ok(parse_git_diff(&String::from_utf8_lossy(&output.stdout)))
         } else {
-            Err(format!("Git diff failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git diff failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     /// Git fetch from remote
     pub async fn git_fetch(&self, workspace_id: &str, remote: &str) -> Result<String, String> {
-        let ws = self.get_workspace(workspace_id).await
+        let ws = self
+            .get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
         let dir = PathBuf::from(&ws.path);
 
@@ -900,7 +1097,10 @@ impl SandboxManager {
         if output.status.success() {
             Ok("Fetch completed".to_string())
         } else {
-            Err(format!("Git fetch failed: {}", String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "Git fetch failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
@@ -917,7 +1117,8 @@ impl SandboxManager {
         config: Option<TaskConfig>,
     ) -> Result<AgentTask, String> {
         // Verify workspace exists
-        self.get_workspace(workspace_id).await
+        self.get_workspace(workspace_id)
+            .await
             .ok_or_else(|| "Workspace not found".to_string())?;
 
         let task_config = config.unwrap_or_default();
@@ -934,8 +1135,10 @@ impl SandboxManager {
             output: vec![TaskOutputLine {
                 timestamp: Utc::now(),
                 level: "system".to_string(),
-                message: format!("Task queued (mode: {}, thinking: {}, temperature: {:.1})",
-                    task_config.mode, task_config.thinking_enabled, task_config.temperature),
+                message: format!(
+                    "Task queued (mode: {}, thinking: {}, temperature: {:.1})",
+                    task_config.mode, task_config.thinking_enabled, task_config.temperature
+                ),
                 stream: None,
             }],
             changes: Vec::new(),
@@ -949,8 +1152,13 @@ impl SandboxManager {
         let id = task.id.clone();
         self.agent_tasks.write().await.push(task);
 
-        let task = self.agent_tasks.read().await
-            .iter().find(|t| t.id == id).cloned()
+        let task = self
+            .agent_tasks
+            .read()
+            .await
+            .iter()
+            .find(|t| t.id == id)
+            .cloned()
             .unwrap();
 
         Ok(task)
@@ -960,14 +1168,23 @@ impl SandboxManager {
     pub async fn list_tasks(&self, workspace_id: Option<&str>) -> Vec<AgentTask> {
         let tasks = self.agent_tasks.read().await;
         match workspace_id {
-            Some(wid) => tasks.iter().filter(|t| t.workspace_id == wid).cloned().collect(),
+            Some(wid) => tasks
+                .iter()
+                .filter(|t| t.workspace_id == wid)
+                .cloned()
+                .collect(),
             None => tasks.clone(),
         }
     }
 
     /// Get single task
     pub async fn get_task(&self, task_id: &str) -> Option<AgentTask> {
-        self.agent_tasks.read().await.iter().find(|t| t.id == task_id).cloned()
+        self.agent_tasks
+            .read()
+            .await
+            .iter()
+            .find(|t| t.id == task_id)
+            .cloned()
     }
 
     /// Cancel a task
@@ -1057,14 +1274,18 @@ impl SandboxManager {
     }
 
     /// Refresh git changes for a workspace (called after task execution)
-    pub async fn refresh_changes(&self, workspace_id: &str, task_id: &str) -> Result<Vec<FileDiff>, String> {
+    pub async fn refresh_changes(
+        &self,
+        workspace_id: &str,
+        task_id: &str,
+    ) -> Result<Vec<FileDiff>, String> {
         let diffs = self.git_status(workspace_id).await?;
-        
+
         let mut tasks = self.agent_tasks.write().await;
         if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
             task.changes = diffs.clone();
         }
-        
+
         Ok(diffs)
     }
 
@@ -1115,10 +1336,13 @@ async fn git_diff(dir: &Path) -> Result<Vec<FileDiff>, String> {
         .map_err(|e| format!("Git diff unstaged failed: {}", e))?;
 
     let unstaged_diffs = parse_git_diff(&String::from_utf8_lossy(&unstaged.stdout));
-    
+
     // Merge staged and unstaged diffs
     for ud in unstaged_diffs {
-        if let Some(existing) = diffs.iter_mut().find(|d: &&mut FileDiff| d.file_path == ud.file_path) {
+        if let Some(existing) = diffs
+            .iter_mut()
+            .find(|d: &&mut FileDiff| d.file_path == ud.file_path)
+        {
             existing.hunks.extend(ud.hunks);
         } else {
             diffs.push(ud);
@@ -1235,7 +1459,7 @@ fn parse_hunk_header(line: &str) -> Option<DiffHunk> {
     if parts.len() >= 2 {
         let old = parts[0].trim_start_matches('-');
         let new = parts[1].trim_start_matches('+');
-        
+
         let old_parts: Vec<&str> = old.split(',').collect();
         let new_parts: Vec<&str> = new.split(',').collect();
 
@@ -1252,7 +1476,13 @@ fn parse_hunk_header(line: &str) -> Option<DiffHunk> {
 
 fn sanitize_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim_matches('_')
         .to_string()
