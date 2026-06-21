@@ -1412,6 +1412,30 @@ with open('${BACKEND_DIR}/Cargo.toml', 'rb') as f:
             log_warn "(Rust rebuilds will be slower without it.)"
         fi
 
+        # ── ccache – C build-script cache ─────────────────────────────────────
+        # Many Rust crates (openssl-sys, libsqlite3-sys via sqlx, cmake build
+        # scripts, …) compile C/C++ code in their build.rs.  ccache caches
+        # those compilations across cargo invocations so a no-op rebuild
+        # doesn't recompile C dependencies from scratch.
+        if command -v ccache >/dev/null 2>&1; then
+            local CCACHE_DIR="${HOME}/.iora-cache/ccache"
+            mkdir -p "${CCACHE_DIR}"
+            export CCACHE_DIR
+            # Prepend ccache compiler wrappers so that gcc/g++/cc/… calls
+            # go through ccache automatically.  This works for both native
+            # and cross-compilers (aarch64-linux-gnu-gcc → ccache → gcc).
+            if [ -d "/usr/lib/ccache" ]; then
+                PATH="/usr/lib/ccache:${PATH}"
+                export CCACHE_PATH="${PATH}"
+                log_info "ccache active (compiler wrappers) → cache dir: ${CCACHE_DIR}"
+            else
+                # Fallback: wrap CC/CXX directly (native builds only).
+                export CC="ccache gcc"
+                export CXX="ccache g++"
+                log_info "ccache active (CC/CXX wrappers) → cache dir: ${CCACHE_DIR}"
+            fi
+        fi
+
         # ── mold – fast linker ──────────────────────────────────────────────
         # 2-5× faster than GNU ld for Rust linking.  Falls back silently if
         # mold is not installed.

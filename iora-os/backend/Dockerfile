@@ -32,11 +32,16 @@ RUN apk add --no-cache \
     perl \
     cmake \
     git \
-    curl
+    curl \
+    sccache
 
 # Build arguments for security tokens
 ARG IORA_DEVELOPER_APP_TOKEN=dev-token-placeholder
 ARG IORA_DEVELOPER_APP_OFFICIAL=false
+
+# sccache – Rust compiler cache, persisted across Docker builds via BuildKit
+# mount.  Falls back to no-op if sccache is not installed (Apk below may lag).
+ARG SCCACHE_DIR=/sccache
 
 # Copy the entire backend workspace.
 # Listing crates one by one had to be kept in sync with backend/Cargo.toml
@@ -65,7 +70,9 @@ ENV IORA_DEVELOPER_APP_OFFICIAL=${IORA_DEVELOPER_APP_OFFICIAL}
 RUN --mount=type=cache,id=iora-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=iora-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=iora-cargo-target,target=/app/backend/target,sharing=locked \
+    --mount=type=cache,id=iora-sccache,target=/sccache,sharing=locked \
     set -eu; \
+    export RUSTC_WRAPPER="sccache"; \
     failures=""; \
     for svc in iora-core iora-home iora-control iora-assist iora-secrets \
                iora-watchdog iora-security iora-gateway iora-supervisor \
