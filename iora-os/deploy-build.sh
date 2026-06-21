@@ -4,7 +4,7 @@
 # ============================================================================
 set -euo pipefail
 
-SSH_KEY="${HOME}/Documents/GitHub/home-assistant-dashb/iora-os/.cache/iora-dev-key"
+SSH_KEY="$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)").cache/iora-dev-key"
 VM_PORT=2222
 VM_HOST="127.0.0.1"
 BACKEND="/home/iora/iora/iora-os/backend"

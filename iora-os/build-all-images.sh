@@ -1108,10 +1108,7 @@ build_service_binaries() {
     # Resolve the backend/ source tree. We try the in-tree location first
     # (iora-os/backend/) — that's where the workspace lives in this repo and
     # is what `git pull` updates. The legacy sibling layout
-    # (home-assistant-dashb/backend/, one level up) is only used as a
-    # fallback for older checkouts. If both exist, the in-tree copy wins —
-    # otherwise an old sibling tree silently shadows freshly pulled changes
-    # and the build uses stale sources.
+    # has been migrated; only the in-tree layout is used.
     local BACKEND_DIR=""
     for candidate in \
         "${SCRIPT_DIR}/backend" \

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fix Rust compile errors on the VM build host.
 # Run on the VM:   bash fix-vm-rust-errors.sh
-# Assumes the backend tree is at /home/kaimdt/home-assistant-dashb/backend/
+# Assumes the backend tree is at /home/hermes/ora/iora-os/backend/
 #
 # Fixes:
 #   1. iora-home/src/documentation.rs — E0733 (recursive async fn) → iterative BFS
@@ -11,11 +11,11 @@
 
 set -euo pipefail
 
-BACKEND="${BACKEND:-/home/kaimdt/home-assistant-dashb/backend}"
+BACKEND="${BACKEND:-/home/hermes/ora/iora-os/backend}"
 if [[ ! -d "$BACKEND" ]]; then
   # fallback for WSL path layout
-  if [[ -d "/home/kaimdt/iora-os/home-assistant-dashb/backend" ]]; then
-    BACKEND="/home/kaimdt/iora-os/home-assistant-dashb/backend"
+  if [[ -d "/home/hermes/ora/iora-os/backend" ]]; then
+    BACKEND="/home/hermes/ora/iora-os/backend"
   else
     echo "ERROR: backend dir not found. Set BACKEND=... and retry." >&2
     exit 1
