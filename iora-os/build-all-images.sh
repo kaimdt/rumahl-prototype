@@ -945,6 +945,10 @@ build_base_image() {
     rm -f "${BUILD_DIR}/output/build/host-cmake-"*/CMakeCache.txt 2>/dev/null || true
 
     cd "${BUILD_DIR}"
+    # Some Buildroot host tools (e.g. python3) need their own lib directory
+    # in LD_LIBRARY_PATH because RPATH may be stripped by patchelf or system
+    # ldconfig on certain distros.
+    export LD_LIBRARY_PATH="${BUILD_DIR}/output/host/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     if [ "${PROGRESS}" = true ]; then
         PATH="${BUILDROOT_SAFE_PATH}" \
             XZ_OPT="${XZ_OPT}" XZ_DEFAULTS="${XZ_DEFAULTS}" \
