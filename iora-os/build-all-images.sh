@@ -1185,10 +1185,38 @@ build_service_binaries() {
                     iora-api iora-appstore iora-backup iora-connector \
                     iora-dev-bridge iora-domain-validator iora-files \
                     iora-network-monitor iora-nginx iora-resource-manager \
-                    iora-updater"
+                    iora-updater iora-developer-app iora-intelligence"
     # CLI tools as `package:binary` pairs (binary may differ from crate name —
     # iora-cli ships its binary as `ora`, the user-facing command).
     local CLI_TOOLS="iora-cli:ora iora-sign:iora-sign iora-verify:iora-verify"
+
+    # ── Workspace consistency check ─────────────────────────────────────────
+    # Verify that every workspace member whose name starts with "iora-"
+    # (service crates) is covered by SERVICES or CLI_TOOLS. This catches
+    # newly added crates that the developer forgot to wire into the build.
+    if [ -f "${BACKEND_DIR}/Cargo.toml" ] && command -v python3 >/dev/null 2>&1; then
+        local _missing_svcs=""
+        for _member in $(python3 -c "
+import tomllib, re
+with open('${BACKEND_DIR}/Cargo.toml', 'rb') as f:
+    for m in tomllib.load(f)['workspace']['members']:
+        try:
+            with open(f'${BACKEND_DIR}/{m}/Cargo.toml', 'rb') as cf:
+                pkg = tomllib.load(cf).get('package', {})
+                name = pkg.get('name', '')
+                if name.startswith('iora-'):
+                    print(name)
+        except: pass
+" 2>/dev/null); do
+            if ! echo " ${SERVICES} ${CLI_TOOLS} " | grep -q " ${_member%%:*} "; then
+                _missing_svcs="${_missing_svcs} ${_member}"
+            fi
+        done
+        if [ -n "${_missing_svcs}" ]; then
+            log_error "BUILD CONFIG DRIFT: workspace crates not in SERVICES/CLI_TOOLS:${_missing_svcs}"
+            log_error "Add them to build_service_binaries() in this script and to the Dockerfile."
+        fi
+    fi
 
     # ── GLIBC compatibility check ───────────────────────────────────────────
     # Native cargo builds on a host with a newer glibc than the target produce

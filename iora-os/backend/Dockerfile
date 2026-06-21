@@ -72,7 +72,8 @@ RUN --mount=type=cache,id=iora-cargo-registry,target=/usr/local/cargo/registry,s
                iora-api iora-appstore iora-backup iora-connector \
                iora-dev-bridge iora-domain-validator iora-files \
                iora-network-monitor iora-nginx iora-resource-manager \
-               iora-updater iora-cli iora-sign iora-verify; do \
+               iora-updater iora-developer-app iora-intelligence \
+               iora-cli iora-sign iora-verify; do \
         echo "==> cargo build -p ${svc}"; \
         # Use plain redirection (not |tee) so the if-check sees cargo's
         # actual exit code, not tee's (which is always 0). Echo the log
@@ -100,7 +101,8 @@ RUN --mount=type=cache,id=iora-cargo-registry,target=/usr/local/cargo/registry,s
                iora-api iora-appstore iora-backup iora-connector \
                iora-dev-bridge iora-domain-validator iora-files \
                iora-network-monitor iora-nginx iora-resource-manager \
-               iora-updater iora-cli iora-sign iora-verify ora; do \
+               iora-updater iora-developer-app iora-intelligence \
+               iora-cli iora-sign iora-verify ora; do \
         for src in "/app/backend/target/release/${svc}" \
                    "/app/backend/target/x86_64-unknown-linux-musl/release/${svc}"; do \
             if [ -x "${src}" ]; then cp "${src}" "/out/${svc}"; break; fi; \
