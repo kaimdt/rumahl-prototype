@@ -36,9 +36,9 @@ use ratatui::{
 };
 use resources::{ResourceData, ResourceHistory};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::stdout,
-    path::PathBuf,
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -94,6 +94,10 @@ struct Args {
     no_deploy: bool,
     #[arg(long)]
     no_initial_build: bool,
+    /// Build all services when the watcher starts. By default the warm cache is
+    /// kept idle until a source change is detected.
+    #[arg(long)]
+    initial_build: bool,
     /// Bridge port (iora-dev-bridge). Set to 0 to disable bridge mode.
     #[arg(long, default_value = "8101")]
     vm_bridge_port: u16,
@@ -151,6 +155,15 @@ impl Backend {
         args.push("-p".into());
         args.push(self.vm_port.to_string());
         args.push(format!("root@{}", self.vm_host));
+        args
+    }
+
+    fn scp_args(&self) -> Vec<String> {
+        let mut args = self.ssh_args();
+        args.pop(); // drop root@host
+        if let Some(port_flag) = args.iter_mut().rev().find(|arg| arg.as_str() == "-p") {
+            *port_flag = "-P".into();
+        }
         args
     }
 
@@ -243,8 +256,8 @@ impl Backend {
         cmd
     }
 
-    async fn sync_sources(&self, tx: &mpsc::UnboundedSender<AppEvent>) {
-        let _ = tx.send(AppEvent::Log("[RUST] Syncing sources...".into()));
+    async fn sync_sources(&self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
+        let _ = tx.send(AppEvent::Log("[RUST] Full source sync...".into()));
         let mut ssh_opts: Vec<String> = self.ssh_args();
         ssh_opts.pop(); // drop user@host
         let mut args = vec![
@@ -267,18 +280,105 @@ impl Backend {
         args.push(format!("ssh {}", ssh_opts.join(" ")));
         args.push(format!("{}/", self.repo_root.display()));
         args.push(format!("root@{}:/home/iora/iora/", self.vm_host));
-        let _ = bg_cmd("rsync")
+        let status = bg_cmd("rsync")
             .args(&args)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .await;
-        let _ = self
-            .ssh_exec("chown -R iora:iora /home/iora/iora 2>/dev/null")
-            .await;
+            .await
+            .context("starting rsync")?;
+        if !status.success() {
+            anyhow::bail!("rsync exited with {status}");
+        }
+        self.ssh_exec("chown -R iora:iora /home/iora/iora 2>/dev/null")
+            .await?;
+        Ok(())
     }
 
-    async fn build_rust(&self, only: Option<HashSet<String>>, tx: mpsc::UnboundedSender<AppEvent>) {
+    async fn sync_changed_sources(
+        &self,
+        paths: &HashSet<PathBuf>,
+        tx: &mpsc::UnboundedSender<AppEvent>,
+    ) -> Result<()> {
+        if paths.is_empty() {
+            return self.sync_sources(tx).await;
+        }
+
+        let _ = tx.send(AppEvent::Log(format!(
+            "[RUST] Delta sync: {} changed path(s)",
+            paths.len()
+        )));
+        let mut uploads = Vec::new();
+        let mut deletes = Vec::new();
+        let mut remote_dirs = HashSet::new();
+
+        for path in paths {
+            let relative = path
+                .strip_prefix(&self.repo_root)
+                .with_context(|| format!("path outside repository: {}", path.display()))?;
+            let relative = portable_relative_path(relative)
+                .with_context(|| format!("unsafe repository path: {}", relative.display()))?;
+            let remote = format!("/home/iora/iora/{relative}");
+            if path.is_file() {
+                if let Some(parent) = remote.rsplit_once('/').map(|(parent, _)| parent) {
+                    remote_dirs.insert(parent.to_string());
+                }
+                uploads.push((path.clone(), remote));
+            } else {
+                deletes.push(remote);
+            }
+        }
+
+        if !remote_dirs.is_empty() {
+            let mkdir = format!(
+                "mkdir -p -- {}",
+                remote_dirs
+                    .iter()
+                    .map(|path| shell_quote(path))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            self.ssh_exec(&mkdir).await?;
+        }
+
+        for (local, remote) in uploads {
+            let mut args = self.scp_args();
+            args.push(local.to_string_lossy().into_owned());
+            args.push(format!("root@{}:{remote}", self.vm_host));
+            let status = bg_cmd("scp")
+                .args(&args)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .status()
+                .await
+                .with_context(|| format!("uploading {}", local.display()))?;
+            if !status.success() {
+                anyhow::bail!("scp failed for {} with {status}", local.display());
+            }
+        }
+
+        if !deletes.is_empty() {
+            let remove = format!(
+                "rm -f -- {}",
+                deletes
+                    .iter()
+                    .map(|path| shell_quote(path))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            self.ssh_exec(&remove).await?;
+        }
+        self.ssh_exec("chown -R iora:iora /home/iora/iora/iora-os/backend 2>/dev/null")
+            .await?;
+        Ok(())
+    }
+
+    async fn build_rust(
+        &self,
+        only: Option<HashSet<String>>,
+        changed_paths: Option<HashSet<PathBuf>>,
+        tx: mpsc::UnboundedSender<AppEvent>,
+    ) -> bool {
         let label = if let Some(ref c) = only {
             format!("{} crates", c.len())
         } else {
@@ -306,7 +406,25 @@ impl Backend {
             let _ = self.ssh_exec("find /home/iora/iora/iora-os/backend/target -type d -name incremental -exec rm -rf {} + 2>/dev/null; find /home/iora/iora/iora-os/backend/target -name '*.d' -delete 2>/dev/null; echo OK").await;
         }
 
-        self.sync_sources(&tx).await;
+        let sync = if let Some(paths) = changed_paths.as_ref() {
+            match self.sync_changed_sources(paths, &tx).await {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    let _ = tx.send(AppEvent::Log(format!(
+                        "[RUST] Delta sync failed ({error:#}); trying full sync..."
+                    )));
+                    self.sync_sources(&tx).await
+                }
+            }
+        } else {
+            self.sync_sources(&tx).await
+        };
+        if let Err(error) = sync {
+            let _ = tx.send(AppEvent::Log(format!(
+                "[RUST] Source sync failed; build cancelled to avoid stale code: {error:#}"
+            )));
+            return false;
+        }
         let cmd = self.build_rust_cmd(only.as_ref());
         let full = format!("su - iora -c '{}' 2>&1", cmd);
         let _ = tx.send(AppEvent::Log(format!("[RUST] {}", cmd)));
@@ -323,7 +441,7 @@ impl Backend {
             Ok(c) => c,
             Err(e) => {
                 let _ = tx.send(AppEvent::Log(format!("[RUST] spawn failed: {e}")));
-                return;
+                return false;
             }
         };
         let stdout = child.stdout.take();
@@ -355,6 +473,7 @@ impl Backend {
         } else {
             "[RUST] ✗ Build FAILED".into()
         }));
+        ok
     }
 
     /// Hard-reset deployment state on the VM: wipe persisted bin-hashes and
@@ -931,6 +1050,7 @@ enum AppEvent {
     HealthCheckDone,
     FileChange {
         rust_crates: HashSet<String>,
+        rust_paths: HashSet<PathBuf>,
         frontend: bool,
     },
     /// Self-heal detected one or more iora-* binaries missing on the VM
@@ -990,6 +1110,7 @@ struct AppState {
 
     // Watch state
     changed_rust: HashSet<String>,
+    changed_rust_paths: HashSet<PathBuf>,
     changed_fe: bool,
     last_auto_build_trigger: Option<Instant>,
 
@@ -1040,6 +1161,7 @@ impl AppState {
             bridge_uptime: 0,
             bridge_mem_avail: 0,
             changed_rust: HashSet::new(),
+            changed_rust_paths: HashSet::new(),
             changed_fe: false,
             last_auto_build_trigger: None,
             view: View::Logs,
@@ -1226,6 +1348,50 @@ fn sanitize_log(raw: &str) -> Vec<String> {
 
 // ═══ Helpers ═════════════════════════════════════════════════════════════
 
+fn portable_relative_path(path: &Path) -> Option<String> {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(value) => components.push(value.to_str()?.to_string()),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    if components.is_empty() {
+        None
+    } else {
+        Some(components.join("/"))
+    }
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(test)]
+mod delta_sync_tests {
+    use super::{portable_relative_path, shell_quote};
+    use std::path::Path;
+
+    #[test]
+    fn portable_paths_use_forward_slashes() {
+        assert_eq!(
+            portable_relative_path(Path::new("iora-os/backend/Cargo.toml")).as_deref(),
+            Some("iora-os/backend/Cargo.toml")
+        );
+    }
+
+    #[test]
+    fn portable_paths_reject_parent_traversal() {
+        assert!(portable_relative_path(Path::new("../Cargo.toml")).is_none());
+    }
+
+    #[test]
+    fn shell_quote_escapes_single_quotes() {
+        assert_eq!(shell_quote("a'b"), "'a'\"'\"'b'");
+    }
+}
+
 fn find_repo_root() -> Result<PathBuf> {
     if let Ok(o) = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -1293,6 +1459,102 @@ fn discover_services(w: &PathBuf) -> Vec<String> {
     v
 }
 
+fn service_manifest_paths(workspace: &PathBuf) -> HashMap<String, PathBuf> {
+    let mut manifests = HashMap::new();
+    for sub in &["services", "apps/system", "dev"] {
+        let base = workspace.join(sub);
+        if !base.is_dir() {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(base) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let manifest = path.join("Cargo.toml");
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with("iora-") && manifest.is_file() {
+                manifests.insert(name.to_string(), manifest);
+            }
+        }
+    }
+    manifests
+}
+
+fn shared_crate_impacts(
+    workspace: &PathBuf,
+    services: &[String],
+) -> HashMap<String, HashSet<String>> {
+    let manifests = service_manifest_paths(workspace);
+    let service_set: HashSet<&str> = services.iter().map(String::as_str).collect();
+    let mut impacts: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut shared_manifests = HashMap::new();
+    let shared_root = workspace.join("shared");
+    let Ok(entries) = std::fs::read_dir(shared_root) else {
+        return impacts;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(crate_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let manifest = path.join("Cargo.toml");
+        if manifest.is_file() {
+            shared_manifests.insert(crate_name.to_string(), manifest);
+        }
+    }
+
+    for crate_name in shared_manifests.keys() {
+        let mut affected = HashSet::new();
+        for (service, manifest) in &manifests {
+            if !service_set.contains(service.as_str()) {
+                continue;
+            }
+            if manifest_depends_on_shared(
+                manifest,
+                crate_name,
+                &shared_manifests,
+                &mut HashSet::new(),
+            ) {
+                affected.insert(service.clone());
+            }
+        }
+        impacts.insert(crate_name.to_string(), affected);
+    }
+    impacts
+}
+
+fn manifest_depends_on_shared(
+    manifest: &PathBuf,
+    target: &str,
+    shared_manifests: &HashMap<String, PathBuf>,
+    visiting: &mut HashSet<PathBuf>,
+) -> bool {
+    if !visiting.insert(manifest.clone()) {
+        return false;
+    }
+    let Ok(contents) = std::fs::read_to_string(manifest) else {
+        return false;
+    };
+    if contents.contains(target) {
+        return true;
+    }
+    shared_manifests
+        .iter()
+        .any(|(dependency, dependency_manifest)| {
+            contents.contains(dependency)
+                && manifest_depends_on_shared(
+                    dependency_manifest,
+                    target,
+                    shared_manifests,
+                    visiting,
+                )
+        })
+}
+
 fn start_file_watcher(
     workspace: PathBuf,
     fe: Option<PathBuf>,
@@ -1305,13 +1567,19 @@ fn start_file_watcher(
         .filter(|p| p.is_dir())
         .collect();
     let service_set: HashSet<String> = valid_services.into_iter().collect();
+    let impact_services: Vec<String> = service_set.iter().cloned().collect();
+    let shared_impacts = shared_crate_impacts(&workspace, &impact_services);
     let mut w: RecommendedWatcher =
         notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
             let Ok(ev) = res else { return };
-            if !matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+            if !matches!(
+                ev.kind,
+                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+            ) {
                 return;
             }
             let mut rust = HashSet::new();
+            let mut rust_paths = HashSet::new();
             let mut frontend = false;
             for p in &ev.paths {
                 let s = p.to_string_lossy();
@@ -1319,13 +1587,14 @@ fn start_file_watcher(
                     continue;
                 }
                 if s.ends_with(".rs") {
+                    rust_paths.insert(p.clone());
                     for c in p.components().rev() {
                         let cn = c.as_os_str().to_string_lossy();
                         if cn.starts_with("iora-") {
-                            // If the changed crate is a shared library (not a service binary),
-                            // rebuild everything — all services depend on shared crates.
                             if service_set.contains(cn.as_ref()) {
                                 rust.insert(cn.to_string());
+                            } else if let Some(affected) = shared_impacts.get(cn.as_ref()) {
+                                rust.extend(affected.iter().cloned());
                             } else {
                                 rust.insert("__workspace__".into());
                             }
@@ -1335,6 +1604,7 @@ fn start_file_watcher(
                 }
                 if s.contains("Cargo.toml") || s.contains("Cargo.lock") {
                     rust.insert("__workspace__".into());
+                    rust_paths.insert(p.clone());
                 }
                 if s.ends_with(".tsx")
                     || s.ends_with(".ts")
@@ -1348,6 +1618,7 @@ fn start_file_watcher(
             if !rust.is_empty() || frontend {
                 let _ = tx.send(AppEvent::FileChange {
                     rust_crates: rust,
+                    rust_paths,
                     frontend,
                 });
             }
@@ -1355,6 +1626,12 @@ fn start_file_watcher(
     w.configure(NotifyConfig::default().with_poll_interval(Duration::from_secs(2)))?;
     for d in &dirs {
         let _ = w.watch(d, RecursiveMode::Recursive);
+    }
+    for manifest in &["Cargo.toml", "Cargo.lock"] {
+        let path = workspace.join(manifest);
+        if path.is_file() {
+            let _ = w.watch(&path, RecursiveMode::NonRecursive);
+        }
     }
     if let Some(f) = &fe {
         for s in &["src", "public"] {
@@ -1372,6 +1649,7 @@ fn start_file_watcher(
 fn spawn_build(
     state: &mut AppState,
     only: Option<HashSet<String>>,
+    changed_paths: Option<HashSet<PathBuf>>,
     rust: bool,
     fe: bool,
     tx: mpsc::UnboundedSender<AppEvent>,
@@ -1390,13 +1668,15 @@ fn spawn_build(
     let backend = state.backend.clone();
     let auto_deploy = state.auto_deploy;
     tokio::spawn(async move {
-        if rust {
-            backend.build_rust(only, tx.clone()).await;
-        }
+        let rust_ok = if rust {
+            backend.build_rust(only, changed_paths, tx.clone()).await
+        } else {
+            true
+        };
         if fe {
             backend.build_frontend(tx.clone(), auto_deploy).await;
         }
-        if auto_deploy && rust {
+        if auto_deploy && rust && rust_ok {
             backend.deploy_binaries(tx.clone()).await;
         }
         let _ = tx.send(AppEvent::BuildComplete);
@@ -1707,7 +1987,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                             None
                         };
                         state.push_log(format!("[BUILD] {}", ["All", "Changed", "Select"][cur]));
-                        spawn_build(state, only, true, true, tx.clone());
+                        spawn_build(state, only, None, true, true, tx.clone());
                     }
                 }
                 _ => {}
@@ -1752,7 +2032,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                         .collect();
                     state.mode = Mode::Normal;
                     state.push_log(format!("[BUILD] {} services", only.len()));
-                    spawn_build(state, Some(only), true, false, tx.clone());
+                    spawn_build(state, Some(only), None, true, false, tx.clone());
                     return;
                 }
                 _ => {}
@@ -2020,7 +2300,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         KeyCode::Char('0') => state.log_scroll = 0,
         KeyCode::Char('b') | KeyCode::Char('B') => {
             state.push_log("[BUILD] Full rebuild");
-            spawn_build(state, None, true, true, tx.clone());
+            spawn_build(state, None, None, true, true, tx.clone());
         }
         KeyCode::Char('r') => state.mode = Mode::BuildMenu { cursor: 0 },
         KeyCode::Char('e') => {
@@ -2114,7 +2394,7 @@ fn run_command(state: &mut AppState, input: &str, tx: &mpsc::UnboundedSender<App
             } else {
                 None
             };
-            spawn_build(state, only, rust, fe, tx.clone());
+            spawn_build(state, only, None, rust, fe, tx.clone());
         }
         "deploy" | "d" => spawn_deploy(state, tx.clone(), false),
         "redeploy" | "force-deploy" | "force" => spawn_deploy(state, tx.clone(), true),
@@ -3076,7 +3356,7 @@ async fn main() -> Result<()> {
     {
         let backend = state.backend.clone();
         let tx = app_tx.clone();
-        let do_build = !args.no_initial_build;
+        let do_build = args.initial_build && !args.no_initial_build;
         let auto_deploy_init = state.auto_deploy;
         state.building = do_build;
         if do_build {
@@ -3092,7 +3372,7 @@ async fn main() -> Result<()> {
                 let _ = tx.send(AppEvent::Log(format!("[SYSTEM] {} services active", n)));
                 if do_build {
                     let _ = tx.send(AppEvent::Log("[SYSTEM] Starting initial build...".into()));
-                    backend.build_rust(None, tx.clone()).await;
+                    backend.build_rust(None, None, tx.clone()).await;
                     backend.build_frontend(tx.clone(), auto_deploy_init).await;
                     if auto_deploy_init {
                         backend.deploy_binaries(tx.clone()).await;
@@ -3337,6 +3617,32 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
             state.build_start = None;
             state.last_build = format!("✓ {}s", dur);
             state.push_log(format!("[SYSTEM] Build complete ({}s)", dur));
+            if state.do_watch
+                && state.vm_online
+                && state.auto_deploy
+                && (!state.changed_rust.is_empty() || state.changed_fe)
+            {
+                state.push_log("[WATCH] Building changes queued during the previous build...");
+                let only = if state.changed_rust.contains("__workspace__") {
+                    None
+                } else if !state.changed_rust.is_empty() {
+                    Some(state.changed_rust.clone())
+                } else {
+                    None
+                };
+                let want_rust = !state.changed_rust.is_empty();
+                let want_fe = state.changed_fe;
+                state.changed_rust.clear();
+                state.changed_fe = false;
+                state.last_auto_build_trigger = Some(Instant::now());
+                let changed_paths = if want_rust {
+                    Some(state.changed_rust_paths.clone())
+                } else {
+                    None
+                };
+                state.changed_rust_paths.clear();
+                spawn_build(state, only, changed_paths, want_rust, want_fe, tx.clone());
+            }
         }
         AppEvent::VmReachable(ok) => {
             let was = state.vm_online;
@@ -3387,17 +3693,21 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
                     "[AUTO-BUILD] Missing on VM: {} — triggering build+deploy",
                     names.join(", ")
                 ));
-                spawn_build(state, Some(crates), true, false, tx.clone());
+                spawn_build(state, Some(crates), None, true, false, tx.clone());
             }
         }
         AppEvent::FileChange {
             rust_crates,
+            rust_paths,
             frontend,
         } => {
+            state.changed_rust_paths.extend(rust_paths);
             for c in &rust_crates {
                 if c == "__workspace__" {
                     state.changed_rust.clear();
-                } else {
+                    state.changed_rust.insert(c.clone());
+                    break;
+                } else if !state.changed_rust.contains("__workspace__") {
                     state.changed_rust.insert(c.clone());
                 }
             }
@@ -3418,15 +3728,24 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
             if should && debounce_ok {
                 state.last_auto_build_trigger = Some(Instant::now());
                 state.push_log("[WATCH] Changes detected — auto-rebuilding...");
-                let only = if !state.changed_rust.is_empty() {
+                let only = if state.changed_rust.contains("__workspace__") {
+                    None
+                } else if !state.changed_rust.is_empty() {
                     Some(state.changed_rust.clone())
                 } else {
                     None
                 };
+                let want_rust = !state.changed_rust.is_empty();
                 let want_fe = state.changed_fe;
+                let changed_paths = if want_rust {
+                    Some(state.changed_rust_paths.clone())
+                } else {
+                    None
+                };
                 state.changed_rust.clear();
+                state.changed_rust_paths.clear();
                 state.changed_fe = false;
-                spawn_build(state, only, true, want_fe, tx.clone());
+                spawn_build(state, only, changed_paths, want_rust, want_fe, tx.clone());
             }
         }
     }

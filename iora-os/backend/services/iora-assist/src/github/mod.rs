@@ -42,7 +42,7 @@ pub struct GitHubAuth {
     pub username: Option<String>,
 }
 
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 
 impl Default for GitHubAuth {
     fn default() -> Self {

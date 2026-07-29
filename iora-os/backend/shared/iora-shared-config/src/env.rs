@@ -1,4 +1,5 @@
 //! IORA environment detection and install marker.
+//! This module is isolated from unrelated application-domain shared code.
 //!
 //! The system distinguishes between:
 //! - **production** – self-installed (marker file present) or `IORA_ENV=production`

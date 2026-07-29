@@ -85,7 +85,7 @@ use autonomous_scheduler::{AutonomousScheduler, ScheduledTask, TaskRun};
 use cost_manager::{BudgetConfig, CostManager};
 use dlp_guard::{AiTokenManager, DlpGuard, DlpScanResult};
 use github::{GitHubActionExecutor, GitHubAuth, GitHubClient};
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use lsp::LspManager;
 use memory_system::{Memory, MemoryQuery, MemoryStore};
 use messaging::{EmailRequest, MessageResult, MessagingConfig, MessagingManager};
@@ -1164,7 +1164,7 @@ async fn transcribe_local(
         let providers = state.orchestrator.list_providers().await;
         if providers.iter().any(|p| p == "iora_stt") {
             let stt_config = ProviderConfig {
-                base_url: Some(iora_shared::system_config::stt_service_url()),
+                base_url: Some(iora_shared_config::system_config::stt_service_url()),
                 ..Default::default()
             };
             Some(providers::create_provider(
@@ -1290,7 +1290,7 @@ async fn synthesize_local(
         let providers = state.orchestrator.list_providers().await;
         if providers.iter().any(|p| p == "iora_tts") {
             let tts_config = ProviderConfig {
-                base_url: Some(iora_shared::system_config::tts_service_url()),
+                base_url: Some(iora_shared_config::system_config::tts_service_url()),
                 model: req.voice.clone(),
                 api_version: req.lang.clone(),
                 ..Default::default()
@@ -1397,7 +1397,7 @@ async fn synthesize_local(
 /// List available STT models (faster-whisper).
 async fn list_stt_models(State(_state): State<AppState>) -> impl IntoResponse {
     let stt_config = ProviderConfig {
-        base_url: Some(iora_shared::system_config::stt_service_url()),
+        base_url: Some(iora_shared_config::system_config::stt_service_url()),
         ..Default::default()
     };
     let stt = providers::create_provider(providers::ProviderType::IoraStt, stt_config);
@@ -1423,7 +1423,7 @@ async fn list_stt_models(State(_state): State<AppState>) -> impl IntoResponse {
 /// List available TTS voices (Kokoro).
 async fn list_tts_voices(State(_state): State<AppState>) -> impl IntoResponse {
     let tts_config = ProviderConfig {
-        base_url: Some(iora_shared::system_config::tts_service_url()),
+        base_url: Some(iora_shared_config::system_config::tts_service_url()),
         ..Default::default()
     };
     let tts = providers::create_provider(providers::ProviderType::IoraTts, tts_config);
@@ -6458,7 +6458,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ─── Auto-register IORA STT (faster-whisper) ───────────────────────
-    let stt_url = iora_shared::system_config::stt_service_url();
+    let stt_url = iora_shared_config::system_config::stt_service_url();
     let stt_config = ProviderConfig {
         base_url: Some(stt_url.clone()),
         ..Default::default()
@@ -6474,7 +6474,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ─── Auto-register IORA TTS (Kokoro) ───────────────────────────────
-    let tts_url = iora_shared::system_config::tts_service_url();
+    let tts_url = iora_shared_config::system_config::tts_service_url();
     let tts_config = ProviderConfig {
         base_url: Some(tts_url.clone()),
         ..Default::default()
@@ -7310,7 +7310,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     info!("ORA AI (iora-assist) listening on {}", addr);
-    let _hb = iora_shared::heartbeat::spawn_default("iora-assist", addr.port(), "ORA AI assistant");
+    let _hb = iora_shared_heartbeat::spawn_default("iora-assist", addr.port(), "ORA AI assistant");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 

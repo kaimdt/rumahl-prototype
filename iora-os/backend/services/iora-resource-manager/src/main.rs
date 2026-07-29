@@ -669,8 +669,8 @@ async fn main() -> Result<()> {
     // ═══════════════════════════════════════════════════════════════════════════
     // Database connection using Global Config with hot-reload support
     let database_url =
-        iora_shared::system_config::get_cached_setting("resource_manager.database_url")
-            .or_else(|| iora_shared::system_config::get_cached_setting("DATABASE_URL"))
+        iora_shared_config::system_config::get_cached_setting("resource_manager.database_url")
+            .or_else(|| iora_shared_config::system_config::get_cached_setting("DATABASE_URL"))
             .unwrap_or_else(|| {
                 // Fallback to environment variable
                 std::env::var("DATABASE_URL")
@@ -732,7 +732,7 @@ async fn main() -> Result<()> {
         .with_state(state);
 
     // Use Global Config for port with hot-reload support
-    let port = iora_shared::system_config::get_cached_setting("resource_manager.port")
+    let port = iora_shared_config::system_config::get_cached_setting("resource_manager.port")
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(DEFAULT_PORT);
 
@@ -743,7 +743,7 @@ async fn main() -> Result<()> {
     );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-resource-manager",
         DEFAULT_PORT,
         "System resource allocator",

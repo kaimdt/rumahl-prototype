@@ -1,4 +1,4 @@
-//! Shared types used across the IORA ecosystem.
+//! Stable foundational types used across the IORA ecosystem.
 
 use serde::{Deserialize, Serialize};
 

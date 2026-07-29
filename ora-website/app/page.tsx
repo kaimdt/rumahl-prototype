@@ -22,7 +22,7 @@ export default function HomePage() {
   return (
     <>
       {/* ═══════════ HERO — Forensic Black + Immediate Value ═══════════ */}
-      <section className="relative overflow-hidden">
+      <section className="relative overflow-hidden selection-primary">
         <AnimatedWidgets />
         <div className="absolute inset-0 pointer-events-none">
           <div className="orb orb-blue" style={{ top: '5%', left: '-5%', opacity: 0.25 }} />
@@ -100,7 +100,7 @@ export default function HomePage() {
       </section>
 
       {/* ═══════════ BENTO GRID — Features, varying cell sizes ═══════════ */}
-      <section className="py-24 lg:py-32">
+      <section className="py-24 lg:py-32 selection-accent">
         <div className="mx-auto max-w-6xl px-6 lg:px-10">
           <div className="mb-12">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3">Platform</p>

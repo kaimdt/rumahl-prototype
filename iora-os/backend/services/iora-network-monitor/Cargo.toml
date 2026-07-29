@@ -9,7 +9,8 @@ name = "iora-network-monitor"
 path = "src/main.rs"
 
 [dependencies]
-iora-shared = { path = "../../shared/iora-shared" }
+iora-shared-heartbeat = { path = "../../shared/iora-shared-heartbeat" }
+iora-shared-config = { path = "../../shared/iora-shared-config" }
 tokio = { version = "1", features = ["full", "process", "signal", "net"] }
 axum = { version = "0.7", features = ["macros"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "timeout", "limit"] }

@@ -75,6 +75,11 @@
     --scrollbar-track: 240 8% 6%;
     --selection-bg: 210 95% 58%;
     --selection-fg: 0 0% 100%;
+    --selection-accent-bg: 30 85% 55%;
+    --selection-accent-fg: 0 0% 100%;
+    --state-hover: 210 95% 58%;
+    --state-selected: 210 95% 58%;
+    --state-border: 210 95% 58%;
 
     /* AI Glow Colors */
     --ai-glow-blue: 210 95% 58%;
@@ -108,7 +113,7 @@
     --secondary-foreground: 220 15% 20%;
 
     --muted: 210 15% 93%;
-    --muted-foreground: 220 12% 45%;
+    --muted-foreground: 220 12% 38%;
 
     --destructive: 0 72% 52%;
     --destructive-foreground: 0 0% 100%;
@@ -122,8 +127,8 @@
     --info: 195 82% 48%;
     --info-foreground: 0 0% 100%;
 
-    --border: 210 12% 86%;
-    --input: 210 12% 90%;
+    --border: 210 14% 80%;
+    --input: 210 14% 86%;
     --ring: 215 90% 48%;
 
     --header-bg: rgba(255, 255, 255, 0.74);
@@ -144,11 +149,16 @@
     --chart-4: 148 58% 40%;
     --chart-5: 270 60% 55%;
 
-    --scrollbar-thumb: 220 14% 56%;
+    --scrollbar-thumb: 220 16% 46%;
     --scrollbar-thumb-hover: 215 90% 48%;
-    --scrollbar-track: 210 22% 90%;
+    --scrollbar-track: 210 22% 87%;
     --selection-bg: 215 90% 48%;
     --selection-fg: 0 0% 100%;
+    --selection-accent-bg: 28 85% 50%;
+    --selection-accent-fg: 0 0% 100%;
+    --state-hover: 215 90% 48%;
+    --state-selected: 215 90% 48%;
+    --state-border: 215 90% 48%;
 
     --ai-glow-blue: 215 90% 48%;
     --ai-glow-teal: 195 85% 48%;
@@ -156,6 +166,23 @@
     --ai-glow-purple: 270 60% 55%;
     --ai-glow-pink: 330 65% 55%;
   }
+}
+
+:root[data-contrast="high"] {
+  --ring: 30 95% 54%;
+  --scrollbar-thumb: 30 90% 52%;
+  --scrollbar-thumb-hover: 30 95% 46%;
+  --selection-bg: 30 95% 52%;
+  --selection-accent-bg: 15 90% 50%;
+  --state-hover: 30 95% 52%;
+  --state-selected: 15 90% 50%;
+  --state-border: 20 92% 48%;
+}
+
+:root.light[data-contrast="high"] {
+  --muted-foreground: 220 14% 30%;
+  --border: 220 16% 70%;
+  --input: 220 16% 78%;
 }
 
 @layer base {
@@ -192,6 +219,32 @@
   ::selection {
     background: hsl(var(--selection-bg) / 0.88);
     color: hsl(var(--selection-fg));
+  }
+
+  .glass-card ::selection,
+  .glass-card-interactive ::selection,
+  .selection-accent ::selection {
+    background: hsl(var(--selection-accent-bg) / 0.9);
+    color: hsl(var(--selection-accent-fg));
+  }
+
+  .selection-primary ::selection {
+    background: hsl(var(--selection-bg) / 0.88);
+    color: hsl(var(--selection-fg));
+  }
+}
+
+@media (pointer: fine) {
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+}
+
+@media (pointer: coarse) {
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
   }
 }
 

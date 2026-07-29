@@ -21,7 +21,7 @@ use axum::{
     Router,
 };
 use chrono::Utc;
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
@@ -322,7 +322,7 @@ async fn main() -> Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("IORA Files listening on {}", addr);
     let _hb =
-        iora_shared::heartbeat::spawn_default("iora-files", addr.port(), "File sharing service");
+        iora_shared_heartbeat::spawn_default("iora-files", addr.port(), "File sharing service");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -415,7 +415,7 @@ async fn upload_file(
         )
     })?;
     let storage_path = user_dir.join(&storage_filename);
-    iora_shared::upload_store::atomic_write_async(&storage_path, &data)
+    iora_shared_upload::atomic_write_async(&storage_path, &data)
         .await
         .map_err(|e| {
             (

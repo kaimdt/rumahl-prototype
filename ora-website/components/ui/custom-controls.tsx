@@ -41,10 +41,10 @@ export function ChipSelect({ label, options, value, onChange, columns = 2 }: Chi
               role="radio"
               aria-checked={selected}
               onClick={() => onChange(option)}
-              className={`rounded-xl border px-3 py-2 text-xs text-left transition-all ${
+              className={`rounded-xl border px-3 py-2 text-xs text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                 selected
-                  ? "border-primary/50 bg-primary/10 text-foreground"
-                  : "border-border/30 bg-card/30 text-muted-foreground hover:text-foreground"
+                  ? "border-[hsl(var(--state-border)/0.88)] bg-[hsl(var(--state-selected)/0.3)] text-foreground shadow-[0_0_0_1px_hsl(var(--state-border)/0.33)_inset]"
+                  : "border-border/45 bg-card/45 text-muted-foreground hover:text-foreground hover:border-[hsl(var(--state-border)/0.66)] hover:bg-[hsl(var(--state-hover)/0.2)]"
               }`}
             >
               {option}
@@ -84,7 +84,7 @@ export function StepperSlider({
           <button
             type="button"
             onClick={() => clamp(value - step)}
-            className="h-6 w-6 rounded-full inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            className="h-6 w-6 rounded-full inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-[hsl(var(--state-hover)/0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label={`Decrease ${label}`}
           >
             <Minus className="h-3.5 w-3.5" />
@@ -92,7 +92,7 @@ export function StepperSlider({
           <button
             type="button"
             onClick={() => clamp(value + step)}
-            className="h-6 w-6 rounded-full inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            className="h-6 w-6 rounded-full inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-[hsl(var(--state-hover)/0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label={`Increase ${label}`}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -109,8 +109,8 @@ export function StepperSlider({
               key={stepValue}
               type="button"
               onClick={() => clamp(stepValue)}
-              className={`h-2.5 rounded-full transition-colors ${
-                isActive ? "bg-primary/70" : "bg-border/40 hover:bg-border/60"
+              className={`h-2.5 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                isActive ? "bg-[hsl(var(--state-selected)/0.9)] hover:bg-[hsl(var(--state-selected)/1)]" : "bg-border/50 hover:bg-[hsl(var(--state-hover)/0.58)]"
               }`}
               aria-label={`${label} ${stepValue}${suffix}`}
             />

@@ -1,4 +1,5 @@
 //! IORA System Configuration — NO .env files in production.
+//! This module is isolated so unrelated shared-code changes do not rebuild it.
 //!
 //! In IORA OS, ALL configuration lives in the Global Config system
 //! (settings DB table). This module provides:

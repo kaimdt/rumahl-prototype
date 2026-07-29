@@ -2,7 +2,7 @@
 //! round-tripped through the database (e.g. MQTT passwords).
 //!
 //! Encryption: AES-256-GCM. Key: SHA-256 of the runtime JWT secret, which is
-//! already random per-installation (see `iora_shared::system_config::jwt_secret`).
+//! already random per-installation (see `iora_shared_config::system_config::jwt_secret`).
 //! Blob format (base64-encoded, no padding):
 //!
 //!   "enc:v1:" || BASE64( nonce(12) || ciphertext+tag )
@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 const PREFIX: &str = "enc:v1:";
 
 fn cipher() -> Aes256Gcm {
-    let secret = iora_shared::system_config::jwt_secret();
+    let secret = iora_shared_config::system_config::jwt_secret();
     let mut hasher = Sha256::new();
     hasher.update(secret.as_bytes());
     hasher.update(b"|mqtt-password-encryption-key");

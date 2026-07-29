@@ -13,8 +13,8 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use iora_shared::env::IoraEnv;
-use iora_shared::system_config;
+use iora_shared_config::env::IoraEnv;
+use iora_shared_config::system_config;
 use ipnetwork::IpNetwork;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -1253,7 +1253,7 @@ async fn main() -> Result<()> {
     }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-security",
         port.parse::<u16>().unwrap_or(8095),
         "Security policy & intrusion detection",

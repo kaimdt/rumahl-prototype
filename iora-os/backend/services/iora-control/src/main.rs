@@ -32,14 +32,14 @@ use crate::{auth::AuthState, cache::Cache, ws::WsState};
 /// Honors `$IORA_CORE_URL` env var; falls back to system_config.
 fn iora_core_url() -> String {
     std::env::var("IORA_CORE_URL")
-        .unwrap_or_else(|_| iora_shared::system_config::service_url("iora-core", 8090))
+        .unwrap_or_else(|_| iora_shared_config::system_config::service_url("iora-core", 8090))
 }
 
 /// Returns the iora-home base URL.
 /// Honors `$IORA_HOME_URL` env var; falls back to system_config.
 fn iora_home_url() -> String {
     std::env::var("IORA_HOME_URL")
-        .unwrap_or_else(|_| iora_shared::system_config::service_url("iora-home", 8126))
+        .unwrap_or_else(|_| iora_shared_config::system_config::service_url("iora-home", 8126))
 }
 
 #[derive(Clone)]
@@ -1275,7 +1275,7 @@ async fn main() -> anyhow::Result<()> {
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8091));
     info!("iora-control listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-control",
         addr.port(),
         "Administrative control panel",

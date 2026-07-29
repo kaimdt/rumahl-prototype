@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 pub type DbPool = PgPool;
 
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 
 /// Initialize database connection pool
 pub async fn init_database() -> Result<DbPool, sqlx::Error> {

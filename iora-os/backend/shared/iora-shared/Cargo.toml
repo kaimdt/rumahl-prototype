@@ -20,6 +20,10 @@ sha2 = "0.10"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1"
+iora-shared-types = { path = "../iora-shared-types" }
+iora-shared-heartbeat = { path = "../iora-shared-heartbeat" }
+iora-shared-config = { path = "../iora-shared-config" }
+iora-shared-upload = { path = "../iora-shared-upload" }
 
 [lib]
 name = "iora_shared"

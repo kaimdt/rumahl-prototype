@@ -126,7 +126,7 @@ export function AIChatDemo() {
                   <button
                     key={s}
                     onClick={() => handleSuggestion(s)}
-                    className="text-[11px] px-2.5 py-1 rounded-full border border-border/20 hover:border-primary/20 hover:bg-primary/5 text-muted-foreground hover:text-foreground transition-all"
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-border/30 hover:border-[hsl(var(--state-border)/0.72)] hover:bg-[hsl(var(--state-hover)/0.2)] text-muted-foreground hover:text-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   >
                     {s}
                   </button>
@@ -192,7 +192,7 @@ export function AIChatDemo() {
             <button
               onClick={handleSend}
               disabled={!input.trim()}
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 hover:bg-primary/25 transition-colors disabled:opacity-30"
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--state-selected)/0.26)] hover:bg-[hsl(var(--state-hover)/0.45)] active:bg-[hsl(var(--state-selected)/0.6)] transition-colors disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <Send className="h-3 w-3 text-primary" />
             </button>

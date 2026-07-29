@@ -6,6 +6,7 @@ description = "IORA Core – central orchestration and data management for the I
 
 [dependencies]
 iora-shared = { path = "../../shared/iora-shared" }
+iora-shared-config = { path = "../../shared/iora-shared-config" }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }

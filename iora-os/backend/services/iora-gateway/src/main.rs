@@ -19,7 +19,7 @@ use governor::{
     state::{direct::NotKeyed, InMemoryState},
     RateLimiter,
 };
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use lettre::{
     message::Mailbox, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
     AsyncTransport, Message, Tokio1Executor,
@@ -1061,7 +1061,7 @@ async fn main() -> Result<()> {
     info!("AI request monitoring enabled");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-gateway",
         port.parse::<u16>().unwrap_or(8096),
         "API gateway / reverse proxy",

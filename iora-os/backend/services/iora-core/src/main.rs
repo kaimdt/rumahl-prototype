@@ -123,7 +123,7 @@ async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
         "uptime_seconds": uptime,
         "timestamp": Utc::now().to_rfc3339(),
         "db_connected": state.db.is_some(),
-        "setup_complete": iora_shared::env::IoraEnv::is_setup_complete(),
+        "setup_complete": iora_shared_config::env::IoraEnv::is_setup_complete(),
     }))
 }
 

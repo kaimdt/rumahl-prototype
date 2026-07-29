@@ -343,6 +343,17 @@ function Test-VmHealth {
     return $false
 }
 
+function Test-WatcherNeedsBuild {
+    param([string] $Binary)
+    if (-not (Test-Path $Binary)) { return $true }
+    $watcherRoot = Join-Path $REPO_ROOT "iora-os\backend\tools\iora-dev-watch"
+    $latestSource = Get-ChildItem $watcherRoot -Recurse -File |
+        Where-Object { $_.Extension -eq ".rs" -or $_.Name -eq "Cargo.toml" } |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    return $latestSource -and $latestSource.LastWriteTimeUtc -gt (Get-Item $Binary).LastWriteTimeUtc
+}
+
 # ── -Status / -Stop / -Rebuild / -SSH fast paths ────────────────────────────
 if ($Stop) {
     Stop-Vm
@@ -367,8 +378,8 @@ if ($Watcher) {
         Stop-WithError "VM is not running. Start it first: .\dev-local.ps1"
     }
     $dashBin = Join-Path $REPO_ROOT "iora-os\backend\target\debug\iora-dev-watch.exe"
-    if (-not (Test-Path $dashBin)) {
-        Write-Info "Building dev-watch TUI (one-time Rust compile)..."
+    if (Test-WatcherNeedsBuild $dashBin) {
+        Write-Info "Building updated dev-watch TUI..."
         Push-Location (Join-Path $REPO_ROOT "iora-os\backend")
         try {
             cargo build -p iora-dev-watch 2>&1 | Select-Object -Last 5
@@ -1073,8 +1084,8 @@ else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $SshP
 # ── Step 10: Launch dev-watch TUI ──────────────────────────────────────────
 if (-not $NoWatch) {
     $dashBin = Join-Path $REPO_ROOT "iora-os\backend\target\debug\iora-dev-watch.exe"
-    if (-not (Test-Path $dashBin)) {
-        Write-Info "Building dev-watch TUI (one-time Rust compile)..."
+    if (Test-WatcherNeedsBuild $dashBin) {
+        Write-Info "Building updated dev-watch TUI..."
         Push-Location (Join-Path $REPO_ROOT "iora-os\backend")
         try {
             cargo build -p iora-dev-watch 2>&1 | Select-Object -Last 5

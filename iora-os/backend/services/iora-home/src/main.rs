@@ -80,7 +80,7 @@ use ha_connection::HaConnectionManager;
 use ha_websocket::HAWebSocket;
 use homekit_client::HomekitClient;
 use iora_shared::settings::{SettingDefinition, SettingsRegistry};
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use matter_client::MatterClient;
 use mqtt_client::MqttClient;
 use notification_dispatcher::NotificationDispatcher;
@@ -841,11 +841,11 @@ async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
     // Detect environment
-    let iora_env = iora_shared::env::IoraEnv::detect();
+    let iora_env = iora_shared_config::env::IoraEnv::detect();
     info!("IORA environment: {}", iora_env);
 
     // Check setup completion status for diagnostics
-    let setup_complete = iora_shared::env::IoraEnv::is_setup_complete();
+    let setup_complete = iora_shared_config::env::IoraEnv::is_setup_complete();
     info!("First-boot setup completed: {}", setup_complete);
     if iora_env.is_production() && !setup_complete {
         warn!(
@@ -961,14 +961,14 @@ async fn main() -> anyhow::Result<()> {
         if let Err(e) = config_repo.save_system_preference(save_req).await {
             warn!("Failed to persist auto-generated JWT secret: {e}");
         } else {
-            iora_shared::system_config::persist_jwt_secret(&secret);
+            iora_shared_config::system_config::persist_jwt_secret(&secret);
             info!("Auto-generated and persisted JWT secret");
         }
     } else {
         // Secret exists in DB — seed the system_config cache so jwt_secret()
         // picks it up without needing an env var.
         if let Ok(Some(pref)) = config_repo.get_system_preference("jwt_secret").await {
-            iora_shared::system_config::persist_jwt_secret(&pref.preference_value);
+            iora_shared_config::system_config::persist_jwt_secret(&pref.preference_value);
         }
     }
 
@@ -2697,7 +2697,7 @@ async fn main() -> anyhow::Result<()> {
     let port: u16 = system_config::service_port("iora-home", 3001);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Backend server listening on {}", addr);
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-home",
         addr.port(),
         "Smart-home / Home Assistant bridge",
@@ -2778,8 +2778,8 @@ fn compute_dist_hash() -> String {
 /// Try to find the first-boot setup wizard and return its URL.
 /// Checks ports 8080 and 80 on localhost and the primary LAN IP.
 async fn detect_setup_wizard() -> (Option<String>, bool) {
-    if !iora_shared::env::IoraEnv::detect().is_production()
-        || iora_shared::env::IoraEnv::is_setup_complete()
+    if !iora_shared_config::env::IoraEnv::detect().is_production()
+        || iora_shared_config::env::IoraEnv::is_setup_complete()
     {
         return (None, false);
     }
@@ -3024,8 +3024,8 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     let metrics = state.entity_cache.metrics();
     let connected_clients = state.ws_manager.client_count().await;
     let entity_count = state.entity_cache.count().await;
-    let iora_env = iora_shared::env::IoraEnv::detect();
-    let raw_setup_complete = iora_shared::env::IoraEnv::is_setup_complete();
+    let iora_env = iora_shared_config::env::IoraEnv::detect();
+    let raw_setup_complete = iora_shared_config::env::IoraEnv::is_setup_complete();
     let setup_required = iora_env.is_production() && !raw_setup_complete;
 
     let (setup_url, setup_reachable) = if setup_required {
@@ -11241,7 +11241,7 @@ async fn admin_settings_put(
     // HOT-RELOAD: Update settings cache and notify all services
     // ═══════════════════════════════════════════════════════════════════════════
     // Update the shared settings cache so other services get the new value immediately
-    iora_shared::system_config::update_cached_setting(key.clone(), body.value.to_string());
+    iora_shared_config::system_config::update_cached_setting(key.clone(), body.value.to_string());
 
     // Notify all services about the config change (sends SIGHUP signals)
     tokio::spawn({
@@ -12127,7 +12127,7 @@ async fn upload_background_image(
         }
 
         let disk_path_buf = FsPath::new(&disk_path).to_path_buf();
-        iora_shared::upload_store::atomic_write_async(&disk_path_buf, &bytes)
+        iora_shared_upload::atomic_write_async(&disk_path_buf, &bytes)
             .await
             .map_err(|e| ErrorResponse::internal(format!("Failed to save uploaded file: {}", e)))?;
 

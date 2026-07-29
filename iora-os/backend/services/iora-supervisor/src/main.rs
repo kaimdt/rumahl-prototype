@@ -9,7 +9,7 @@ use bollard::service::HostConfig;
 use bollard::Docker;
 use chrono::{DateTime, Utc};
 use futures_util::stream::TryStreamExt;
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
@@ -256,7 +256,7 @@ async fn get_status(data: web::Data<AppState>) -> impl Responder {
         "running_containers": status.running_containers,
         "stopped_containers": status.stopped_containers,
         "docker_version": status.docker_version,
-        "setup_complete": iora_shared::env::IoraEnv::is_setup_complete(),
+        "setup_complete": iora_shared_config::env::IoraEnv::is_setup_complete(),
     }))
 }
 
@@ -2276,7 +2276,7 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-supervisor",
         port,
         "Container & system supervisor",

@@ -5,7 +5,9 @@ edition = "2021"
 description = "IORA Files – secure file sharing, upload/download, share links, and collaborative file management for the IORA ecosystem"
 
 [dependencies]
-iora-shared = { path = "../../shared/iora-shared" }
+iora-shared-heartbeat = { path = "../../shared/iora-shared-heartbeat" }
+iora-shared-config = { path = "../../shared/iora-shared-config" }
+iora-shared-upload = { path = "../../shared/iora-shared-upload" }
 tokio = { version = "1", features = ["full", "fs"] }
 axum = { version = "0.7", features = ["macros", "multipart"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "limit", "fs"] }

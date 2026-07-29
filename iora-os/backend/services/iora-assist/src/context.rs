@@ -1,5 +1,5 @@
 // Smart Home Context Injection Module
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

@@ -10,7 +10,7 @@ name = "iora-dev-bridge"
 path = "src/main.rs"
 
 [dependencies]
-iora-shared = { path = "../../shared/iora-shared" }
+iora-shared-upload = { path = "../../shared/iora-shared-upload" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "fs", "process", "time", "signal"] }
 axum = { version = "0.7", features = ["macros", "multipart"] }
 tower = "0.4"

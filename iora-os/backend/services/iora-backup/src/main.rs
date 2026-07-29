@@ -258,7 +258,7 @@ async fn main() -> std::io::Result<()> {
     scheduler.clone().spawn();
 
     let _hb =
-        iora_shared::heartbeat::spawn_default("iora-backup", port, "Backup & restore service");
+        iora_shared_heartbeat::spawn_default("iora-backup", port, "Backup & restore service");
 
     info!(
         "iora-backup listening on 0.0.0.0:{port}, backup_dir={}",

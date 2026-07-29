@@ -21,16 +21,16 @@
 //! Typical wiring inside a service `main()`:
 //!
 //! ```no_run
-//! use iora_shared::heartbeat::{HeartbeatClient, HeartbeatConfig};
+//! use iora_shared_heartbeat::{HeartbeatClient, HeartbeatConfig};
 //!
-//! # async fn run() -> anyhow::Result<()> {
+//! # async fn run() {
 //! let _hb = HeartbeatClient::spawn(HeartbeatConfig {
 //!     service_name: "iora-watchdog".into(),
 //!     service_url:  "http://127.0.0.1:8094".into(),
 //!     description:  "System & service watchdog".into(),
 //!     ..HeartbeatConfig::default()
 //! });
-//! # Ok(()) }
+//! # }
 //! ```
 //!
 //! The returned [`HeartbeatHandle`] can be used to push a custom status,
@@ -45,7 +45,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::types::HealthStatus;
+use iora_shared_types::HealthStatus;
 
 /// JSON envelope every service POSTs to
 /// `POST {core_url}/api/core/services/heartbeat`.

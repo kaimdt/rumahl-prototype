@@ -3,7 +3,7 @@ use actix_web::{delete, get, post, web, App as ActixApp, HttpResponse, HttpServe
 use chrono::{DateTime, Utc};
 use iora_shared::app_manifest::{AppManifest, TrustLevel};
 use iora_shared::port_manager::PortManager;
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
@@ -702,7 +702,7 @@ async fn main() -> std::io::Result<()> {
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 
     let _hb =
-        iora_shared::heartbeat::spawn_default("iora-appstore", port, "App store / app catalog");
+        iora_shared_heartbeat::spawn_default("iora-appstore", port, "App store / app catalog");
 
     HttpServer::new(move || {
         ActixApp::new()

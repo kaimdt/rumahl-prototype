@@ -1,4 +1,5 @@
 //! Central secure upload storage for IORA.
+//! This crate is independent from service heartbeat and configuration code.
 //!
 //! Provides a single API used by every service that accepts user-supplied
 //! binary uploads (themes, apps, app file storage, backups, plugins, …).
@@ -556,7 +557,7 @@ pub fn sanitize_archive_path(raw: &str, max_components: usize) -> Option<String>
     }
     let p = Path::new(normalised.as_str());
     let mut depth = 0usize;
-    let mut out = PathBuf::new();
+    let mut out = Vec::new();
     for c in p.components() {
         match c {
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
@@ -574,7 +575,7 @@ pub fn sanitize_archive_path(raw: &str, max_components: usize) -> Option<String>
             }
         }
     }
-    Some(out.to_string_lossy().into_owned())
+    Some(out.join("/"))
 }
 
 #[cfg(test)]

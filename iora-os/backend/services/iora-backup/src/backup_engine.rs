@@ -200,11 +200,11 @@ impl BackupEngine {
     /// `<backup_dir>/restore-<id>/` and the operator can promote files
     /// manually. Avoids destroying live data accidentally.
     ///
-    /// Hardened via [`iora_shared::upload_store::SecureUploadStore`]: every
+    /// Hardened via [`iora_shared_upload::SecureUploadStore`]: every
     /// tar entry is validated (no `..`, no absolute paths, no symlinks,
     /// per-file/total/entry-count caps) before being unpacked.
     pub fn restore_backup(&self, archive_path: &Path) -> anyhow::Result<PathBuf> {
-        use iora_shared::upload_store::{SecureUploadStore, TarExtractLimits};
+        use iora_shared_upload::{SecureUploadStore, TarExtractLimits};
 
         let id = Uuid::new_v4();
         let scope = format!("restore-{}", id);

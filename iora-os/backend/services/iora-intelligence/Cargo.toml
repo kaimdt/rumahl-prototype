@@ -5,7 +5,7 @@ edition = "2021"
 description = "IORA Intelligence Engine — Predictive health, self-repair, and proactive system optimization"
 
 [dependencies]
-iora-shared = { path = "../../shared/iora-shared" }
+iora-shared-config = { path = "../../shared/iora-shared-config" }
 tokio = { version = "1", features = ["full", "process"] }
 axum = { version = "0.7", features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }

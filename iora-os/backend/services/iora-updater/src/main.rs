@@ -21,7 +21,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use futures_util::StreamExt;
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};

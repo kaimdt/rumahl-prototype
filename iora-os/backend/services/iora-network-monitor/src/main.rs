@@ -13,7 +13,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use sqlx::{PgPool, Row};
@@ -505,7 +505,7 @@ async fn main() -> Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
     info!("iora-network-monitor listening on {}", addr);
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-network-monitor",
         addr.port(),
         "LAN/WAN network monitor",

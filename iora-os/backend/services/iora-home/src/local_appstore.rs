@@ -1402,7 +1402,7 @@ fn extract_zip(
     job_id: Uuid,
     events: &broadcast::Sender<InstallEvent>,
 ) -> Result<(AppManifest, PathBuf)> {
-    // Hard caps shared with [`iora_shared::upload_store`] — protect against
+    // Hard caps shared with [`iora_shared_upload`] — protect against
     // ZIP bombs. Apps can be larger than themes but still must stay bounded.
     const MAX_TOTAL_UNCOMPRESSED: u64 = 512 * 1024 * 1024; // 512 MiB total
     const MAX_SINGLE_FILE: u64 = 128 * 1024 * 1024; // 128 MiB per entry

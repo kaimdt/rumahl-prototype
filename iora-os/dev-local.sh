@@ -311,15 +311,23 @@ if $DO_SSH; then
     exit 0
 fi
 
+watcher_needs_build() {
+    local binary="$1"
+    local watcher_root="$REPO_ROOT/iora-os/backend/tools/iora-dev-watch"
+    [ ! -f "$binary" ] && return 0
+    find "$watcher_root/src" "$watcher_root/Cargo.toml" -type f -newer "$binary" -print -quit 2>/dev/null |
+        grep -q .
+}
+
 if $DO_WATCHER; then
     pid=$(vm_pid)
     if [ -z "$pid" ]; then
         die "VM is not running. Start it first: ./dev-local.sh"
     fi
-    # Build the Rust TUI binary if not present
+    # Build the Rust TUI binary when missing or older than its sources.
     DASH_BIN="$REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch"
-    if [ ! -f "$DASH_BIN" ]; then
-        log "Building dev-watch TUI (one-time Rust compile)..."
+    if watcher_needs_build "$DASH_BIN"; then
+        log "Building updated dev-watch TUI..."
         (cd "$REPO_ROOT/iora-os/backend" && cargo build -p iora-dev-watch 2>&1 | tail -5) || \
             die "Failed to build iora-dev-watch. Check: cd iora-os/backend && cargo build -p iora-dev-watch"
         ok "dev-watch TUI built"
@@ -1112,8 +1120,8 @@ fi
 # ── Step 10: Launch dev-watch TUI in a second terminal (best-effort) ─────
 if ! $NO_WATCH; then
     DASH_BIN="$REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch"
-    if [ ! -f "$DASH_BIN" ]; then
-        log "Building dev-watch TUI (one-time Rust compile)..."
+    if watcher_needs_build "$DASH_BIN"; then
+        log "Building updated dev-watch TUI..."
         (cd "$REPO_ROOT/iora-os/backend" && cargo build -p iora-dev-watch 2>&1 | tail -5) || \
             warn "Failed to build dev-watch TUI. Run manually later."
     fi

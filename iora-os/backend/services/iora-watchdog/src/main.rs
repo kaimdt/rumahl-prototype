@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use sysinfo::System;
 use tokio::sync::{broadcast, RwLock};
@@ -1069,7 +1069,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Monitoring services every 10 seconds");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-watchdog",
         port.parse::<u16>().unwrap_or(8094),
         "System & service watchdog",

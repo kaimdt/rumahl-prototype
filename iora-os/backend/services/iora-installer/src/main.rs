@@ -137,7 +137,7 @@ fn install(non_interactive: bool) -> Result<()> {
     validate_installation()?;
 
     // Mark system as production-installed
-    match iora_shared::env::IoraEnv::write_install_marker() {
+    match iora_shared_config::env::IoraEnv::write_install_marker() {
         Ok(path) => println!(
             "{} Install marker written to {:?}",
             "✓".bright_green(),

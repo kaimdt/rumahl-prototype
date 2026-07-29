@@ -12,7 +12,7 @@
 use anyhow::Result;
 use axum::{extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Duration, Utc};
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::Serialize;
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::sync::Arc;

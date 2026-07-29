@@ -21,7 +21,7 @@ use axum::{
 };
 use chrono::Utc;
 use iora_shared::app_storage::*;
-use iora_shared::upload_store::atomic_write_async;
+use iora_shared_upload::atomic_write_async;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::fs;

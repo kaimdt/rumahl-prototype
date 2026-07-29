@@ -11,7 +11,7 @@
 //! - Rate limiting and security headers
 
 use anyhow::{Context, Result};
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::fs;
@@ -359,7 +359,7 @@ async fn main() -> Result<()> {
 
     info!("IORA NGINX service is running on port {}", DEFAULT_PORT);
 
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-nginx",
         DEFAULT_PORT,
         "NGINX reverse-proxy controller",

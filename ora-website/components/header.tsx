@@ -9,6 +9,7 @@ import {
   X,
   Moon,
   Sun,
+  Contrast,
   ChevronDown,
   ArrowRight,
   Home,
@@ -220,12 +221,22 @@ export function Header() {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isScrolled, setIsScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [highContrast, setHighContrast] = useState(false);
   const [mobileSubMenu, setMobileSubMenu] = useState<string | null>(null);
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
+    const isHighContrast = window.localStorage.getItem("ora-high-contrast") === "1";
+    setHighContrast(isHighContrast);
+    document.documentElement.setAttribute("data-contrast", isHighContrast ? "high" : "normal");
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    document.documentElement.setAttribute("data-contrast", highContrast ? "high" : "normal");
+    window.localStorage.setItem("ora-high-contrast", highContrast ? "1" : "0");
+  }, [highContrast, mounted]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -238,6 +249,7 @@ export function Header() {
 
   const isDark = mounted && resolvedTheme === "dark";
   const hasDropdownOpen = openDropdown !== null;
+  const toggleContrast = () => setHighContrast((prev) => !prev);
 
   const featuresCategories: DropdownCategory[] = [
     {
@@ -471,6 +483,19 @@ export function Header() {
         {/* Desktop actions */}
         <div className="hidden lg:flex lg:items-center lg:gap-x-1.5">
           <button
+            onClick={toggleContrast}
+            className={`p-2 rounded-full transition-colors ${
+              highContrast
+                ? "bg-[hsl(var(--state-selected)/0.22)] text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-[hsl(var(--state-hover)/0.16)]"
+            }`}
+            aria-label="Toggle high contrast interaction colors"
+            aria-pressed={highContrast}
+          >
+            <Contrast className="h-[18px] w-[18px]" />
+          </button>
+
+          <button
             onClick={() => setTheme(isDark ? "light" : "dark")}
             className="p-2 hover:bg-muted/50 rounded-full transition-colors text-muted-foreground hover:text-foreground"
             aria-label="Toggle theme"
@@ -660,6 +685,19 @@ export function Header() {
                       <Moon className="h-4 w-4" />
                     )}
                     <span>{isDark ? "Light" : "Dark"} Mode</span>
+                  </button>
+
+                  <button
+                    onClick={toggleContrast}
+                    className={`flex items-center gap-3 text-sm transition-colors ${
+                      highContrast
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    aria-pressed={highContrast}
+                  >
+                    <Contrast className="h-4 w-4" />
+                    <span>{highContrast ? "High Contrast On" : "High Contrast Off"}</span>
                   </button>
                 </div>
 

@@ -2190,7 +2190,7 @@ fn extract_backend_bundle_sync(
     bundle_path: &FsPath,
     work_root: &FsPath,
 ) -> std::result::Result<&'static str, String> {
-    use iora_shared::upload_store::{extract_tar_gz_into, TarExtractLimits};
+    use iora_shared_upload::{extract_tar_gz_into, TarExtractLimits};
 
     let mut file = std::fs::File::open(bundle_path)
         .map_err(|e| format!("open bundle {}: {e}", bundle_path.display()))?;

@@ -42,7 +42,7 @@ use axum::{
 };
 use chrono::Utc;
 
-use iora_shared::system_config;
+use iora_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
@@ -316,7 +316,7 @@ async fn main() -> Result<()> {
     let relay_listener = tokio::net::TcpListener::bind(relay_addr).await?;
     info!("Cloud Relay WebSocket listening on {}", relay_addr);
 
-    let _hb = iora_shared::heartbeat::spawn_default(
+    let _hb = iora_shared_heartbeat::spawn_default(
         "iora-connector",
         http_port,
         "Cloud relay — WebSocket tunnel proxy",

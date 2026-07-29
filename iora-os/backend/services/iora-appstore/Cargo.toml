@@ -6,6 +6,8 @@ description = "IORA App Store - marketplace for IORA apps and plugins"
 
 [dependencies]
 iora-shared = { path = "../../shared/iora-shared" }
+iora-shared-heartbeat = { path = "../../shared/iora-shared-heartbeat" }
+iora-shared-config = { path = "../../shared/iora-shared-config" }
 
 actix-web = "4"
 actix-cors = "0.7"

@@ -9,6 +9,10 @@
 # Crate names are unchanged, so `cargo build -p iora-X` (and the image build
 # pipeline) keeps working as before.
 members = [
+    "shared/iora-shared-types",
+    "shared/iora-shared-heartbeat",
+    "shared/iora-shared-config",
+    "shared/iora-shared-upload",
     "shared/iora-shared",
 
     # services
