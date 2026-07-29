@@ -74,7 +74,10 @@ struct MonitoringConfig {
 async fn scan_arp_table(_state: &AppState) -> Result<Vec<NetworkDevice>> {
     info!("Scanning ARP table for network devices...");
 
+    #[cfg(target_os = "linux")]
     let mut devices = Vec::new();
+    #[cfg(not(target_os = "linux"))]
+    let devices = Vec::new();
 
     // On Linux, read /proc/net/arp
     #[cfg(target_os = "linux")]

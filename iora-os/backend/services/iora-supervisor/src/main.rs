@@ -2390,7 +2390,7 @@ mod tests {
                 e
             ),
             Ok(path) => assert!(
-                path.starts_with(&canonical_base(&tmp)),
+                path.starts_with(canonical_base(&tmp)),
                 "Path {:?} must be within base_dir {:?}",
                 path,
                 tmp

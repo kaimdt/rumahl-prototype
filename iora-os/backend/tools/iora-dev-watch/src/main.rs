@@ -1459,7 +1459,7 @@ fn discover_services(w: &PathBuf) -> Vec<String> {
     v
 }
 
-fn service_manifest_paths(workspace: &PathBuf) -> HashMap<String, PathBuf> {
+fn service_manifest_paths(workspace: &Path) -> HashMap<String, PathBuf> {
     let mut manifests = HashMap::new();
     for sub in &["services", "apps/system", "dev"] {
         let base = workspace.join(sub);
@@ -1483,10 +1483,7 @@ fn service_manifest_paths(workspace: &PathBuf) -> HashMap<String, PathBuf> {
     manifests
 }
 
-fn shared_crate_impacts(
-    workspace: &PathBuf,
-    services: &[String],
-) -> HashMap<String, HashSet<String>> {
+fn shared_crate_impacts(workspace: &Path, services: &[String]) -> HashMap<String, HashSet<String>> {
     let manifests = service_manifest_paths(workspace);
     let service_set: HashSet<&str> = services.iter().map(String::as_str).collect();
     let mut impacts: HashMap<String, HashSet<String>> = HashMap::new();
@@ -2190,16 +2187,14 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             let n = state.backend.services.len();
             state.deploy_cursor = (state.deploy_cursor + 1).min(n.saturating_sub(1));
         }
-        KeyCode::Enter if state.view == View::Deploy => {
-            if !state.deploy_selected.is_empty() {
-                let svcs: Vec<String> = state
-                    .deploy_selected
-                    .iter()
-                    .map(|&i| state.backend.services[i].clone())
-                    .collect();
-                state.push_log(format!("[DEPLOY] {} services", svcs.len()));
-                spawn_deploy_selected(state, svcs, tx.clone());
-            }
+        KeyCode::Enter if state.view == View::Deploy && !state.deploy_selected.is_empty() => {
+            let svcs: Vec<String> = state
+                .deploy_selected
+                .iter()
+                .map(|&i| state.backend.services[i].clone())
+                .collect();
+            state.push_log(format!("[DEPLOY] {} services", svcs.len()));
+            spawn_deploy_selected(state, svcs, tx.clone());
         }
         KeyCode::Char('n') | KeyCode::Char('N') => {
             state.notify_on_ready = !state.notify_on_ready;
@@ -2249,12 +2244,12 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 spawn_journal_one(state, &svc, tx.clone());
             }
         }
-        KeyCode::Char('l') if state.view == View::Deploy => {
-            if state.deploy_cursor < state.backend.services.len() {
-                let svc = state.backend.services[state.deploy_cursor].clone();
-                state.push_log(format!("[JOURNAL] {} — last 80 lines:", svc));
-                spawn_journal_one(state, &svc, tx.clone());
-            }
+        KeyCode::Char('l')
+            if state.view == View::Deploy && state.deploy_cursor < state.backend.services.len() =>
+        {
+            let svc = state.backend.services[state.deploy_cursor].clone();
+            state.push_log(format!("[JOURNAL] {} — last 80 lines:", svc));
+            spawn_journal_one(state, &svc, tx.clone());
         }
         // X: export log buffer to file
         KeyCode::Char('x') | KeyCode::Char('X') => {
