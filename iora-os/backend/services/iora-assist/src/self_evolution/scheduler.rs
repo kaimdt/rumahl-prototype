@@ -1,7 +1,7 @@
 // Continuous Evolution Scheduler - runs self-evolution cycles in the background
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
 use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration};
 
 use super::evolution_cycle::SelfEvolutionOrchestrator;
 use super::EvolutionConfig;
@@ -21,10 +21,7 @@ pub struct EvolutionScheduler {
 }
 
 impl EvolutionScheduler {
-    pub fn new(
-        orchestrator: Arc<SelfEvolutionOrchestrator>,
-        config: EvolutionConfig,
-    ) -> Self {
+    pub fn new(orchestrator: Arc<SelfEvolutionOrchestrator>, config: EvolutionConfig) -> Self {
         Self {
             orchestrator,
             config,
@@ -48,7 +45,10 @@ impl EvolutionScheduler {
             // Run immediately on first start
             match orchestrator.run_cycle().await {
                 Ok(cycle) => {
-                    tracing::info!("Initial evolution cycle completed: {} phases", cycle.phase_results.len());
+                    tracing::info!(
+                        "Initial evolution cycle completed: {} phases",
+                        cycle.phase_results.len()
+                    );
                 }
                 Err(e) => {
                     tracing::warn!("Initial evolution cycle failed: {}", e);
@@ -69,7 +69,11 @@ impl EvolutionScheduler {
                                         tracing::info!(
                                             "Evolution cycle completed: {} phases, {} actions",
                                             cycle.phase_results.len(),
-                                            cycle.phase_results.iter().map(|p| p.actions_taken.len()).sum::<usize>()
+                                            cycle
+                                                .phase_results
+                                                .iter()
+                                                .map(|p| p.actions_taken.len())
+                                                .sum::<usize>()
                                         );
                                     }
                                     Err(e) => {

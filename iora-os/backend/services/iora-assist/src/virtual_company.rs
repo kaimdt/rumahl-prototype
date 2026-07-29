@@ -2,8 +2,7 @@
 // Multi-agent orchestration: virtual company with CEO, CTO, Developer, etc.
 // AI Briefings: automated weekly meetings, user-called briefings, summaries
 
-
-use chrono::{DateTime, Utc, Datelike, Timelike, Weekday};
+use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -57,10 +56,16 @@ impl CompanyRole {
 
     pub fn emoji(&self) -> &str {
         match self {
-            Self::CEO => "CEO", Self::CTO => "CTO", Self::Developer => "DEV",
-            Self::DataAnalyst => "DATA", Self::QATester => "QA", Self::DevOps => "OPS",
-            Self::ProductManager => "PM", Self::SecurityOfficer => "SEC",
-            Self::TechnicalWriter => "DOCS", Self::UXDesigner => "UX",
+            Self::CEO => "CEO",
+            Self::CTO => "CTO",
+            Self::Developer => "DEV",
+            Self::DataAnalyst => "DATA",
+            Self::QATester => "QA",
+            Self::DevOps => "OPS",
+            Self::ProductManager => "PM",
+            Self::SecurityOfficer => "SEC",
+            Self::TechnicalWriter => "DOCS",
+            Self::UXDesigner => "UX",
         }
     }
 }
@@ -90,7 +95,13 @@ pub struct CompanyProject {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum ProjectStatus { Planning, InProgress, Review, Completed, Archived }
+pub enum ProjectStatus {
+    Planning,
+    InProgress,
+    Review,
+    Completed,
+    Archived,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyTask {
@@ -103,7 +114,12 @@ pub struct CompanyTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum TaskState { Todo, InProgress, Done, Blocked }
+pub enum TaskState {
+    Todo,
+    InProgress,
+    Done,
+    Blocked,
+}
 
 // ─── AI Briefing System ────────────────────────────────────────────────────
 
@@ -119,14 +135,19 @@ pub struct BriefingConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BriefingSchedule {
-    Weekly { day: String, hour: u32 },     // e.g., Monday 09:00
-    BiWeekly { day: String, hour: u32 },    // Every 2 weeks
-    Daily { hour: u32 },                    // Daily standup
-    Manual,                                  // User-triggered only
+    Weekly { day: String, hour: u32 },   // e.g., Monday 09:00
+    BiWeekly { day: String, hour: u32 }, // Every 2 weeks
+    Daily { hour: u32 },                 // Daily standup
+    Manual,                              // User-triggered only
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SummaryFormat { Detailed, Concise, ActionItems, FullTranscript }
+pub enum SummaryFormat {
+    Detailed,
+    Concise,
+    ActionItems,
+    FullTranscript,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BriefingSession {
@@ -169,7 +190,12 @@ pub struct ActionItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum BriefingStatus { Scheduled, InProgress, Completed, Cancelled }
+pub enum BriefingStatus {
+    Scheduled,
+    InProgress,
+    Completed,
+    Cancelled,
+}
 
 // ─── Virtual Company Manager ───────────────────────────────────────────────
 
@@ -187,21 +213,114 @@ pub struct VirtualCompany {
 impl VirtualCompany {
     pub fn new() -> Self {
         let agents = vec![
-            CompanyAgent { id: "ceo".into(), role: CompanyRole::CEO, name: "Chief Executive".into(), provider: "anthropic".into(), model: "claude-sonnet".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "cto".into(), role: CompanyRole::CTO, name: "Tech Lead".into(), provider: "pidev".into(), model: "pi-dev".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "dev1".into(), role: CompanyRole::Developer, name: "Senior Dev".into(), provider: "pidev".into(), model: "pi-dev".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "dev2".into(), role: CompanyRole::Developer, name: "Junior Dev".into(), provider: "local".into(), model: "default".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "data".into(), role: CompanyRole::DataAnalyst, name: "Data Expert".into(), provider: "local".into(), model: "default".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "qa".into(), role: CompanyRole::QATester, name: "QA Lead".into(), provider: "pidev".into(), model: "pi-dev".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "devops".into(), role: CompanyRole::DevOps, name: "Infra Lead".into(), provider: "local".into(), model: "default".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "pm".into(), role: CompanyRole::ProductManager, name: "Product Owner".into(), provider: "anthropic".into(), model: "claude-sonnet".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "security".into(), role: CompanyRole::SecurityOfficer, name: "Security Lead".into(), provider: "pidev".into(), model: "pi-dev".into(), is_active: true, tasks_completed: 0, joined_at: Utc::now() },
-            CompanyAgent { id: "writer".into(), role: CompanyRole::TechnicalWriter, name: "Docs Lead".into(), provider: "local".into(), model: "default".into(), is_active: false, tasks_completed: 0, joined_at: Utc::now() },
+            CompanyAgent {
+                id: "ceo".into(),
+                role: CompanyRole::CEO,
+                name: "Chief Executive".into(),
+                provider: "anthropic".into(),
+                model: "claude-sonnet".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "cto".into(),
+                role: CompanyRole::CTO,
+                name: "Tech Lead".into(),
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "dev1".into(),
+                role: CompanyRole::Developer,
+                name: "Senior Dev".into(),
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "dev2".into(),
+                role: CompanyRole::Developer,
+                name: "Junior Dev".into(),
+                provider: "local".into(),
+                model: "default".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "data".into(),
+                role: CompanyRole::DataAnalyst,
+                name: "Data Expert".into(),
+                provider: "local".into(),
+                model: "default".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "qa".into(),
+                role: CompanyRole::QATester,
+                name: "QA Lead".into(),
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "devops".into(),
+                role: CompanyRole::DevOps,
+                name: "Infra Lead".into(),
+                provider: "local".into(),
+                model: "default".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "pm".into(),
+                role: CompanyRole::ProductManager,
+                name: "Product Owner".into(),
+                provider: "anthropic".into(),
+                model: "claude-sonnet".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "security".into(),
+                role: CompanyRole::SecurityOfficer,
+                name: "Security Lead".into(),
+                provider: "pidev".into(),
+                model: "pi-dev".into(),
+                is_active: true,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
+            CompanyAgent {
+                id: "writer".into(),
+                role: CompanyRole::TechnicalWriter,
+                name: "Docs Lead".into(),
+                provider: "local".into(),
+                model: "default".into(),
+                is_active: false,
+                tasks_completed: 0,
+                joined_at: Utc::now(),
+            },
         ];
 
         let briefing_config = BriefingConfig {
             enabled: true,
-            schedule: BriefingSchedule::Weekly { day: "monday".to_string(), hour: 9 },
+            schedule: BriefingSchedule::Weekly {
+                day: "monday".to_string(),
+                hour: 9,
+            },
             min_complexity_for_briefing: 5,
             include_idle_agents: true,
             summary_format: SummaryFormat::Concise,
@@ -234,9 +353,13 @@ impl VirtualCompany {
         info!("Virtual Company DISABLED");
     }
 
-    pub fn is_enabled(&self) -> bool { *self.enabled.read() }
+    pub fn is_enabled(&self) -> bool {
+        *self.enabled.read()
+    }
 
-    pub fn get_agents(&self) -> Vec<CompanyAgent> { self.agents.read().clone() }
+    pub fn get_agents(&self) -> Vec<CompanyAgent> {
+        self.agents.read().clone()
+    }
 
     pub fn set_agent_active(&self, agent_id: &str, active: bool) {
         if let Some(a) = self.agents.write().iter_mut().find(|a| a.id == agent_id) {
@@ -245,7 +368,12 @@ impl VirtualCompany {
     }
 
     pub fn get_active_agents(&self) -> Vec<CompanyAgent> {
-        self.agents.read().iter().filter(|a| a.is_active).cloned().collect()
+        self.agents
+            .read()
+            .iter()
+            .filter(|a| a.is_active)
+            .cloned()
+            .collect()
     }
 
     // ─── Project Management ──────────────────────────────────────────────
@@ -265,7 +393,13 @@ impl VirtualCompany {
         project
     }
 
-    pub fn add_task(&self, project_id: &str, title: &str, role: CompanyRole, priority: u8) -> Option<CompanyTask> {
+    pub fn add_task(
+        &self,
+        project_id: &str,
+        title: &str,
+        role: CompanyRole,
+        priority: u8,
+    ) -> Option<CompanyTask> {
         let task = CompanyTask {
             id: uuid::Uuid::new_v4().to_string(),
             title: title.to_string(),
@@ -274,7 +408,12 @@ impl VirtualCompany {
             priority,
             created_at: Utc::now(),
         };
-        if let Some(p) = self.projects.write().iter_mut().find(|p| p.id == project_id) {
+        if let Some(p) = self
+            .projects
+            .write()
+            .iter_mut()
+            .find(|p| p.id == project_id)
+        {
             p.tasks.push(task.clone());
             p.updated_at = Utc::now();
             Some(task)
@@ -283,24 +422,49 @@ impl VirtualCompany {
         }
     }
 
-    pub fn get_projects(&self) -> Vec<CompanyProject> { self.projects.read().clone() }
+    pub fn get_projects(&self) -> Vec<CompanyProject> {
+        self.projects.read().clone()
+    }
     pub fn get_active_projects(&self) -> Vec<CompanyProject> {
-        self.projects.read().iter().filter(|p| p.status != ProjectStatus::Completed && p.status != ProjectStatus::Archived).cloned().collect()
+        self.projects
+            .read()
+            .iter()
+            .filter(|p| p.status != ProjectStatus::Completed && p.status != ProjectStatus::Archived)
+            .cloned()
+            .collect()
     }
 
     /// Check if there are active tasks that warrant a briefing
     pub fn has_active_work(&self) -> bool {
         let projects = self.projects.read();
-        if projects.is_empty() { return false; }
-        projects.iter().any(|p| p.tasks.iter().any(|t| t.status == TaskState::Todo || t.status == TaskState::InProgress))
+        if projects.is_empty() {
+            return false;
+        }
+        projects.iter().any(|p| {
+            p.tasks
+                .iter()
+                .any(|t| t.status == TaskState::Todo || t.status == TaskState::InProgress)
+        })
     }
 
     pub fn get_active_task_count(&self) -> usize {
-        self.projects.read().iter().flat_map(|p| &p.tasks).filter(|t| t.status != TaskState::Done).count()
+        self.projects
+            .read()
+            .iter()
+            .flat_map(|p| &p.tasks)
+            .filter(|t| t.status != TaskState::Done)
+            .count()
     }
 
     pub fn get_max_task_priority(&self) -> u8 {
-        self.projects.read().iter().flat_map(|p| &p.tasks).filter(|t| t.status != TaskState::Done).map(|t| t.priority).max().unwrap_or(0)
+        self.projects
+            .read()
+            .iter()
+            .flat_map(|p| &p.tasks)
+            .filter(|t| t.status != TaskState::Done)
+            .map(|t| t.priority)
+            .max()
+            .unwrap_or(0)
     }
 
     // ─── Briefing System ─────────────────────────────────────────────────
@@ -315,7 +479,9 @@ impl VirtualCompany {
 
     fn calculate_next_briefing(&self) -> Option<DateTime<Utc>> {
         let config = self.briefing_config.read();
-        if !config.enabled { return None; }
+        if !config.enabled {
+            return None;
+        }
 
         let now = Utc::now();
         match &config.schedule {
@@ -326,9 +492,11 @@ impl VirtualCompany {
                 for _ in 0..7 {
                     if next.weekday() == target_weekday && next.hour() <= *hour {
                         let result = next.with_hour(*hour)?.with_minute(0)?.with_second(0)?;
-                        if result > now { return Some(result); }
+                        if result > now {
+                            return Some(result);
+                        }
                     }
-                    next = next + chrono::Duration::days(1);
+                    next += chrono::Duration::days(1);
                 }
                 None
             }
@@ -338,13 +506,17 @@ impl VirtualCompany {
                 let result = next_week.with_hour(*hour)?.with_minute(0)?;
                 while result.weekday() != target {
                     let r = result + chrono::Duration::days(1);
-                    if r.weekday() == target { return Some(r); }
+                    if r.weekday() == target {
+                        return Some(r);
+                    }
                 }
                 Some(result)
             }
             BriefingSchedule::Daily { hour } => {
                 let mut next = now.with_hour(*hour)?.with_minute(0)?;
-                if next <= now { next = next + chrono::Duration::days(1); }
+                if next <= now {
+                    next += chrono::Duration::days(1);
+                }
                 Some(next)
             }
             BriefingSchedule::Manual => None,
@@ -353,7 +525,9 @@ impl VirtualCompany {
 
     /// Start a briefing session – called by scheduler or user
     pub fn start_briefing(&self, trigger: BriefingTrigger) -> Option<BriefingSession> {
-        if !self.is_enabled() { return None; }
+        if !self.is_enabled() {
+            return None;
+        }
 
         // Only brief if there's active work (unless user-called)
         if !self.has_active_work() && !matches!(trigger, BriefingTrigger::UserCalled { .. }) {
@@ -373,7 +547,8 @@ impl VirtualCompany {
         // Determine participants based on active projects
         let participants: Vec<CompanyRole> = {
             let projects = self.projects.read();
-            let mut roles: Vec<CompanyRole> = projects.iter()
+            let mut roles: Vec<CompanyRole> = projects
+                .iter()
                 .filter(|p| p.status != ProjectStatus::Completed)
                 .flat_map(|p| &p.assigned_roles)
                 .cloned()
@@ -388,7 +563,9 @@ impl VirtualCompany {
         };
 
         let title = match &trigger {
-            BriefingTrigger::Scheduled => format!("Weekly Briefing – {}", Utc::now().format("%d.%m.%Y")),
+            BriefingTrigger::Scheduled => {
+                format!("Weekly Briefing – {}", Utc::now().format("%d.%m.%Y"))
+            }
             BriefingTrigger::UserCalled { reason } => format!("Ad-Hoc Briefing: {}", reason),
             BriefingTrigger::AutoTriggered { reason } => format!("Auto Briefing: {}", reason),
         };
@@ -414,7 +591,13 @@ impl VirtualCompany {
     }
 
     /// Complete a briefing and generate summary
-    pub fn complete_briefing(&self, session_id: &str, discussions: Vec<DiscussionPoint>, decisions: Vec<String>, action_items: Vec<ActionItem>) -> Option<BriefingSession> {
+    pub fn complete_briefing(
+        &self,
+        session_id: &str,
+        discussions: Vec<DiscussionPoint>,
+        decisions: Vec<String>,
+        action_items: Vec<ActionItem>,
+    ) -> Option<BriefingSession> {
         let mut history = self.briefing_history.write();
         let session = history.iter_mut().find(|s| s.id == session_id)?;
 
@@ -427,7 +610,11 @@ impl VirtualCompany {
         // Generate summary
         session.summary = self.generate_summary(session);
 
-        info!("Briefing completed. {} decisions, {} action items", decisions.len(), action_items.len());
+        info!(
+            "Briefing completed. {} decisions, {} action items",
+            decisions.len(),
+            action_items.len()
+        );
 
         // Schedule next briefing
         self.schedule_next_briefing();
@@ -442,10 +629,21 @@ impl VirtualCompany {
         ];
 
         let projects = self.projects.read();
-        for p in projects.iter().filter(|p| p.status != ProjectStatus::Completed) {
-            let active_tasks: Vec<&CompanyTask> = p.tasks.iter().filter(|t| t.status != TaskState::Done).collect();
+        for p in projects
+            .iter()
+            .filter(|p| p.status != ProjectStatus::Completed)
+        {
+            let active_tasks: Vec<&CompanyTask> = p
+                .tasks
+                .iter()
+                .filter(|t| t.status != TaskState::Done)
+                .collect();
             if !active_tasks.is_empty() {
-                agenda.push(format!("   • {}: {} active tasks", p.name, active_tasks.len()));
+                agenda.push(format!(
+                    "   • {}: {} active tasks",
+                    p.name,
+                    active_tasks.len()
+                ));
             }
         }
 
@@ -462,18 +660,33 @@ impl VirtualCompany {
         match config.summary_format {
             SummaryFormat::Concise => {
                 let mut s = format!("# Briefing Summary: {}\n\n", session.title);
-                s.push_str(&format!("**Participants:** {}\n\n", session.participants.iter().map(|r| format!("{} {}", r.emoji(), r.label())).collect::<Vec<_>>().join(", ")));
+                s.push_str(&format!(
+                    "**Participants:** {}\n\n",
+                    session
+                        .participants
+                        .iter()
+                        .map(|r| format!("{} {}", r.emoji(), r.label()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
 
                 if !session.decisions.is_empty() {
                     s.push_str("## 🎯 Decisions\n");
-                    for d in &session.decisions { s.push_str(&format!("- {}\n", d)); }
+                    for d in &session.decisions {
+                        s.push_str(&format!("- {}\n", d));
+                    }
                 }
 
                 if !session.action_items.is_empty() {
                     s.push_str("\n## Action Items\n");
                     for a in &session.action_items {
-                        s.push_str(&format!("- [{}] {} {} (Prio {})\n",
-                            a.status, a.assigned_to.emoji(), a.description, a.priority));
+                        s.push_str(&format!(
+                            "- [{}] {} {} (Prio {})\n",
+                            a.status,
+                            a.assigned_to.emoji(),
+                            a.description,
+                            a.priority
+                        ));
                     }
                 }
 
@@ -483,31 +696,54 @@ impl VirtualCompany {
                 let mut s = format!("# Detailed Briefing: {}\n\n", session.title);
                 s.push_str("## Discussion\n");
                 for dp in &session.discussion_points {
-                    s.push_str(&format!("### {} (raised by {} {})\n{}\n", dp.topic, dp.raised_by.emoji(), dp.raised_by.label(), dp.discussion));
+                    s.push_str(&format!(
+                        "### {} (raised by {} {})\n{}\n",
+                        dp.topic,
+                        dp.raised_by.emoji(),
+                        dp.raised_by.label(),
+                        dp.discussion
+                    ));
                 }
                 s.push_str("\n## Decisions\n");
-                for d in &session.decisions { s.push_str(&format!("- {}\n", d)); }
+                for d in &session.decisions {
+                    s.push_str(&format!("- {}\n", d));
+                }
                 s.push_str("\n## Next Steps\n");
                 for a in &session.action_items {
-                    s.push_str(&format!("- {} {} ({} priority)\n", a.assigned_to.emoji(), a.description, a.priority));
+                    s.push_str(&format!(
+                        "- {} {} ({} priority)\n",
+                        a.assigned_to.emoji(),
+                        a.description,
+                        a.priority
+                    ));
                 }
                 s
             }
             SummaryFormat::ActionItems => {
                 let mut s = format!("# Action Items from {}\n\n", session.title);
                 for a in &session.action_items {
-                    s.push_str(&format!("- [ ] **{}** {} (Prio {})", a.assigned_to.label(), a.description, a.priority));
+                    s.push_str(&format!(
+                        "- [ ] **{}** {} (Prio {})",
+                        a.assigned_to.label(),
+                        a.description,
+                        a.priority
+                    ));
                     if let Some(dl) = a.deadline {
                         s.push_str(&format!(" – Deadline: {}", dl.format("%d.%m.%Y")));
                     }
-                    s.push_str("\n");
+                    s.push('\n');
                 }
                 s
             }
             SummaryFormat::FullTranscript => {
                 let mut s = format!("# Full Briefing Transcript: {}\n\n", session.title);
                 for dp in &session.discussion_points {
-                    s.push_str(&format!("**[{} {}]:** {}\n\n", dp.raised_by.emoji(), dp.raised_by.label(), dp.discussion));
+                    s.push_str(&format!(
+                        "**[{} {}]:** {}\n\n",
+                        dp.raised_by.emoji(),
+                        dp.raised_by.label(),
+                        dp.discussion
+                    ));
                 }
                 s
             }
@@ -534,29 +770,77 @@ impl VirtualCompany {
 
     fn classify_task_to_role(&self, desc: &str) -> CompanyRole {
         let d = desc.to_lowercase();
-        if d.contains("security") || d.contains("vulnerab") || d.contains("audit") { return CompanyRole::SecurityOfficer; }
-        if d.contains("deploy") || d.contains("infra") || d.contains("docker") || d.contains("ci/cd") { return CompanyRole::DevOps; }
-        if d.contains("test") || d.contains("qa") || d.contains("quality") { return CompanyRole::QATester; }
-        if d.contains("data") || d.contains("analytics") || d.contains("report") || d.contains("metrics") { return CompanyRole::DataAnalyst; }
-        if d.contains("doc") || d.contains("readme") || d.contains("guide") { return CompanyRole::TechnicalWriter; }
-        if d.contains("ui") || d.contains("ux") || d.contains("design") || d.contains("interface") { return CompanyRole::UXDesigner; }
-        if d.contains("architecture") || d.contains("tech") || d.contains("stack") { return CompanyRole::CTO; }
-        if d.contains("plan") || d.contains("roadmap") || d.contains("feature") || d.contains("product") { return CompanyRole::ProductManager; }
-        if d.contains("strateg") || d.contains("priority") || d.contains("decision") { return CompanyRole::CEO; }
+        if d.contains("security") || d.contains("vulnerab") || d.contains("audit") {
+            return CompanyRole::SecurityOfficer;
+        }
+        if d.contains("deploy")
+            || d.contains("infra")
+            || d.contains("docker")
+            || d.contains("ci/cd")
+        {
+            return CompanyRole::DevOps;
+        }
+        if d.contains("test") || d.contains("qa") || d.contains("quality") {
+            return CompanyRole::QATester;
+        }
+        if d.contains("data")
+            || d.contains("analytics")
+            || d.contains("report")
+            || d.contains("metrics")
+        {
+            return CompanyRole::DataAnalyst;
+        }
+        if d.contains("doc") || d.contains("readme") || d.contains("guide") {
+            return CompanyRole::TechnicalWriter;
+        }
+        if d.contains("ui") || d.contains("ux") || d.contains("design") || d.contains("interface") {
+            return CompanyRole::UXDesigner;
+        }
+        if d.contains("architecture") || d.contains("tech") || d.contains("stack") {
+            return CompanyRole::CTO;
+        }
+        if d.contains("plan")
+            || d.contains("roadmap")
+            || d.contains("feature")
+            || d.contains("product")
+        {
+            return CompanyRole::ProductManager;
+        }
+        if d.contains("strateg") || d.contains("priority") || d.contains("decision") {
+            return CompanyRole::CEO;
+        }
         CompanyRole::Developer // Default
     }
 
     fn estimate_priority(&self, desc: &str) -> u8 {
         let d = desc.to_lowercase();
-        if d.contains("critical") || d.contains("urgent") || d.contains("emergency") || d.contains("crash") || d.contains("security") { return 10; }
-        if d.contains("important") || d.contains("high") || d.contains("block") || d.contains("bug") { return 8; }
-        if d.contains("soon") || d.contains("medium") { return 5; }
-        if d.contains("low") || d.contains("nice") || d.contains("someday") { return 2; }
+        if d.contains("critical")
+            || d.contains("urgent")
+            || d.contains("emergency")
+            || d.contains("crash")
+            || d.contains("security")
+        {
+            return 10;
+        }
+        if d.contains("important") || d.contains("high") || d.contains("block") || d.contains("bug")
+        {
+            return 8;
+        }
+        if d.contains("soon") || d.contains("medium") {
+            return 5;
+        }
+        if d.contains("low") || d.contains("nice") || d.contains("someday") {
+            return 2;
+        }
         5 // Default medium
     }
 
-    pub fn get_briefing_history(&self) -> Vec<BriefingSession> { self.briefing_history.read().clone() }
-    pub fn get_briefing_config(&self) -> BriefingConfig { self.briefing_config.read().clone() }
+    pub fn get_briefing_history(&self) -> Vec<BriefingSession> {
+        self.briefing_history.read().clone()
+    }
+    pub fn get_briefing_config(&self) -> BriefingConfig {
+        self.briefing_config.read().clone()
+    }
     pub fn update_briefing_config(&self, config: BriefingConfig) {
         *self.briefing_config.write() = config;
         self.schedule_next_briefing();

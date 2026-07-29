@@ -87,6 +87,7 @@ use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use uuid::Uuid;
 use zigbee_client::ZigbeeClient;
 use zwave_client::ZwaveClient;
 
@@ -2138,6 +2139,12 @@ async fn main() -> anyhow::Result<()> {
             "/api/apps/integrations",
             get(app_runtime_handler::app_integrations),
         )
+        // App/plugin static assets — serves files from the app's install directory.
+        // Used by i18n bundle loading: `<assets_base_url>/i18n/<lng>.json`.
+        .route(
+            "/api/apps/assets/:app_id/*path",
+            get(serve_app_asset),
+        )
         .route(
             "/api/apps/:app_id/capabilities",
             get(app_runtime_handler::app_capabilities),
@@ -2477,6 +2484,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/auth/users", get(list_all_users))
         .route("/api/auth/pin", post(set_user_pin))
         .route("/api/auth/pin", delete(remove_user_pin))
+        .route("/api/auth/refresh", post(auth_refresh))
+        .route("/api/auth/logout", post(auth_logout))
         .route("/api/uploads/background", post(upload_background_image))
         // Public media proxy (thumbnails should render even without frontend auth session)
         .route("/api/hass_agent/*path", get(proxy_hass_agent_media))
@@ -2780,10 +2789,10 @@ async fn detect_setup_wizard() -> (Option<String>, bool) {
     // Helper: try connecting to addr:port.
     async fn try_connect(host: &str, port: u16) -> bool {
         let addr = format!("{}:{}", host, port);
-        match tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await {
-            Ok(Ok(_)) => true,
-            _ => false,
-        }
+        matches!(
+            tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await,
+            Ok(Ok(_))
+        )
     }
 
     // Try localhost first (fastest, no network needed).
@@ -2812,7 +2821,7 @@ fn is_virtual_ip(ip: &Ipv4Addr) -> bool {
         // Docker default bridge: 172.17.0.0/16
         [172, 17, _, _] => true,
         // Docker user-defined bridges often use 172.18-172.31
-        [172, n, _, _] if n >= 18 && n <= 31 => true,
+        [172, n, _, _] if (18..=31).contains(&n) => true,
         // Docker host mode / internal: 10.x.x.x overlaps with LAN, but
         // if the interface is docker*, br-*, veth* it's caught below.
         _ => false,
@@ -2863,6 +2872,7 @@ async fn get_lan_ip() -> Option<String> {
                         // by checking /proc/net/fib_trie for the interface name.
                         let mut is_docker_iface = false;
                         // Look ahead for the device name in following lines
+                        #[allow(clippy::needless_range_loop)]
                         for j in (i.saturating_sub(5))..(i + 5).min(lines.len()) {
                             let l = lines[j].trim();
                             if l.starts_with("DEV")
@@ -2897,7 +2907,7 @@ async fn get_lan_ip() -> Option<String> {
                 name if name.starts_with("tun") => continue,
                 name if name.starts_with("tap") => continue,
                 name if name.starts_with("virbr") => continue,
-                name if name.is_empty() => continue,
+                "" => continue,
                 _ => {}
             }
             // If we got here, it's likely a physical interface.
@@ -4857,7 +4867,7 @@ async fn integration_analytics_history(
     match sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, i32, i32, i32, i32, Option<String>, i32)>(
         "SELECT recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes FROM entity_analytics_snapshots WHERE recorded_at > $1 ORDER BY recorded_at DESC LIMIT $2"
     )
-        .bind(&cutoff)
+        .bind(cutoff)
         .bind(limit)
         .fetch_all(&state.db_pool)
         .await
@@ -5863,13 +5873,15 @@ async fn client_system_event_ingest(
     };
     // Reject absurdly long messages so a runaway client can't bloat the DB.
     let message: String = body.message.chars().take(2000).collect();
-    let mut meta = system_events::EventMeta::default();
-    meta.user_id = Some(auth.user_id().to_string());
-    meta.file = body.file;
-    meta.line = body.line;
-    meta.request_path = body.request_path;
-    meta.error_chain = body.error_chain;
-    meta.extra = body.extra;
+    let meta = system_events::EventMeta {
+        user_id: Some(auth.user_id().to_string()),
+        file: body.file,
+        line: body.line,
+        request_path: body.request_path,
+        error_chain: body.error_chain,
+        extra: body.extra,
+        ..Default::default()
+    };
     state
         .system_events
         .report_from_client(severity, &source, message, meta)
@@ -6331,7 +6343,7 @@ async fn proxy_intelligence_overview(State(state): State<AppState>) -> Json<Valu
 
     match state
         .http_client
-        .get(&format!("{}/api/intelligence/overview", intel_url))
+        .get(format!("{}/api/intelligence/overview", intel_url))
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
@@ -6356,7 +6368,7 @@ async fn proxy_intelligence_maintenance_run(
 
     match state
         .http_client
-        .get(&format!(
+        .get(format!(
             "{}/api/intelligence/maintenance/run/{}",
             intel_url, task
         ))
@@ -6900,9 +6912,9 @@ async fn forward_reqwest_request(
                 }
             }
             if is_event_stream {
-                let stream = resp.bytes_stream().map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("Assist stream error: {e}"))
-                });
+                let stream = resp
+                    .bytes_stream()
+                    .map_err(|e| std::io::Error::other(format!("Assist stream error: {e}")));
                 return builder.body(Body::from_stream(stream)).unwrap_or_else(|_| {
                     (StatusCode::BAD_GATEWAY, "proxy stream build failed").into_response()
                 });
@@ -7133,7 +7145,7 @@ async fn local_appstore_install(
     // Tolerate `data:application/zip;base64,…` prefixes from some browsers.
     let payload = zip_b64
         .split(',')
-        .last()
+        .next_back()
         .unwrap_or(&zip_b64)
         .trim()
         .to_string();
@@ -7293,6 +7305,53 @@ async fn local_appstore_jobs_stream(
                 Ok(Event::default().data(data))
             });
     Sse::new(combined).keep_alive(KeepAlive::default())
+}
+
+/// GET /api/apps/assets/:app_id/*path
+/// Serves static files from a locally installed app's directory.
+/// Convention matches theme assets: `<assets_base_url>/i18n/<lng>.json`.
+async fn serve_app_asset(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
+) -> Result<Response, (StatusCode, String)> {
+    // Path traversal protection
+    let clean = path
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .to_string();
+    if clean.contains("..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
+    }
+
+    // Find the app's directory
+    let apps = state.local_appstore.list().await;
+    let has_app = apps.iter().any(|a| a.id == app_id);
+    if !has_app {
+        return Err((StatusCode::NOT_FOUND, format!("App '{}' not found", app_id)));
+    }
+
+    let app_dir = state.local_appstore.base_dir().join(&app_id);
+    let file = app_dir.join(&clean);
+
+    // Ensure file exists and is within the app directory
+    if !file.exists() || !file.starts_with(&app_dir) {
+        return Err((StatusCode::NOT_FOUND, "File not found".into()));
+    }
+
+    let data = tokio::fs::read(&file)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "File not found".into()))?;
+
+    let mime = theme_handler::mime_type(&clean);
+    let mut headers = HeaderMap::new();
+    let mime_value = header::HeaderValue::from_str(mime)
+        .unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream"));
+    headers.insert(header::CONTENT_TYPE, mime_value);
+    headers.insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("public, max-age=3600"),
+    );
+    Ok((headers, data).into_response())
 }
 
 /// Register a system app via the local app-store.
@@ -7565,7 +7624,7 @@ async fn supervisor_apps_install(
         use base64::Engine as _;
         let payload = zip_data
             .split(',')
-            .last()
+            .next_back()
             .unwrap_or(zip_data)
             .trim()
             .to_string();
@@ -8984,10 +9043,7 @@ async fn supervisor_compose_prepare(
 fn spawn_push_app_capabilities(state: AppState, app: local_appstore::InstalledApp) {
     tokio::spawn(async move {
         let extra = &app.manifest.extra;
-        let tools = extra
-            .get("assist_tools")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let tools = extra.get("assist_tools").cloned().unwrap_or(Value::Null);
         let services = extra
             .get("exposed_services")
             .cloned()
@@ -9502,6 +9558,7 @@ async fn app_detail_get(
         "installed_at": app.installed_at,
         "source": app.source,
         "permissions": app.manifest.permissions,
+        "i18n": app.manifest.extra.get("i18n").cloned().unwrap_or(serde_json::Value::Null),
         "custom_pages": app.custom_pages,
         "ports": app.ports,
         "docker_config": app.docker_config,
@@ -11384,15 +11441,42 @@ async fn auth_pin_login(
         return Err(ErrorResponse::unauthorized("Ungültiger PIN"));
     }
 
-    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, 30) {
-        Ok(token) => token,
-        Err(e) => {
-            warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal("Token-Erstellung fehlgeschlagen"));
-        }
-    };
+    // Generate JWT + refresh token pair
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal("Token-Erstellung fehlgeschlagen"));
+            }
+        };
 
-    Ok(Json(db::models::AuthResponse { token, user }))
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            None,
+            None,
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store refresh token after PIN login: {}", e);
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
 }
 
 // ── Set/remove user PIN ────────────────────────────────────────────
@@ -11677,18 +11761,44 @@ async fn auth_register(
         info!("First user '{}' auto-promoted to admin", user.username);
     }
 
-    // Generate JWT token
-    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, 30) {
-        Ok(token) => token,
-        Err(e) => {
-            warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal(
-                "Failed to generate authentication token",
-            ));
-        }
-    };
+    // Generate JWT + refresh token pair
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal(
+                    "Failed to generate authentication token",
+                ));
+            }
+        };
 
-    Ok(Json(db::models::AuthResponse { token, user }))
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            None, // device_id
+            None, // user_agent
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store refresh token after registration: {}", e);
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
 }
 
 /// Login an existing user
@@ -11749,22 +11859,194 @@ async fn auth_login(
         return Err(ErrorResponse::unauthorized("Invalid username or password"));
     }
 
-    // Generate JWT token
-    let remember_me = request.remember_me.unwrap_or(false);
-    let expiration_days = if remember_me { 30 } else { 1 };
+    // Generate JWT + refresh token pair
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal(
+                    "Failed to generate authentication token",
+                ));
+            }
+        };
 
-    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, expiration_days)
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            request.device_id.as_deref(),
+            None, // user_agent — could add from headers later
+            &refresh_expires,
+        )
+        .await
     {
-        Ok(token) => token,
+        warn!("Failed to store refresh token: {}", e);
+        // Non-fatal: user can still use the access token
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
+}
+
+/// Exchange a refresh token for a new access token (+ optionally rotate the refresh token)
+async fn auth_refresh(
+    State(state): State<AppState>,
+    Json(request): Json<db::models::RefreshRequest>,
+) -> Result<Json<db::models::RefreshTokenResponse>, ErrorResponse> {
+    let refresh_hash = auth::sha256_hex(&request.refresh_token);
+
+    // Look up the stored refresh token
+    let stored = match state
+        .config_repo
+        .get_refresh_token_by_hash(&refresh_hash)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return Err(ErrorResponse::unauthorized("Invalid refresh token"));
+        }
         Err(e) => {
-            warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal(
-                "Failed to generate authentication token",
-            ));
+            warn!("Failed to look up refresh token: {}", e);
+            return Err(ErrorResponse::internal("Token validation failed"));
         }
     };
 
-    Ok(Json(db::models::AuthResponse { token, user }))
+    // Check if revoked
+    if stored.revoked_at.is_some() {
+        warn!("Refresh token already revoked (id={})", &stored.id[..8]);
+        return Err(ErrorResponse::unauthorized(
+            "Refresh token has been revoked",
+        ));
+    }
+
+    // Check if expired
+    if stored.expires_at < chrono::Utc::now() {
+        return Err(ErrorResponse::unauthorized("Refresh token has expired"));
+    }
+
+    // Fetch the user
+    let user = match state.config_repo.get_user_by_id(&stored.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            warn!(
+                "Refresh token user not found (user_id={})",
+                &stored.user_id[..8]
+            );
+            return Err(ErrorResponse::unauthorized("User not found"));
+        }
+        Err(e) => {
+            warn!("Failed to fetch user for refresh: {}", e);
+            return Err(ErrorResponse::internal("Token validation failed"));
+        }
+    };
+
+    // Revoke the old refresh token (rotation)
+    if let Err(e) = state
+        .config_repo
+        .revoke_refresh_token(&refresh_hash, "reissue")
+        .await
+    {
+        warn!("Failed to revoke old refresh token: {}", e);
+        // Non-fatal: continue with new tokens
+    }
+
+    // Generate a new token pair
+    let (token, _jti, expires_in) =
+        match auth::generate_token(&user.id, &user.username, user.is_admin) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to generate token: {}", e);
+                return Err(ErrorResponse::internal("Failed to generate token"));
+            }
+        };
+
+    let (raw_refresh, new_refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &new_refresh_hash,
+            stored.device_id.as_deref(),
+            stored.user_agent.as_deref(),
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store new refresh token: {}", e);
+    }
+
+    Ok(Json(db::models::RefreshTokenResponse {
+        access_token: token,
+        refresh_token: raw_refresh,
+        expires_in,
+        token_type: "Bearer".to_string(),
+    }))
+}
+
+/// Logout: revoke the provided refresh token and/or all tokens, and blacklist the current JWT
+async fn auth_logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<db::models::LogoutRequest>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    // Get user identity from the Authorization header
+    let claims = extract_claims(&headers)?;
+
+    // Blacklist the current JWT
+    let now = chrono::Utc::now();
+    let jwt_exp = chrono::Duration::seconds(auth::ACCESS_TOKEN_TTL_SECS);
+    if let Err(e) = state
+        .config_repo
+        .add_to_jwt_blacklist(&claims.jti, &claims.sub, &(now + jwt_exp), "logout")
+        .await
+    {
+        warn!("Failed to blacklist JWT: {}", e);
+    }
+
+    // Revoke a specific refresh token if provided
+    if let Some(ref raw) = request.refresh_token {
+        let hash = auth::sha256_hex(raw);
+        if let Err(e) = state
+            .config_repo
+            .revoke_refresh_token(&hash, "logout")
+            .await
+        {
+            warn!("Failed to revoke refresh token: {}", e);
+        }
+    }
+
+    // Revoke all refresh tokens for this user if requested
+    if request.revoke_all.unwrap_or(false) {
+        let revoked = state
+            .config_repo
+            .revoke_all_user_refresh_tokens(&claims.sub, "logout")
+            .await
+            .unwrap_or(0);
+        info!(
+            "Revoked {} refresh tokens for user {} during logout",
+            revoked,
+            &claims.sub[..8]
+        );
+    }
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 #[derive(Debug, Serialize)]
@@ -11955,7 +12237,9 @@ async fn auth_verify(
     // If admin status changed in DB, issue a fresh token
     let mut response = serde_json::to_value(&user).unwrap_or_default();
     if user.is_admin != claims.is_admin {
-        if let Ok(new_token) = auth::generate_token(&user.id, &user.username, user.is_admin, 30) {
+        if let Ok((new_token, _new_jti, _expires_in)) =
+            auth::generate_token(&user.id, &user.username, user.is_admin)
+        {
             response["refreshed_token"] = serde_json::Value::String(new_token);
         }
     }
@@ -12078,7 +12362,7 @@ async fn save_cached_forecast(
     .bind(&entity_id)
     .bind(&forecast_type)
     .bind(&data_str)
-    .bind(&now)
+    .bind(now)
     .execute(&state.db_pool)
     .await
     .map_err(|e| {
@@ -12147,7 +12431,7 @@ async fn get_entity_counts(State(state): State<AppState>) -> impl IntoResponse {
         *domain_counts.entry(domain.to_string()).or_default() += 1;
     }
     let mut sorted: Vec<(String, usize)> = domain_counts.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     Json(serde_json::json!({
         "total": all.len(),
@@ -12379,6 +12663,7 @@ fn push_log_entry(level: &str, target: &str, message: &str, fields: Option<Value
 struct IoraLogLayer;
 
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for IoraLogLayer {
+    #[allow(clippy::field_reassign_with_default)]
     fn on_event(
         &self,
         event: &tracing::Event<'_>,
@@ -12742,6 +13027,7 @@ async fn get_system_stats(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// Get Home Assistant system information
+#[allow(clippy::unnecessary_sort_by)]
 async fn get_ha_info(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let ha_connected = state.entity_cache.is_ha_connected();
     let ha_ws_connected = state.ha_ws.is_connected();
@@ -13193,7 +13479,7 @@ async fn background_analytics_aggregation(entity_cache: Arc<EntityStateCache>, d
         match sqlx::query(
             "INSERT INTO entity_analytics_snapshots (recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes) VALUES ($1, $2, $3, $4, $5, $6, $7)"
         )
-            .bind(&now)
+            .bind(now)
             .bind(total_entities)
             .bind(unavailable)
             .bind(stale)
@@ -13215,7 +13501,7 @@ async fn background_analytics_aggregation(entity_cache: Arc<EntityStateCache>, d
         // Clean up snapshots older than 30 days
         let cutoff = chrono::Utc::now() - chrono::Duration::days(30);
         let _ = sqlx::query("DELETE FROM entity_analytics_snapshots WHERE recorded_at < $1")
-            .bind(&cutoff)
+            .bind(cutoff)
             .execute(&db_pool)
             .await;
     }
@@ -14628,7 +14914,7 @@ async fn admin_ha_supervisor(State(state): State<AppState>) -> Result<Json<Value
                                     arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
                                 })
                                 .unwrap_or_default();
-                            let has_hassio = components.iter().any(|c| *c == "hassio");
+                            let has_hassio = components.contains(&"hassio");
                             if has_hassio {
                                 Ok(Json(serde_json::json!({
                                     "supervisor_available": true,
@@ -15454,7 +15740,7 @@ async fn admin_database_info(State(state): State<AppState>) -> Result<Json<Value
     let db_url = system_config::database_url();
     let db_host = db_url
         .split('@')
-        .last()
+        .next_back()
         .and_then(|s| s.split('/').next())
         .unwrap_or("localhost")
         .to_string();
@@ -15489,6 +15775,7 @@ async fn admin_database_info(State(state): State<AppState>) -> Result<Json<Value
 // ── Temp DB Users ─────────────────────────────────────────────
 
 /// Admin: list active temporary database users
+#[allow(clippy::type_complexity)]
 async fn admin_list_temp_users(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
@@ -15569,7 +15856,7 @@ async fn admin_create_temp_user(
             "Passwort muss mindestens 8 Zeichen haben",
         ));
     }
-    if expires_in_days < 1 || expires_in_days > 31 {
+    if !(1..=31).contains(&expires_in_days) {
         return Err(ErrorResponse::bad_request(
             "Ablauf muss zwischen 1 und 31 Tagen liegen",
         ));
@@ -15982,7 +16269,7 @@ async fn get_active_warnings(State(state): State<AppState>) -> Json<Value> {
         }
         // Check if the warning is active
         let is_active = matches!(entity.state.as_str(), "on" | "On")
-            || entity.state.parse::<u64>().map_or(false, |n| n > 0);
+            || entity.state.parse::<u64>().is_ok_and(|n| n > 0);
 
         if !is_active {
             continue;
@@ -16241,6 +16528,7 @@ async fn get_nina_settings(State(state): State<AppState>) -> Json<Value> {
 }
 
 /// Save NINA settings
+#[allow(clippy::manual_clamp)]
 async fn save_nina_settings(
     State(state): State<AppState>,
     Json(body): Json<Value>,
@@ -17073,6 +17361,7 @@ async fn create_webhook(
 }
 
 /// List webhooks for the current user
+#[allow(clippy::type_complexity)]
 async fn list_webhooks(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<middleware::AuthIdentity>,
@@ -17250,6 +17539,7 @@ async fn test_webhook(
 }
 
 /// Get webhook delivery log
+#[allow(clippy::type_complexity)]
 async fn get_webhook_deliveries(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<middleware::AuthIdentity>,
@@ -17298,6 +17588,7 @@ async fn get_webhook_deliveries(
 }
 
 /// Admin: list all webhooks across all users
+#[allow(clippy::type_complexity)]
 async fn admin_list_all_webhooks(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
@@ -18209,9 +18500,8 @@ async fn sse_event_stream(
                             let domain = e.entity_id.split('.').next().unwrap_or("");
                             if !domain_filter.iter().any(|d| d == domain) { return false; }
                         }
-                        if !entity_filter.is_empty() {
-                            if !entity_filter.contains(&e.entity_id) { return false; }
-                        }
+                        if !entity_filter.is_empty()
+                            && !entity_filter.contains(&e.entity_id) { return false; }
                         true
                     }).collect();
 
@@ -18361,10 +18651,10 @@ async fn handle_realtime_socket(socket: axum::extract::ws::WebSocket, state: App
                                         return false;
                                     }
                                 }
-                                if !filter.entity_ids.is_empty() {
-                                    if !filter.entity_ids.contains(&e.entity_id) {
-                                        return false;
-                                    }
+                                if !filter.entity_ids.is_empty()
+                                    && !filter.entity_ids.contains(&e.entity_id)
+                                {
+                                    return false;
                                 }
                                 true
                             })
@@ -18588,6 +18878,7 @@ fn default_limit() -> i64 {
 }
 
 /// Get location history points from our own database (long-term storage)
+#[allow(clippy::type_complexity)]
 async fn get_location_history(
     State(state): State<AppState>,
     Path(entity_id): Path<String>,
@@ -20001,7 +20292,7 @@ async fn handle_theme_zip_install(
             ))
         }
     };
-    let payload = zip_data.split(',').last().unwrap_or(zip_data).trim();
+    let payload = zip_data.split(',').next_back().unwrap_or(zip_data).trim();
     let padded_payload;
     let decode_payload = if payload.len() % 4 == 0 {
         payload

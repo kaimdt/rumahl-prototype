@@ -229,8 +229,10 @@ impl SystemEventLog {
         message: impl Into<String>,
         details: Value,
     ) {
-        let mut meta = EventMeta::default();
-        meta.extra = Some(details);
+        let meta = EventMeta {
+            extra: Some(details),
+            ..Default::default()
+        };
         self.emit(Severity::Error, source, message.into(), meta)
             .await;
     }
@@ -252,8 +254,10 @@ impl SystemEventLog {
             chain.push_str(&e.to_string());
             cur = e.source();
         }
-        let mut meta = EventMeta::default();
-        meta.error_chain = Some(chain);
+        let meta = EventMeta {
+            error_chain: Some(chain),
+            ..Default::default()
+        };
         self.emit(Severity::Error, source, message.into(), meta)
             .await;
     }
@@ -269,8 +273,10 @@ impl SystemEventLog {
     }
 
     pub async fn report_warn_with(&self, source: &str, message: impl Into<String>, details: Value) {
-        let mut meta = EventMeta::default();
-        meta.extra = Some(details);
+        let meta = EventMeta {
+            extra: Some(details),
+            ..Default::default()
+        };
         self.emit(Severity::Warning, source, message.into(), meta)
             .await;
     }

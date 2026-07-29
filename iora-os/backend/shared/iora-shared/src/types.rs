@@ -30,9 +30,10 @@ pub struct ServiceHealth {
     pub uptime_seconds: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthStatus {
+    #[default]
     Healthy,
     Degraded,
     Unhealthy,

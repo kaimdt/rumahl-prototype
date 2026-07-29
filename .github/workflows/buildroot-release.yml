@@ -1,0 +1,220 @@
+# ─────────────────────────────────────────────────────────────────────
+# IORA OS — Buildroot Release Pipeline
+# Builds the full OS image, uploads artifacts, and creates GitHub Releases.
+#
+# Triggers:
+#   - Tag push v*.*.*  →  full release build (pc target)
+#   - workflow_dispatch → manual build with target + artifact selection
+# ─────────────────────────────────────────────────────────────────────
+
+name: Buildroot Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Build target"
+        type: choice
+        options:
+          - pc
+          - rpi4
+          - rpi5
+          - rpi3
+          - generic-arm64
+        default: pc
+      artifacts:
+        description: "Artifacts to build"
+        type: choice
+        options:
+          - all
+          - minimal
+        default: all
+      dev-mode:
+        description: "Dev mode (includes dev bridge)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: buildroot-${{ github.ref }}
+  cancel-in-progress: false  # don't cancel — builds are expensive
+
+env:
+  IORA_OS_DIR: iora-os
+  IORA_CACHE_DIR: ~/.iora-cache
+  BR2_CCACHE_DIR: ~/.iora-cache/ccache
+  BR2_DL_DIR: ~/.iora-cache/dl
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-image:
+    name: Build IORA OS (${{ inputs.target || 'pc' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360  # Buildroot builds can take 2-4 hours
+
+    outputs:
+      release-version: ${{ steps.tag-version.outputs.version }}
+      artifacts-dir: ${{ steps.build.outputs.artifacts-dir }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Version from tag or timestamp ──────────────────────────────
+      - name: Derive version
+        id: tag-version
+        run: |
+          if [[ "${{ github.ref }}" =~ ^refs/tags/v ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="dev-${{ github.run_number }}-$(date +%Y%m%d)"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      # ── Cache: Buildroot tarball (avoids re-download) ──────────────
+      - name: Cache Buildroot tarball
+        id: cache-buildroot
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.IORA_OS_DIR }}/buildroot-2024.02.tar.gz
+          key: buildroot-2024.02-tar
+          lookup-only: true
+
+      - name: Pre-download Buildroot tarball (cache miss)
+        if: steps.cache-buildroot.outputs.cache-hit != 'true'
+        working-directory: ${{ env.IORA_OS_DIR }}
+        run: |
+          wget -q "https://buildroot.org/downloads/buildroot-2024.02.tar.gz" -O "buildroot-2024.02.tar.gz"
+
+      # ── Cache: Buildroot downloads (dl/) — CRITICAL, saves GB ─────
+      - name: Cache Buildroot source downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.iora-cache/dl
+            ~/.iora-cache/ccache
+          key: br2-dl-${{ inputs.target || 'pc' }}-${{ hashFiles('iora-os/configs/iora_*') }}-${{ github.run_id }}
+          restore-keys: |
+            br2-dl-${{ inputs.target || 'pc' }}-
+            br2-dl-
+
+      # ── Cache: Cargo registry (Rust workspace) ─────────────────────
+      - name: Cache Cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.IORA_OS_DIR }}/backend/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('iora-os/backend/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+          continue-on-error: true
+
+      # ── Install build dependencies ─────────────────────────────────
+      - name: Install system build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git wget curl tar gzip xz-utils cpio unzip rsync bc \
+            libncurses-dev libssl-dev libelf-dev python3 python3-pip \
+            pkg-config ca-certificates file jq musl-tools \
+            qemu-utils zip xorriso grub-common grub-pc-bin grub-efi-amd64-bin \
+            mtools dosfstools parted ccache
+          echo "--- Dependency install complete ---"
+
+      # ── Install Rust toolchain ─────────────────────────────────────
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl, x86_64-unknown-linux-gnu
+
+      # ── Ensure cache dirs exist ────────────────────────────────────
+      - name: Create cache directories
+        run: |
+          mkdir -p ~/.iora-cache/{dl,ccache}
+          ccache --max-size=10G
+
+      # ── Build the OS image ─────────────────────────────────────────
+      - name: Build IORA OS image
+        id: build
+        working-directory: ${{ env.IORA_OS_DIR }}
+        env:
+          IORA_TARGET: ${{ inputs.target || 'pc' }}
+          IORA_OS_DEV: ${{ inputs.dev-mode || '0' }}
+        run: |
+          artifact_opts=""
+          if [[ "${{ inputs.artifacts || 'all' }}" == "minimal" ]]; then
+            artifact_opts="--minimal-artifacts"
+          fi
+
+          # Redirecting to avoid flooding GHA logs (build log goes to file)
+          bash ./build.sh all --target "${IORA_TARGET}" ${artifact_opts} \
+            --unattended --progress \
+            --jobs "$(nproc)" \
+            2>&1 | tee build.log
+
+          # Find the release dir
+          release_dir=$(ls -dt releases/*/ 2>/dev/null | head -1)
+          if [ -n "$release_dir" ]; then
+            echo "artifacts-dir=$(realpath "$release_dir")" >> "${GITHUB_OUTPUT}"
+          else
+            echo "ERROR: No release directory found!"
+            exit 1
+          fi
+
+      # ── List built artifacts ───────────────────────────────────────
+      - name: List artifacts
+        run: |
+          echo "=== Built artifacts ==="
+          find "${{ steps.build.outputs.artifacts-dir }}" -type f -ls 2>/dev/null || echo "(not found)"
+          echo ""
+          echo "=== Content summary ==="
+          du -sh "${{ steps.build.outputs.artifacts-dir }}" 2>/dev/null || true
+
+      # ── Upload artifacts to workflow summary ───────────────────────
+      - name: Upload artifacts (workflow run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: iora-os-${{ inputs.target || 'pc' }}-${{ steps.tag-version.outputs.version }}
+          path: ${{ steps.build.outputs.artifacts-dir }}
+          retention-days: 30
+          compression-level: 0  # files are already compressed
+
+      # ── Create GitHub Release (only on tag push) ───────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "IORA OS ${{ github.ref_name }}"
+          body: |
+            ## IORA OS ${{ github.ref_name }}
+
+            **Target:** ${{ inputs.target || 'pc' }}
+
+            ### Artifacts
+            This release includes all OS image formats from the automated Buildroot pipeline.
+
+            ### Build Info
+            - Buildroot: 2024.02
+            - Linux Kernel: 6.6.15
+            - Init: systemd
+            - Filesystem: squashfs + ext4
+
+            See [BUILD_IMAGES.md](iora-os/BUILD_IMAGES.md) for details on each image format.
+          files: |
+            ${{ steps.build.outputs.artifacts-dir }}/*
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+
+      # ── Build summary ──────────────────────────────────────────────
+      - name: Print build summary
+        run: |
+          echo "================================================"
+          echo "  IORA OS Build Complete"
+          echo "  Version : ${{ steps.tag-version.outputs.version }}"
+          echo "  Target  : ${{ inputs.target || 'pc' }}"
+          echo "  Runner  : ${{ runner.name }}"
+          echo "================================================"

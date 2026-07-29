@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,       // user_id
+    pub sub: String, // user_id
     pub username: String,
     pub is_admin: bool,
     pub exp: usize,

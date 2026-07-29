@@ -6,6 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ErrorResponse {
     pub error: String,
     pub message: String,
@@ -15,6 +16,7 @@ pub struct ErrorResponse {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum AppError {
     NotFound(String),
     Unauthorized(String),
@@ -26,6 +28,7 @@ pub enum AppError {
     RateLimitExceeded,
 }
 
+#[allow(dead_code)]
 impl AppError {
     pub fn status_code(&self) -> StatusCode {
         match self {
@@ -62,7 +65,9 @@ impl AppError {
             AppError::InternalError(msg) => msg.clone(),
             AppError::ServiceUnavailable(msg) => msg.clone(),
             AppError::Conflict(msg) => msg.clone(),
-            AppError::RateLimitExceeded => "Rate limit exceeded. Please try again later.".to_string(),
+            AppError::RateLimitExceeded => {
+                "Rate limit exceeded. Please try again later.".to_string()
+            }
         }
     }
 }

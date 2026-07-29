@@ -1,12 +1,14 @@
 // Multi-Provider Orchestrator
 // Manages multiple AI providers simultaneously and routes tasks to appropriate providers
 
-use crate::providers::{AIProvider, ChatMessage, ChatResponse, ProviderConfig, create_provider, provider_type_from_str};
-use crate::database::{DbPool, providers as db_providers};
+use crate::database::{providers as db_providers, DbPool};
+use crate::providers::{
+    create_provider, provider_type_from_str, AIProvider, ChatMessage, ChatResponse, ProviderConfig,
+};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskPurpose {
@@ -68,7 +70,10 @@ impl ProviderOrchestrator {
                 self.providers.write().await.insert(key, provider);
             }
 
-            tracing::info!("Initialized {} providers from database", self.providers.read().await.len());
+            tracing::info!(
+                "Initialized {} providers from database",
+                self.providers.read().await.len()
+            );
         }
 
         Ok(())
@@ -229,7 +234,9 @@ pub struct RoutingRule {
 impl RoutingRule {
     /// Check if this rule matches a task
     pub fn matches(&self, task_description: &str) -> bool {
-        task_description.to_lowercase().contains(&self.task_pattern.to_lowercase())
+        task_description
+            .to_lowercase()
+            .contains(&self.task_pattern.to_lowercase())
     }
 }
 
@@ -239,6 +246,8 @@ pub async fn create_default_orchestrator(
     db: Option<DbPool>,
 ) -> ProviderOrchestrator {
     let orchestrator = ProviderOrchestrator::new(db);
-    orchestrator.register_provider("default".to_string(), provider).await;
+    orchestrator
+        .register_provider("default".to_string(), provider)
+        .await;
     orchestrator
 }

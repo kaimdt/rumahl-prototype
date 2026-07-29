@@ -1,5 +1,8 @@
 // IORA TTS Provider – calls the iora-tts microservice (Kokoro ONNX)
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
+use super::{
+    AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError,
+    ProviderModel, SpeechSynthesis,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -135,29 +138,25 @@ impl AIProvider for IoraTtsProvider {
             .map(|s| s.to_string());
 
         // Determine language from voice if possible
-        let lang = self
-            .config
-            .api_version
-            .clone()
-            .or_else(|| {
-                // Derive language from voice prefix (e.g., "af_" -> "en-us")
-                voice.and_then(|v| {
-                    let prefix = v.split('_').next()?;
-                    match prefix {
-                        "af" | "am" => Some("en-us".to_string()),
-                        "bf" | "bm" => Some("en-gb".to_string()),
-                        "sf" | "sm" => Some("es".to_string()),
-                        "ff" | "fm" => Some("fr-fr".to_string()),
-                        "if" | "im" => Some("it".to_string()),
-                        "jf" | "jm" => Some("ja".to_string()),
-                        "zf" | "zm" => Some("zh".to_string()),
-                        "kf" => Some("ko".to_string()),
-                        "pf" | "pm" => Some("pt-br".to_string()),
-                        "df" | "dm" => Some("de".to_string()),
-                        _ => None,
-                    }
-                })
-            });
+        let lang = self.config.api_version.clone().or_else(|| {
+            // Derive language from voice prefix (e.g., "af_" -> "en-us")
+            voice.and_then(|v| {
+                let prefix = v.split('_').next()?;
+                match prefix {
+                    "af" | "am" => Some("en-us".to_string()),
+                    "bf" | "bm" => Some("en-gb".to_string()),
+                    "sf" | "sm" => Some("es".to_string()),
+                    "ff" | "fm" => Some("fr-fr".to_string()),
+                    "if" | "im" => Some("it".to_string()),
+                    "jf" | "jm" => Some("ja".to_string()),
+                    "zf" | "zm" => Some("zh".to_string()),
+                    "kf" => Some("ko".to_string()),
+                    "pf" | "pm" => Some("pt-br".to_string()),
+                    "df" | "dm" => Some("de".to_string()),
+                    _ => None,
+                }
+            })
+        });
 
         let request = SynthesizeRequest {
             text: text.to_string(),

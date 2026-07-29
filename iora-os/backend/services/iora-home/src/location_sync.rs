@@ -99,6 +99,7 @@ impl LocationSyncService {
     }
 
     /// Sync a single entity's location history
+    #[allow(clippy::type_complexity)]
     async fn sync_entity(&self, entity_id: &str, friendly_name: &str) -> anyhow::Result<()> {
         // Ensure sync status row exists
         sqlx::query(

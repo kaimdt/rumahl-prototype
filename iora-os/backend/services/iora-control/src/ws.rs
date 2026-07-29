@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum WsMessage {
     ServiceStatusUpdate {
         service: String,
@@ -40,11 +41,13 @@ pub enum WsMessage {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct WsState {
     pub connections: Arc<DashMap<String, broadcast::Sender<String>>>,
     pub global_tx: broadcast::Sender<String>,
 }
 
+#[allow(dead_code)]
 impl WsState {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(1000);
@@ -61,10 +64,7 @@ impl WsState {
     }
 }
 
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<WsState>>,
-) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<WsState>>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 

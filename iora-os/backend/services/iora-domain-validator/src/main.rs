@@ -19,10 +19,9 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use ipnetwork::IpNetwork;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
+use ipnetwork::IpNetwork;
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -30,9 +29,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info, warn};
-use trust_dns_resolver::TokioAsyncResolver;
+use tracing::{error, info};
 use trust_dns_resolver::config::*;
+use trust_dns_resolver::TokioAsyncResolver;
 use uuid::Uuid;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -99,6 +98,7 @@ struct AddIpRequest {
 struct AppState {
     db: PgPool,
     policies: Arc<RwLock<HashMap<String, AppNetworkPolicy>>>,
+    #[allow(dead_code)]
     resolver: Arc<TokioAsyncResolver>,
 }
 
@@ -111,15 +111,13 @@ fn domain_matches_pattern(domain: &str, pattern: &str) -> bool {
     }
 
     // Handle wildcard patterns like *.example.com
-    if pattern.starts_with("*.") {
-        let pattern_suffix = &pattern[2..];
+    if let Some(pattern_suffix) = pattern.strip_prefix("*.") {
         // Match exact suffix or subdomain
         return domain == pattern_suffix || domain.ends_with(&format!(".{}", pattern_suffix));
     }
 
     // Handle wildcard at end like example.*
-    if pattern.ends_with(".*") {
-        let pattern_prefix = &pattern[..pattern.len() - 2];
+    if let Some(pattern_prefix) = pattern.strip_suffix(".*") {
         return domain.starts_with(&format!("{}.", pattern_prefix)) || domain == pattern_prefix;
     }
 
@@ -629,8 +627,7 @@ async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "iora_domain_validator=info".to_string()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "iora_domain_validator=info".to_string()),
         )
         .init();
 
@@ -655,9 +652,10 @@ async fn main() -> Result<()> {
     let policies = Arc::new(RwLock::new(load_policies(&pool).await?));
 
     // Create DNS resolver
-    let resolver = Arc::new(
-        TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())
-    );
+    let resolver = Arc::new(TokioAsyncResolver::tokio(
+        ResolverConfig::default(),
+        ResolverOpts::default(),
+    ));
 
     // Create app state
     let state = AppState {

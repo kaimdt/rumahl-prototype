@@ -1,0 +1,26 @@
+#!/bin/bash
+# ORA Pre-Commit Hook
+# Runs cargo check before each commit to catch errors early.
+# Skip with: git commit --no-verify
+
+echo "🔍 ORA Pre-Commit: Checking code quality..."
+
+# --- Rust Backend ---
+echo ""
+echo "─── Rust Backend (cargo check) ───"
+cd iora-os/backend
+
+# Use timeout to avoid blocking commits on a slow rebuild
+if ! timeout 60 cargo check 2>&1; then
+    echo ""
+    echo "❌ cargo check FAILED — there are compilation errors."
+    echo "   Fix them before committing, or use 'git commit --no-verify' to skip."
+    exit 1
+fi
+cd ../..
+
+echo "✅ cargo check passed"
+
+# --- All good ---
+echo ""
+echo "✅ Pre-Commit checks passed!"

@@ -137,11 +137,7 @@ impl ApiGateway {
             .values()
             .find(|e| e.path == request.path && e.method == request.method)
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No endpoint found for {} {}",
-                    request.method.to_string(),
-                    request.path
-                )
+                anyhow::anyhow!("No endpoint found for {} {}", request.method, request.path)
             })?;
 
         let provider_id = endpoint.provider_id.clone();
@@ -218,14 +214,14 @@ impl ApiGateway {
     }
 }
 
-impl HttpMethod {
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HttpMethod::GET => "GET".to_string(),
-            HttpMethod::POST => "POST".to_string(),
-            HttpMethod::PUT => "PUT".to_string(),
-            HttpMethod::DELETE => "DELETE".to_string(),
-            HttpMethod::PATCH => "PATCH".to_string(),
+            HttpMethod::GET => write!(f, "GET"),
+            HttpMethod::POST => write!(f, "POST"),
+            HttpMethod::PUT => write!(f, "PUT"),
+            HttpMethod::DELETE => write!(f, "DELETE"),
+            HttpMethod::PATCH => write!(f, "PATCH"),
         }
     }
 }

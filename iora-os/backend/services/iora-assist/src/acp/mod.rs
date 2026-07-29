@@ -8,10 +8,10 @@
 //
 // ACP is designed to work with both internal subagents and external agent systems.
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
@@ -134,9 +134,7 @@ pub enum AcpPayload {
     // ─── Discovery ─────────────────────────────────────────────────
     /// Announce agent capabilities
     #[serde(rename = "acp.announce")]
-    Announce {
-        agent: AgentInfo,
-    },
+    Announce { agent: AgentInfo },
     /// Discover agents matching criteria
     #[serde(rename = "acp.discover")]
     Discover {
@@ -146,9 +144,7 @@ pub enum AcpPayload {
     },
     /// Discovery result
     #[serde(rename = "acp.discover.result")]
-    DiscoverResult {
-        agents: Vec<AgentInfo>,
-    },
+    DiscoverResult { agents: Vec<AgentInfo> },
 
     // ─── Task Delegation ──────────────────────────────────────────
     /// Delegate a task to another agent
@@ -175,10 +171,7 @@ pub enum AcpPayload {
     },
     /// Task rejection
     #[serde(rename = "acp.task.rejected")]
-    TaskRejected {
-        task_id: String,
-        reason: String,
-    },
+    TaskRejected { task_id: String, reason: String },
     /// Task progress update
     #[serde(rename = "acp.task.progress")]
     TaskProgress {
@@ -223,9 +216,7 @@ pub enum AcpPayload {
         config: Option<serde_json::Value>,
     },
     #[serde(rename = "acp.agent.spawned")]
-    AgentSpawned {
-        agent: AgentInfo,
-    },
+    AgentSpawned { agent: AgentInfo },
     /// Terminate an agent
     #[serde(rename = "acp.agent.terminate")]
     TerminateAgent {
@@ -233,9 +224,7 @@ pub enum AcpPayload {
         reason: Option<String>,
     },
     #[serde(rename = "acp.agent.terminated")]
-    AgentTerminated {
-        agent_id: AgentId,
-    },
+    AgentTerminated { agent_id: AgentId },
 
     // ─── Heartbeat ─────────────────────────────────────────────────
     #[serde(rename = "acp.heartbeat")]
@@ -277,7 +266,10 @@ pub struct InProcessTransport {
 impl InProcessTransport {
     pub fn new(buffer: usize) -> Self {
         let (tx, rx) = mpsc::channel(buffer);
-        Self { tx, rx: Arc::new(RwLock::new(Some(rx))) }
+        Self {
+            tx,
+            rx: Arc::new(RwLock::new(Some(rx))),
+        }
     }
 
     pub fn sender(&self) -> mpsc::Sender<AcpMessage> {
@@ -288,11 +280,16 @@ impl InProcessTransport {
 #[async_trait::async_trait]
 impl AcpTransport for InProcessTransport {
     async fn send(&self, message: AcpMessage) -> Result<(), String> {
-        self.tx.send(message).await.map_err(|e| format!("Send error: {}", e))
+        self.tx
+            .send(message)
+            .await
+            .map_err(|e| format!("Send error: {}", e))
     }
 
     async fn receive(&self) -> Result<mpsc::Receiver<AcpMessage>, String> {
-        self.rx.write().await
+        self.rx
+            .write()
+            .await
             .take()
             .ok_or_else(|| "Receiver already taken".to_string())
     }
@@ -369,7 +366,10 @@ impl AcpRouter {
         let agent_id = agent.id.clone();
 
         if let Some(transport) = transport {
-            self.transports.write().await.insert(agent_id.clone(), transport);
+            self.transports
+                .write()
+                .await
+                .insert(agent_id.clone(), transport);
             // Note: Message receiving for this transport would be setup by the agent owner.
             // In-process transports communicate via channels managed externally.
         }
@@ -382,7 +382,9 @@ impl AcpRouter {
             sender: self.self_id(),
             target: None,
             timestamp: Utc::now(),
-            payload: AcpPayload::Announce { agent: agent.clone() },
+            payload: AcpPayload::Announce {
+                agent: agent.clone(),
+            },
             correlation_id: None,
             ttl_secs: Some(30),
         };
@@ -403,7 +405,9 @@ impl AcpRouter {
             sender: self.self_id(),
             target: None,
             timestamp: Utc::now(),
-            payload: AcpPayload::AgentTerminated { agent_id: agent_id.to_string() },
+            payload: AcpPayload::AgentTerminated {
+                agent_id: agent_id.to_string(),
+            },
             correlation_id: None,
             ttl_secs: None,
         };
@@ -421,14 +425,13 @@ impl AcpRouter {
         agents
             .values()
             .filter(|a| {
-                let q_match = query.map_or(true, |q| {
+                let q_match = query.is_none_or(|q| {
                     a.name.to_lowercase().contains(&q.to_lowercase())
                         || a.description.to_lowercase().contains(&q.to_lowercase())
                 });
-                let c_match = capability.map_or(true, |c| {
-                    a.capabilities.iter().any(|cap| cap.name == c)
-                });
-                let t_match = agent_type.map_or(true, |t| a.agent_type == t);
+                let c_match =
+                    capability.is_none_or(|c| a.capabilities.iter().any(|cap| cap.name == c));
+                let t_match = agent_type.is_none_or(|t| a.agent_type == t);
                 q_match && c_match && t_match
             })
             .cloned()
@@ -449,9 +452,9 @@ impl AcpRouter {
         let capable: Vec<_> = agents
             .values()
             .filter(|a| {
-                required_capabilities.iter().all(|rc| {
-                    a.capabilities.iter().any(|c| c.name == *rc)
-                })
+                required_capabilities
+                    .iter()
+                    .all(|rc| a.capabilities.iter().any(|c| c.name == *rc))
             })
             .collect();
 
@@ -527,9 +530,8 @@ impl AcpRouter {
                 description: description.to_string(),
                 task,
                 priority,
-                deadline: timeout_secs.map(|secs| {
-                    (Utc::now() + chrono::Duration::seconds(secs as i64)).to_rfc3339()
-                }),
+                deadline: timeout_secs
+                    .map(|secs| (Utc::now() + chrono::Duration::seconds(secs as i64)).to_rfc3339()),
                 required_capabilities,
                 context: None,
             },
@@ -700,7 +702,11 @@ impl AcpClientBuilder {
             metadata: self.metadata,
         };
 
-        let mut router = AcpRouter::new(&agent_info.name, &agent_info.description, &agent_info.agent_type);
+        let mut router = AcpRouter::new(
+            &agent_info.name,
+            &agent_info.description,
+            &agent_info.agent_type,
+        );
         // Override self_info
         router.self_info = agent_info.clone();
 

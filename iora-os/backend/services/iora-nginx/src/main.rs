@@ -11,21 +11,20 @@
 //! - Rate limiting and security headers
 
 use anyhow::{Context, Result};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tera::{Tera, Context as TeraContext};
+use tera::{Context as TeraContext, Tera};
 use tokio::signal;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 const NGINX_CONFIG_DIR: &str = "/etc/nginx";
 const NGINX_CONFIG_FILE: &str = "/etc/nginx/nginx.conf";
 /// Default template location used when neither `$NGINX_TEMPLATE_PATH`
@@ -58,6 +57,7 @@ struct AppRoute {
     enabled: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct NginxConfig {
     apps: Vec<AppRoute>,
@@ -82,7 +82,8 @@ fn generate_nginx_config(apps: Vec<AppRoute>) -> Result<String> {
     context.insert("apps", &apps);
 
     // Render template
-    let rendered = tera.render("nginx.conf", &context)
+    let rendered = tera
+        .render("nginx.conf", &context)
         .context("Failed to render NGINX template")?;
 
     Ok(rendered)
@@ -92,21 +93,18 @@ fn generate_nginx_config(apps: Vec<AppRoute>) -> Result<String> {
 fn write_nginx_config(config: &str) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = Path::new(NGINX_CONFIG_FILE).parent() {
-        fs::create_dir_all(parent)
-            .context("Failed to create NGINX config directory")?;
+        fs::create_dir_all(parent).context("Failed to create NGINX config directory")?;
     }
 
     // Create backup of existing config
     if Path::new(NGINX_CONFIG_FILE).exists() {
         let backup_path = format!("{}.backup", NGINX_CONFIG_FILE);
-        fs::copy(NGINX_CONFIG_FILE, &backup_path)
-            .context("Failed to create config backup")?;
+        fs::copy(NGINX_CONFIG_FILE, &backup_path).context("Failed to create config backup")?;
         info!("Created config backup at {}", backup_path);
     }
 
     // Write new configuration
-    fs::write(NGINX_CONFIG_FILE, config)
-        .context("Failed to write NGINX config")?;
+    fs::write(NGINX_CONFIG_FILE, config).context("Failed to write NGINX config")?;
 
     info!("Wrote NGINX configuration to {}", NGINX_CONFIG_FILE);
     Ok(())
@@ -115,7 +113,7 @@ fn write_nginx_config(config: &str) -> Result<()> {
 /// Test NGINX configuration
 fn test_nginx_config() -> Result<bool> {
     let output = Command::new("nginx")
-        .args(&["-t"])
+        .args(["-t"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -134,7 +132,7 @@ fn test_nginx_config() -> Result<bool> {
 /// Reload NGINX configuration
 fn reload_nginx() -> Result<()> {
     let output = Command::new("nginx")
-        .args(&["-s", "reload"])
+        .args(["-s", "reload"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -163,7 +161,10 @@ fn start_nginx() -> Result<()> {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        warn!("NGINX start returned non-zero status (may already be running): {}", stderr);
+        warn!(
+            "NGINX start returned non-zero status (may already be running): {}",
+            stderr
+        );
         Ok(())
     }
 }
@@ -171,7 +172,7 @@ fn start_nginx() -> Result<()> {
 /// Stop NGINX process
 fn stop_nginx() -> Result<()> {
     let output = Command::new("nginx")
-        .args(&["-s", "quit"])
+        .args(["-s", "quit"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -203,7 +204,7 @@ async fn fetch_app_routes(pool: &PgPool) -> Result<Vec<AppRoute>> {
         WHERE a.enabled = true
         AND p.external_port IS NOT NULL
         ORDER BY a.name
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await
@@ -215,7 +216,9 @@ async fn fetch_app_routes(pool: &PgPool) -> Result<Vec<AppRoute>> {
             warn!("apps/port_assignments tables not yet present — treating as zero routes");
             return Ok(Vec::new());
         }
-        Err(e) => return Err(anyhow::Error::from(e).context("Failed to fetch app routes from database")),
+        Err(e) => {
+            return Err(anyhow::Error::from(e).context("Failed to fetch app routes from database"))
+        }
     };
 
     let mut apps = Vec::new();
@@ -305,7 +308,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "iora_nginx=info,tower_http=info".to_string())
+                .unwrap_or_else(|_| "iora_nginx=info,tower_http=info".to_string()),
         )
         .init();
 
@@ -361,7 +364,10 @@ async fn main() -> Result<()> {
         DEFAULT_PORT,
         "NGINX reverse-proxy controller",
     );
-    info!("Configuration will be auto-updated every {} seconds", CONFIG_RELOAD_INTERVAL_SECS);
+    info!(
+        "Configuration will be auto-updated every {} seconds",
+        CONFIG_RELOAD_INTERVAL_SECS
+    );
 
     // Wait for shutdown signal
     signal::ctrl_c().await?;

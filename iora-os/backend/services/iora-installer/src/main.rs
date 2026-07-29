@@ -3,19 +3,18 @@ use clap::{Parser, Subcommand};
 use colored::Colorize;
 use dialoguer::{Confirm, Input};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::process::Command;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn, error};
+use std::process::Command;
 
 /// Services managed by the installer, with the HTTP port each exposes for
 /// health checks.  Keep this list in sync with [`create_systemd_services`].
 const MANAGED_SERVICES: &[(&str, u16)] = &[
-    ("iora-core",     8090),
-    ("iora-home",     8080),
-    ("iora-secrets",  8093),
+    ("iora-core", 8090),
+    ("iora-home", 8080),
+    ("iora-secrets", 8093),
     ("iora-watchdog", 8094),
-    ("iora-control",  8091),
-    ("iora-assist",   8092),
+    ("iora-control", 8091),
+    ("iora-assist", 8092),
 ];
 
 const BACKUP_DIR_DEFAULT: &str = "/var/backups/iora";
@@ -82,13 +81,13 @@ fn install(non_interactive: bool) -> Result<()> {
     check_permissions()?;
     check_disk_space()?;
 
-    if !non_interactive {
-        if !Confirm::new()
+    if !non_interactive
+        && !Confirm::new()
             .with_prompt("Continue with installation?")
-            .interact()? {
-            println!("Installation cancelled.");
-            return Ok(());
-        }
+            .interact()?
+    {
+        println!("Installation cancelled.");
+        return Ok(());
     }
 
     // Install dependencies
@@ -139,12 +138,25 @@ fn install(non_interactive: bool) -> Result<()> {
 
     // Mark system as production-installed
     match iora_shared::env::IoraEnv::write_install_marker() {
-        Ok(path) => println!("{} Install marker written to {:?}", "✓".bright_green(), path),
-        Err(e) => println!("{} Could not write install marker: {}", "⚠".bright_yellow(), e),
+        Ok(path) => println!(
+            "{} Install marker written to {:?}",
+            "✓".bright_green(),
+            path
+        ),
+        Err(e) => println!(
+            "{} Could not write install marker: {}",
+            "⚠".bright_yellow(),
+            e
+        ),
     }
 
     println!();
-    println!("{}", "✅ Installation completed successfully!".bright_green().bold());
+    println!(
+        "{}",
+        "✅ Installation completed successfully!"
+            .bright_green()
+            .bold()
+    );
     println!();
     println!("IORA is now running:");
     println!("  • Dashboard: http://localhost:8080");
@@ -169,7 +181,10 @@ fn check_debian_version() -> Result<()> {
         println!("  ✓ Debian {} detected", version.trim());
         Ok(())
     } else {
-        anyhow::bail!("IORA requires Debian 11 or later (detected: {})", version.trim());
+        anyhow::bail!(
+            "IORA requires Debian 11 or later (detected: {})",
+            version.trim()
+        );
     }
 }
 
@@ -235,12 +250,12 @@ fn install_dependencies() -> Result<()> {
     ];
 
     Command::new("apt-get")
-        .args(&["update", "-qq"])
+        .args(["update", "-qq"])
         .status()
         .context("Failed to update package lists")?;
 
     Command::new("apt-get")
-        .args(&["install", "-y", "-qq"])
+        .args(["install", "-y", "-qq"])
         .args(&packages)
         .status()
         .context("Failed to install dependencies")?;
@@ -253,17 +268,17 @@ fn setup_postgresql() -> Result<()> {
     let pb = create_progress_bar("Installing PostgreSQL");
 
     Command::new("apt-get")
-        .args(&["install", "-y", "-qq", "postgresql", "postgresql-contrib"])
+        .args(["install", "-y", "-qq", "postgresql", "postgresql-contrib"])
         .status()
         .context("Failed to install PostgreSQL")?;
 
     Command::new("systemctl")
-        .args(&["start", "postgresql"])
+        .args(["start", "postgresql"])
         .status()
         .context("Failed to start PostgreSQL")?;
 
     Command::new("systemctl")
-        .args(&["enable", "postgresql"])
+        .args(["enable", "postgresql"])
         .status()
         .context("Failed to enable PostgreSQL")?;
 
@@ -273,14 +288,11 @@ fn setup_postgresql() -> Result<()> {
 
 fn create_iora_user() -> Result<()> {
     // Check if user exists
-    let exists = Command::new("id")
-        .arg("iora")
-        .status()
-        .is_ok();
+    let exists = Command::new("id").arg("iora").status().is_ok();
 
     if !exists {
         Command::new("useradd")
-            .args(&["-r", "-s", "/bin/false", "-d", "/opt/iora", "iora"])
+            .args(["-r", "-s", "/bin/false", "-d", "/opt/iora", "iora"])
             .status()
             .context("Failed to create iora user")?;
         println!("  ✓ Created system user 'iora'");
@@ -316,7 +328,7 @@ fn setup_databases() -> Result<()> {
     for db in databases {
         let create_db = format!("CREATE DATABASE {} WITH ENCODING 'UTF8';", db);
         Command::new("sudo")
-            .args(&["-u", "postgres", "psql", "-c", &create_db])
+            .args(["-u", "postgres", "psql", "-c", &create_db])
             .status()
             .ok(); // Ignore errors if database already exists
     }
@@ -351,27 +363,33 @@ fn generate_configuration(non_interactive: bool) -> Result<()> {
     // them at runtime without rewriting files or restarting services.
     let _ = ha_url; // kept for future schema migration; intentionally unused here
     let configs = vec![
-        ("/etc/iora/iora-home.env",
+        (
+            "/etc/iora/iora-home.env",
             "DATABASE_URL=postgres://iora:iora_password@localhost:5432/iora_home\n\
-             PORT=8126\n".to_string()),
-        ("/etc/iora/iora-core.env",
+             PORT=8126\n"
+                .to_string(),
+        ),
+        (
+            "/etc/iora/iora-core.env",
             "DATABASE_URL=postgres://iora:iora_password@localhost:5432/iora_core\n\
-             PORT=8090\n".to_string()),
-        ("/etc/iora/iora-secrets.env", format!(
-            "DATABASE_URL=postgres://iora:iora_password@localhost:5432/iora_secrets\n\
+             PORT=8090\n"
+                .to_string(),
+        ),
+        (
+            "/etc/iora/iora-secrets.env",
+            format!(
+                "DATABASE_URL=postgres://iora:iora_password@localhost:5432/iora_secrets\n\
              SECRETS_MASTER_KEY={}\n\
              PORT=8093\n",
-            master_key_hex
-        )),
-        ("/etc/iora/iora-watchdog.env",
-            "PORT=8094\n".to_string()),
+                master_key_hex
+            ),
+        ),
+        ("/etc/iora/iora-watchdog.env", "PORT=8094\n".to_string()),
     ];
 
     for (path, content) in configs {
         std::fs::write(path, content)?;
-        Command::new("chmod")
-            .args(&["600", path])
-            .status()?;
+        Command::new("chmod").args(["600", path]).status()?;
     }
 
     println!("  ✓ Configuration files created");
@@ -393,7 +411,7 @@ fn create_systemd_services() -> Result<()> {
         };
 
         let unit_content = format!(
-"[Unit]
+            "[Unit]
 Description=IORA {name} Service
 Documentation=https://github.com/kaimdt/home-assistant-dashb
 After=network-online.target postgresql.service
@@ -478,9 +496,7 @@ WantedBy=timers.target
 ";
     std::fs::write("/etc/systemd/system/iora-health.timer", health_timer)?;
 
-    Command::new("systemctl")
-        .arg("daemon-reload")
-        .status()?;
+    Command::new("systemctl").arg("daemon-reload").status()?;
     let _ = Command::new("systemctl")
         .args(["enable", "--now", "iora-health.timer"])
         .status();
@@ -565,8 +581,8 @@ fn collect_health() -> Vec<(String, bool, String)> {
 fn update(version: Option<String>) -> Result<()> {
     println!("{}", "🔄 IORA Update".bright_blue().bold());
 
-    let url = std::env::var("IORA_UPDATER_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8101".to_string());
+    let url =
+        std::env::var("IORA_UPDATER_URL").unwrap_or_else(|_| "http://127.0.0.1:8101".to_string());
     let endpoint = format!("{}/api/updates/install", url.trim_end_matches('/'));
     let body = match version {
         Some(v) => {
@@ -594,7 +610,10 @@ fn update(version: Option<String>) -> Result<()> {
         }
         Ok(r) => anyhow::bail!("update request failed with status {}", r.status()),
         Err(e) => {
-            println!("  ⚠ iora-updater is not reachable ({}). Falling back to manual instructions.", e);
+            println!(
+                "  ⚠ iora-updater is not reachable ({}). Falling back to manual instructions.",
+                e
+            );
             println!("  ℹ️  Pull the latest images and run `systemctl restart iora-*` manually.");
             Ok(())
         }
@@ -634,12 +653,16 @@ fn rollback() -> Result<()> {
 
 fn config() -> Result<()> {
     println!("{}", "⚙️  IORA Configuration".bright_blue().bold());
-    let config_path = std::env::var("IORA_CONFIG_FILE")
-        .unwrap_or_else(|_| "/etc/iora/iora.toml".to_string());
+    let config_path =
+        std::env::var("IORA_CONFIG_FILE").unwrap_or_else(|_| "/etc/iora/iora.toml".to_string());
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
 
     if !Path::new(&config_path).exists() {
-        std::fs::create_dir_all(Path::new(&config_path).parent().unwrap_or(Path::new("/etc/iora")))?;
+        std::fs::create_dir_all(
+            Path::new(&config_path)
+                .parent()
+                .unwrap_or(Path::new("/etc/iora")),
+        )?;
         std::fs::write(&config_path, "# IORA configuration\n")?;
         println!("  Created new config at {}", config_path);
     }
@@ -678,7 +701,11 @@ fn status() -> Result<()> {
 
         println!(
             "  {icon} {name:<15} systemd={systemd_state:<10} health={}",
-            if *healthy { "ok".green().to_string() } else { detail.red().to_string() }
+            if *healthy {
+                "ok".green().to_string()
+            } else {
+                detail.red().to_string()
+            }
         );
     }
 
@@ -687,8 +714,8 @@ fn status() -> Result<()> {
 
 fn backup(_output: Option<String>) -> Result<()> {
     println!("{}", "💾 IORA Backup".bright_blue().bold());
-    let url = std::env::var("IORA_BACKUP_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8084".to_string());
+    let url =
+        std::env::var("IORA_BACKUP_URL").unwrap_or_else(|_| "http://127.0.0.1:8084".to_string());
     let endpoint = format!("{}/api/backup/create", url.trim_end_matches('/'));
     let resp = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -707,8 +734,8 @@ fn backup(_output: Option<String>) -> Result<()> {
 
 fn restore(backup_file: String) -> Result<()> {
     println!("{}", "📦 IORA Restore".bright_yellow().bold());
-    let url = std::env::var("IORA_BACKUP_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8084".to_string());
+    let url =
+        std::env::var("IORA_BACKUP_URL").unwrap_or_else(|_| "http://127.0.0.1:8084".to_string());
     let endpoint = format!("{}/api/backup/restore", url.trim_end_matches('/'));
     let resp = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
@@ -771,7 +798,7 @@ fn create_progress_bar(msg: &str) -> ProgressBar {
     pb.set_style(
         ProgressStyle::default_spinner()
             .template("{spinner:.cyan} {msg}")
-            .unwrap()
+            .unwrap(),
     );
     pb.set_message(msg.to_string());
     pb.enable_steady_tick(std::time::Duration::from_millis(100));

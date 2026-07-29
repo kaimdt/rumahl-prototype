@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use parking_lot::RwLock;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     sync::Arc,
@@ -7,6 +6,7 @@ use std::{
 };
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct CacheEntry<T> {
     data: T,
     expires_at: Instant,
@@ -18,6 +18,7 @@ pub struct Cache {
     expirations: Arc<DashMap<String, Instant>>,
 }
 
+#[allow(dead_code)]
 impl Cache {
     pub fn new() -> Self {
         Self {
@@ -35,9 +36,9 @@ impl Cache {
             }
         }
 
-        self.store.get(key).and_then(|entry| {
-            serde_json::from_slice(&entry).ok()
-        })
+        self.store
+            .get(key)
+            .and_then(|entry| serde_json::from_slice(&entry).ok())
     }
 
     pub fn set<T: Serialize>(&self, key: String, value: T, ttl: Duration) {

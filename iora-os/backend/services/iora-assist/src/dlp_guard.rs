@@ -1,13 +1,12 @@
 // DLP Guard & AI Token System – Sensitive data protection for all AI I/O
 // Prevents accidental leakage of passwords, tokens, secrets, credentials
 
-
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
 // ─── Sensitive Data Patterns ───────────────────────────────────────────────
@@ -165,7 +164,9 @@ impl DlpGuard {
         let customs = self.custom_patterns.read();
         for (regex, name, severity) in customs.iter() {
             if regex.is_match(&sanitized) {
-                sanitized = regex.replace_all(&sanitized, &format!("[REDACTED:{}]", name)).to_string();
+                sanitized = regex
+                    .replace_all(&sanitized, &format!("[REDACTED:{}]", name))
+                    .to_string();
                 findings.push(DlpFinding {
                     pattern_name: name.clone(),
                     severity: severity.clone(),
@@ -200,18 +201,31 @@ impl DlpGuard {
             result.blocked = true;
             result.reason = Some(format!(
                 "AI attempted to output sensitive data: {}",
-                result.findings.iter().map(|f| f.pattern_name.as_str()).collect::<Vec<_>>().join(", ")
+                result
+                    .findings
+                    .iter()
+                    .map(|f| f.pattern_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
             // Replace the entire output with a safe message
-            result.sanitized_text = "[Output blocked: contained sensitive data. This incident has been logged.]".into();
+            result.sanitized_text =
+                "[Output blocked: contained sensitive data. This incident has been logged.]".into();
         }
         result
     }
 
     /// Add a custom DLP pattern
-    pub fn add_custom_pattern(&self, pattern: &str, name: &str, severity: Severity) -> Result<(), String> {
+    pub fn add_custom_pattern(
+        &self,
+        pattern: &str,
+        name: &str,
+        severity: Severity,
+    ) -> Result<(), String> {
         let regex = Regex::new(pattern).map_err(|e| format!("Invalid regex: {}", e))?;
-        self.custom_patterns.write().push((regex, name.to_string(), severity));
+        self.custom_patterns
+            .write()
+            .push((regex, name.to_string(), severity));
         info!("DLP: Added custom pattern '{}'", name);
         Ok(())
     }
@@ -265,8 +279,8 @@ pub struct AiTokenConfig {
 impl Default for AiTokenConfig {
     fn default() -> Self {
         Self {
-            token_lifetime_secs: 3600,     // 1 hour
-            rotate_before_secs: 300,        // Rotate 5 minutes before expiry
+            token_lifetime_secs: 3600, // 1 hour
+            rotate_before_secs: 300,   // Rotate 5 minutes before expiry
             max_active_tokens: 3,
             default_scopes: vec![
                 "read:workspace".into(),
@@ -304,7 +318,9 @@ impl AiTokenManager {
         if tokens.len() >= config.max_active_tokens as usize {
             // Revoke the oldest token
             if let Some(_oldest) = tokens.first() {
-                self.revoke_log.write().push(("max_tokens_exceeded".into(), Utc::now()));
+                self.revoke_log
+                    .write()
+                    .push(("max_tokens_exceeded".into(), Utc::now()));
             }
             tokens.remove(0);
         }
@@ -348,9 +364,10 @@ impl AiTokenManager {
         hasher.update(token_value.as_bytes());
         let hash = hex::encode(hasher.finalize());
 
-        self.active_tokens.read().iter().any(|t| {
-            t.token_hash == hash && t.is_active && Utc::now() < t.expires_at
-        })
+        self.active_tokens
+            .read()
+            .iter()
+            .any(|t| t.token_hash == hash && t.is_active && Utc::now() < t.expires_at)
     }
 
     /// Revoke a token by hash
@@ -359,7 +376,9 @@ impl AiTokenManager {
         for t in tokens.iter_mut() {
             if t.token_hash == token_hash {
                 t.is_active = false;
-                self.revoke_log.write().push((reason.to_string(), Utc::now()));
+                self.revoke_log
+                    .write()
+                    .push((reason.to_string(), Utc::now()));
                 info!("AI Token revoked: {} ({})", t.label, reason);
                 return;
             }
@@ -373,7 +392,9 @@ impl AiTokenManager {
             t.is_active = false;
         }
         *self.current_token.write() = None;
-        self.revoke_log.write().push((reason.to_string(), Utc::now()));
+        self.revoke_log
+            .write()
+            .push((reason.to_string(), Utc::now()));
         warn!("ALL AI tokens revoked: {}", reason);
     }
 
@@ -405,10 +426,19 @@ impl AiTokenManager {
         }
     }
 
-    pub fn get_config(&self) -> AiTokenConfig { self.config.read().clone() }
-    pub fn update_config(&self, cfg: AiTokenConfig) { *self.config.write() = cfg; }
+    pub fn get_config(&self) -> AiTokenConfig {
+        self.config.read().clone()
+    }
+    pub fn update_config(&self, cfg: AiTokenConfig) {
+        *self.config.write() = cfg;
+    }
     pub fn get_active_tokens(&self) -> Vec<AiToken> {
-        self.active_tokens.read().iter().filter(|t| t.is_active).cloned().collect()
+        self.active_tokens
+            .read()
+            .iter()
+            .filter(|t| t.is_active)
+            .cloned()
+            .collect()
     }
     pub fn get_revoke_log(&self) -> Vec<(String, DateTime<Utc>)> {
         self.revoke_log.read().clone()

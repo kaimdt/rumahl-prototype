@@ -1,10 +1,10 @@
 // Evolution Engine - Core logic for ORA's self-improvement cycle
+use chrono::Utc;
 use std::path::PathBuf;
 use uuid::Uuid;
-use chrono::Utc;
 
 use crate::providers::{AIProvider, ChatMessage};
-use crate::self_evolution::{EvolutionProposal, EvolutionConfig};
+use crate::self_evolution::{EvolutionConfig, EvolutionProposal};
 
 /// The evolution engine orchestrates ORA's self-improvement cycle:
 /// 1. **Self-Assessment**: Analyze current codebase and identify improvement areas
@@ -85,13 +85,20 @@ impl EvolutionEngine {
             context
         );
 
-        let response = self.get_provider().chat(
-            vec![ChatMessage {
-                role: "user".to_string(),
-                content: prompt,
-            }],
-            Some("You are an AI system analyzing your own codebase for improvements.".to_string()),
-        ).await.map_err(|e| format!("Provider error: {}", e))?;
+        let response = self
+            .get_provider()
+            .chat(
+                vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: prompt,
+                }],
+                Some(
+                    "You are an AI system analyzing your own codebase for improvements."
+                        .to_string(),
+                ),
+            )
+            .await
+            .map_err(|e| format!("Provider error: {}", e))?;
 
         // Parse proposals from AI response
         let proposals: Vec<EvolutionProposal> = match serde_json::from_str(&response.message) {
@@ -152,5 +159,9 @@ impl EvolutionEngine {
 }
 
 fn truncate(s: &str, max_len: usize) -> &str {
-    if s.len() <= max_len { s } else { &s[..max_len] }
+    if s.len() <= max_len {
+        s
+    } else {
+        &s[..max_len]
+    }
 }

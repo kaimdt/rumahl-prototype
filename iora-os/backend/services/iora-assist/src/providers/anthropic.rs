@@ -1,5 +1,8 @@
 // Anthropic Claude Provider Implementation
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
+use super::{
+    AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError,
+    ProviderModel, SpeechSynthesis,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -70,7 +73,11 @@ impl AIProvider for AnthropicProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
-        let configured = self.config.model.as_deref().unwrap_or("claude-3-5-sonnet-20241022");
+        let configured = self
+            .config
+            .model
+            .as_deref()
+            .unwrap_or("claude-3-5-sonnet-20241022");
         Ok(vec![ProviderModel {
             id: configured.to_string(),
             name: configured.to_string(),
@@ -83,17 +90,25 @@ impl AIProvider for AnthropicProvider {
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
     ) -> Result<ChatResponse, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("Anthropic API key not configured")?;
 
-        let base_url = self.config.base_url.as_deref()
+        let base_url = self
+            .config
+            .base_url
+            .as_deref()
             .unwrap_or("https://api.anthropic.com/v1");
 
-        let model = self.config.model.as_deref()
+        let model = self
+            .config
+            .model
+            .as_deref()
             .unwrap_or("claude-3-5-sonnet-20241022");
 
-        let api_version = self.config.api_version.as_deref()
-            .unwrap_or("2023-06-01");
+        let api_version = self.config.api_version.as_deref().unwrap_or("2023-06-01");
 
         let anthropic_messages: Vec<AnthropicMessage> = messages
             .into_iter()
@@ -110,7 +125,8 @@ impl AIProvider for AnthropicProvider {
             system: system_prompt,
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/messages", base_url))
             .header("x-api-key", api_key)
             .header("anthropic-version", api_version)
@@ -126,13 +142,14 @@ impl AIProvider for AnthropicProvider {
 
         let anthropic_response: AnthropicChatResponse = response.json().await?;
 
-        let text = anthropic_response.content
+        let text = anthropic_response
+            .content
             .first()
             .map(|c| c.text.clone())
             .unwrap_or_default();
 
-        let total_tokens = anthropic_response.usage.input_tokens
-            + anthropic_response.usage.output_tokens;
+        let total_tokens =
+            anthropic_response.usage.input_tokens + anthropic_response.usage.output_tokens;
 
         Ok(ChatResponse {
             message: text,

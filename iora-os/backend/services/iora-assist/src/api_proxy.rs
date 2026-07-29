@@ -1,20 +1,16 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
-use serde::{Deserialize, Serialize};
-use crate::AppState;
 use crate::providers::ChatMessage;
+use crate::AppState;
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
-use regex::Regex;
-use std::collections::HashMap;
 use lazy_static::lazy_static;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // Simple privacy filter to mask emails and phone numbers
 lazy_static! {
-    static ref EMAIL_REGEX: Regex = Regex::new(r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})").unwrap();
+    static ref EMAIL_REGEX: Regex =
+        Regex::new(r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})").unwrap();
     static ref PHONE_REGEX: Regex = Regex::new(r"(\+?[0-9][0-9\- ]{7,14}[0-9])").unwrap();
 }
 
@@ -38,14 +34,30 @@ impl RequestPrivacyVault {
 
         for cap in EMAIL_REGEX.captures_iter(text) {
             let email = &cap[1];
-            let token = format!("[MASKED_EMAIL_{}]", uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect::<String>());
+            let token = format!(
+                "[MASKED_EMAIL_{}]",
+                uuid::Uuid::new_v4()
+                    .simple()
+                    .to_string()
+                    .chars()
+                    .take(8)
+                    .collect::<String>()
+            );
             self.map.insert(token.clone(), email.to_string());
             masked_text = masked_text.replace(email, &token);
         }
 
         for cap in PHONE_REGEX.captures_iter(&masked_text.clone()) {
             let phone = &cap[1];
-            let token = format!("[MASKED_PHONE_{}]", uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect::<String>());
+            let token = format!(
+                "[MASKED_PHONE_{}]",
+                uuid::Uuid::new_v4()
+                    .simple()
+                    .to_string()
+                    .chars()
+                    .take(8)
+                    .collect::<String>()
+            );
             self.map.insert(token.clone(), phone.to_string());
             masked_text = masked_text.replace(phone, &token);
         }
@@ -63,7 +75,6 @@ impl RequestPrivacyVault {
         unmasked_text
     }
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OpenAIChatRequest {
@@ -159,7 +170,6 @@ pub async fn chat_completions(
     State(state): State<AppState>,
     Json(req): Json<OpenAIChatRequest>,
 ) -> impl IntoResponse {
-
     let mut internal_messages = Vec::new();
     let mut system_prompt = None;
     let mut vault = RequestPrivacyVault::new();
@@ -179,7 +189,9 @@ pub async fn chat_completions(
     // We can add logic to intercept/block messages here if we detect certain keywords.
 
     let provider = state.current_provider.read().await;
-    let result = provider.chat(internal_messages.clone(), system_prompt).await;
+    let result = provider
+        .chat(internal_messages.clone(), system_prompt)
+        .await;
 
     match result {
         Ok(res) => {
@@ -191,22 +203,29 @@ pub async fn chat_completions(
                 let thread_id = uuid::Uuid::new_v4();
 
                 // Add the user message
-                let _ = cm.add_message(
-                    thread_id,
-                    "user",
-                    internal_messages.last().map(|m| m.content.as_str()).unwrap_or(""),
-                    Some("api_proxy"),
-                    crate::conversation_manager::MessageInitiator::User
-                ).await;
+                let _ = cm
+                    .add_message(
+                        thread_id,
+                        "user",
+                        internal_messages
+                            .last()
+                            .map(|m| m.content.as_str())
+                            .unwrap_or(""),
+                        Some("api_proxy"),
+                        crate::conversation_manager::MessageInitiator::User,
+                    )
+                    .await;
 
                 // Add the AI response
-                let _ = cm.add_message(
-                    thread_id,
-                    "assistant",
-                    &unmasked_response,
-                    Some("api_proxy"),
-                    crate::conversation_manager::MessageInitiator::AI
-                ).await;
+                let _ = cm
+                    .add_message(
+                        thread_id,
+                        "assistant",
+                        &unmasked_response,
+                        Some("api_proxy"),
+                        crate::conversation_manager::MessageInitiator::AI,
+                    )
+                    .await;
             }
 
             let choice = OpenAIChoice {
@@ -231,7 +250,11 @@ pub async fn chat_completions(
                 }),
             };
 
-            (StatusCode::OK, Json(serde_json::to_value(response).unwrap())).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(response).unwrap()),
+            )
+                .into_response()
         }
         Err(e) => {
             let error_json = serde_json::json!({

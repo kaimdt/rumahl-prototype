@@ -53,16 +53,13 @@ impl BackupEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn backup_dir(&self) -> &Path {
         &self.backup_dir
     }
 
     /// Create a new backup archive. Blocking — call from `spawn_blocking`.
-    pub fn create_backup(
-        &self,
-        name: &str,
-        opts: &BackupOptions,
-    ) -> anyhow::Result<BackupResult> {
+    pub fn create_backup(&self, name: &str, opts: &BackupOptions) -> anyhow::Result<BackupResult> {
         let id = Uuid::new_v4();
         let dir = opts
             .backup_dir
@@ -206,10 +203,7 @@ impl BackupEngine {
     /// Hardened via [`iora_shared::upload_store::SecureUploadStore`]: every
     /// tar entry is validated (no `..`, no absolute paths, no symlinks,
     /// per-file/total/entry-count caps) before being unpacked.
-    pub fn restore_backup(
-        &self,
-        archive_path: &Path,
-    ) -> anyhow::Result<PathBuf> {
+    pub fn restore_backup(&self, archive_path: &Path) -> anyhow::Result<PathBuf> {
         use iora_shared::upload_store::{SecureUploadStore, TarExtractLimits};
 
         let id = Uuid::new_v4();
@@ -235,10 +229,7 @@ impl BackupEngine {
         Ok(target)
     }
 
-    fn dump_postgres_to_tar<W: Write>(
-        &self,
-        tar: &mut tar::Builder<W>,
-    ) -> anyhow::Result<usize> {
+    fn dump_postgres_to_tar<W: Write>(&self, tar: &mut tar::Builder<W>) -> anyhow::Result<usize> {
         // Use pg_dump if available; fall back to a logical "info"
         // marker so the section is still recorded.
         let out = Command::new("pg_dump")

@@ -676,12 +676,14 @@ set +e
 if [ "${PROGRESS}" = true ]; then
     PATH="${SAFE_PATH}" \
         XZ_OPT="${XZ_OPT}" XZ_DEFAULTS="${XZ_DEFAULTS}" \
+        LD_LIBRARY_PATH="${BUILD_DIR}/output/host/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" \
         make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}
 else
     PATH="${SAFE_PATH}" \
         XZ_OPT="${XZ_OPT}" XZ_DEFAULTS="${XZ_DEFAULTS}" \
+        LD_LIBRARY_PATH="${BUILD_DIR}/output/host/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" \
         make -j"${JOBS}" 2>&1 | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}

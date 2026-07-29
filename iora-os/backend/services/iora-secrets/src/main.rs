@@ -9,13 +9,13 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use chrono::Utc;
+use iora_shared::system_config;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use iora_shared::system_config;
 use sqlx::{PgPool, Row};
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
@@ -60,6 +60,7 @@ struct CreateSecretRequest {
     created_by: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct UpdateSecretRequest {
     description: Option<String>,
@@ -165,7 +166,9 @@ async fn create_secret(
     let allowed_services = serde_json::to_value(req.allowed_services.unwrap_or_default())
         .map_err(|e| AppError::Internal(format!("JSON serialization failed: {}", e)))?;
 
-    let expires_at = req.expires_at.as_ref()
+    let expires_at = req
+        .expires_at
+        .as_ref()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.naive_utc());
 
@@ -174,7 +177,7 @@ async fn create_secret(
     sqlx::query(
         "INSERT INTO secrets (id, name, description, encrypted_value, encryption_nonce,
          secret_type, allowed_services, expires_at, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(id)
     .bind(&req.name)
@@ -209,13 +212,11 @@ async fn create_secret(
     ))
 }
 
-async fn list_secrets(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
+async fn list_secrets(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let rows = sqlx::query(
         "SELECT id, name, description, secret_type, allowed_services, expires_at,
          created_at, updated_at, created_by, rotation_count, last_rotated_at
-         FROM secrets ORDER BY created_at DESC"
+         FROM secrets ORDER BY created_at DESC",
     )
     .fetch_all(&*state.db)
     .await
@@ -228,14 +229,23 @@ async fn list_secrets(
             name: row.get("name"),
             description: row.get("description"),
             secret_type: row.get("secret_type"),
-            allowed_services: serde_json::from_value(row.get("allowed_services")).unwrap_or_default(),
-            expires_at: row.get::<Option<chrono::NaiveDateTime>, _>("expires_at")
+            allowed_services: serde_json::from_value(row.get("allowed_services"))
+                .unwrap_or_default(),
+            expires_at: row
+                .get::<Option<chrono::NaiveDateTime>, _>("expires_at")
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string()),
-            created_at: row.get::<chrono::NaiveDateTime, _>("created_at").format("%Y-%m-%dT%H:%M:%S").to_string(),
-            updated_at: row.get::<chrono::NaiveDateTime, _>("updated_at").format("%Y-%m-%dT%H:%M:%S").to_string(),
+            created_at: row
+                .get::<chrono::NaiveDateTime, _>("created_at")
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
+            updated_at: row
+                .get::<chrono::NaiveDateTime, _>("updated_at")
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
             created_by: row.get("created_by"),
             rotation_count: row.get("rotation_count"),
-            last_rotated_at: row.get::<Option<chrono::NaiveDateTime>, _>("last_rotated_at")
+            last_rotated_at: row
+                .get::<Option<chrono::NaiveDateTime>, _>("last_rotated_at")
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string()),
         })
         .collect();
@@ -252,7 +262,7 @@ async fn get_secret(
 ) -> Result<impl IntoResponse, AppError> {
     let row = sqlx::query(
         "SELECT id, name, encrypted_value, encryption_nonce, secret_type, allowed_services
-         FROM secrets WHERE id = $1"
+         FROM secrets WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&*state.db)
@@ -264,8 +274,8 @@ async fn get_secret(
     let nonce: Vec<u8> = row.get("encryption_nonce");
 
     // Decrypt the value
-    let decrypted_value = decrypt_value(&state.master_key, &encrypted_value, &nonce)
-        .map_err(|e| {
+    let decrypted_value =
+        decrypt_value(&state.master_key, &encrypted_value, &nonce).map_err(|e| {
             let err_msg = e.to_string();
             let db = state.db.clone();
             let log_msg = err_msg.clone();
@@ -304,14 +314,16 @@ async fn update_secret(
 
     // Update description and allowed_services if provided
     if req.description.is_some() || req.allowed_services.is_some() {
-        let allowed_services = req.allowed_services.as_ref()
+        let allowed_services = req
+            .allowed_services
+            .as_ref()
             .map(|v| serde_json::to_value(v).unwrap_or(serde_json::json!([])))
             .unwrap_or_else(|| serde_json::json!(null));
 
         sqlx::query(
             "UPDATE secrets SET description = COALESCE($1, description),
              allowed_services = COALESCE($2, allowed_services)
-             WHERE id = $3"
+             WHERE id = $3",
         )
         .bind(&req.description)
         .bind(allowed_services)
@@ -326,15 +338,13 @@ async fn update_secret(
         let (encrypted_value, nonce) = encrypt_value(&state.master_key, &new_value)
             .map_err(|e| AppError::Internal(format!("Encryption failed: {}", e)))?;
 
-        sqlx::query(
-            "UPDATE secrets SET encrypted_value = $1, encryption_nonce = $2 WHERE id = $3"
-        )
-        .bind(&encrypted_value)
-        .bind(&nonce)
-        .bind(id)
-        .execute(&*state.db)
-        .await
-        .map_err(AppError::Database)?;
+        sqlx::query("UPDATE secrets SET encrypted_value = $1, encryption_nonce = $2 WHERE id = $3")
+            .bind(&encrypted_value)
+            .bind(&nonce)
+            .bind(id)
+            .execute(&*state.db)
+            .await
+            .map_err(AppError::Database)?;
     }
 
     log_access(&state.db, id, "system", "update", true, None).await;
@@ -371,7 +381,8 @@ async fn rotate_secret(
     Path(id): Path<Uuid>,
     Json(req): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, AppError> {
-    let new_value = req.get("value")
+    let new_value = req
+        .get("value")
         .and_then(|v| v.as_str())
         .ok_or(AppError::BadRequest("Missing 'value' field".to_string()))?;
 
@@ -381,7 +392,7 @@ async fn rotate_secret(
     let result = sqlx::query(
         "UPDATE secrets SET encrypted_value = $1, encryption_nonce = $2,
          rotation_count = rotation_count + 1, last_rotated_at = NOW()
-         WHERE id = $3"
+         WHERE id = $3",
     )
     .bind(&encrypted_value)
     .bind(&nonce)
@@ -408,7 +419,7 @@ async fn get_audit_log(
 ) -> Result<impl IntoResponse, AppError> {
     let rows = sqlx::query(
         "SELECT id, secret_id, service_name, access_type, success, error_message, timestamp
-         FROM secret_access_log WHERE secret_id = $1 ORDER BY timestamp DESC LIMIT 100"
+         FROM secret_access_log WHERE secret_id = $1 ORDER BY timestamp DESC LIMIT 100",
     )
     .bind(id)
     .fetch_all(&*state.db)
@@ -424,7 +435,10 @@ async fn get_audit_log(
             access_type: row.get("access_type"),
             success: row.get("success"),
             error_message: row.get("error_message"),
-            timestamp: row.get::<chrono::NaiveDateTime, _>("timestamp").format("%Y-%m-%dT%H:%M:%S").to_string(),
+            timestamp: row
+                .get::<chrono::NaiveDateTime, _>("timestamp")
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
         })
         .collect();
 
@@ -450,7 +464,10 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             AppError::Database(e) => {
                 error!("Database error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error".to_string(),
+                )
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
@@ -522,8 +539,8 @@ async fn main() -> Result<()> {
         hex_string
     };
 
-    let master_key_bytes = hex::decode(&master_key_hex)
-        .context("SECRETS_MASTER_KEY must be a valid hex string")?;
+    let master_key_bytes =
+        hex::decode(&master_key_hex).context("SECRETS_MASTER_KEY must be a valid hex string")?;
 
     if master_key_bytes.len() != 32 {
         anyhow::bail!("SECRETS_MASTER_KEY must be exactly 32 bytes (64 hex characters)");
@@ -556,7 +573,10 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/secrets", post(create_secret).get(list_secrets))
-        .route("/api/secrets/:id", get(get_secret).put(update_secret).delete(delete_secret))
+        .route(
+            "/api/secrets/:id",
+            get(get_secret).put(update_secret).delete(delete_secret),
+        )
         .route("/api/secrets/:id/rotate", post(rotate_secret))
         .route("/api/secrets/:id/audit", get(get_audit_log))
         .layer(CorsLayer::permissive())

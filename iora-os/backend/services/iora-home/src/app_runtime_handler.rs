@@ -64,15 +64,11 @@ pub struct AppRuntimeAuditEntry {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AppRunMode {
+    #[default]
     Queued,
     Parallel,
-}
-
-impl Default for AppRunMode {
-    fn default() -> Self {
-        Self::Queued
-    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -341,7 +337,13 @@ pub async fn create_secret(
     let metadata = secret_metadata(&entry);
     secrets.push(entry);
     save_app_secrets(&state, &app_id, &secrets).await?;
-    record_audit(&app_id, "secret.create", "succeeded", Some(&metadata.name), None);
+    record_audit(
+        &app_id,
+        "secret.create",
+        "succeeded",
+        Some(&metadata.name),
+        None,
+    );
     Ok(Json(json!({ "success": true, "secret": metadata })))
 }
 
@@ -386,7 +388,13 @@ pub async fn update_secret(
     entry.updated_at = now_iso();
     let metadata = secret_metadata(entry);
     save_app_secrets(&state, &app_id, &secrets).await?;
-    record_audit(&app_id, "secret.update", "succeeded", Some(&metadata.name), None);
+    record_audit(
+        &app_id,
+        "secret.update",
+        "succeeded",
+        Some(&metadata.name),
+        None,
+    );
     Ok(Json(json!({ "success": true, "secret": metadata })))
 }
 
@@ -399,10 +407,19 @@ pub async fn delete_secret(
     let before = secrets.len();
     secrets.retain(|secret| secret.id != secret_id && secret.name != secret_id);
     if secrets.len() == before {
-        return Err(ErrorResponse::not_found(format!("secret '{}' not found", secret_id)));
+        return Err(ErrorResponse::not_found(format!(
+            "secret '{}' not found",
+            secret_id
+        )));
     }
     save_app_secrets(&state, &app_id, &secrets).await?;
-    record_audit(&app_id, "secret.delete", "succeeded", Some(&secret_id), None);
+    record_audit(
+        &app_id,
+        "secret.delete",
+        "succeeded",
+        Some(&secret_id),
+        None,
+    );
     Ok(Json(json!({ "success": true })))
 }
 
@@ -424,7 +441,13 @@ pub async fn reveal_secret(
         secret_type: entry.secret_type.clone(),
     };
     save_app_secrets(&state, &app_id, &secrets).await?;
-    record_audit(&app_id, "secret.reveal", "succeeded", Some(&response.name), None);
+    record_audit(
+        &app_id,
+        "secret.reveal",
+        "succeeded",
+        Some(&response.name),
+        None,
+    );
     Ok(Json(response))
 }
 
@@ -494,7 +517,11 @@ pub async fn run_job(
         logs: vec!["Job accepted by IORA app runtime".to_string()],
     };
 
-    RUNTIME.jobs.lock().unwrap().insert(job_id.clone(), job.clone());
+    RUNTIME
+        .jobs
+        .lock()
+        .unwrap()
+        .insert(job_id.clone(), job.clone());
     record_audit(&app_id, "job.create", "succeeded", Some(&job.action), None);
 
     match req.mode {
@@ -562,7 +589,10 @@ pub async fn network_probe(
     let requires_local = addresses.iter().any(|addr| is_local_ip(addr.ip()));
     if requires_local {
         require_permission(&state, &app_id, "NetworkLocalAccess").await?;
-        enforce_local_ip_policy(&app, &addresses.iter().map(|addr| addr.ip()).collect::<Vec<_>>())?;
+        enforce_local_ip_policy(
+            &app,
+            &addresses.iter().map(|addr| addr.ip()).collect::<Vec<_>>(),
+        )?;
     }
 
     let target = addresses[0];
@@ -604,11 +634,25 @@ pub async fn app_http_request(
         Err(err) => return err.into_response(),
     };
     if let Err(err) = enforce_http_rate_limit(&app_id, app_http_limit_per_minute(&app)) {
-        record_audit(&app_id, "http.request", "rate_limited", Some(&req.url), Some(&err.error));
+        record_audit(
+            &app_id,
+            "http.request",
+            "rate_limited",
+            Some(&req.url),
+            Some(&err.error),
+        );
         return err.into_response();
     }
-    if let Err(err) = validate_external_url(&req.url).and_then(|_| enforce_http_policy(&app, &req.url)) {
-        record_audit(&app_id, "http.request", "blocked", Some(&req.url), Some(&err.error));
+    if let Err(err) =
+        validate_external_url(&req.url).and_then(|_| enforce_http_policy(&app, &req.url))
+    {
+        record_audit(
+            &app_id,
+            "http.request",
+            "blocked",
+            Some(&req.url),
+            Some(&err.error),
+        );
         return err.into_response();
     }
 
@@ -624,7 +668,10 @@ pub async fn app_http_request(
         .header("User-Agent", format!("IORA-AppRuntime/1.0 app={app_id}"));
     for (name, value) in req.headers {
         let lower = name.to_ascii_lowercase();
-        if matches!(lower.as_str(), "host" | "authorization" | "cookie" | "content-length") {
+        if matches!(
+            lower.as_str(),
+            "host" | "authorization" | "cookie" | "content-length"
+        ) {
             continue;
         }
         request = request.header(name, value);
@@ -656,20 +703,35 @@ pub async fn app_http_request(
 
     match request.send().await {
         Ok(resp) => {
-            let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let status =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             let text = resp.text().await.unwrap_or_default();
             record_audit(
                 &app_id,
                 "http.request",
-                if status.is_success() { "succeeded" } else { "failed" },
+                if status.is_success() {
+                    "succeeded"
+                } else {
+                    "failed"
+                },
                 Some(&req.url),
                 Some(&format!("HTTP {}", status.as_u16())),
             );
-            (status, Json(json!({ "status": status.as_u16(), "body": text }))).into_response()
+            (
+                status,
+                Json(json!({ "status": status.as_u16(), "body": text })),
+            )
+                .into_response()
         }
         Err(err) => {
             let message = format!("external request failed: {err}");
-            record_audit(&app_id, "http.request", "failed", Some(&req.url), Some(&message));
+            record_audit(
+                &app_id,
+                "http.request",
+                "failed",
+                Some(&req.url),
+                Some(&message),
+            );
             ErrorResponse::bad_gateway(message).into_response()
         }
     }
@@ -757,7 +819,13 @@ async fn run_job_inner(state: AppState, app_id: String, job_id: String) {
             job.status = AppRuntimeStatus::Failed;
             job.error = Some(error.clone());
             job.logs.push(format!("Job failed: {error}"));
-            record_audit(&job.app_id, "job.finish", "failed", Some(&job.id), Some(&error));
+            record_audit(
+                &job.app_id,
+                "job.finish",
+                "failed",
+                Some(&job.id),
+                Some(&error),
+            );
         }
     });
     update_job(&job_id, |job| {
@@ -827,9 +895,9 @@ async fn save_app_secrets(
 ) -> Result<(), ErrorResponse> {
     let path = app_secrets_path(state, app_id)?;
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| ErrorResponse::internal(format!("failed to create app secrets dir: {e}")))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            ErrorResponse::internal(format!("failed to create app secrets dir: {e}"))
+        })?;
     }
     let body = serde_json::to_vec_pretty(secrets)
         .map_err(|e| ErrorResponse::internal(format!("failed to encode app secrets: {e}")))?;
@@ -886,7 +954,11 @@ async fn require_permission(
     permission: &str,
 ) -> Result<(), ErrorResponse> {
     ensure_app_exists(state, app_id).await?;
-    if state.local_appstore.has_permission(app_id, permission).await {
+    if state
+        .local_appstore
+        .has_permission(app_id, permission)
+        .await
+    {
         Ok(())
     } else {
         Err(ErrorResponse::forbidden(format!(
@@ -924,10 +996,12 @@ fn enforce_http_rate_limit(app_id: &str, limit_per_minute: u32) -> Result<(), Er
     }
     let minute = chrono::Utc::now().timestamp() / 60;
     let mut limits = RUNTIME.http_rate_limits.lock().unwrap();
-    let window = limits.entry(app_id.to_string()).or_insert_with(|| AppRateLimitWindow {
-        window_minute: minute,
-        count: 0,
-    });
+    let window = limits
+        .entry(app_id.to_string())
+        .or_insert_with(|| AppRateLimitWindow {
+            window_minute: minute,
+            count: 0,
+        });
     if window.window_minute != minute {
         window.window_minute = minute;
         window.count = 0;
@@ -943,11 +1017,12 @@ fn enforce_http_rate_limit(app_id: &str, limit_per_minute: u32) -> Result<(), Er
 }
 
 fn app_http_limit_per_minute(app: &crate::local_appstore::InstalledApp) -> u32 {
-    let runtime = app
-        .manifest
-        .extra
-        .get("runtime")
-        .or_else(|| app.manifest.extra.get("capabilities").and_then(|value| value.get("runtime")));
+    let runtime = app.manifest.extra.get("runtime").or_else(|| {
+        app.manifest
+            .extra
+            .get("capabilities")
+            .and_then(|value| value.get("runtime"))
+    });
     runtime
         .and_then(|runtime| runtime.get("limits"))
         .and_then(|limits| limits.get("http_per_minute"))
@@ -999,7 +1074,12 @@ fn allowed_http_domains(app: &crate::local_appstore::InstalledApp) -> Vec<String
         .and_then(|value| value.get("allowed_domains"))
         .and_then(|value| value.as_array())
     {
-        domains.extend(items.iter().filter_map(|value| value.as_str()).map(str::to_string));
+        domains.extend(
+            items
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::to_string),
+        );
     }
     if let Some(items) = app
         .manifest
@@ -1094,7 +1174,11 @@ fn validate_external_url(url: &str) -> Result<(), ErrorResponse> {
         .map_err(|e| ErrorResponse::bad_request(format!("invalid url: {e}")))?;
     match parsed.scheme() {
         "http" | "https" => {}
-        _ => return Err(ErrorResponse::bad_request("only http and https URLs are allowed")),
+        _ => {
+            return Err(ErrorResponse::bad_request(
+                "only http and https URLs are allowed",
+            ))
+        }
     }
     if let Some(host) = parsed.host_str() {
         let lower = host.to_ascii_lowercase();

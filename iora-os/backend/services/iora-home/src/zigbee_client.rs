@@ -5,17 +5,12 @@ use tracing::info;
 /// Works via two modes:
 /// 1. Zigbee2MQTT (subscribes to zigbee2mqtt/# topics via MQTT client)
 /// 2. ZHA (via HA entity cache, filtering for ZHA entities)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Default)]
 pub enum ZigbeeMode {
     Zigbee2Mqtt,
     Zha,
+    #[default]
     Auto,
-}
-
-impl Default for ZigbeeMode {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

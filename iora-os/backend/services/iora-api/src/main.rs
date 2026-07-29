@@ -17,18 +17,18 @@ use axum::{
     routing::{any, get, post},
     Router,
 };
+use iora_shared::system_config;
 use serde::Deserialize;
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
-use iora_shared::system_config;
 
 mod auth;
-mod graphql;
-mod webdav;
-mod mqtt_bridge;
 mod caldav;
+mod graphql;
+mod mqtt_bridge;
+mod webdav;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -138,7 +138,10 @@ async fn main() -> Result<()> {
         // Health
         .route("/health", get(health_check))
         // GraphQL (public playground + authenticated queries)
-        .route("/graphql", get(graphql::graphql_playground).post(graphql::graphql_handler))
+        .route(
+            "/graphql",
+            get(graphql::graphql_playground).post(graphql::graphql_handler),
+        )
         .route("/graphql/ws", get(graphql::graphql_ws_handler))
         // WebDAV (file access via standard WebDAV protocol)
         .route("/webdav/*path", any(webdav::webdav_handler))
@@ -161,11 +164,7 @@ async fn main() -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("IORA API gateway listening on {}", addr);
-    let _hb = iora_shared::heartbeat::spawn_default(
-        "iora-api",
-        addr.port(),
-        "REST v2 API surface",
-    );
+    let _hb = iora_shared::heartbeat::spawn_default("iora-api", addr.port(), "REST v2 API surface");
     info!("  GraphQL:   http://{}:{}/graphql", "0.0.0.0", port);
     info!("  WebDAV:    http://{}:{}/webdav/", "0.0.0.0", port);
     info!("  CalDAV:    http://{}:{}/caldav/", "0.0.0.0", port);
@@ -256,6 +255,7 @@ async fn list_interfaces(State(_state): State<Arc<AppState>>) -> impl IntoRespon
 
 // ─── Metrics ────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MetricsQuery {
     interface_type: Option<String>,
@@ -308,13 +308,18 @@ struct V2ListQuery {
     #[serde(default = "default_per_page")]
     per_page: i32,
     #[serde(default)]
+    #[allow(dead_code)]
     sort: Option<String>,
     #[serde(default)]
     state: Option<String>, // filter by state value
 }
 
-fn default_page() -> i32 { 1 }
-fn default_per_page() -> i32 { 50 }
+fn default_page() -> i32 {
+    1
+}
+fn default_per_page() -> i32 {
+    50
+}
 
 async fn v2_list_entities(
     State(state): State<Arc<AppState>>,
@@ -377,7 +382,7 @@ async fn v2_list_entities(
     }
 
     let total = filtered.len() as i32;
-    let per_page = query.per_page.min(200).max(1);
+    let per_page = query.per_page.clamp(1, 200);
     let page = query.page.max(1);
     let offset = (page - 1) * per_page;
     let total_pages = (total as f64 / per_page as f64).ceil() as i32;
@@ -435,7 +440,9 @@ async fn v2_get_entity(
         return Err((StatusCode::NOT_FOUND, "Entity not found".to_string()));
     }
 
-    let entity: serde_json::Value = resp.json().await
+    let entity: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     Ok(Json(entity))
@@ -465,7 +472,9 @@ async fn v2_entity_history(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    let history: serde_json::Value = resp.json().await
+    let history: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     Ok(Json(serde_json::json!({
@@ -501,7 +510,10 @@ async fn v2_call_service(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = extract_bearer(&headers)?;
 
-    let url = format!("{}/api/services/{}/{}", state.iora_home_url, domain, service);
+    let url = format!(
+        "{}/api/services/{}/{}",
+        state.iora_home_url, domain, service
+    );
     let resp = state
         .http_client
         .post(&url)
@@ -542,10 +554,7 @@ async fn v2_trigger_automation(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = extract_bearer(&headers)?;
 
-    let url = format!(
-        "{}/api/services/automation/trigger",
-        state.iora_home_url
-    );
+    let url = format!("{}/api/services/automation/trigger", state.iora_home_url);
     let body = serde_json::json!({ "entity_id": format!("automation.{}", automation_id) });
 
     let resp = state
@@ -557,7 +566,10 @@ async fn v2_trigger_automation(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    let result: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!({"triggered": true}));
+    let result: serde_json::Value = resp
+        .json()
+        .await
+        .unwrap_or(serde_json::json!({"triggered": true}));
     Ok(Json(result))
 }
 
@@ -567,10 +579,12 @@ async fn v2_list_areas(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = extract_bearer(&headers)?;
 
-    let resp = state.http_client
+    let resp = state
+        .http_client
         .get(format!("{}/api/admin/ha/areas", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
-        .send().await
+        .send()
+        .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     let areas: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!([]));
@@ -583,10 +597,12 @@ async fn v2_list_devices(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = extract_bearer(&headers)?;
 
-    let resp = state.http_client
+    let resp = state
+        .http_client
         .get(format!("{}/api/admin/ha/devices", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
-        .send().await
+        .send()
+        .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     let devices: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!([]));
@@ -599,10 +615,12 @@ async fn v2_list_users(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = extract_bearer(&headers)?;
 
-    let resp = state.http_client
+    let resp = state
+        .http_client
         .get(format!("{}/api/auth/users", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
-        .send().await
+        .send()
+        .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     let users: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!([]));
@@ -617,13 +635,19 @@ async fn v2_batch_request(
     let token = extract_bearer(&headers)?;
 
     if body.len() > 20 {
-        return Err((StatusCode::BAD_REQUEST, "Maximum 20 batch operations".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Maximum 20 batch operations".to_string(),
+        ));
     }
 
     let mut results = Vec::new();
 
     for (idx, request) in body.iter().enumerate() {
-        let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("GET");
+        let method = request
+            .get("method")
+            .and_then(|m| m.as_str())
+            .unwrap_or("GET");
         let path = request.get("path").and_then(|p| p.as_str()).unwrap_or("");
         let req_body = request.get("body").cloned();
 
@@ -673,11 +697,19 @@ fn extract_bearer(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
     let auth = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization header".to_string(),
+            )
+        })?;
 
-    let token = auth
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid Authorization format".to_string()))?;
+    let token = auth.strip_prefix("Bearer ").ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid Authorization format".to_string(),
+        )
+    })?;
 
     Ok(token.to_string())
 }

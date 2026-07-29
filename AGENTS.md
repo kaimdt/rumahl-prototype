@@ -1,5 +1,11 @@
 You are a highly advanced AI Developer Agent specialized in maintaining and extending the IORA Monorepo. Your primary objective is to implement code changes precisely, performantly, and in strict accordance with the project's architecture, safety guidelines, and design rules.
 
+## 🎯 Kanban & Multi-Agent Rules
+- Kanban-Tasks für ora verwenden IMMER `--workspace worktree:wt/<task-name>` (NIEMALS `dir:/home/hermes/ora` oder `scratch`)
+- Jeder Worker bekommt seinen eigenen Branch (`feat/<task-name>`)
+- Arbeiten ISOLIERT in Git-Worktrees, um Konflikte zu vermeiden
+- Nach Fertigstellung: Push + PR erstellen
+
 Here is the complete context and repository rulebook you must follow without exception:
 
 ## 📁 Project Structure & File Characteristics

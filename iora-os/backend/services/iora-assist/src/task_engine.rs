@@ -1,7 +1,7 @@
 // Autonomous Task Engine
 // Executes scheduled tasks in the background without user intervention
 
-use crate::database::{DbPool, tasks as db_tasks};
+use crate::database::{tasks as db_tasks, DbPool};
 use crate::orchestrator::ProviderOrchestrator;
 use crate::providers::ChatMessage;
 use crate::schedule_engine::{ParsedSchedule, RecurrenceType, ScheduleEngine};
@@ -57,7 +57,9 @@ impl TaskEngine {
 
                 // Auto-resume tasks whose temporary pause has expired
                 match crate::database::tasks::resume_expired_pauses(&db).await {
-                    Ok(n) if n > 0 => tracing::info!("Auto-resumed {} temporarily paused task(s)", n),
+                    Ok(n) if n > 0 => {
+                        tracing::info!("Auto-resumed {} temporarily paused task(s)", n)
+                    }
                     Ok(_) => {}
                     Err(e) => tracing::warn!("Failed to resume expired pauses: {}", e),
                 }
@@ -86,10 +88,7 @@ impl TaskEngine {
             //   - Recurring system tasks use `next_execution_at` (derived from their cron schedule).
             // `trigger_at` takes precedence so that user-requested reminders fire at the
             // exact time requested rather than the cron-calculated slot.
-            let exec_time = task
-                .trigger_at
-                .as_ref()
-                .or(task.next_execution_at.as_ref());
+            let exec_time = task.trigger_at.as_ref().or(task.next_execution_at.as_ref());
 
             if let Some(next_exec) = exec_time {
                 if *next_exec > now {
@@ -97,7 +96,11 @@ impl TaskEngine {
                 }
             }
 
-            tracing::info!("Executing autonomous task: {} ({})", task.name, task.task_type);
+            tracing::info!(
+                "Executing autonomous task: {} ({})",
+                task.name,
+                task.task_type
+            );
 
             let start_time = std::time::Instant::now();
             let result = Self::execute_task(db, orchestrator, &task).await;
@@ -106,7 +109,7 @@ impl TaskEngine {
             // Record execution
             let success = result.is_ok();
             let error_message = result.as_ref().err().map(|e| e.to_string());
-            let result_data = result.unwrap_or_else(|_| Value::Null);
+            let result_data = result.unwrap_or(Value::Null);
 
             if let Err(e) = db_tasks::record_execution(
                 db,
@@ -125,7 +128,7 @@ impl TaskEngine {
             // Disable one-shot tasks after execution.
             // For recurring tasks, calculate the next execution time and update the DB.
             if task.is_one_shot || task.recurrence_type == "once" {
-                if let Err(e) = db_tasks::set_enabled(&db, task.id, false).await {
+                if let Err(e) = db_tasks::set_enabled(db, task.id, false).await {
                     tracing::error!("Failed to disable one-shot task {}: {}", task.id, e);
                 }
             } else {
@@ -147,13 +150,17 @@ impl TaskEngine {
                         task.occurrence_limit,
                         end_reached
                     );
-                    if let Err(e) = db_tasks::set_enabled(&db, task.id, false).await {
-                        tracing::error!("Failed to disable completed recurring task {}: {}", task.id, e);
+                    if let Err(e) = db_tasks::set_enabled(db, task.id, false).await {
+                        tracing::error!(
+                            "Failed to disable completed recurring task {}: {}",
+                            task.id,
+                            e
+                        );
                     }
                 } else {
                     // Advance to next trigger using the schedule engine
                     let next_at = compute_next_trigger_for_task(&task, now);
-                    if let Err(e) = db_tasks::update_next_execution(&db, task.id, next_at).await {
+                    if let Err(e) = db_tasks::update_next_execution(db, task.id, next_at).await {
                         tracing::error!("Failed to advance recurring task {}: {}", task.id, e);
                     } else {
                         tracing::debug!(
@@ -195,7 +202,9 @@ impl TaskEngine {
         orchestrator: &Arc<ProviderOrchestrator>,
         task: &db_tasks::AutonomousTask,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-        let action = task.config.get("action")
+        let action = task
+            .config
+            .get("action")
             .and_then(|a| a.as_str())
             .unwrap_or("analyze");
 
@@ -210,7 +219,11 @@ impl TaskEngine {
         }];
 
         let response = orchestrator
-            .execute_chat(messages, Some("You are a pi.dev agent payload generator.".to_string()), None)
+            .execute_chat(
+                messages,
+                Some("You are a pi.dev agent payload generator.".to_string()),
+                None,
+            )
             .await?;
 
         // Here we could add logic to post `response.message` to pi.dev via webhook if a URL was provided
@@ -229,7 +242,9 @@ impl TaskEngine {
         orchestrator: &Arc<ProviderOrchestrator>,
         task: &db_tasks::AutonomousTask,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-        let entities = task.config.get("check_entities")
+        let entities = task
+            .config
+            .get("check_entities")
             .and_then(|e| e.as_array())
             .map(|arr| {
                 arr.iter()
@@ -251,7 +266,11 @@ impl TaskEngine {
         }];
 
         let response = orchestrator
-            .execute_chat(messages, Some("You are a home monitoring assistant.".to_string()), None)
+            .execute_chat(
+                messages,
+                Some("You are a home monitoring assistant.".to_string()),
+                None,
+            )
             .await?;
 
         // Queue notification if anomalies found
@@ -285,7 +304,9 @@ impl TaskEngine {
         orchestrator: &Arc<ProviderOrchestrator>,
         task: &db_tasks::AutonomousTask,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-        let lookahead_hours = task.config.get("lookahead_hours")
+        let lookahead_hours = task
+            .config
+            .get("lookahead_hours")
             .and_then(|h| h.as_i64())
             .unwrap_or(24);
 
@@ -301,7 +322,11 @@ impl TaskEngine {
         }];
 
         let response = orchestrator
-            .execute_chat(messages, Some("You are a calendar assistant.".to_string()), None)
+            .execute_chat(
+                messages,
+                Some("You are a calendar assistant.".to_string()),
+                None,
+            )
             .await?;
 
         // Queue notification for upcoming events
@@ -334,7 +359,9 @@ impl TaskEngine {
         orchestrator: &Arc<ProviderOrchestrator>,
         task: &db_tasks::AutonomousTask,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-        let min_confidence = task.config.get("min_confidence")
+        let min_confidence = task
+            .config
+            .get("min_confidence")
             .and_then(|c| c.as_f64())
             .unwrap_or(0.7);
 
@@ -351,7 +378,11 @@ impl TaskEngine {
         }];
 
         let response = orchestrator
-            .execute_chat(messages, Some("You are an automation expert assistant.".to_string()), None)
+            .execute_chat(
+                messages,
+                Some("You are an automation expert assistant.".to_string()),
+                None,
+            )
             .await?;
 
         Ok(serde_json::json!({
@@ -367,7 +398,9 @@ impl TaskEngine {
         orchestrator: &Arc<ProviderOrchestrator>,
         task: &db_tasks::AutonomousTask,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-        let reminder_text = task.config.get("reminder_text")
+        let reminder_text = task
+            .config
+            .get("reminder_text")
             .and_then(|t| t.as_str())
             .unwrap_or("Check task configuration");
 
@@ -377,7 +410,11 @@ impl TaskEngine {
         }];
 
         let response = orchestrator
-            .execute_chat(messages, Some("You are a helpful reminder assistant.".to_string()), None)
+            .execute_chat(
+                messages,
+                Some("You are a helpful reminder assistant.".to_string()),
+                None,
+            )
             .await?;
 
         Ok(serde_json::json!({
@@ -392,21 +429,20 @@ impl TaskEngine {
         _orchestrator: &Arc<ProviderOrchestrator>,
         task: &db_tasks::AutonomousTask,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-        let message = task.config.get("message")
+        let message = task
+            .config
+            .get("message")
             .and_then(|m| m.as_str())
             .ok_or("Missing message in notification task config")?;
 
-        let priority = task.config.get("priority")
+        let priority = task
+            .config
+            .get("priority")
             .and_then(|p| p.as_i64())
             .unwrap_or(0) as i32;
 
         if let Err(e) = crate::database::notifications::queue_notification(
-            db,
-            None,
-            message,
-            "info",
-            priority,
-            None,
+            db, None, message, "info", priority, None,
         )
         .await
         {
@@ -459,12 +495,12 @@ fn compute_next_trigger_for_task(
 ) -> Option<DateTime<Utc>> {
     // Build a minimal ParsedSchedule from the task DB row
     let recurrence_type = match task.recurrence_type.as_str() {
-        "hourly"   => RecurrenceType::Hourly,
-        "daily"    => RecurrenceType::Daily,
+        "hourly" => RecurrenceType::Hourly,
+        "daily" => RecurrenceType::Daily,
         "weekdays" => RecurrenceType::Weekdays,
-        "weekly"   => RecurrenceType::Weekly,
-        "custom"   => RecurrenceType::Custom,
-        _          => return None, // "once" and unknown → no next occurrence
+        "weekly" => RecurrenceType::Weekly,
+        "custom" => RecurrenceType::Custom,
+        _ => return None, // "once" and unknown → no next occurrence
     };
 
     // Parse days_of_week from JSONB (stored as JSON array of u8)
@@ -476,7 +512,11 @@ fn compute_next_trigger_for_task(
                 .filter_map(|v| {
                     // ISO weekday values are 1–7; reject anything outside that range
                     let n = v.as_u64()?;
-                    if (1..=7).contains(&n) { u8::try_from(n).ok() } else { None }
+                    if (1..=7).contains(&n) {
+                        u8::try_from(n).ok()
+                    } else {
+                        None
+                    }
                 })
                 .collect()
         })

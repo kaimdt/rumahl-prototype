@@ -104,8 +104,14 @@ impl DatabaseManager {
                 .await?;
 
             // Track in our system
-            self.track_user(service_name, &user_name, &db_name, &password, service_config.conn_limit)
-                .await?;
+            self.track_user(
+                service_name,
+                &user_name,
+                &db_name,
+                &password,
+                service_config.conn_limit,
+            )
+            .await?;
 
             // Write connection string to service-specific location
             self.write_connection_string(service_name, &user_name, &password, &db_name)
@@ -117,12 +123,11 @@ impl DatabaseManager {
 
     async fn create_database_if_not_exists(&self, db_name: &str, force: bool) -> Result<()> {
         // Check if database exists
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
-        )
-        .bind(db_name)
-        .fetch_one(&self.pool)
-        .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
+                .bind(db_name)
+                .fetch_one(&self.pool)
+                .await?;
 
         if exists && !force {
             tracing::debug!("Database {} already exists", db_name);
@@ -163,8 +168,8 @@ impl DatabaseManager {
         conn_limit: i32,
     ) -> Result<()> {
         let password_hash = Self::hash_password(password);
-        let next_rotation = chrono::Utc::now()
-            + chrono::Duration::days(self.config.rotation.interval_days as i64);
+        let next_rotation =
+            chrono::Utc::now() + chrono::Duration::days(self.config.rotation.interval_days as i64);
 
         sqlx::query(
             r#"
@@ -212,7 +217,10 @@ impl DatabaseManager {
         password: &str,
         database: &str,
     ) -> Result<()> {
-        let conn_str = format!("postgres://{}:{}@localhost:5432/{}", username, password, database);
+        let conn_str = format!(
+            "postgres://{}:{}@localhost:5432/{}",
+            username, password, database
+        );
 
         // Write to /etc/iora/db-credentials/{service}.env
         let cred_dir = Path::new("/etc/iora/db-credentials");
@@ -240,6 +248,7 @@ impl DatabaseManager {
         self.rotation.rotate_all(notify).await
     }
 
+    #[allow(clippy::type_complexity)]
     pub async fn print_status(&self) -> Result<()> {
         let users: Vec<(String, String, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, i32, i32)> =
             sqlx::query_as(
@@ -253,7 +262,10 @@ impl DatabaseManager {
             .await?;
 
         println!("\n{:─<100}", "");
-        println!("{:<20} {:<25} {:<25} {:<12} {:<8}", "Service", "Username", "Database", "Next Rotation", "Rotations");
+        println!(
+            "{:<20} {:<25} {:<25} {:<12} {:<8}",
+            "Service", "Username", "Database", "Next Rotation", "Rotations"
+        );
         println!("{:─<100}", "");
 
         for (service, username, database, _created, next_rot, rot_count, _conn_limit) in users {
@@ -274,7 +286,12 @@ impl DatabaseManager {
         Ok(())
     }
 
-    pub async fn create_service(&self, service: &str, db_name: &str, conn_limit: i32) -> Result<()> {
+    pub async fn create_service(
+        &self,
+        service: &str,
+        db_name: &str,
+        conn_limit: i32,
+    ) -> Result<()> {
         self.create_database_if_not_exists(db_name, false).await?;
 
         let user_name = self.config.get_user_name(service);
@@ -294,12 +311,11 @@ impl DatabaseManager {
     }
 
     pub async fn drop_service(&self, service: &str) -> Result<()> {
-        let user_info: Option<(String, String)> = sqlx::query_as(
-            "SELECT username, database_name FROM _iora_db_users WHERE service = $1",
-        )
-        .bind(service)
-        .fetch_optional(&self.pool)
-        .await?;
+        let user_info: Option<(String, String)> =
+            sqlx::query_as("SELECT username, database_name FROM _iora_db_users WHERE service = $1")
+                .bind(service)
+                .fetch_optional(&self.pool)
+                .await?;
 
         if let Some((username, db_name)) = user_info {
             // Drop user
@@ -380,11 +396,10 @@ impl DatabaseManager {
     }
 
     pub async fn backup_all_databases(&self, backup_dir: &Path) -> Result<Vec<String>> {
-        let databases: Vec<(String,)> = sqlx::query_as(
-            "SELECT datname FROM pg_database WHERE datname LIKE 'iora_%'",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let databases: Vec<(String,)> =
+            sqlx::query_as("SELECT datname FROM pg_database WHERE datname LIKE 'iora_%'")
+                .fetch_all(&self.pool)
+                .await?;
 
         let mut files = Vec::new();
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
@@ -402,7 +417,11 @@ impl DatabaseManager {
                 .await?;
 
             if !output.status.success() {
-                tracing::error!("Failed to backup {}: {}", db_name, String::from_utf8_lossy(&output.stderr));
+                tracing::error!(
+                    "Failed to backup {}: {}",
+                    db_name,
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 continue;
             }
 
@@ -444,7 +463,8 @@ impl DatabaseManager {
     }
 
     fn generate_password(length: usize) -> String {
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+        const CHARSET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
         let mut rng = rand::thread_rng();
         (0..length)
             .map(|_| {

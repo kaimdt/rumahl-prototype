@@ -2,7 +2,7 @@ use axum::{
     extract::{Request, State},
     http::{HeaderMap, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
@@ -15,12 +15,12 @@ pub struct AuthState {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,       // user ID
+    pub sub: String, // user ID
     pub username: String,
     pub role: String,
     pub is_admin: bool,
-    pub exp: usize,        // expiration time
-    pub iat: usize,        // issued at
+    pub exp: usize, // expiration time
+    pub iat: usize, // issued at
 }
 
 /// Extract and validate JWT token from Authorization header
@@ -44,7 +44,7 @@ pub async fn auth_middleware(
     // Validate JWT
     let mut validation = Validation::default();
     validation.validate_exp = true;
-    
+
     let token_data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
@@ -57,7 +57,10 @@ pub async fn auth_middleware(
 
     // Check admin permissions
     if !token_data.claims.is_admin {
-        tracing::warn!("Non-admin user attempted to access control center: {}", token_data.claims.username);
+        tracing::warn!(
+            "Non-admin user attempted to access control center: {}",
+            token_data.claims.username
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -68,6 +71,7 @@ pub async fn auth_middleware(
 }
 
 /// Optional auth middleware that allows unauthenticated requests but extracts claims if present
+#[allow(dead_code)]
 pub async fn optional_auth_middleware(
     State(state): State<Arc<AuthState>>,
     headers: HeaderMap,
@@ -88,11 +92,12 @@ pub async fn optional_auth_middleware(
             }
         }
     }
-    
+
     next.run(request).await
 }
 
 /// Extract claims from request extensions
+#[allow(dead_code)]
 pub fn get_claims(request: &Request) -> Option<Claims> {
     request.extensions().get::<Claims>().cloned()
 }

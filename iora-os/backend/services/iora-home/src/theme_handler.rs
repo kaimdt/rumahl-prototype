@@ -581,18 +581,16 @@ impl ThemeState {
                 if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
                     if let Some((parent_row, _)) = cache.get(parent_id) {
                         // Merge parent CSS variables (child wins)
-                        let parent_vars: HashMap<String, String> = serde_json::from_str(
-                            &parent_row.css_variables,
-                        )
-                        .unwrap_or_else(|e| {
-                            tracing::warn!(
+                        let parent_vars: HashMap<String, String> =
+                            serde_json::from_str(&parent_row.css_variables).unwrap_or_else(|e| {
+                                tracing::warn!(
                                 "Failed to parse parent css_variables for theme {} (parent={}): {}",
                                 row.id,
                                 parent_id,
                                 e
                             );
-                            HashMap::new()
-                        });
+                                HashMap::new()
+                            });
                         for (k, v) in parent_vars {
                             vars.entry(k).or_insert(v);
                         }
@@ -878,7 +876,7 @@ impl ThemeState {
             return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
         }
         let file = self.themes_dir.join(theme_id).join(&clean);
-        if !file.exists() || !file.starts_with(&self.themes_dir.join(theme_id)) {
+        if !file.exists() || !file.starts_with(self.themes_dir.join(theme_id)) {
             return Err((StatusCode::NOT_FOUND, "File not found".into()));
         }
         let data = tokio::fs::read(&file)
@@ -899,7 +897,7 @@ impl ThemeState {
 
 // ─── Helper functions ───────────────────────────────────────────────
 
-fn mime_type(path: &str) -> &'static str {
+pub fn mime_type(path: &str) -> &'static str {
     if path.ends_with(".css") {
         "text/css"
     } else if path.ends_with(".js") {
@@ -1010,15 +1008,15 @@ pub async fn list_themes(
         .iter()
         .map(|r| {
             let r = map_theme_row(r);
-            let preview = r.preview_image.as_ref().and_then(|p| {
+            let preview = r.preview_image.as_ref().map(|p| {
                 if p.starts_with("file:") {
-                    Some(format!(
+                    format!(
                         "/api/themes/assets/{}/{}",
                         r.id,
                         p.trim_start_matches("file:")
-                    ))
+                    )
                 } else {
-                    Some(p.clone())
+                    p.clone()
                 }
             });
             iora_shared::theme::InstalledTheme {
@@ -1197,7 +1195,7 @@ pub async fn set_default_theme(
          ON CONFLICT (preference_key) DO UPDATE SET \
          preference_value = $3, updated_at = NOW()"
     )
-    .bind(&format!("default_theme_{}", uuid::Uuid::new_v4()))
+    .bind(format!("default_theme_{}", uuid::Uuid::new_v4()))
     .bind("default_theme")
     .bind(&json)
     .execute(&gs.db_pool)
@@ -1369,7 +1367,7 @@ pub async fn update_user_theme_settings(
              ON CONFLICT (profile_id, theme_id, setting_key) DO UPDATE SET 
              setting_value = $6, updated_at = $8"
         )
-        .bind(&format!("uts_{}", uuid::Uuid::new_v4()))
+        .bind(format!("uts_{}", uuid::Uuid::new_v4()))
         .bind(&profile_id).bind(&profile_id).bind(&theme_id)
         .bind(key).bind(&value_str).bind(now).bind(now)
         .execute(&mut *tx).await

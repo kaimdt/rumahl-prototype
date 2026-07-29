@@ -1,20 +1,22 @@
 // Local `App` struct collides with `actix_web::App`, so alias the import.
-use actix_web::{get, post, delete, web, App as ActixApp, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, get, post, web, App as ActixApp, HttpResponse, HttpServer, Responder};
 use chrono::{DateTime, Utc};
 use iora_shared::app_manifest::{AppManifest, TrustLevel};
 use iora_shared::port_manager::PortManager;
+use iora_shared::system_config;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
-use iora_shared::system_config;
 
 /// IORA App Store Service
 ///
 /// Manages app discovery, installation, and lifecycle.
 /// Integrates with appstore.kaimdt.com and supports ZIP uploads.
 
+#[allow(clippy::empty_line_after_doc_comments)]
+#[allow(dead_code)]
 struct AppState {
     db: PgPool,
     port_manager: Arc<PortManager>,
@@ -42,6 +44,7 @@ struct App {
     container_name: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 struct AppPermission {
     id: Uuid,
@@ -73,6 +76,7 @@ struct AppSettings {
 
 // ─── API Request/Response Models ─────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SearchQuery {
     q: Option<String>,
@@ -81,6 +85,7 @@ struct SearchQuery {
     offset: Option<i64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct InstallRequest {
     /// App ID from store
@@ -147,10 +152,7 @@ async fn health() -> impl Responder {
 
 /// Search apps in the store
 #[get("/api/appstore/search")]
-async fn search_apps(
-    query: web::Query<SearchQuery>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+async fn search_apps(query: web::Query<SearchQuery>, data: web::Data<AppState>) -> impl Responder {
     // This would query the remote appstore.kaimdt.com
     // For now, we'll query local installed apps
 
@@ -158,7 +160,7 @@ async fn search_apps(
     let offset = query.offset.unwrap_or(0);
 
     let apps = match sqlx::query_as::<_, App>(
-        "SELECT * FROM apps ORDER BY installed_at DESC LIMIT $1 OFFSET $2"
+        "SELECT * FROM apps ORDER BY installed_at DESC LIMIT $1 OFFSET $2",
     )
     .bind(limit)
     .bind(offset)
@@ -207,11 +209,9 @@ async fn search_apps(
 /// List installed apps
 #[get("/api/appstore/installed")]
 async fn list_installed(data: web::Data<AppState>) -> impl Responder {
-    let apps = match sqlx::query_as::<_, App>(
-        "SELECT * FROM apps ORDER BY installed_at DESC"
-    )
-    .fetch_all(&data.db)
-    .await
+    let apps = match sqlx::query_as::<_, App>("SELECT * FROM apps ORDER BY installed_at DESC")
+        .fetch_all(&data.db)
+        .await
     {
         Ok(apps) => apps,
         Err(e) => {
@@ -226,13 +226,12 @@ async fn list_installed(data: web::Data<AppState>) -> impl Responder {
 
     for app in apps {
         // Get port assignments
-        let port_assignments = sqlx::query_as::<_, PortAssignment>(
-            "SELECT * FROM port_assignments WHERE app_id = $1"
-        )
-        .bind(&app.id)
-        .fetch_all(&data.db)
-        .await
-        .unwrap_or_default();
+        let port_assignments =
+            sqlx::query_as::<_, PortAssignment>("SELECT * FROM port_assignments WHERE app_id = $1")
+                .bind(app.id)
+                .fetch_all(&data.db)
+                .await
+                .unwrap_or_default();
 
         let ports: Vec<PortInfo> = port_assignments
             .into_iter()
@@ -266,28 +265,27 @@ async fn list_installed(data: web::Data<AppState>) -> impl Responder {
 
 /// Install an app
 #[post("/api/appstore/install")]
-async fn install_app(
-    req: web::Json<InstallRequest>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+async fn install_app(req: web::Json<InstallRequest>, data: web::Data<AppState>) -> impl Responder {
     let manifest = if let Some(ref manifest) = req.manifest {
         manifest.clone()
     } else if let Some(ref app_id) = req.app_id {
         // Fetch manifest from remote app store
         info!("Fetching app {} from store {}", app_id, data.appstore_url);
-        let url = format!("{}/api/apps/{}/manifest", data.appstore_url.trim_end_matches('/'), app_id);
+        let url = format!(
+            "{}/api/apps/{}/manifest",
+            data.appstore_url.trim_end_matches('/'),
+            app_id
+        );
         match data.http_client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.json::<AppManifest>().await {
-                    Ok(m) => m,
-                    Err(e) => {
-                        error!("Invalid manifest from store for {}: {}", app_id, e);
-                        return HttpResponse::BadGateway().json(serde_json::json!({
-                            "error": format!("Invalid manifest from store: {}", e)
-                        }));
-                    }
+            Ok(resp) if resp.status().is_success() => match resp.json::<AppManifest>().await {
+                Ok(m) => m,
+                Err(e) => {
+                    error!("Invalid manifest from store for {}: {}", app_id, e);
+                    return HttpResponse::BadGateway().json(serde_json::json!({
+                        "error": format!("Invalid manifest from store: {}", e)
+                    }));
                 }
-            }
+            },
             Ok(resp) => {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
@@ -336,11 +334,18 @@ async fn install_app(
                 iora_shared::port_manager::PortAssignmentMode::Random
             };
 
-            match data.port_manager.allocate_port(&manifest.id, internal_port.port, protocol, mode).await {
+            match data
+                .port_manager
+                .allocate_port(&manifest.id, internal_port.port, protocol, mode)
+                .await
+            {
                 Ok(assignment) => {
                     info!(
                         "Allocated port {}:{} -> {} (mode: {:?})",
-                        internal_port.port, assignment.external_port, assignment.protocol, assignment.assignment_mode
+                        internal_port.port,
+                        assignment.external_port,
+                        assignment.protocol,
+                        assignment.assignment_mode
                     );
                     port_assignments.push(assignment);
                 }
@@ -364,7 +369,7 @@ async fn install_app(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#
     )
-    .bind(&app_uuid)
+    .bind(app_uuid)
     .bind(&manifest.id)
     .bind(&manifest.name)
     .bind(&manifest.version)
@@ -402,7 +407,7 @@ async fn install_app(
             "#
         )
         .bind(Uuid::new_v4())
-        .bind(&app_uuid)
+        .bind(app_uuid)
         .bind(assignment.internal_port as i32)
         .bind(assignment.external_port as i32)
         .bind(assignment.protocol.to_string())
@@ -427,10 +432,7 @@ async fn install_app(
 
 /// Uninstall an app
 #[delete("/api/appstore/apps/{app_id}")]
-async fn uninstall_app(
-    path: web::Path<String>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+async fn uninstall_app(path: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
     let app_id = path.into_inner();
 
     info!("Uninstalling app: {}", app_id);
@@ -456,25 +458,25 @@ async fn uninstall_app(
 
     // Delete port assignments from DB
     let _ = sqlx::query("DELETE FROM port_assignments WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await;
 
     // Delete app settings
     let _ = sqlx::query("DELETE FROM app_settings WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await;
 
     // Delete app permissions
     let _ = sqlx::query("DELETE FROM app_permissions WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await;
 
     // Delete app
     match sqlx::query("DELETE FROM apps WHERE id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .execute(&data.db)
         .await
     {
@@ -521,10 +523,10 @@ async fn grant_permissions(
             INSERT INTO app_permissions (id, app_id, permission, granted, granted_at)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (app_id, permission) DO UPDATE SET granted = $4, granted_at = $5
-            "#
+            "#,
         )
         .bind(Uuid::new_v4())
-        .bind(&app.id)
+        .bind(app.id)
         .bind(permission)
         .bind(true)
         .bind(Utc::now())
@@ -532,7 +534,11 @@ async fn grant_permissions(
         .await;
     }
 
-    info!("Granted {} permissions to app {}", req.permissions.len(), req.app_id);
+    info!(
+        "Granted {} permissions to app {}",
+        req.permissions.len(),
+        req.app_id
+    );
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -566,10 +572,10 @@ async fn update_settings(
         INSERT INTO app_settings (id, app_id, settings_json, updated_at)
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (app_id) DO UPDATE SET settings_json = $3, updated_at = $4
-        "#
+        "#,
     )
     .bind(Uuid::new_v4())
-    .bind(&app.id)
+    .bind(app.id)
     .bind(&req.settings)
     .bind(Utc::now())
     .execute(&data.db)
@@ -592,10 +598,7 @@ async fn update_settings(
 
 /// Get app settings
 #[get("/api/appstore/apps/{app_id}/settings")]
-async fn get_settings(
-    path: web::Path<String>,
-    data: web::Data<AppState>,
-) -> impl Responder {
+async fn get_settings(path: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
     let app_id = path.into_inner();
 
     // Get app
@@ -614,7 +617,7 @@ async fn get_settings(
 
     // Get settings
     match sqlx::query_as::<_, AppSettings>("SELECT * FROM app_settings WHERE app_id = $1")
-        .bind(&app.id)
+        .bind(app.id)
         .fetch_one(&data.db)
         .await
     {
@@ -650,11 +653,9 @@ async fn main() -> std::io::Result<()> {
     let port_manager = Arc::new(PortManager::new());
 
     // Load existing port assignments from database
-    if let Ok(assignments) = sqlx::query_as::<_, PortAssignment>(
-        "SELECT * FROM port_assignments"
-    )
-    .fetch_all(&db)
-    .await
+    if let Ok(assignments) = sqlx::query_as::<_, PortAssignment>("SELECT * FROM port_assignments")
+        .fetch_all(&db)
+        .await
     {
         let port_assignments: Vec<iora_shared::port_manager::PortAssignment> = assignments
             .into_iter()
@@ -673,7 +674,10 @@ async fn main() -> std::io::Result<()> {
             .collect();
 
         port_manager.init_from_assignments(port_assignments).await;
-        info!("Loaded {} port assignments", port_manager.get_all_assignments().await.len());
+        info!(
+            "Loaded {} port assignments",
+            port_manager.get_all_assignments().await.len()
+        );
     }
 
     let supervisor_url = system_config::supervisor_url();
@@ -697,11 +701,8 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 
-    let _hb = iora_shared::heartbeat::spawn_default(
-        "iora-appstore",
-        port,
-        "App store / app catalog",
-    );
+    let _hb =
+        iora_shared::heartbeat::spawn_default("iora-appstore", port, "App store / app catalog");
 
     HttpServer::new(move || {
         ActixApp::new()

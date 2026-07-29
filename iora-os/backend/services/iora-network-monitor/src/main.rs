@@ -13,24 +13,18 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
+use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use tower_http::cors::CorsLayer;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -77,7 +71,7 @@ struct MonitoringConfig {
 // ─── Network Monitoring ─────────────────────────────────────────────────────
 
 /// Scan ARP table to discover devices
-async fn scan_arp_table(state: &AppState) -> Result<Vec<NetworkDevice>> {
+async fn scan_arp_table(_state: &AppState) -> Result<Vec<NetworkDevice>> {
     info!("Scanning ARP table for network devices...");
 
     let mut devices = Vec::new();
@@ -87,8 +81,8 @@ async fn scan_arp_table(state: &AppState) -> Result<Vec<NetworkDevice>> {
     {
         use std::fs;
 
-        let arp_content = fs::read_to_string("/proc/net/arp")
-            .context("Failed to read ARP table")?;
+        let arp_content =
+            fs::read_to_string("/proc/net/arp").context("Failed to read ARP table")?;
 
         for line in arp_content.lines().skip(1) {
             // Skip header
@@ -126,10 +120,7 @@ async fn resolve_hostname(ip: &str) -> Option<String> {
     use std::process::Command;
 
     // Use nslookup or host command
-    let output = Command::new("host")
-        .arg(ip)
-        .output()
-        .ok()?;
+    let output = Command::new("host").arg(ip).output().ok()?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -163,15 +154,15 @@ async fn update_device_in_db(pool: &PgPool, device: &NetworkDevice) -> Result<()
             is_active = EXCLUDED.is_active
         "#,
     )
-    .bind(&device.id)
+    .bind(device.id)
     .bind(&device.ip_address)
     .bind(&device.mac_address)
     .bind(&device.hostname)
     .bind(&device.vendor)
     .bind(&device.device_type)
-    .bind(&device.first_seen)
-    .bind(&device.last_seen)
-    .bind(&device.is_active)
+    .bind(device.first_seen)
+    .bind(device.last_seen)
+    .bind(device.is_active)
     .execute(pool)
     .await
     .context("Failed to update device in database")?;
@@ -275,12 +266,15 @@ async fn list_devices(State(state): State<AppState>) -> impl IntoResponse {
     .fetch_all(&state.db)
     .await
     {
-        Ok(devices) => (StatusCode::OK, Json(serde_json::json!({
-            "devices": devices,
-            "total": devices.len(),
-            "timestamp": Utc::now().to_rfc3339(),
-        })))
-        .into_response(),
+        Ok(devices) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "devices": devices,
+                "total": devices.len(),
+                "timestamp": Utc::now().to_rfc3339(),
+            })),
+        )
+            .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -299,12 +293,15 @@ async fn list_active_devices(State(state): State<AppState>) -> impl IntoResponse
     .fetch_all(&state.db)
     .await
     {
-        Ok(devices) => (StatusCode::OK, Json(serde_json::json!({
-            "devices": devices,
-            "total": devices.len(),
-            "timestamp": Utc::now().to_rfc3339(),
-        })))
-        .into_response(),
+        Ok(devices) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "devices": devices,
+                "total": devices.len(),
+                "timestamp": Utc::now().to_rfc3339(),
+            })),
+        )
+            .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -322,12 +319,11 @@ async fn get_stats(State(state): State<AppState>) -> impl IntoResponse {
         .await
         .unwrap_or(0);
 
-    let active = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM network_devices WHERE is_active = true",
-    )
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
+    let active =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM network_devices WHERE is_active = true")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
 
     let last_scan = *state.last_scan.read().await;
 
@@ -356,12 +352,22 @@ async fn set_monitoring_status(
 ) -> impl IntoResponse {
     *state.monitoring_enabled.write().await = config.enabled;
 
-    info!("Network monitoring {}", if config.enabled { "enabled" } else { "disabled" });
+    info!(
+        "Network monitoring {}",
+        if config.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "enabled": config.enabled,
-        "message": format!("Network monitoring {}", if config.enabled { "enabled" } else { "disabled" }),
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "enabled": config.enabled,
+            "message": format!("Network monitoring {}", if config.enabled { "enabled" } else { "disabled" }),
+        })),
+    )
 }
 
 /// Trigger manual network scan
@@ -386,10 +392,13 @@ async fn trigger_scan(State(state): State<AppState>) -> impl IntoResponse {
         }
     });
 
-    (StatusCode::ACCEPTED, Json(serde_json::json!({
-        "message": "Network scan triggered"
-    })))
-    .into_response()
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "message": "Network scan triggered"
+        })),
+    )
+        .into_response()
 }
 
 // ─── Database Setup ─────────────────────────────────────────────────────────
@@ -420,10 +429,12 @@ async fn init_database(pool: &PgPool) -> Result<()> {
         .await
         .ok();
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_network_devices_active ON network_devices(is_active)")
-        .execute(pool)
-        .await
-        .ok();
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_network_devices_active ON network_devices(is_active)",
+    )
+    .execute(pool)
+    .await
+    .ok();
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_network_devices_last_seen ON network_devices(last_seen DESC)")
         .execute(pool)
@@ -441,8 +452,7 @@ async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "iora_network_monitor=info".to_string()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "iora_network_monitor=info".to_string()),
         )
         .init();
 

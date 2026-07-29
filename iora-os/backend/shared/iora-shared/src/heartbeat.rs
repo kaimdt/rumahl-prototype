@@ -115,12 +115,6 @@ struct HeartbeatState {
     stopped: bool,
 }
 
-impl Default for HealthStatus {
-    fn default() -> Self {
-        HealthStatus::Healthy
-    }
-}
-
 /// Handle returned by [`HeartbeatClient::spawn`]. Lets the host service
 /// adjust the reported status at runtime (e.g. flip to `Degraded` while
 /// a critical dependency is reconnecting) and gracefully stop the loop.

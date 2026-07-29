@@ -11,7 +11,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
+use super::{
+    AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError,
+    ProviderModel, SpeechSynthesis,
+};
 
 // ─── pi.dev Tool Definitions (OpenAI function-calling format) ──────────────
 
@@ -164,7 +167,8 @@ Guidelines:
 }
 
 pub fn agent_task_system_prompt(task_description: &str) -> String {
-    format!(r#"You are an expert coding agent executing an autonomous task. Your objective:
+    format!(
+        r#"You are an expert coding agent executing an autonomous task. Your objective:
 
 {task_description}
 
@@ -172,7 +176,8 @@ You have access to file operations, bash commands, web search, and code search.
 Work systematically: understand the codebase → plan the changes → implement → verify.
 Report progress and results clearly. If you encounter blockers, explain them.
 Use read, write, edit, bash, web_search, and code_search tools as needed.
-After completing, summarize what was done and any recommendations."#)
+After completing, summarize what was done and any recommendations."#
+    )
 }
 
 // ─── Response Types ────────────────────────────────────────────────────────
@@ -218,11 +223,17 @@ impl PiDevProvider {
     }
 
     fn base_url(&self) -> &str {
-        self.config.base_url.as_deref().unwrap_or("http://localhost:3000")
+        self.config
+            .base_url
+            .as_deref()
+            .unwrap_or("http://localhost:3000")
     }
 
     fn selected_model(&self) -> String {
-        self.config.model.clone().unwrap_or_else(|| "pi-dev".to_string())
+        self.config
+            .model
+            .clone()
+            .unwrap_or_else(|| "pi-dev".to_string())
     }
 
     /// Full agentic chat with tool loop — sends chat, processes tool calls,
@@ -233,7 +244,10 @@ impl PiDevProvider {
         system_prompt: Option<String>,
         max_tool_rounds: usize,
     ) -> Result<AgenticChatResponse, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("Pi.dev API key not configured")?;
         let base_url = self.base_url();
         let model = self.selected_model();
@@ -311,7 +325,8 @@ impl PiDevProvider {
                 stream: false,
             };
 
-            let response = self.client
+            let response = self
+                .client
                 .post(format!("{}/v1/chat/completions", base_url))
                 .header("Authorization", format!("Bearer {}", api_key))
                 .header("Content-Type", "application/json")
@@ -364,7 +379,10 @@ impl PiDevProvider {
             }
 
             let choice = &resp.choices[0];
-            final_finish_reason = choice.finish_reason.clone().unwrap_or_else(|| "stop".to_string());
+            final_finish_reason = choice
+                .finish_reason
+                .clone()
+                .unwrap_or_else(|| "stop".to_string());
             if let Some(u) = &resp.usage {
                 total_tokens = Some(total_tokens.unwrap_or(0) + u.total_tokens.unwrap_or(0));
             }
@@ -374,14 +392,16 @@ impl PiDevProvider {
                 role: "assistant".to_string(),
                 content: choice.message.content.clone(),
                 tool_calls: choice.message.tool_calls.as_ref().map(|tc| {
-                    tc.iter().map(|t| ToolCall {
-                        id: t.id.clone(),
-                        call_type: "function".to_string(),
-                        function: ToolCallFunction {
-                            name: t.function.name.clone(),
-                            arguments: t.function.arguments.clone(),
-                        },
-                    }).collect()
+                    tc.iter()
+                        .map(|t| ToolCall {
+                            id: t.id.clone(),
+                            call_type: "function".to_string(),
+                            function: ToolCallFunction {
+                                name: t.function.name.clone(),
+                                arguments: t.function.arguments.clone(),
+                            },
+                        })
+                        .collect()
                 }),
                 tool_call_id: None,
             };
@@ -398,7 +418,10 @@ impl PiDevProvider {
             }
 
             // Process tool calls
-            let has_tool_calls = choice.message.tool_calls.as_ref()
+            let has_tool_calls = choice
+                .message
+                .tool_calls
+                .as_ref()
                 .map(|tc| !tc.is_empty())
                 .unwrap_or(false);
 
@@ -416,10 +439,15 @@ impl PiDevProvider {
                 };
 
                 // Execute tool via pi.dev's tool execution endpoint or return stub
-                let execution_result = self.execute_tool(
-                    api_key, base_url,
-                    &tc.id, &tc.function.name, &tc.function.arguments,
-                ).await;
+                let execution_result = self
+                    .execute_tool(
+                        api_key,
+                        base_url,
+                        &tc.id,
+                        &tc.function.name,
+                        &tc.function.arguments,
+                    )
+                    .await;
 
                 match execution_result {
                     Ok(output) => {
@@ -467,7 +495,8 @@ impl PiDevProvider {
         arguments: &str,
     ) -> Result<String, String> {
         // Try to execute via pi.dev's tool endpoint
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/v1/tools/execute", base_url))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -482,7 +511,10 @@ impl PiDevProvider {
         match response {
             Ok(resp) if resp.status().is_success() => {
                 let body: Value = resp.json().await.map_err(|e| e.to_string())?;
-                Ok(body["result"].as_str().unwrap_or("Tool executed successfully").to_string())
+                Ok(body["result"]
+                    .as_str()
+                    .unwrap_or("Tool executed successfully")
+                    .to_string())
             }
             _ => {
                 // Fallback: return a stub indicating the tool was acknowledged
@@ -508,7 +540,16 @@ impl AIProvider for PiDevProvider {
     }
 
     fn capabilities(&self) -> &'static [&'static str] {
-        &["chat", "stt", "tts", "code_generation", "self_evolution", "agent_tasks", "tool_use", "streaming"]
+        &[
+            "chat",
+            "stt",
+            "tts",
+            "code_generation",
+            "self_evolution",
+            "agent_tasks",
+            "tool_use",
+            "streaming",
+        ]
     }
 
     async fn is_available(&self) -> bool {
@@ -517,15 +558,12 @@ impl AIProvider for PiDevProvider {
         };
         let base_url = self.base_url();
 
-        match self.client
-            .get(format!("{}/health", base_url))
-            .send()
-            .await
-        {
+        match self.client.get(format!("{}/health", base_url)).send().await {
             Ok(resp) => resp.status().is_success(),
             Err(_) => {
                 // Try the chat completions endpoint as fallback
-                match self.client
+                match self
+                    .client
                     .post(format!("{}/v1/chat/completions", base_url))
                     .json(&serde_json::json!({
                         "model": self.selected_model(),
@@ -543,16 +581,24 @@ impl AIProvider for PiDevProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("Pi.dev API key not configured")?;
         let base_url = self.base_url();
 
         #[derive(Deserialize)]
-        struct ModelsResponse { data: Vec<ModelInfo> }
+        struct ModelsResponse {
+            data: Vec<ModelInfo>,
+        }
         #[derive(Deserialize)]
-        struct ModelInfo { id: String }
+        struct ModelInfo {
+            id: String,
+        }
 
-        match self.client
+        match self
+            .client
             .get(format!("{}/v1/models", base_url))
             .header("Authorization", format!("Bearer {}", api_key))
             .send()
@@ -560,17 +606,21 @@ impl AIProvider for PiDevProvider {
         {
             Ok(resp) if resp.status().is_success() => {
                 let body: ModelsResponse = resp.json().await?;
-                Ok(body.data.into_iter().map(|m| ProviderModel {
-                    id: m.id.clone(),
-                    name: m.id,
-                    provider: "pidev".to_string(),
-                }).collect())
+                Ok(body
+                    .data
+                    .into_iter()
+                    .map(|m| ProviderModel {
+                        id: m.id.clone(),
+                        name: m.id,
+                        provider: "pidev".to_string(),
+                    })
+                    .collect())
             }
             _ => Ok(vec![ProviderModel {
                 id: self.selected_model(),
                 name: format!("Pi.dev Agent ({})", self.selected_model()),
                 provider: "pidev".to_string(),
-            }])
+            }]),
         }
     }
 
@@ -580,11 +630,13 @@ impl AIProvider for PiDevProvider {
         system_prompt: Option<String>,
     ) -> Result<ChatResponse, ProviderError> {
         // Use agentic chat with tool loop for richer responses
-        let result = self.agentic_chat(
-            messages,
-            system_prompt,
-            5, // max 5 tool-call rounds
-        ).await?;
+        let result = self
+            .agentic_chat(
+                messages,
+                system_prompt,
+                5, // max 5 tool-call rounds
+            )
+            .await?;
 
         Ok(ChatResponse {
             message: result.message,
@@ -599,7 +651,10 @@ impl AIProvider for PiDevProvider {
         audio_data: Vec<u8>,
         format: &str,
     ) -> Result<AudioTranscription, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("Pi.dev API key not configured")?;
         let base_url = self.base_url();
 
@@ -612,7 +667,8 @@ impl AIProvider for PiDevProvider {
                     .mime_str(&format!("audio/{}", format))?,
             );
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/v1/audio/transcriptions", base_url))
             .header("Authorization", format!("Bearer {}", api_key))
             .multipart(form)
@@ -624,9 +680,17 @@ impl AIProvider for PiDevProvider {
         }
 
         #[derive(Deserialize)]
-        struct TransResp { text: String, #[serde(default)] language: Option<String> }
+        struct TransResp {
+            text: String,
+            #[serde(default)]
+            language: Option<String>,
+        }
         let t: TransResp = response.json().await?;
-        Ok(AudioTranscription { text: t.text, language: t.language, duration: None })
+        Ok(AudioTranscription {
+            text: t.text,
+            language: t.language,
+            duration: None,
+        })
     }
 
     async fn synthesize_speech(
@@ -634,11 +698,15 @@ impl AIProvider for PiDevProvider {
         text: &str,
         voice: Option<&str>,
     ) -> Result<SpeechSynthesis, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("Pi.dev API key not configured")?;
         let base_url = self.base_url();
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/v1/audio/speech", base_url))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")

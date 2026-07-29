@@ -945,6 +945,10 @@ build_base_image() {
     rm -f "${BUILD_DIR}/output/build/host-cmake-"*/CMakeCache.txt 2>/dev/null || true
 
     cd "${BUILD_DIR}"
+    # Some Buildroot host tools (e.g. python3) need their own lib directory
+    # in LD_LIBRARY_PATH because RPATH may be stripped by patchelf or system
+    # ldconfig on certain distros.
+    export LD_LIBRARY_PATH="${BUILD_DIR}/output/host/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     if [ "${PROGRESS}" = true ]; then
         PATH="${BUILDROOT_SAFE_PATH}" \
             XZ_OPT="${XZ_OPT}" XZ_DEFAULTS="${XZ_DEFAULTS}" \
@@ -1108,10 +1112,7 @@ build_service_binaries() {
     # Resolve the backend/ source tree. We try the in-tree location first
     # (iora-os/backend/) — that's where the workspace lives in this repo and
     # is what `git pull` updates. The legacy sibling layout
-    # (home-assistant-dashb/backend/, one level up) is only used as a
-    # fallback for older checkouts. If both exist, the in-tree copy wins —
-    # otherwise an old sibling tree silently shadows freshly pulled changes
-    # and the build uses stale sources.
+    # has been migrated; only the in-tree layout is used.
     local BACKEND_DIR=""
     for candidate in \
         "${SCRIPT_DIR}/backend" \
@@ -1184,10 +1185,38 @@ build_service_binaries() {
                     iora-api iora-appstore iora-backup iora-connector \
                     iora-dev-bridge iora-domain-validator iora-files \
                     iora-network-monitor iora-nginx iora-resource-manager \
-                    iora-updater"
+                    iora-updater iora-developer-app iora-intelligence"
     # CLI tools as `package:binary` pairs (binary may differ from crate name —
     # iora-cli ships its binary as `ora`, the user-facing command).
     local CLI_TOOLS="iora-cli:ora iora-sign:iora-sign iora-verify:iora-verify"
+
+    # ── Workspace consistency check ─────────────────────────────────────────
+    # Verify that every workspace member whose name starts with "iora-"
+    # (service crates) is covered by SERVICES or CLI_TOOLS. This catches
+    # newly added crates that the developer forgot to wire into the build.
+    if [ -f "${BACKEND_DIR}/Cargo.toml" ] && command -v python3 >/dev/null 2>&1; then
+        local _missing_svcs=""
+        for _member in $(python3 -c "
+import tomllib, re
+with open('${BACKEND_DIR}/Cargo.toml', 'rb') as f:
+    for m in tomllib.load(f)['workspace']['members']:
+        try:
+            with open(f'${BACKEND_DIR}/{m}/Cargo.toml', 'rb') as cf:
+                pkg = tomllib.load(cf).get('package', {})
+                name = pkg.get('name', '')
+                if name.startswith('iora-'):
+                    print(name)
+        except: pass
+" 2>/dev/null); do
+            if ! echo " ${SERVICES} ${CLI_TOOLS} " | grep -q " ${_member%%:*} "; then
+                _missing_svcs="${_missing_svcs} ${_member}"
+            fi
+        done
+        if [ -n "${_missing_svcs}" ]; then
+            log_error "BUILD CONFIG DRIFT: workspace crates not in SERVICES/CLI_TOOLS:${_missing_svcs}"
+            log_error "Add them to build_service_binaries() in this script and to the Dockerfile."
+        fi
+    fi
 
     # ── GLIBC compatibility check ───────────────────────────────────────────
     # Native cargo builds on a host with a newer glibc than the target produce
@@ -1381,6 +1410,30 @@ build_service_binaries() {
         elif [ "${IORA_SCCACHE:-1}" = "1" ]; then
             log_warn "sccache not found – install with: sudo apt-get install sccache"
             log_warn "(Rust rebuilds will be slower without it.)"
+        fi
+
+        # ── ccache – C build-script cache ─────────────────────────────────────
+        # Many Rust crates (openssl-sys, libsqlite3-sys via sqlx, cmake build
+        # scripts, …) compile C/C++ code in their build.rs.  ccache caches
+        # those compilations across cargo invocations so a no-op rebuild
+        # doesn't recompile C dependencies from scratch.
+        if command -v ccache >/dev/null 2>&1; then
+            local CCACHE_DIR="${HOME}/.iora-cache/ccache"
+            mkdir -p "${CCACHE_DIR}"
+            export CCACHE_DIR
+            # Prepend ccache compiler wrappers so that gcc/g++/cc/… calls
+            # go through ccache automatically.  This works for both native
+            # and cross-compilers (aarch64-linux-gnu-gcc → ccache → gcc).
+            if [ -d "/usr/lib/ccache" ]; then
+                PATH="/usr/lib/ccache:${PATH}"
+                export CCACHE_PATH="${PATH}"
+                log_info "ccache active (compiler wrappers) → cache dir: ${CCACHE_DIR}"
+            else
+                # Fallback: wrap CC/CXX directly (native builds only).
+                export CC="ccache gcc"
+                export CXX="ccache g++"
+                log_info "ccache active (CC/CXX wrappers) → cache dir: ${CCACHE_DIR}"
+            fi
         fi
 
         # ── mold – fast linker ──────────────────────────────────────────────

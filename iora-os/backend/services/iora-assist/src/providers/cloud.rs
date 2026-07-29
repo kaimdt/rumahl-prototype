@@ -4,7 +4,10 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
+use super::{
+    AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError,
+    ProviderModel, SpeechSynthesis,
+};
 
 /// Known cloud AI providers with their default base URLs and models
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -74,11 +77,17 @@ impl CloudAIProvider {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self { client, config, cloud_type }
+        Self {
+            client,
+            config,
+            cloud_type,
+        }
     }
 
     fn base_url(&self) -> String {
-        self.config.base_url.clone()
+        self.config
+            .base_url
+            .clone()
             .filter(|u| !u.is_empty())
             .unwrap_or_else(|| self.cloud_type.default_base_url().to_string())
             .trim_end_matches('/')
@@ -86,7 +95,9 @@ impl CloudAIProvider {
     }
 
     fn model(&self) -> String {
-        self.config.model.clone()
+        self.config
+            .model
+            .clone()
             .unwrap_or_else(|| self.cloud_type.default_model().to_string())
     }
 }
@@ -175,7 +186,10 @@ impl AIProvider for CloudAIProvider {
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
     ) -> Result<ChatResponse, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or_else(|| format!("{} API key not configured", self.name()))?;
 
         let base_url = self.base_url();
@@ -205,7 +219,8 @@ impl AIProvider for CloudAIProvider {
             stream: false,
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/chat/completions", base_url))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -222,7 +237,9 @@ impl AIProvider for CloudAIProvider {
         let completion: ChatCompletionResponse = response.json().await?;
 
         Ok(ChatResponse {
-            message: completion.choices.into_iter()
+            message: completion
+                .choices
+                .into_iter()
                 .next()
                 .map(|c| c.message.content)
                 .unwrap_or_default(),
@@ -232,11 +249,19 @@ impl AIProvider for CloudAIProvider {
         })
     }
 
-    async fn transcribe_audio(&self, _audio_data: Vec<u8>, _format: &str) -> Result<AudioTranscription, ProviderError> {
+    async fn transcribe_audio(
+        &self,
+        _audio_data: Vec<u8>,
+        _format: &str,
+    ) -> Result<AudioTranscription, ProviderError> {
         Err(format!("{} does not support audio transcription", self.name()).into())
     }
 
-    async fn synthesize_speech(&self, _text: &str, _voice: Option<&str>) -> Result<SpeechSynthesis, ProviderError> {
+    async fn synthesize_speech(
+        &self,
+        _text: &str,
+        _voice: Option<&str>,
+    ) -> Result<SpeechSynthesis, ProviderError> {
         Err(format!("{} does not support speech synthesis", self.name()).into())
     }
 }

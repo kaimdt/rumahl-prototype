@@ -5,10 +5,12 @@
 //!
 //! Usage:
 //! ```rust
+//! # use iora_shared::manifest_validator::validate_theme_manifest;
+//! # let json = serde_json::json!({"name": "Test Theme", "version": "1.0.0"});
 //! let result = validate_theme_manifest(&json);
 //! if !result.is_valid() {
-//!     for error in &result.errors {
-//!         eprintln!("❌ {}: {}", error.field, error.message);
+//!     for issue in &result.issues {
+//!         eprintln!("{}: {}", issue.field, issue.message);
 //!     }
 //! }
 //! ```

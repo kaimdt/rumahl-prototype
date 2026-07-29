@@ -37,7 +37,9 @@ pub fn build_schema(
 #[derive(Clone)]
 pub struct GraphQLContext {
     pub iora_home_url: String,
+    #[allow(dead_code)]
     pub ha_url: String,
+    #[allow(dead_code)]
     pub ha_token: String,
     pub http_client: reqwest::Client,
 }
@@ -72,6 +74,7 @@ struct Area {
 }
 
 /// A Home Assistant device.
+#[allow(dead_code)]
 #[derive(SimpleObject, Clone)]
 struct Device {
     id: String,
@@ -165,7 +168,10 @@ impl QueryRoot {
 
         let resp = gql_ctx
             .http_client
-            .get(format!("{}/api/states/{}", gql_ctx.iora_home_url, entity_id))
+            .get(format!(
+                "{}/api/states/{}",
+                gql_ctx.iora_home_url, entity_id
+            ))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await?;
@@ -226,14 +232,18 @@ impl QueryRoot {
 
     /// Get all automations.
     async fn automations(&self, ctx: &Context<'_>) -> Result<Vec<Automation>> {
-        let entities = self.entities(ctx, Some("automation".to_string()), None, None).await?;
+        let entities = self
+            .entities(ctx, Some("automation".to_string()), None, None)
+            .await?;
         let automations = entities
             .into_iter()
             .map(|e| Automation {
                 entity_id: e.entity_id,
                 state: e.state,
                 friendly_name: e.friendly_name,
-                last_triggered: e.attributes.get("last_triggered")
+                last_triggered: e
+                    .attributes
+                    .get("last_triggered")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string()),
             })
@@ -259,7 +269,10 @@ impl MutationRoot {
         let gql_ctx = ctx.data::<GraphQLContext>()?;
         let token = ctx.data::<String>().unwrap_or(&String::new()).clone();
 
-        let url = format!("{}/api/services/{}/{}", gql_ctx.iora_home_url, domain, service);
+        let url = format!(
+            "{}/api/services/{}/{}",
+            gql_ctx.iora_home_url, domain, service
+        );
         let body = data.unwrap_or(serde_json::json!({}));
 
         let resp = gql_ctx
@@ -283,14 +296,22 @@ impl MutationRoot {
 
         Ok(ServiceCallResult {
             success,
-            message: if success { None } else { Some("Service call failed".to_string()) },
+            message: if success {
+                None
+            } else {
+                Some("Service call failed".to_string())
+            },
             affected_entities: affected,
         })
     }
 
     /// Toggle an entity (light, switch, etc.).
     async fn toggle(&self, ctx: &Context<'_>, entity_id: String) -> Result<ServiceCallResult> {
-        let domain = entity_id.split('.').next().unwrap_or("homeassistant").to_string();
+        let domain = entity_id
+            .split('.')
+            .next()
+            .unwrap_or("homeassistant")
+            .to_string();
         self.call_service(
             ctx,
             domain,
@@ -301,7 +322,11 @@ impl MutationRoot {
     }
 
     /// Trigger an automation.
-    async fn trigger_automation(&self, ctx: &Context<'_>, entity_id: String) -> Result<ServiceCallResult> {
+    async fn trigger_automation(
+        &self,
+        ctx: &Context<'_>,
+        entity_id: String,
+    ) -> Result<ServiceCallResult> {
         self.call_service(
             ctx,
             "automation".to_string(),
@@ -329,9 +354,7 @@ impl SubscriptionRoot {
         entity_id: Option<String>,
         domain: Option<String>,
     ) -> impl futures_util::Stream<Item = Entity> {
-        let gql_ctx = ctx
-            .data::<GraphQLContext>().cloned()
-            .ok();
+        let gql_ctx = ctx.data::<GraphQLContext>().cloned().ok();
 
         async_stream::stream! {
             let Some(gql_ctx) = gql_ctx else { return; };
@@ -448,10 +471,11 @@ pub async fn graphql_handler(
     Json(resp)
 }
 
-pub async fn graphql_ws_handler(
-    State(_state): State<Arc<crate::AppState>>,
-) -> impl IntoResponse {
+pub async fn graphql_ws_handler(State(_state): State<Arc<crate::AppState>>) -> impl IntoResponse {
     // GraphQL subscriptions over WebSocket not yet available.
     // Use polling or SSE-based subscriptions instead.
-    (axum::http::StatusCode::NOT_IMPLEMENTED, "GraphQL WebSocket subscriptions are not yet available")
+    (
+        axum::http::StatusCode::NOT_IMPLEMENTED,
+        "GraphQL WebSocket subscriptions are not yet available",
+    )
 }

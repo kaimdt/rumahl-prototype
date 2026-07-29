@@ -5,17 +5,34 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info};
 
-use crate::providers::{ChatMessage, ProviderConfig, ProviderType, create_provider, provider_type_from_str};
+use crate::providers::{
+    create_provider, provider_type_from_str, ChatMessage, ProviderConfig, ProviderType,
+};
 use crate::sandbox::{FileDiff, SandboxManager, TaskOutputLine};
 
 /// Event, das an SSE-Listener gesendet wird
 #[derive(Debug, Clone)]
 pub enum AgentTaskEvent {
-    Output { task_id: String, line: TaskOutputLine },
-    Progress { task_id: String, progress: f32 },
-    StatusChange { task_id: String, status: String },
-    Completed { task_id: String, changes: Vec<FileDiff> },
-    Failed { task_id: String, error: String },
+    Output {
+        task_id: String,
+        line: TaskOutputLine,
+    },
+    Progress {
+        task_id: String,
+        progress: f32,
+    },
+    StatusChange {
+        task_id: String,
+        status: String,
+    },
+    Completed {
+        task_id: String,
+        changes: Vec<FileDiff>,
+    },
+    Failed {
+        task_id: String,
+        error: String,
+    },
 }
 
 /// Der Agent Task Executor
@@ -50,7 +67,10 @@ impl AgentTaskExecutor {
         api_key: Option<String>,
         base_url: Option<String>,
     ) -> Result<(), String> {
-        let task = self.sandbox.get_task(&task_id).await
+        let task = self
+            .sandbox
+            .get_task(&task_id)
+            .await
             .ok_or_else(|| "Task not found".to_string())?;
 
         let workspace_id = task.workspace_id.clone();
@@ -78,7 +98,9 @@ impl AgentTaskExecutor {
         let workspace = match self.sandbox.get_workspace(&workspace_id).await {
             Some(w) => w,
             None => {
-                self.sandbox.fail_task(&task_id_clone, "Workspace not found").await;
+                self.sandbox
+                    .fail_task(&task_id_clone, "Workspace not found")
+                    .await;
                 return Err("Workspace not found".to_string());
             }
         };
@@ -97,24 +119,34 @@ impl AgentTaskExecutor {
 
         // Spawn the actual execution
         tokio::spawn(async move {
-            info!("Executing task {} with provider {}", task_id_owned, provider_type);
+            info!(
+                "Executing task {} with provider {}",
+                task_id_owned, provider_type
+            );
 
             // Send system message
-            let system_msg = format!("Starting task with provider '{}', model '{}'", provider_type, model);
+            let system_msg = format!(
+                "Starting task with provider '{}', model '{}'",
+                provider_type, model
+            );
             let line = TaskOutputLine {
                 timestamp: chrono::Utc::now(),
                 level: "system".to_string(),
                 message: system_msg,
                 stream: None,
             };
-            sandbox.update_task_output(&task_id_owned, line.clone()).await;
+            sandbox
+                .update_task_output(&task_id_owned, line.clone())
+                .await;
             let _ = event_tx.send(AgentTaskEvent::Output {
                 task_id: task_id_owned.clone(),
                 line: line.clone(),
             });
 
             // Get task config from sandbox for steering
-            let task_config = sandbox.get_task(&task_id_owned).await
+            let task_config = sandbox
+                .get_task(&task_id_owned)
+                .await
                 .map(|t| t.config)
                 .unwrap_or_default();
 
@@ -148,7 +180,9 @@ impl AgentTaskExecutor {
                 "Output the changes – user will review and apply them."
             };
 
-            let custom_instructions = task_config.custom_instructions.as_ref()
+            let custom_instructions = task_config
+                .custom_instructions
+                .as_ref()
                 .map(|ci| format!("\n\n## Custom Instructions\n{}\n", ci))
                 .unwrap_or_default();
 
@@ -174,8 +208,8 @@ impl AgentTaskExecutor {
             );
 
             // Provider-agnostic chat call
-            let provider_type_enum = provider_type_from_str(&provider_type)
-                .unwrap_or(ProviderType::OpenAI);
+            let provider_type_enum =
+                provider_type_from_str(&provider_type).unwrap_or(ProviderType::OpenAI);
 
             let config = ProviderConfig {
                 api_key,
@@ -215,12 +249,17 @@ impl AgentTaskExecutor {
 
             // Send file list
             let file_msg = format!("Found {} file(s) in workspace", files.len());
-            sandbox.update_task_output(&task_id_owned, TaskOutputLine {
-                timestamp: chrono::Utc::now(),
-                level: "info".to_string(),
-                message: file_msg.clone(),
-                stream: None,
-            }).await;
+            sandbox
+                .update_task_output(
+                    &task_id_owned,
+                    TaskOutputLine {
+                        timestamp: chrono::Utc::now(),
+                        level: "info".to_string(),
+                        message: file_msg.clone(),
+                        stream: None,
+                    },
+                )
+                .await;
             let _ = event_tx.send(AgentTaskEvent::Output {
                 task_id: task_id_owned.clone(),
                 line: TaskOutputLine {
@@ -242,23 +281,27 @@ impl AgentTaskExecutor {
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("");
-                if matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" | "eot") {
+                if matches!(
+                    ext,
+                    "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" | "eot"
+                ) {
                     continue;
                 }
-                match sandbox.read_file(&wid, &f.path).await {
-                    Ok(content) => {
-                        if content.len() > 100_000 {
-                            file_contents.push((f.path.clone(), format!("[File too large: {} bytes]", content.len())));
-                        } else {
-                            file_contents.push((f.path.clone(), content));
-                        }
+                if let Ok(content) = sandbox.read_file(&wid, &f.path).await {
+                    if content.len() > 100_000 {
+                        file_contents.push((
+                            f.path.clone(),
+                            format!("[File too large: {} bytes]", content.len()),
+                        ));
+                    } else {
+                        file_contents.push((f.path.clone(), content));
                     }
-                    Err(_) => {}
                 }
             }
 
             // Build messages for the AI
-            let files_content = file_contents.iter()
+            let files_content = file_contents
+                .iter()
                 .map(|(path, content)| format!("=== {} ===\n{}", path, content))
                 .collect::<Vec<_>>()
                 .join("\n\n");
@@ -279,12 +322,17 @@ impl AgentTaskExecutor {
 
             // Add progress update
             let progress_msg = format!("Sending code to {} ({})...", provider.name(), model);
-            sandbox.update_task_output(&task_id_owned, TaskOutputLine {
-                timestamp: chrono::Utc::now(),
-                level: "info".to_string(),
-                message: progress_msg.clone(),
-                stream: None,
-            }).await;
+            sandbox
+                .update_task_output(
+                    &task_id_owned,
+                    TaskOutputLine {
+                        timestamp: chrono::Utc::now(),
+                        level: "info".to_string(),
+                        message: progress_msg.clone(),
+                        stream: None,
+                    },
+                )
+                .await;
             let _ = event_tx.send(AgentTaskEvent::Output {
                 task_id: task_id_owned.clone(),
                 line: TaskOutputLine {
@@ -304,14 +352,22 @@ impl AgentTaskExecutor {
             match provider.chat(messages, None).await {
                 Ok(response) => {
                     info!("Provider response received for task {}", task_id_owned);
-                    
-                    let response_msg = format!("AI response received ({} tokens)", response.tokens_used.unwrap_or(0));
-                    sandbox.update_task_output(&task_id_owned, TaskOutputLine {
-                        timestamp: chrono::Utc::now(),
-                        level: "success".to_string(),
-                        message: response_msg.clone(),
-                        stream: None,
-                    }).await;
+
+                    let response_msg = format!(
+                        "AI response received ({} tokens)",
+                        response.tokens_used.unwrap_or(0)
+                    );
+                    sandbox
+                        .update_task_output(
+                            &task_id_owned,
+                            TaskOutputLine {
+                                timestamp: chrono::Utc::now(),
+                                level: "success".to_string(),
+                                message: response_msg.clone(),
+                                stream: None,
+                            },
+                        )
+                        .await;
                     let _ = event_tx.send(AgentTaskEvent::Output {
                         task_id: task_id_owned.clone(),
                         line: TaskOutputLine {
@@ -322,12 +378,17 @@ impl AgentTaskExecutor {
                         },
                     });
 
-                    sandbox.update_task_output(&task_id_owned, TaskOutputLine {
-                        timestamp: chrono::Utc::now(),
-                        level: "info".to_string(),
-                        message: response.message.clone(),
-                        stream: None,
-                    }).await;
+                    sandbox
+                        .update_task_output(
+                            &task_id_owned,
+                            TaskOutputLine {
+                                timestamp: chrono::Utc::now(),
+                                level: "info".to_string(),
+                                message: response.message.clone(),
+                                stream: None,
+                            },
+                        )
+                        .await;
                     let _ = event_tx.send(AgentTaskEvent::Output {
                         task_id: task_id_owned.clone(),
                         line: TaskOutputLine {
@@ -348,12 +409,17 @@ impl AgentTaskExecutor {
                     let changes = match sandbox.refresh_changes(&wid, &task_id_owned).await {
                         Ok(diffs) => {
                             let change_msg = format!("Detected {} changed file(s)", diffs.len());
-                            sandbox.update_task_output(&task_id_owned, TaskOutputLine {
-                                timestamp: chrono::Utc::now(),
-                                level: "success".to_string(),
-                                message: change_msg.clone(),
-                                stream: None,
-                            }).await;
+                            sandbox
+                                .update_task_output(
+                                    &task_id_owned,
+                                    TaskOutputLine {
+                                        timestamp: chrono::Utc::now(),
+                                        level: "success".to_string(),
+                                        message: change_msg.clone(),
+                                        stream: None,
+                                    },
+                                )
+                                .await;
                             let _ = event_tx.send(AgentTaskEvent::Output {
                                 task_id: task_id_owned.clone(),
                                 line: TaskOutputLine {
@@ -367,12 +433,17 @@ impl AgentTaskExecutor {
                         }
                         Err(e) => {
                             let err_msg = format!("Could not get git diff: {}", e);
-                            sandbox.update_task_output(&task_id_owned, TaskOutputLine {
-                                timestamp: chrono::Utc::now(),
-                                level: "warn".to_string(),
-                                message: err_msg.clone(),
-                                stream: None,
-                            }).await;
+                            sandbox
+                                .update_task_output(
+                                    &task_id_owned,
+                                    TaskOutputLine {
+                                        timestamp: chrono::Utc::now(),
+                                        level: "warn".to_string(),
+                                        message: err_msg.clone(),
+                                        stream: None,
+                                    },
+                                )
+                                .await;
                             let _ = event_tx.send(AgentTaskEvent::Output {
                                 task_id: task_id_owned.clone(),
                                 line: TaskOutputLine {

@@ -8,17 +8,17 @@ use bollard::image::{BuildImageOptions, CreateImageOptions, ListImagesOptions};
 use bollard::service::HostConfig;
 use bollard::Docker;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use futures_util::stream::TryStreamExt;
 use iora_shared::system_config;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
-use sysinfo::{System, Disks, Networks};
+use std::time::Duration;
+use sysinfo::{Disks, Networks, System};
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt as _;
 use tracing::{error, info};
-use futures_util::stream::TryStreamExt;
-use std::time::Duration;
 
 /// IORA Supervisor - Docker orchestration for IORA OS
 ///
@@ -65,6 +65,7 @@ struct SupervisorStatus {
     docker_version: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct RestartRequest {
     container_name: String,
@@ -111,12 +112,15 @@ struct ComposePsRow {
 struct AppState {
     docker: Docker,
     start_time: DateTime<Utc>,
+    #[allow(dead_code)]
     services: Arc<RwLock<HashMap<String, ServiceDefinition>>>,
     developer_mode: Arc<RwLock<bool>>,
+    #[allow(dead_code)]
     environment: String, // "production", "development", etc.
 }
 
 /// Check if app is allowed to use Developer Mode features
+#[allow(dead_code)]
 async fn check_developer_mode_access(
     data: &web::Data<AppState>,
     app_id: &str,
@@ -150,10 +154,10 @@ async fn check_developer_mode_access(
     match installation_source.map(|s| s.as_str()) {
         Some("app_store") => {
             // App Store apps NEVER have access to Developer Mode, regardless of settings
-            return Err(HttpResponse::Forbidden().json(serde_json::json!({
+            Err(HttpResponse::Forbidden().json(serde_json::json!({
                 "error": "Access denied",
                 "message": "App Store apps cannot access Developer Mode features"
-            })));
+            })))
         }
         Some("manual_upload") | Some("developer_app") => {
             // Manual uploads and Developer App CAN use Developer Mode
@@ -180,10 +184,10 @@ async fn check_developer_mode_access(
         }
         _ => {
             // Unknown or missing installation source - deny access
-            return Err(HttpResponse::Forbidden().json(serde_json::json!({
+            Err(HttpResponse::Forbidden().json(serde_json::json!({
                 "error": "Invalid installation source",
                 "message": "App installation source is not valid for Developer Mode access"
-            })));
+            })))
         }
     }
 }
@@ -305,7 +309,10 @@ async fn list_containers(data: web::Data<AppState>) -> impl Responder {
                                 "{}:{}/{}",
                                 p.public_port.unwrap_or(0),
                                 p.private_port,
-                                p.typ.as_ref().map(|s| format!("{:?}", s).to_lowercase()).unwrap_or_else(|| "tcp".to_string())
+                                p.typ
+                                    .as_ref()
+                                    .map(|s| format!("{:?}", s).to_lowercase())
+                                    .unwrap_or_else(|| "tcp".to_string())
                             )
                         })
                         .collect()
@@ -320,10 +327,7 @@ async fn list_containers(data: web::Data<AppState>) -> impl Responder {
 
 /// Start a container
 #[post("/api/supervisor/containers/{name}/start")]
-async fn start_container(
-    data: web::Data<AppState>,
-    path: web::Path<String>,
-) -> impl Responder {
+async fn start_container(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     let container_name = path.into_inner();
 
     match data
@@ -639,7 +643,10 @@ async fn get_network_interfaces() -> impl Responder {
 /// Configure network interface (requires elevated privileges)
 #[put("/api/supervisor/network/configure")]
 async fn configure_network(req: web::Json<NetworkConfigRequest>) -> impl Responder {
-    info!("Network configuration request for interface: {}", req.interface);
+    info!(
+        "Network configuration request for interface: {}",
+        req.interface
+    );
 
     // Decide which configuration backend to use. Order: nmcli (NetworkManager) →
     // ip + resolvectl fallback. The selection can be overridden via env.
@@ -654,7 +661,11 @@ async fn configure_network(req: web::Json<NetworkConfigRequest>) -> impl Respond
                 o.status,
                 String::from_utf8_lossy(&o.stderr)
             )),
-            Err(e) => Err(format!("failed to spawn {}: {}", cmd.get_program().to_string_lossy(), e)),
+            Err(e) => Err(format!(
+                "failed to spawn {}: {}",
+                cmd.get_program().to_string_lossy(),
+                e
+            )),
         }
     }
 
@@ -678,7 +689,15 @@ async fn configure_network(req: web::Json<NetworkConfigRequest>) -> impl Respond
                 format!("{}/24", ip)
             };
             let mut cmd = std::process::Command::new("nmcli");
-            cmd.args(["connection", "modify", &req.interface, "ipv4.addresses", &prefix_or_addr, "ipv4.method", "manual"]);
+            cmd.args([
+                "connection",
+                "modify",
+                &req.interface,
+                "ipv4.addresses",
+                &prefix_or_addr,
+                "ipv4.method",
+                "manual",
+            ]);
             match run(&mut cmd) {
                 Ok(_) => applied.push(format!("ipv4.addresses={}", prefix_or_addr)),
                 Err(e) => errors.push(e),
@@ -716,7 +735,13 @@ async fn configure_network(req: web::Json<NetworkConfigRequest>) -> impl Respond
                 .and_then(netmask_to_prefix)
                 .unwrap_or(24);
             let mut cmd = std::process::Command::new("ip");
-            cmd.args(["addr", "replace", &format!("{}/{}", ip, prefix), "dev", &req.interface]);
+            cmd.args([
+                "addr",
+                "replace",
+                &format!("{}/{}", ip, prefix),
+                "dev",
+                &req.interface,
+            ]);
             match run(&mut cmd) {
                 Ok(_) => applied.push(format!("ip {}/{}", ip, prefix)),
                 Err(e) => errors.push(e),
@@ -724,7 +749,15 @@ async fn configure_network(req: web::Json<NetworkConfigRequest>) -> impl Respond
         }
         if let Some(gw) = &req.gateway {
             let mut cmd = std::process::Command::new("ip");
-            cmd.args(["route", "replace", "default", "via", gw, "dev", &req.interface]);
+            cmd.args([
+                "route",
+                "replace",
+                "default",
+                "via",
+                gw,
+                "dev",
+                &req.interface,
+            ]);
             match run(&mut cmd) {
                 Ok(_) => applied.push(format!("default via {}", gw)),
                 Err(e) => errors.push(e),
@@ -763,7 +796,9 @@ async fn configure_network(req: web::Json<NetworkConfigRequest>) -> impl Respond
 
 fn netmask_to_prefix(mask: &str) -> Option<u8> {
     let parts: Vec<&str> = mask.split('.').collect();
-    if parts.len() != 4 { return None; }
+    if parts.len() != 4 {
+        return None;
+    }
     let mut bits: u32 = 0;
     for p in parts {
         let n: u8 = p.parse().ok()?;
@@ -782,7 +817,7 @@ struct AppMetadata {
     description: String,
     author: String,
     icon: Option<String>,
-    image: String,  // Docker image
+    image: String, // Docker image
     ports: Vec<String>,
     environment: HashMap<String, String>,
     volumes: Vec<String>,
@@ -996,7 +1031,7 @@ async fn uninstall_app(
         .remove_container(
             &container_name,
             Some(bollard::container::RemoveContainerOptions {
-                v: req.remove_data,  // Remove volumes if requested
+                v: req.remove_data, // Remove volumes if requested
                 force: true,
                 ..Default::default()
             }),
@@ -1021,10 +1056,7 @@ async fn uninstall_app(
 
 /// Get app details
 #[get("/api/supervisor/apps/{app_id}")]
-async fn get_app_details(
-    data: web::Data<AppState>,
-    path: web::Path<String>,
-) -> impl Responder {
+async fn get_app_details(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     let app_id = path.into_inner();
     let container_name = format!("iora-app-{}", app_id);
 
@@ -1060,7 +1092,8 @@ fn compose_project_dir(req: &ComposeProjectRequest) -> Result<std::path::PathBuf
         let requested_path = std::path::PathBuf::from(dir);
 
         // Canonicalize to resolve symlinks and ".." components
-        let canonical_path = requested_path.canonicalize()
+        let canonical_path = requested_path
+            .canonicalize()
             .map_err(|e| format!("Invalid compose_dir path: {}", e))?;
 
         // Ensure the canonical path is within the allowed base directory
@@ -1253,10 +1286,11 @@ async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
             "stdout": String::from_utf8_lossy(&output.stdout).trim(),
             "stderr": String::from_utf8_lossy(&output.stderr).trim()
         })),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable().json(serde_json::json!({
-            "success": false,
-            "error": "docker CLI is not installed"
-        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable()
+            .json(serde_json::json!({
+                "success": false,
+                "error": "docker CLI is not installed"
+            })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "success": false,
             "error": format!("docker compose invocation failed: {e}")
@@ -1307,10 +1341,11 @@ async fn compose_down(req: web::Json<ComposeProjectRequest>) -> impl Responder {
             "stdout": String::from_utf8_lossy(&output.stdout).trim(),
             "stderr": String::from_utf8_lossy(&output.stderr).trim()
         })),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable().json(serde_json::json!({
-            "success": false,
-            "error": "docker CLI is not installed"
-        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable()
+            .json(serde_json::json!({
+                "success": false,
+                "error": "docker CLI is not installed"
+            })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "success": false,
             "error": format!("docker compose invocation failed: {e}")
@@ -1383,10 +1418,11 @@ async fn compose_prepare(req: web::Json<ComposeProjectRequest>) -> impl Responde
             "status": output.status.code(),
             "stderr": String::from_utf8_lossy(&output.stderr).trim()
         })),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable().json(serde_json::json!({
-            "success": false,
-            "error": "docker CLI is not installed"
-        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable()
+            .json(serde_json::json!({
+                "success": false,
+                "error": "docker CLI is not installed"
+            })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "success": false,
             "error": format!("docker compose invocation failed: {e}")
@@ -1438,7 +1474,7 @@ struct InterAppCallRequest {
 #[derive(Debug, Deserialize)]
 struct DeployRequest {
     app_id: String,
-    image_tar: String,  // Base64 encoded tar archive
+    image_tar: String, // Base64 encoded tar archive
     restart: bool,
 }
 
@@ -1473,14 +1509,16 @@ async fn remove_developer_app(docker: &Docker) -> Result<(), Box<dyn std::error:
     let _ = docker.stop_container(DEVELOPER_APP_CONTAINER, None).await;
 
     info!("Removing Developer App container...");
-    let _ = docker.remove_container(
-        DEVELOPER_APP_CONTAINER,
-        Some(bollard::container::RemoveContainerOptions {
-            force: true,
-            v: false, // Keep data volumes
-            ..Default::default()
-        }),
-    ).await;
+    let _ = docker
+        .remove_container(
+            DEVELOPER_APP_CONTAINER,
+            Some(bollard::container::RemoveContainerOptions {
+                force: true,
+                v: false, // Keep data volumes
+                ..Default::default()
+            }),
+        )
+        .await;
 
     info!("Developer App removed successfully");
     Ok(())
@@ -1498,7 +1536,10 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
             all: true,
             filters: {
                 let mut filters = HashMap::new();
-                filters.insert("name".to_string(), vec![DEVELOPER_APP_CONTAINER.to_string()]);
+                filters.insert(
+                    "name".to_string(),
+                    vec![DEVELOPER_APP_CONTAINER.to_string()],
+                );
                 filters
             },
             ..Default::default()
@@ -1513,24 +1554,32 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
     info!("Developer App not found, building and installing...");
 
     // Check if image exists, if not build it
-    let images = docker.list_images(Some(ListImagesOptions::<String> {
-        filters: {
-            let mut filters = HashMap::new();
-            filters.insert("reference".to_string(), vec![DEVELOPER_APP_IMAGE.to_string()]);
-            filters
-        },
-        ..Default::default()
-    })).await?;
+    let images = docker
+        .list_images(Some(ListImagesOptions::<String> {
+            filters: {
+                let mut filters = HashMap::new();
+                filters.insert(
+                    "reference".to_string(),
+                    vec![DEVELOPER_APP_IMAGE.to_string()],
+                );
+                filters
+            },
+            ..Default::default()
+        }))
+        .await?;
 
     if images.is_empty() {
-        info!("Developer App image '{}' missing, attempting to provision it.", DEVELOPER_APP_IMAGE);
+        info!(
+            "Developer App image '{}' missing, attempting to provision it.",
+            DEVELOPER_APP_IMAGE
+        );
 
         // Resolve the build context path. In a typical IORA OS deployment the
         // build context is mounted into the supervisor container via the
         // IORA_BUILD_CONTEXT environment variable. If unset, fall back to
         // the conventional /opt/iora location used by the OS image.
-        let build_context = std::env::var("IORA_BUILD_CONTEXT")
-            .unwrap_or_else(|_| "/opt/iora".to_string());
+        let build_context =
+            std::env::var("IORA_BUILD_CONTEXT").unwrap_or_else(|_| "/opt/iora".to_string());
         let dockerfile_rel = std::env::var("IORA_DEVELOPER_APP_DOCKERFILE")
             .unwrap_or_else(|_| "backend/Dockerfile".to_string());
 
@@ -1553,7 +1602,10 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
                 pull: true,
                 buildargs: {
                     let mut args = HashMap::new();
-                    args.insert("IORA_DEVELOPER_APP_OFFICIAL".to_string(), "true".to_string());
+                    args.insert(
+                        "IORA_DEVELOPER_APP_OFFICIAL".to_string(),
+                        "true".to_string(),
+                    );
                     args
                 },
                 ..Default::default()
@@ -1572,14 +1624,16 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
 
         info!("Falling back to the pre-built image shipped with the IORA system update.");
 
-        let main_images = docker.list_images(Some(ListImagesOptions::<String> {
-            filters: {
-                let mut filters = HashMap::new();
-                filters.insert("reference".to_string(), vec!["iora-backend:*".to_string()]);
-                filters
-            },
-            ..Default::default()
-        })).await?;
+        let main_images = docker
+            .list_images(Some(ListImagesOptions::<String> {
+                filters: {
+                    let mut filters = HashMap::new();
+                    filters.insert("reference".to_string(), vec!["iora-backend:*".to_string()]);
+                    filters
+                },
+                ..Default::default()
+            }))
+            .await?;
 
         if main_images.is_empty() {
             return Err("Developer App image not found. Please rebuild IORA system with: docker build -t iora-backend:latest --target iora-developer-app backend/".into());
@@ -1596,7 +1650,10 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
     labels.insert("iora.app.id".to_string(), DEVELOPER_APP_ID.to_string());
     labels.insert("iora.app.name".to_string(), "IORA Developer".to_string());
     labels.insert("iora.app.version".to_string(), "0.1.0".to_string());
-    labels.insert("iora.app.installation_source".to_string(), "developer_app".to_string());
+    labels.insert(
+        "iora.app.installation_source".to_string(),
+        "developer_app".to_string(),
+    );
     labels.insert("iora.app.permissions".to_string(), "DeveloperAccess,InterAppCommunication,LiveMetrics,DirectDeploy,DebugAccess,LiveLogs,HotReload".to_string());
 
     let env = vec![
@@ -1605,11 +1662,13 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
         "IORA_API_URL=http://iora-api:8080".to_string(),
     ];
 
-    let mut host_config = HostConfig::default();
-    host_config.binds = Some(vec![
-        "/var/run/docker.sock:/var/run/docker.sock:ro".to_string(),
-        "iora-developer-data:/app/data".to_string(),
-    ]);
+    let host_config = HostConfig {
+        binds: Some(vec![
+            "/var/run/docker.sock:/var/run/docker.sock:ro".to_string(),
+            "iora-developer-data:/app/data".to_string(),
+        ]),
+        ..Default::default()
+    };
 
     let config = Config {
         image: Some(DEVELOPER_APP_IMAGE.to_string()),
@@ -1652,7 +1711,10 @@ async fn toggle_developer_mode(
     let mut dev_mode = data.developer_mode.write().await;
     *dev_mode = enabled;
 
-    info!("Developer Mode {}", if enabled { "enabled" } else { "disabled" });
+    info!(
+        "Developer Mode {}",
+        if enabled { "enabled" } else { "disabled" }
+    );
 
     // Auto-install or uninstall Developer App based on mode
     if enabled {
@@ -1717,7 +1779,11 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
         let labels = container.labels.as_ref();
 
         // Extract environment variables from inspection
-        let inspection = data.docker.inspect_container(&container_id, None).await.ok();
+        let inspection = data
+            .docker
+            .inspect_container(&container_id, None)
+            .await
+            .ok();
         let env_vars = inspection
             .as_ref()
             .and_then(|i| i.config.as_ref())
@@ -1745,18 +1811,20 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
 
         // Get resource usage stats
         // Wrap stats collection in timeout to prevent hanging and ensure cleanup
-        let resource_usage = match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            async {
-                let mut stats_stream = data.docker.stats(&container_id, Some(StatsOptions {
+        let resource_usage = match tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let mut stats_stream = data.docker.stats(
+                &container_id,
+                Some(StatsOptions {
                     stream: false,
                     one_shot: true,
-                }));
-                let result = futures_util::TryStreamExt::try_next(&mut stats_stream).await;
-                drop(stats_stream);  // Explicit cleanup to release Docker API resources
-                result
-            }
-        ).await {
+                }),
+            );
+            let result = futures_util::TryStreamExt::try_next(&mut stats_stream).await;
+            drop(stats_stream); // Explicit cleanup to release Docker API resources
+            result
+        })
+        .await
+        {
             Ok(Ok(Some(stats))) => {
                 let cpu_percent = calculate_cpu_percent(&stats);
                 let memory_usage = stats.memory_stats.usage.unwrap_or(0);
@@ -1767,14 +1835,15 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
                     0.0
                 };
 
-                let (network_rx, network_tx) = stats.networks.as_ref().map(|networks| {
-                    networks.values().fold((0u64, 0u64), |acc, net| {
-                        (
-                            acc.0 + net.rx_bytes,
-                            acc.1 + net.tx_bytes,
-                        )
+                let (network_rx, network_tx) = stats
+                    .networks
+                    .as_ref()
+                    .map(|networks| {
+                        networks.values().fold((0u64, 0u64), |acc, net| {
+                            (acc.0 + net.rx_bytes, acc.1 + net.tx_bytes)
+                        })
                     })
-                }).unwrap_or((0, 0));
+                    .unwrap_or((0, 0));
 
                 Some(ResourceUsage {
                     cpu_percent,
@@ -1797,31 +1866,70 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
         };
 
         let app_info = DetailedAppInfo {
-            id: labels.and_then(|l| l.get("iora.app.id")).cloned().unwrap_or_else(|| "unknown".to_string()),
-            name: labels.and_then(|l| l.get("iora.app.name")).cloned().unwrap_or_else(|| "unknown".to_string()),
-            version: labels.and_then(|l| l.get("iora.app.version")).cloned().unwrap_or_else(|| "unknown".to_string()),
-            description: labels.and_then(|l| l.get("iora.app.description")).cloned().unwrap_or_default(),
-            author: labels.and_then(|l| l.get("iora.app.author")).cloned().unwrap_or_default(),
-            image: container.image.clone().unwrap_or_else(|| "unknown".to_string()),
-            state: container.state.clone().unwrap_or_else(|| "unknown".to_string()),
-            status: container.status.clone().unwrap_or_else(|| "unknown".to_string()),
+            id: labels
+                .and_then(|l| l.get("iora.app.id"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string()),
+            name: labels
+                .and_then(|l| l.get("iora.app.name"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string()),
+            version: labels
+                .and_then(|l| l.get("iora.app.version"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string()),
+            description: labels
+                .and_then(|l| l.get("iora.app.description"))
+                .cloned()
+                .unwrap_or_default(),
+            author: labels
+                .and_then(|l| l.get("iora.app.author"))
+                .cloned()
+                .unwrap_or_default(),
+            image: container
+                .image
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            state: container
+                .state
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            status: container
+                .status
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
             container_id: container_id.clone(),
-            container_name: container.names.as_ref()
+            container_name: container
+                .names
+                .as_ref()
                 .and_then(|n| n.first())
                 .map(|s| s.trim_start_matches('/').to_string())
                 .unwrap_or_else(|| "unknown".to_string()),
             created: container.created.unwrap_or(0),
-            ports: container.ports.as_ref().map(|ports| {
-                ports.iter().map(|p| {
-                    format!("{}:{}/{}",
-                        p.public_port.unwrap_or(0),
-                        p.private_port,
-                        p.typ.as_ref().map(|s| format!("{:?}", s).to_lowercase()).unwrap_or_else(|| "tcp".to_string()))
-                }).collect()
-            }).unwrap_or_default(),
+            ports: container
+                .ports
+                .as_ref()
+                .map(|ports| {
+                    ports
+                        .iter()
+                        .map(|p| {
+                            format!(
+                                "{}:{}/{}",
+                                p.public_port.unwrap_or(0),
+                                p.private_port,
+                                p.typ
+                                    .as_ref()
+                                    .map(|s| format!("{:?}", s).to_lowercase())
+                                    .unwrap_or_else(|| "tcp".to_string())
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             environment: env_vars,
             volumes,
-            permissions: labels.and_then(|l| l.get("iora.app.permissions"))
+            permissions: labels
+                .and_then(|l| l.get("iora.app.permissions"))
                 .and_then(|p| serde_json::from_str::<Vec<String>>(p).ok())
                 .unwrap_or_default(),
             labels: labels.cloned().unwrap_or_default(),
@@ -1863,8 +1971,10 @@ async fn inter_app_call(
         return response;
     }
 
-    info!("Inter-app call: {} -> {}{}",
-        req.method, req.target_app_id, req.endpoint);
+    info!(
+        "Inter-app call: {} -> {}{}",
+        req.method, req.target_app_id, req.endpoint
+    );
 
     // Find target app container
     let container_name = format!("iora-app-{}", req.target_app_id);
@@ -1951,7 +2061,8 @@ async fn get_live_metrics(data: web::Data<AppState>) -> impl Responder {
         .unwrap_or_default();
 
     let total_containers = containers.len();
-    let running_containers = containers.iter()
+    let running_containers = containers
+        .iter()
         .filter(|c| c.state == Some("running".to_string()))
         .count();
 
@@ -1976,6 +2087,7 @@ async fn get_live_metrics(data: web::Data<AppState>) -> impl Responder {
 
 /// Deploy/update app from IDE (Developer Mode only)
 #[post("/api/developer/deploy")]
+#[allow(deprecated)]
 async fn deploy_from_ide(
     data: web::Data<AppState>,
     req: web::Json<DeployRequest>,
@@ -1997,18 +2109,28 @@ async fn deploy_from_ide(
     };
 
     // Load image into Docker
-    match data.docker.import_image(
-        bollard::image::ImportImageOptions { ..Default::default() },
-        tar_bytes.into(),
-        None,
-    ).try_collect::<Vec<_>>().await {
+    match data
+        .docker
+        .import_image(
+            bollard::image::ImportImageOptions {
+                ..Default::default()
+            },
+            tar_bytes.into(),
+            None,
+        )
+        .try_collect::<Vec<_>>()
+        .await
+    {
         Ok(_) => {
             info!("Successfully loaded image for app: {}", req.app_id);
 
             // Restart container if requested
             if req.restart {
                 let container_name = format!("iora-app-{}", req.app_id);
-                let _ = data.docker.restart_container(&container_name, None::<RestartContainerOptions>).await;
+                let _ = data
+                    .docker
+                    .restart_container(&container_name, None::<RestartContainerOptions>)
+                    .await;
                 info!("Restarted app container: {}", container_name);
             }
 
@@ -2029,10 +2151,7 @@ async fn deploy_from_ide(
 
 /// Stream live logs from container (Developer Mode only, SSE)
 #[get("/api/developer/logs/{container_name}/stream")]
-async fn stream_logs(
-    data: web::Data<AppState>,
-    path: web::Path<String>,
-) -> impl Responder {
+async fn stream_logs(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     if let Err(response) = check_developer_mode(&data).await {
         return Either::Left(response);
     }
@@ -2265,10 +2384,16 @@ mod tests {
 
         let req = make_req("evil", Some("../etc/passwd"));
         match compose_project_dir(&req) {
-            Err(e) => assert!(e.contains("compose_dir") || e.contains("Invalid"), "Expected rejection, got: {}", e),
+            Err(e) => assert!(
+                e.contains("compose_dir") || e.contains("Invalid"),
+                "Expected rejection, got: {}",
+                e
+            ),
             Ok(path) => assert!(
                 path.starts_with(&canonical_base(&tmp)),
-                "Path {:?} must be within base_dir {:?}", path, tmp
+                "Path {:?} must be within base_dir {:?}",
+                path,
+                tmp
             ),
         }
 
@@ -2283,7 +2408,10 @@ mod tests {
         env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
 
         let req = make_req("evil", Some("/etc"));
-        assert!(compose_project_dir(&req).is_err(), "Absolute path outside base_dir must be rejected");
+        assert!(
+            compose_project_dir(&req).is_err(),
+            "Absolute path outside base_dir must be rejected"
+        );
 
         fs::remove_dir_all(&tmp).ok();
     }
@@ -2298,8 +2426,11 @@ mod tests {
         let req = make_req("app1", Some(""));
         let result = compose_project_dir(&req).unwrap();
         let cb = canonical_base(&tmp);
-        assert_eq!(result, cb.join("app1"),
-            "Empty compose_dir should default to base_dir/app_id");
+        assert_eq!(
+            result,
+            cb.join("app1"),
+            "Empty compose_dir should default to base_dir/app_id"
+        );
 
         fs::remove_dir_all(&tmp).ok();
     }

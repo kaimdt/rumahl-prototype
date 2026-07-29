@@ -21,8 +21,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use futures_util::StreamExt;
-use serde::Deserialize;
 use iora_shared::system_config;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -31,12 +31,12 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 const DEFAULT_UPDATE_SERVER: &str = "https://update.kaimdt.com";
-const VERSION_FILE:    &str = "/etc/iora-version";
+const VERSION_FILE: &str = "/etc/iora-version";
 const BUILD_INFO_FILE: &str = "/etc/iora/build-info.json";
 const MACHINE_ID_FILE: &str = "/etc/machine-id";
-const PUBKEY_FILE:     &str = "/etc/iora/iora-release.pub";
-const TMPDIR:          &str = "/tmp/iora-update";
-const LOGFILE:         &str = "/var/log/iora-update.log";
+const PUBKEY_FILE: &str = "/etc/iora/iora-release.pub";
+const TMPDIR: &str = "/tmp/iora-update";
+const LOGFILE: &str = "/var/log/iora-update.log";
 
 #[derive(Parser, Debug)]
 #[command(name = "iora-updater", about = "IORA OS update installer")]
@@ -99,15 +99,9 @@ async fn main() -> Result<()> {
             if v.get("variant").and_then(|x| x.as_str()) == Some("os-dev")
                 || v.get("updates_enabled").and_then(|x| x.as_bool()) == Some(false)
             {
-                eprintln!(
-                    "iora-updater: this is an IORA OS Dev build (variant=os-dev)."
-                );
-                eprintln!(
-                    "Updates are disabled because the image has no unique version."
-                );
-                eprintln!(
-                    "Rebuild with `iora-os/build.sh` (without --dev) to get a"
-                );
+                eprintln!("iora-updater: this is an IORA OS Dev build (variant=os-dev).");
+                eprintln!("Updates are disabled because the image has no unique version.");
+                eprintln!("Rebuild with `iora-os/build.sh` (without --dev) to get a");
                 eprintln!("production image that can receive updates.");
                 return Ok(());
             }
@@ -203,8 +197,7 @@ async fn main() -> Result<()> {
     validate_download_url(&download_url)?;
 
     fs::create_dir_all(TMPDIR).await.ok();
-    let bundle_path =
-        PathBuf::from(TMPDIR).join(format!("iora-update-{latest}.raucb"));
+    let bundle_path = PathBuf::from(TMPDIR).join(format!("iora-update-{latest}.raucb"));
 
     if should_redownload(&bundle_path, &expected_sha).await {
         log(&format!("downloading {download_url}")).await;
@@ -246,7 +239,11 @@ async fn main() -> Result<()> {
         .await
         .context("failed to spawn rauc")?;
 
-    let report_status = if status.success() { "completed" } else { "failed" };
+    let report_status = if status.success() {
+        "completed"
+    } else {
+        "failed"
+    };
     let _ = client
         .post(format!("{server}/v1/iora/os/report"))
         .json(&serde_json::json!({
@@ -286,7 +283,7 @@ async fn should_redownload(path: &Path, expected_sha: &str) -> bool {
 }
 
 async fn download(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> {
-    let mut resp = client
+    let resp = client
         .get(url)
         .send()
         .await
@@ -358,7 +355,7 @@ fn validate_download_url(url: &str) -> Result<()> {
         .next()
         .unwrap_or("")
         .split('@')
-        .last()
+        .next_back()
         .unwrap_or("")
         .split(':')
         .next()
@@ -437,7 +434,8 @@ async fn create_pre_update_backup() -> Result<()> {
                     match backup.get("status").and_then(|v| v.as_str()) {
                         Some("completed") => return Ok(()),
                         Some("failed") => {
-                            let error = backup.get("error_message")
+                            let error = backup
+                                .get("error_message")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("unknown error");
                             bail!("Pre-update backup failed: {}", error);

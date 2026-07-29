@@ -1,5 +1,8 @@
 // OpenAI Provider Implementation
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
+use super::{
+    AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError,
+    ProviderModel, SpeechSynthesis,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -15,7 +18,13 @@ pub struct OpenAIProvider {
 
 impl OpenAIProvider {
     pub fn new(config: ProviderConfig) -> Self {
-        Self::with_defaults(config, "openai", "OpenAI", "https://api.openai.com/v1", "gpt-4o-mini")
+        Self::with_defaults(
+            config,
+            "openai",
+            "OpenAI",
+            "https://api.openai.com/v1",
+            "gpt-4o-mini",
+        )
     }
 
     pub fn new_compatible(config: ProviderConfig) -> Self {
@@ -44,7 +53,7 @@ impl OpenAIProvider {
     }
 
     fn base_url(&self) -> Option<&str> {
-        self.config.base_url.as_deref().or_else(|| {
+        self.config.base_url.as_deref().or({
             if self.default_base_url.is_empty() {
                 None
             } else {
@@ -131,12 +140,17 @@ impl AIProvider for OpenAIProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("OpenAI-compatible API key not configured")?;
-        let base_url = self.base_url()
+        let base_url = self
+            .base_url()
             .ok_or("OpenAI-compatible base URL not configured")?;
 
-        let response = self.client
+        let response = self
+            .client
             .get(format!("{}/models", base_url.trim_end_matches('/')))
             .header("Authorization", format!("Bearer {}", api_key))
             .send()
@@ -148,11 +162,15 @@ impl AIProvider for OpenAIProvider {
         }
 
         let payload: OpenAIModelListResponse = response.json().await?;
-        Ok(payload.data.into_iter().map(|model| ProviderModel {
-            id: model.id.clone(),
-            name: model.id,
-            provider: self.provider_id.to_string(),
-        }).collect())
+        Ok(payload
+            .data
+            .into_iter()
+            .map(|model| ProviderModel {
+                id: model.id.clone(),
+                name: model.id,
+                provider: self.provider_id.to_string(),
+            })
+            .collect())
     }
 
     async fn chat(
@@ -160,10 +178,14 @@ impl AIProvider for OpenAIProvider {
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
     ) -> Result<ChatResponse, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("OpenAI API key not configured")?;
 
-        let base_url = self.base_url()
+        let base_url = self
+            .base_url()
             .ok_or("OpenAI-compatible base URL not configured")?;
 
         let model = self.selected_model();
@@ -190,8 +212,12 @@ impl AIProvider for OpenAIProvider {
             temperature: Some(0.7),
         };
 
-        let response = self.client
-            .post(format!("{}/chat/completions", base_url.trim_end_matches('/')))
+        let response = self
+            .client
+            .post(format!(
+                "{}/chat/completions",
+                base_url.trim_end_matches('/')
+            ))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&request)
@@ -218,10 +244,14 @@ impl AIProvider for OpenAIProvider {
         audio_data: Vec<u8>,
         format: &str,
     ) -> Result<AudioTranscription, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("OpenAI API key not configured")?;
 
-        let base_url = self.base_url()
+        let base_url = self
+            .base_url()
             .ok_or("OpenAI-compatible base URL not configured")?;
 
         let form = reqwest::multipart::Form::new()
@@ -233,8 +263,12 @@ impl AIProvider for OpenAIProvider {
                     .mime_str(&format!("audio/{}", format))?,
             );
 
-        let response = self.client
-            .post(format!("{}/audio/transcriptions", base_url.trim_end_matches('/')))
+        let response = self
+            .client
+            .post(format!(
+                "{}/audio/transcriptions",
+                base_url.trim_end_matches('/')
+            ))
             .header("Authorization", format!("Bearer {}", api_key))
             .multipart(form)
             .send()
@@ -266,10 +300,14 @@ impl AIProvider for OpenAIProvider {
         text: &str,
         voice: Option<&str>,
     ) -> Result<SpeechSynthesis, ProviderError> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or("OpenAI API key not configured")?;
 
-        let base_url = self.base_url()
+        let base_url = self
+            .base_url()
             .ok_or("OpenAI-compatible base URL not configured")?;
 
         let voice_name = voice.unwrap_or("alloy");
@@ -287,7 +325,8 @@ impl AIProvider for OpenAIProvider {
             voice: voice_name.to_string(),
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/audio/speech", base_url.trim_end_matches('/')))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")

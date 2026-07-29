@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use ammonia::clean;
 use anyhow::{Context, Result};
@@ -10,7 +14,12 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use governor::{clock::DefaultClock, state::{direct::NotKeyed, InMemoryState}, RateLimiter};
+use governor::{
+    clock::DefaultClock,
+    state::{direct::NotKeyed, InMemoryState},
+    RateLimiter,
+};
+use iora_shared::system_config;
 use lettre::{
     message::Mailbox, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
     AsyncTransport, Message, Tokio1Executor,
@@ -18,7 +27,6 @@ use lettre::{
 use regex::Regex;
 use ring::digest::{Context as DigestContext, SHA256};
 use serde::{Deserialize, Serialize};
-use iora_shared::system_config;
 use sqlx::{Row, SqlitePool};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
@@ -32,6 +40,7 @@ use uuid::Uuid;
 struct AppState {
     db: Arc<SqlitePool>,
     http_client: reqwest::Client,
+    #[allow(dead_code, clippy::type_complexity)]
     rate_limiter: Arc<RwLock<HashMap<String, RateLimiter<NotKeyed, InMemoryState, DefaultClock>>>>,
     started_at: Arc<Instant>,
     config: Arc<GatewayConfig>,
@@ -51,6 +60,7 @@ struct GatewayConfig {
 // ─── Data Structures ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct GatewayRequest {
     request_id: String,
     request_type: String,
@@ -142,12 +152,7 @@ async fn validate_content(content: &str, content_type: &str) -> ValidationResult
     }
 
     // Check for shell command injection
-    let shell_patterns = vec![
-        r"[;&|`$]",
-        r"\$\([^)]*\)",
-        r"`[^`]*`",
-        r"\$\{[^}]*\}",
-    ];
+    let shell_patterns = vec![r"[;&|`$]", r"\$\([^)]*\)", r"`[^`]*`", r"\$\{[^}]*\}"];
 
     for pattern in &shell_patterns {
         if let Ok(re) = Regex::new(pattern) {
@@ -192,9 +197,10 @@ async fn validate_url(url: &str, config: &GatewayConfig) -> Result<bool> {
     // Check if domain is in allowed list
     if !config.allowed_domains.is_empty() {
         if let Some(domain) = parsed.domain() {
-            let is_allowed = config.allowed_domains.iter().any(|allowed| {
-                domain == allowed || domain.ends_with(&format!(".{}", allowed))
-            });
+            let is_allowed = config
+                .allowed_domains
+                .iter()
+                .any(|allowed| domain == allowed || domain.ends_with(&format!(".{}", allowed)));
             if !is_allowed {
                 return Ok(false);
             }
@@ -283,7 +289,7 @@ where
     let exec_id = sqlx::query(
         "INSERT INTO sandbox_executions (request_id, sandbox_type, started_at)
          VALUES (?, 'process_isolation', ?)
-         RETURNING id"
+         RETURNING id",
     )
     .bind(request_id)
     .bind(&started_at)
@@ -303,7 +309,7 @@ where
     // Update sandbox execution record
     sqlx::query(
         "UPDATE sandbox_executions SET finished_at = ?, exit_code = ?, timeout_triggered = ?
-         WHERE id = ?"
+         WHERE id = ?",
     )
     .bind(Utc::now().to_rfc3339())
     .bind(exit_code)
@@ -327,11 +333,17 @@ async fn send_email_internal(
     subject: &str,
     body: &str,
 ) -> Result<()> {
-    let smtp_server = config.smtp_server.as_ref()
+    let smtp_server = config
+        .smtp_server
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("SMTP server not configured"))?;
-    let smtp_username = config.smtp_username.as_ref()
+    let smtp_username = config
+        .smtp_username
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("SMTP username not configured"))?;
-    let smtp_password = config.smtp_password.as_ref()
+    let smtp_password = config
+        .smtp_password
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("SMTP password not configured"))?;
 
     let email = Message::builder()
@@ -353,6 +365,7 @@ async fn send_email_internal(
 
 // ─── Web Search Functions ────────────────────────────────────────────────────
 
+#[allow(clippy::wildcard_in_or_patterns)]
 async fn web_search_internal(
     client: &reqwest::Client,
     query: &str,
@@ -419,8 +432,7 @@ async fn searxng_search(
     query: &str,
     max_results: usize,
 ) -> Result<Vec<serde_json::Value>> {
-    let base = std::env::var("SEARXNG_URL")
-        .map_err(|_| anyhow::anyhow!("SEARXNG_URL not set"))?;
+    let base = std::env::var("SEARXNG_URL").map_err(|_| anyhow::anyhow!("SEARXNG_URL not set"))?;
     let url = format!(
         "{}/search?q={}&format=json",
         base.trim_end_matches('/'),
@@ -537,7 +549,8 @@ async fn verify_update_checksum(
 
     // Download the update file
     let client = reqwest::Client::new();
-    let response = client.get(download_url)
+    let response = client
+        .get(download_url)
         .timeout(Duration::from_secs(300))
         .send()
         .await?;
@@ -585,11 +598,7 @@ async fn verify_update_checksum(
 
 // ─── Rate Limiting ───────────────────────────────────────────────────────────
 
-async fn check_rate_limit(
-    db: &SqlitePool,
-    service_name: &str,
-    request_type: &str,
-) -> Result<bool> {
+async fn check_rate_limit(db: &SqlitePool, service_name: &str, request_type: &str) -> Result<bool> {
     let now = Utc::now();
     let current_hour = now.format("%Y-%m-%d %H").to_string();
     let current_day = now.format("%Y-%m-%d").to_string();
@@ -666,7 +675,13 @@ async fn send_email(
     log_validation(&state.db, &request_id, "email_content", &validation).await?;
 
     if !validation.is_safe {
-        block_content(&state.db, &request_id, "Malicious content detected in email", &validation.findings).await?;
+        block_content(
+            &state.db,
+            &request_id,
+            "Malicious content detected in email",
+            &validation.findings,
+        )
+        .await?;
         return Err(AppError::SecurityViolation(
             "Email blocked due to security concerns".to_string(),
         ));
@@ -695,16 +710,14 @@ async fn send_email(
         &state.db,
         &request_id,
         Duration::from_secs(state.config.request_timeout_secs),
-        async move {
-            send_email_internal(&config, &to, &subject, &body).await
-        },
+        async move { send_email_internal(&config, &to, &subject, &body).await },
     )
     .await
     .map_err(|e| AppError::Internal(format!("Email sending failed: {}", e)))?;
 
     // Update status
     sqlx::query(
-        "UPDATE gateway_requests SET status = 'completed', completed_at = ? WHERE request_id = ?"
+        "UPDATE gateway_requests SET status = 'completed', completed_at = ? WHERE request_id = ?",
     )
     .bind(Utc::now().to_rfc3339())
     .bind(&request_id)
@@ -746,7 +759,9 @@ async fn web_search(
     // Validate search query
     let validation = validate_content(&req.query, "text").await;
     if !validation.is_safe {
-        return Err(AppError::SecurityViolation("Unsafe search query".to_string()));
+        return Err(AppError::SecurityViolation(
+            "Unsafe search query".to_string(),
+        ));
     }
 
     let max_results = req.max_results.unwrap_or(10).min(50);
@@ -757,9 +772,7 @@ async fn web_search(
         &state.db,
         &request_id,
         Duration::from_secs(state.config.request_timeout_secs),
-        async move {
-            web_search_internal(&client, &query, max_results).await
-        },
+        async move { web_search_internal(&client, &query, max_results).await },
     )
     .await
     .map_err(|e| AppError::Internal(format!("Search failed: {}", e)))?;
@@ -803,14 +816,9 @@ async fn http_get(
     let headers = req.headers.clone();
     let timeout = Duration::from_secs(state.config.request_timeout_secs);
 
-    let (body, status) = execute_in_sandbox(
-        &state.db,
-        &request_id,
-        timeout,
-        async move {
-            http_get_internal(&client, &url, headers.as_ref(), timeout).await
-        },
-    )
+    let (body, status) = execute_in_sandbox(&state.db, &request_id, timeout, async move {
+        http_get_internal(&client, &url, headers.as_ref(), timeout).await
+    })
     .await
     .map_err(|e| AppError::Internal(format!("HTTP request failed: {}", e)))?;
 
@@ -819,7 +827,13 @@ async fn http_get(
     log_validation(&state.db, &request_id, "http_response", &validation).await?;
 
     if !validation.is_safe {
-        block_content(&state.db, &request_id, "Malicious content in HTTP response", &validation.findings).await?;
+        block_content(
+            &state.db,
+            &request_id,
+            "Malicious content in HTTP response",
+            &validation.findings,
+        )
+        .await?;
         return Err(AppError::SecurityViolation(
             "Response blocked due to security concerns".to_string(),
         ));
@@ -868,7 +882,7 @@ async fn verify_update(
 async fn get_request_log(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let rows = sqlx::query(
         "SELECT request_id, request_type, requested_by, status, created_at
-         FROM gateway_requests ORDER BY created_at DESC LIMIT 100"
+         FROM gateway_requests ORDER BY created_at DESC LIMIT 100",
     )
     .fetch_all(&*state.db)
     .await
@@ -894,12 +908,10 @@ async fn get_request_log(State(state): State<AppState>) -> Result<impl IntoRespo
 }
 
 async fn get_ai_requests(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let rows = sqlx::query(
-        "SELECT * FROM ai_request_log ORDER BY logged_at DESC LIMIT 100"
-    )
-    .fetch_all(&*state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let rows = sqlx::query("SELECT * FROM ai_request_log ORDER BY logged_at DESC LIMIT 100")
+        .fetch_all(&*state.db)
+        .await
+        .map_err(AppError::Database)?;
 
     let requests: Vec<serde_json::Value> = rows
         .iter()
@@ -935,7 +947,10 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             AppError::Database(e) => {
                 error!("Database error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error".to_string(),
+                )
             }
             AppError::SecurityViolation(msg) => {
                 warn!("Security violation: {}", msg);

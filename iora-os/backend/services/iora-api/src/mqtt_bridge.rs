@@ -81,7 +81,7 @@ pub async fn mqtt_subscribe_ws(
 
     ws.on_upgrade(move |mut socket| async move {
         use axum::extract::ws::Message;
-        use futures_util::{SinkExt, StreamExt};
+        use futures_util::StreamExt;
 
         // Simple MQTT over WebSocket bridge
         // Client sends: { "type": "subscribe", "topic": "homeassistant/#" }
@@ -105,10 +105,8 @@ pub async fn mqtt_subscribe_ws(
 
                                 // Subscribe via iora-home, which holds the persistent MQTT
                                 // broker connection on behalf of all microservices.
-                                let sub_url = format!(
-                                    "{}/api/admin/mqtt/subscribe",
-                                    state.iora_home_url
-                                );
+                                let sub_url =
+                                    format!("{}/api/admin/mqtt/subscribe", state.iora_home_url);
                                 let sub_body = serde_json::json!({ "topic": topic });
                                 let _ = state
                                     .http_client
@@ -122,10 +120,8 @@ pub async fn mqtt_subscribe_ws(
                                 let topic = parsed["topic"].as_str().unwrap_or("");
                                 let payload = &parsed["payload"];
 
-                                let pub_url = format!(
-                                    "{}/api/admin/mqtt/publish",
-                                    state.iora_home_url
-                                );
+                                let pub_url =
+                                    format!("{}/api/admin/mqtt/publish", state.iora_home_url);
                                 let pub_body = serde_json::json!({
                                     "topic": topic,
                                     "payload": payload.to_string(),
@@ -218,7 +214,12 @@ fn extract_token(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
         .and_then(|v| v.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
         .map(|t| t.to_string())
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing Authorization".to_string()))
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization".to_string(),
+            )
+        })
 }
 
 fn extract_token_opt(headers: &HeaderMap) -> Option<String> {

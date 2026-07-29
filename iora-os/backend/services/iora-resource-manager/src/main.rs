@@ -18,7 +18,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use bollard::container::{InspectContainerOptions, ListContainersOptions, Stats, StatsOptions, UpdateContainerOptions};
+use bollard::container::{
+    InspectContainerOptions, ListContainersOptions, Stats, StatsOptions, UpdateContainerOptions,
+};
 use bollard::Docker;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -61,7 +63,7 @@ struct ContainerResources {
     memory_usage_percent: f64,
 
     // Utilization
-    cpu_utilization: f64,  // usage / allocation
+    cpu_utilization: f64, // usage / allocation
     memory_utilization: f64,
 
     // Timestamps
@@ -90,6 +92,7 @@ struct SystemResourceStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct ReallocationRequest {
     container_id: String,
     cpu_shares: Option<u64>,
@@ -108,10 +111,7 @@ struct AppState {
 // ─── Resource Monitoring ────────────────────────────────────────────────────
 
 /// Get container stats from Docker
-async fn get_container_stats(
-    docker: &Docker,
-    container_id: &str,
-) -> Result<Stats> {
+async fn get_container_stats(docker: &Docker, container_id: &str) -> Result<Stats> {
     let options = StatsOptions {
         stream: false,
         one_shot: true,
@@ -133,10 +133,9 @@ async fn get_container_stats(
 fn calculate_cpu_percent(stats: &Stats) -> f64 {
     let cpu_stats = &stats.cpu_stats;
     let precpu_stats = &stats.precpu_stats;
-    if let (Some(system_usage), Some(presystem_usage)) = (
-        cpu_stats.system_cpu_usage,
-        precpu_stats.system_cpu_usage,
-    ) {
+    if let (Some(system_usage), Some(presystem_usage)) =
+        (cpu_stats.system_cpu_usage, precpu_stats.system_cpu_usage)
+    {
         let cpu_usage = &cpu_stats.cpu_usage;
         let precpu_usage = &precpu_stats.cpu_usage;
         let cpu_delta = cpu_usage.total_usage as f64 - precpu_usage.total_usage as f64;
@@ -179,8 +178,14 @@ async fn monitor_containers(state: &AppState) -> Result<()> {
     let mut new_stats = HashMap::new();
 
     for container in containers {
-        let container_id = container.id.as_ref().unwrap_or(&"unknown".to_string()).clone();
-        let container_name = container.names.as_ref()
+        let container_id = container
+            .id
+            .as_ref()
+            .unwrap_or(&"unknown".to_string())
+            .clone();
+        let container_name = container
+            .names
+            .as_ref()
             .and_then(|n| n.first())
             .map(|s| s.trim_start_matches('/').to_string())
             .unwrap_or_else(|| "unknown".to_string());
@@ -202,12 +207,14 @@ async fn monitor_containers(state: &AppState) -> Result<()> {
                     .await;
 
                 let (cpu_shares, memory_limit) = if let Ok(inspect) = inspect_result {
-                    let cpu = inspect.host_config
+                    let cpu = inspect
+                        .host_config
                         .as_ref()
                         .and_then(|hc| hc.cpu_shares)
                         .unwrap_or(DEFAULT_CPU_SHARES as i64) as u64;
 
-                    let mem = inspect.host_config
+                    let mem = inspect
+                        .host_config
                         .as_ref()
                         .and_then(|hc| hc.memory)
                         .unwrap_or(DEFAULT_MEMORY_BYTES);
@@ -298,15 +305,16 @@ async fn reallocate_resources(state: &AppState) -> Result<Vec<ResourceAllocation
     );
 
     // Calculate total reclaimable resources
-    let mut reclaimable_cpu: i64 = 0;
-    let mut reclaimable_memory: i64 = 0;
+    let mut _reclaimable_cpu: i64 = 0;
+    let mut _reclaimable_memory: i64 = 0;
 
     for container in &underutilized {
         let unused_cpu = (container.cpu_shares as f64 * (1.0 - container.cpu_utilization)) as i64;
-        let unused_memory = (container.memory_limit_bytes as f64 * (1.0 - container.memory_utilization)) as i64;
+        let unused_memory =
+            (container.memory_limit_bytes as f64 * (1.0 - container.memory_utilization)) as i64;
 
-        reclaimable_cpu += unused_cpu;
-        reclaimable_memory += unused_memory;
+        _reclaimable_cpu += unused_cpu;
+        _reclaimable_memory += unused_memory;
     }
 
     // Distribute to overutilized containers
@@ -382,7 +390,9 @@ async fn reallocate_resources(state: &AppState) -> Result<Vec<ResourceAllocation
             let new_cpu_shares = new_cpu_shares.max(512);
             let new_memory_bytes = new_memory_bytes.max(256 * 1024 * 1024); // Min 256 MB
 
-            if new_cpu_shares < container.cpu_shares || new_memory_bytes < container.memory_limit_bytes {
+            if new_cpu_shares < container.cpu_shares
+                || new_memory_bytes < container.memory_limit_bytes
+            {
                 match update_container_resources(
                     &state.docker,
                     &container_id,
@@ -645,8 +655,7 @@ async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "iora_resource_manager=info".to_string()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "iora_resource_manager=info".to_string()),
         )
         .init();
 
@@ -659,13 +668,14 @@ async fn main() -> Result<()> {
     // Global Config Integration - Auto-reload supported
     // ═══════════════════════════════════════════════════════════════════════════
     // Database connection using Global Config with hot-reload support
-    let database_url = iora_shared::system_config::get_cached_setting("resource_manager.database_url")
-        .or_else(|| iora_shared::system_config::get_cached_setting("DATABASE_URL"))
-        .unwrap_or_else(|| {
-            // Fallback to environment variable
-            std::env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora_core".to_string())
-        });
+    let database_url =
+        iora_shared::system_config::get_cached_setting("resource_manager.database_url")
+            .or_else(|| iora_shared::system_config::get_cached_setting("DATABASE_URL"))
+            .unwrap_or_else(|| {
+                // Fallback to environment variable
+                std::env::var("DATABASE_URL")
+                    .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora_core".to_string())
+            });
 
     // Mask sensitive parts of the database URL for logging
     let masked_url = if database_url.contains('@') {
@@ -690,8 +700,7 @@ async fn main() -> Result<()> {
     init_database(&pool).await?;
 
     // Connect to Docker
-    let docker = Docker::connect_with_local_defaults()
-        .context("Failed to connect to Docker")?;
+    let docker = Docker::connect_with_local_defaults().context("Failed to connect to Docker")?;
 
     info!("Connected to Docker");
 
@@ -728,7 +737,10 @@ async fn main() -> Result<()> {
         .unwrap_or(DEFAULT_PORT);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-    info!("iora-resource-manager listening on {} (Global Config hot-reload enabled)", addr);
+    info!(
+        "iora-resource-manager listening on {} (Global Config hot-reload enabled)",
+        addr
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let _hb = iora_shared::heartbeat::spawn_default(

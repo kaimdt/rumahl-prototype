@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
@@ -9,17 +9,17 @@ use axum::{
     extract::{Path as AxumPath, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use chrono::Utc;
-use ipnetwork::IpNetwork;
 use iora_shared::env::IoraEnv;
 use iora_shared::system_config;
+use ipnetwork::IpNetwork;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{Pool, Postgres, Row, Sqlite, SqlitePool};
+use sqlx::{Pool, Postgres, Row, SqlitePool};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
@@ -29,9 +29,9 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 struct AppState {
-    security_db: Arc<SqlitePool>,           // Encrypted SQLite for security logs
-    postgres_admin: Arc<Pool<Postgres>>,    // PostgreSQL with admin privileges
-    encryption_key: Arc<[u8; 32]>,          // AES-256 key for SQLite encryption
+    security_db: Arc<SqlitePool>, // Encrypted SQLite for security logs
+    postgres_admin: Arc<Pool<Postgres>>, // PostgreSQL with admin privileges
+    encryption_key: Arc<[u8; 32]>, // AES-256 key for SQLite encryption
     lockdown_state: Arc<RwLock<LockdownState>>,
     started_at: Arc<Instant>,
     whitelist: Arc<RwLock<Vec<IpNetwork>>>,
@@ -41,7 +41,7 @@ struct AppState {
 #[derive(Debug, Clone)]
 struct LockdownState {
     is_locked: bool,
-    level: u8,                    // 0=normal, 1=warning, 2=suspicious, 3=confirmed, 4=critical
+    level: u8, // 0=normal, 1=warning, 2=suspicious, 3=confirmed, 4=critical
     triggered_at: Option<String>,
     reason: Option<String>,
 }
@@ -71,6 +71,7 @@ struct SecurityEvent {
     prev_hash: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct DatabaseConnection {
     id: Option<i64>,
@@ -83,6 +84,7 @@ struct DatabaseConnection {
     is_authorized: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct PostgresUser {
     username: String,
@@ -130,6 +132,7 @@ fn encrypt_data(key: &[u8; 32], plaintext: &str) -> Result<String> {
     Ok(hex::encode(combined))
 }
 
+#[allow(dead_code)]
 fn decrypt_data(key: &[u8; 32], encrypted_hex: &str) -> Result<String> {
     let combined = hex::decode(encrypted_hex)?;
     if combined.len() < 12 {
@@ -164,6 +167,7 @@ fn compute_event_hash(event: &SecurityEvent) -> String {
 
 // ─── Security Logging ────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn log_security_event(
     db: &SqlitePool,
     key: &[u8; 32],
@@ -175,11 +179,10 @@ async fn log_security_event(
     event_data: Option<&str>,
 ) -> Result<()> {
     // Get previous hash for chain
-    let prev_hash: Option<String> = sqlx::query_scalar(
-        "SELECT hash FROM security_events ORDER BY id DESC LIMIT 1"
-    )
-    .fetch_optional(db)
-    .await?;
+    let prev_hash: Option<String> =
+        sqlx::query_scalar("SELECT hash FROM security_events ORDER BY id DESC LIMIT 1")
+            .fetch_optional(db)
+            .await?;
 
     // Encrypt sensitive event data
     let encrypted_data = if let Some(data) = event_data {
@@ -241,7 +244,7 @@ async fn check_database_connections(state: &AppState) -> Result<()> {
     let rows = sqlx::query(
         "SELECT pid, usename, application_name, client_addr::text, datname, state, query_start
          FROM pg_stat_activity
-         WHERE datname IS NOT NULL AND pid != pg_backend_pid()"
+         WHERE datname IS NOT NULL AND pid != pg_backend_pid()",
     )
     .fetch_all(&*state.postgres_admin)
     .await?;
@@ -256,27 +259,29 @@ async fn check_database_connections(state: &AppState) -> Result<()> {
         let app_name: Option<String> = row.try_get("application_name").ok();
 
         // Known IORA service users are always authorized – never block ourselves
-        let is_known_service_user = username.as_deref().map_or(false, |u| {
-            matches!(u, "iora" | "postgres") || u.starts_with("iora_")
-        });
+        let is_known_service_user = username
+            .as_deref()
+            .is_some_and(|u| matches!(u, "iora" | "postgres") || u.starts_with("iora_"));
 
         // Check if connection is authorized
-        let is_authorized = is_known_service_user || if let Some(ref addr_str) = client_addr {
-            // Local connections are always authorized
-            if addr_str == "127.0.0.1" || addr_str == "::1" || addr_str.is_empty() {
-                true
+        let is_authorized = is_known_service_user
+            || if let Some(ref addr_str) = client_addr {
+                // Local connections are always authorized
+                if addr_str == "127.0.0.1" || addr_str == "::1" || addr_str.is_empty() {
+                    true
+                } else {
+                    // Check against whitelist
+                    whitelist.iter().any(|net| {
+                        addr_str
+                            .parse::<std::net::IpAddr>()
+                            .ok()
+                            .map(|ip| net.contains(ip))
+                            .unwrap_or(false)
+                    })
+                }
             } else {
-                // Check against whitelist
-                whitelist.iter().any(|net| {
-                    addr_str.parse::<std::net::IpAddr>()
-                        .ok()
-                        .map(|ip| net.contains(ip))
-                        .unwrap_or(false)
-                })
-            }
-        } else {
-            true // Unix socket connections
-        };
+                true // Unix socket connections
+            };
 
         // Log unauthorized connections
         if !is_authorized {
@@ -354,7 +359,11 @@ async fn create_postgres_user(
     database_name: &str,
     permissions: &[String],
 ) -> Result<(String, String)> {
-    let username = format!("iora_{}_{}", service_name, Uuid::new_v4().to_string()[..8].to_lowercase());
+    let username = format!(
+        "iora_{}_{}",
+        service_name,
+        Uuid::new_v4().to_string()[..8].to_lowercase()
+    );
 
     // Generate secure password
     let mut password_bytes = [0u8; 32];
@@ -362,16 +371,28 @@ async fn create_postgres_user(
     let password = hex::encode(password_bytes);
 
     // Create user in PostgreSQL
-    sqlx::query(&format!("CREATE USER {} WITH PASSWORD '{}'", username, password))
-        .execute(&*state.postgres_admin)
-        .await?;
+    sqlx::query(&format!(
+        "CREATE USER {} WITH PASSWORD '{}'",
+        username, password
+    ))
+    .execute(&*state.postgres_admin)
+    .await?;
 
     // Grant permissions
     for perm in permissions {
         let grant_query = match perm.as_str() {
-            "read" => format!("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}", username),
-            "write" => format!("GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO {}", username),
-            "full" => format!("GRANT ALL PRIVILEGES ON DATABASE {} TO {}", database_name, username),
+            "read" => format!(
+                "GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}",
+                username
+            ),
+            "write" => format!(
+                "GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO {}",
+                username
+            ),
+            "full" => format!(
+                "GRANT ALL PRIVILEGES ON DATABASE {} TO {}",
+                database_name, username
+            ),
             _ => continue,
         };
         sqlx::query(&grant_query)
@@ -416,11 +437,17 @@ async fn create_postgres_user(
         None,
         Some(service_name),
         Some(&username),
-        Some(&format!("{{\"action\":\"create\",\"database\":\"{}\"}}", database_name)),
+        Some(&format!(
+            "{{\"action\":\"create\",\"database\":\"{}\"}}",
+            database_name
+        )),
     )
     .await?;
 
-    info!("Created PostgreSQL user: {} for service: {}", username, service_name);
+    info!(
+        "Created PostgreSQL user: {} for service: {}",
+        username, service_name
+    );
 
     Ok((username, password))
 }
@@ -432,9 +459,12 @@ async fn rotate_user_credentials(state: &AppState, username: &str) -> Result<Str
     let new_password = hex::encode(password_bytes);
 
     // Update password in PostgreSQL
-    sqlx::query(&format!("ALTER USER {} WITH PASSWORD '{}'", username, new_password))
-        .execute(&*state.postgres_admin)
-        .await?;
+    sqlx::query(&format!(
+        "ALTER USER {} WITH PASSWORD '{}'",
+        username, new_password
+    ))
+    .execute(&*state.postgres_admin)
+    .await?;
 
     // Update in security database
     let encrypted_password = encrypt_data(&state.encryption_key, &new_password)?;
@@ -476,7 +506,7 @@ async fn auto_rotate_credentials(state: AppState) {
 
         let now = Utc::now().to_rfc3339();
         let rows = sqlx::query(
-            "SELECT username FROM postgres_users WHERE is_active = 1 AND next_rotation_due < ?"
+            "SELECT username FROM postgres_users WHERE is_active = 1 AND next_rotation_due < ?",
         )
         .bind(&now)
         .fetch_all(&*state.security_db)
@@ -514,7 +544,10 @@ async fn update_threat_level(state: &AppState, ip: &str, increase_by: i32) {
     // Auto-block if threat level exceeds threshold
     if threat.threat_level >= 7 && !threat.blocked {
         threat.blocked = true;
-        warn!("Auto-blocking IP {} due to threat level {}", ip, threat.threat_level);
+        warn!(
+            "Auto-blocking IP {} due to threat level {}",
+            ip, threat.threat_level
+        );
 
         // Trigger lockdown if critical
         if threat.threat_level >= 9 {
@@ -568,7 +601,10 @@ async fn trigger_lockdown(state: &AppState, level: u8, reason: &str) {
         None,
         None,
         None,
-        Some(&format!("{{\"level\":{},\"reason\":\"{}\"}}", level, reason)),
+        Some(&format!(
+            "{{\"level\":{},\"reason\":\"{}\"}}",
+            level, reason
+        )),
     )
     .await
     .ok();
@@ -576,7 +612,7 @@ async fn trigger_lockdown(state: &AppState, level: u8, reason: &str) {
     // Store in database
     sqlx::query(
         "INSERT INTO system_lockdowns (triggered_at, trigger_reason, lockdown_level)
-         VALUES (?, ?, ?)"
+         VALUES (?, ?, ?)",
     )
     .bind(lockdown.triggered_at.as_ref())
     .bind(reason)
@@ -627,7 +663,7 @@ async fn release_lockdown(state: &AppState, admin_user: &str) {
     sqlx::query(
         "UPDATE system_lockdowns SET released_at = ?, released_by = ?
          WHERE released_at IS NULL
-         ORDER BY id DESC LIMIT 1"
+         ORDER BY id DESC LIMIT 1",
     )
     .bind(Utc::now().to_rfc3339())
     .bind(admin_user)
@@ -647,7 +683,7 @@ async fn create_alert(
 ) -> Result<()> {
     sqlx::query(
         "INSERT INTO pending_alerts (alert_type, severity, title, message, created_at)
-         VALUES (?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?)",
     )
     .bind(alert_type)
     .bind(severity)
@@ -698,9 +734,17 @@ async fn get_resource_usage() -> Json<serde_json::Value> {
         let mut avail_kb: u64 = 0;
         for line in meminfo.lines() {
             if let Some(rest) = line.strip_prefix("MemTotal:") {
-                total_kb = rest.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                total_kb = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
             } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
-                avail_kb = rest.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                avail_kb = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
             }
         }
         let mem_pct = if total_kb > 0 {
@@ -725,7 +769,7 @@ async fn get_resource_usage() -> Json<serde_json::Value> {
         // approximate with /proc/mounts + std::fs::metadata.
         let disk_pct = read_root_disk_percent().unwrap_or(0.0);
 
-        return Json(serde_json::json!({
+        Json(serde_json::json!({
             "available": true,
             "cpu_percent": cpu_pct,
             "memory_percent": mem_pct,
@@ -734,7 +778,7 @@ async fn get_resource_usage() -> Json<serde_json::Value> {
             "memory_available_kb": avail_kb,
             "load_avg_1m": load1,
             "cpu_count": cpu_count,
-        }));
+        }))
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -750,8 +794,8 @@ async fn get_resource_usage() -> Json<serde_json::Value> {
 
 #[cfg(target_os = "linux")]
 fn read_root_disk_percent() -> Option<f64> {
-    use std::os::unix::ffi::OsStrExt;
     use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
     let path = CString::new(std::path::Path::new("/").as_os_str().as_bytes()).ok()?;
     unsafe {
         let mut stat: libc::statvfs = std::mem::zeroed();
@@ -768,22 +812,23 @@ fn read_root_disk_percent() -> Option<f64> {
 }
 
 async fn get_connections(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let rows = sqlx::query(
-        "SELECT * FROM database_connections ORDER BY timestamp DESC LIMIT 100"
-    )
-    .fetch_all(&*state.security_db)
-    .await
-    .map_err(AppError::Database)?;
+    let rows = sqlx::query("SELECT * FROM database_connections ORDER BY timestamp DESC LIMIT 100")
+        .fetch_all(&*state.security_db)
+        .await
+        .map_err(AppError::Database)?;
 
-    let connections: Vec<serde_json::Value> = rows.iter().map(|row| {
-        serde_json::json!({
-            "timestamp": row.get::<String, _>("timestamp"),
-            "source_ip": row.get::<Option<String>, _>("source_ip"),
-            "username": row.get::<Option<String>, _>("username"),
-            "database_name": row.get::<Option<String>, _>("database_name"),
-            "is_authorized": row.get::<bool, _>("is_authorized"),
+    let connections: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "timestamp": row.get::<String, _>("timestamp"),
+                "source_ip": row.get::<Option<String>, _>("source_ip"),
+                "username": row.get::<Option<String>, _>("username"),
+                "database_name": row.get::<Option<String>, _>("database_name"),
+                "is_authorized": row.get::<bool, _>("is_authorized"),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "connections": connections,
@@ -794,23 +839,26 @@ async fn get_connections(State(state): State<AppState>) -> Result<impl IntoRespo
 async fn get_events(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let rows = sqlx::query(
         "SELECT id, timestamp, event_type, severity, source_ip, service_name, user_id
-         FROM security_events ORDER BY id DESC LIMIT 100"
+         FROM security_events ORDER BY id DESC LIMIT 100",
     )
     .fetch_all(&*state.security_db)
     .await
     .map_err(AppError::Database)?;
 
-    let events: Vec<serde_json::Value> = rows.iter().map(|row| {
-        serde_json::json!({
-            "id": row.get::<i64, _>("id"),
-            "timestamp": row.get::<String, _>("timestamp"),
-            "event_type": row.get::<String, _>("event_type"),
-            "severity": row.get::<String, _>("severity"),
-            "source_ip": row.get::<Option<String>, _>("source_ip"),
-            "service_name": row.get::<Option<String>, _>("service_name"),
-            "user_id": row.get::<Option<String>, _>("user_id"),
+    let events: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.get::<i64, _>("id"),
+                "timestamp": row.get::<String, _>("timestamp"),
+                "event_type": row.get::<String, _>("event_type"),
+                "severity": row.get::<String, _>("severity"),
+                "source_ip": row.get::<Option<String>, _>("source_ip"),
+                "service_name": row.get::<Option<String>, _>("service_name"),
+                "user_id": row.get::<Option<String>, _>("user_id"),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "events": events,
@@ -819,22 +867,24 @@ async fn get_events(State(state): State<AppState>) -> Result<impl IntoResponse, 
 }
 
 async fn get_threats(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let rows = sqlx::query(
-        "SELECT * FROM threat_intelligence ORDER BY threat_level DESC LIMIT 100"
-    )
-    .fetch_all(&*state.security_db)
-    .await
-    .map_err(AppError::Database)?;
+    let rows =
+        sqlx::query("SELECT * FROM threat_intelligence ORDER BY threat_level DESC LIMIT 100")
+            .fetch_all(&*state.security_db)
+            .await
+            .map_err(AppError::Database)?;
 
-    let threats: Vec<serde_json::Value> = rows.iter().map(|row| {
-        serde_json::json!({
-            "ip_address": row.get::<String, _>("ip_address"),
-            "threat_level": row.get::<i32, _>("threat_level"),
-            "incident_count": row.get::<i32, _>("incident_count"),
-            "blocked": row.get::<bool, _>("blocked"),
-            "last_seen": row.get::<String, _>("last_seen"),
+    let threats: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "ip_address": row.get::<String, _>("ip_address"),
+                "threat_level": row.get::<i32, _>("threat_level"),
+                "incident_count": row.get::<i32, _>("incident_count"),
+                "blocked": row.get::<bool, _>("blocked"),
+                "last_seen": row.get::<String, _>("last_seen"),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "threats": threats,
@@ -846,7 +896,9 @@ async fn add_whitelist(
     State(state): State<AppState>,
     Json(req): Json<WhitelistRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let network: IpNetwork = req.ip_address.parse()
+    let network: IpNetwork = req
+        .ip_address
+        .parse()
         .map_err(|_| AppError::BadRequest("Invalid IP address or range".to_string()))?;
 
     // Add to runtime whitelist
@@ -855,7 +907,7 @@ async fn add_whitelist(
     // Store in database
     sqlx::query(
         "INSERT INTO ip_whitelist (ip_address, description, added_by, added_at, is_active)
-         VALUES (?, ?, 'admin', ?, 1)"
+         VALUES (?, ?, 'admin', ?, 1)",
     )
     .bind(&req.ip_address)
     .bind(&req.description)
@@ -943,36 +995,42 @@ async fn create_user_handler(
 
 async fn get_alerts(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let rows = sqlx::query(
-        "SELECT * FROM pending_alerts WHERE sent_at IS NULL ORDER BY created_at DESC LIMIT 50"
+        "SELECT * FROM pending_alerts WHERE sent_at IS NULL ORDER BY created_at DESC LIMIT 50",
     )
     .fetch_all(&*state.security_db)
     .await
     .map_err(AppError::Database)?;
 
-    let alerts: Vec<serde_json::Value> = rows.iter().map(|row| {
-        let ack: Option<String> = row.try_get::<Option<String>, _>("acknowledged_at").ok().flatten();
-        // Normalize severity to the UI's expected enum (low|medium|high|critical).
-        // Internal log levels ("info","warning","error") are mapped to UI buckets
-        // so the admin panel's severity badges and filters work correctly.
-        let raw_sev: String = row.get::<String, _>("severity");
-        let severity = match raw_sev.to_ascii_lowercase().as_str() {
-            "critical" | "crit" => "critical",
-            "error" | "err" | "high" => "high",
-            "warning" | "warn" | "medium" | "med" => "medium",
-            "info" | "low" | "debug" | "trace" => "low",
-            _ => "low",
-        };
-        serde_json::json!({
-            "id": row.get::<i64, _>("id"),
-            "alert_type": row.get::<String, _>("alert_type"),
-            "severity": severity,
-            "title": row.get::<String, _>("title"),
-            "message": row.get::<String, _>("message"),
-            "created_at": row.get::<String, _>("created_at"),
-            "acknowledged": ack.is_some(),
-            "acknowledged_at": ack,
+    let alerts: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let ack: Option<String> = row
+                .try_get::<Option<String>, _>("acknowledged_at")
+                .ok()
+                .flatten();
+            // Normalize severity to the UI's expected enum (low|medium|high|critical).
+            // Internal log levels ("info","warning","error") are mapped to UI buckets
+            // so the admin panel's severity badges and filters work correctly.
+            let raw_sev: String = row.get::<String, _>("severity");
+            let severity = match raw_sev.to_ascii_lowercase().as_str() {
+                "critical" | "crit" => "critical",
+                "error" | "err" | "high" => "high",
+                "warning" | "warn" | "medium" | "med" => "medium",
+                "info" | "low" | "debug" | "trace" => "low",
+                _ => "low",
+            };
+            serde_json::json!({
+                "id": row.get::<i64, _>("id"),
+                "alert_type": row.get::<String, _>("alert_type"),
+                "severity": severity,
+                "title": row.get::<String, _>("title"),
+                "message": row.get::<String, _>("message"),
+                "created_at": row.get::<String, _>("created_at"),
+                "acknowledged": ack.is_some(),
+                "acknowledged_at": ack,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "alerts": alerts,
@@ -1021,7 +1079,10 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             AppError::Database(e) => {
                 error!("Database error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error".to_string(),
+                )
             }
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::Internal(msg) => {
@@ -1046,8 +1107,8 @@ async fn main() -> Result<()> {
     if encryption_key_hex.is_empty() {
         anyhow::bail!("SECURITY_DB_KEY must be set");
     }
-    let key_bytes = hex::decode(&encryption_key_hex)
-        .context("SECURITY_DB_KEY must be a valid hex string")?;
+    let key_bytes =
+        hex::decode(&encryption_key_hex).context("SECURITY_DB_KEY must be a valid hex string")?;
     if key_bytes.len() != 32 {
         anyhow::bail!("SECURITY_DB_KEY must be exactly 32 bytes (64 hex characters)");
     }
@@ -1080,8 +1141,8 @@ async fn main() -> Result<()> {
     // Connect to PostgreSQL using the shared DATABASE_URL.
     // In production the iora user already has the required privileges.
     // POSTGRES_ADMIN_URL is accepted as an optional override.
-    let postgres_url = system_config::postgres_admin_url()
-        .unwrap_or_else(|| system_config::database_url());
+    let postgres_url =
+        system_config::postgres_admin_url().unwrap_or_else(system_config::database_url);
     if postgres_url.is_empty() {
         anyhow::bail!("DATABASE_URL must be set");
     }
@@ -1095,7 +1156,8 @@ async fn main() -> Result<()> {
             warn!("Could not connect to PostgreSQL (dev mode – continuing without PG monitoring): {e}");
             // Create a minimal pool that will fail on use; monitoring tasks
             // will log errors but the service stays up.
-            Pool::<Postgres>::connect(&postgres_url).await
+            Pool::<Postgres>::connect(&postgres_url)
+                .await
                 .context("PostgreSQL connection required")?
         }
         Err(e) => {
@@ -1165,7 +1227,10 @@ async fn main() -> Result<()> {
         .route("/api/security/events", get(get_events))
         .route("/api/security/threats", get(get_threats))
         .route("/api/security/alerts", get(get_alerts))
-        .route("/api/security/alerts/:id/acknowledge", post(acknowledge_alert))
+        .route(
+            "/api/security/alerts/:id/acknowledge",
+            post(acknowledge_alert),
+        )
         .route("/api/security/resource-usage", get(get_resource_usage))
         .route("/api/security/whitelist", post(add_whitelist))
         .route("/api/security/block/:ip", post(block_ip))

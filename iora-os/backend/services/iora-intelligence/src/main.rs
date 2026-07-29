@@ -10,15 +10,10 @@
 //! 6. Maintains a self-repair decision log
 
 use anyhow::Result;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Duration, Utc};
-use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
+use serde::Serialize;
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -30,14 +25,14 @@ use tracing::{info, warn};
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthScore {
     pub service_name: String,
-    pub score: u8,              // 0-100
+    pub score: u8, // 0-100
     pub trend: TrendDirection,
     pub status: HealthStatus,
     pub last_checked: String,
     pub uptime_percent: f64,
     pub response_time_ms: Option<u64>,
     pub consecutive_failures: u32,
-    pub predicted_failure_in: Option<String>,  // e.g. "2 hours", null if stable
+    pub predicted_failure_in: Option<String>, // e.g. "2 hours", null if stable
     pub suggestions: Vec<String>,
 }
 
@@ -53,11 +48,11 @@ pub enum TrendDirection {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HealthStatus {
-    Excellent,   // 90-100
-    Good,        // 75-89
-    Fair,        // 50-74
-    Poor,        // 25-49
-    Critical,    // 0-24
+    Excellent, // 90-100
+    Good,      // 75-89
+    Fair,      // 50-74
+    Poor,      // 25-49
+    Critical,  // 0-24
     Unknown,
 }
 
@@ -91,9 +86,9 @@ pub struct SystemIntelligence {
 #[derive(Debug, Clone, Serialize)]
 pub struct Anomaly {
     pub detected_at: String,
-    pub anomaly_type: String,   // "memory_leak", "cpu_spike", "disk_growth", "response_latency", "crash_loop"
+    pub anomaly_type: String, // "memory_leak", "cpu_spike", "disk_growth", "response_latency", "crash_loop"
     pub service_name: String,
-    pub severity: String,       // "warning", "critical"
+    pub severity: String, // "warning", "critical"
     pub description: String,
     pub current_value: String,
     pub baseline_value: String,
@@ -101,21 +96,21 @@ pub struct Anomaly {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Suggestion {
-    pub priority: u8,           // 1=highest, 5=lowest
-    pub category: String,       // "security", "performance", "maintenance", "configuration", "update"
+    pub priority: u8,     // 1=highest, 5=lowest
+    pub category: String, // "security", "performance", "maintenance", "configuration", "update"
     pub title: String,
     pub description: String,
-    pub action: String,         // What the user should do (or what we can auto-fix)
+    pub action: String, // What the user should do (or what we can auto-fix)
     pub auto_fixable: bool,
     pub auto_fix_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MaintenanceTask {
-    pub task_type: String,      // "log_cleanup", "db_vacuum", "disk_check", "cert_renewal", "backup"
+    pub task_type: String, // "log_cleanup", "db_vacuum", "disk_check", "cert_renewal", "backup"
     pub last_run: Option<String>,
     pub next_run: String,
-    pub status: String,         // "pending", "running", "completed", "failed"
+    pub status: String, // "pending", "running", "completed", "failed"
     pub auto_enabled: bool,
 }
 
@@ -145,6 +140,7 @@ pub struct HealthHistoryPoint {
 
 // ─── App State ──────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct AppState {
     db: SqlitePool,
@@ -162,8 +158,10 @@ struct AppState {
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "iora_intelligence=info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "iora_intelligence=info".into()),
+        )
         .init();
 
     let db_url = system_config::database_url_for("iora-intelligence");
@@ -172,7 +170,10 @@ async fn main() -> Result<()> {
     let supervisor_url = system_config::supervisor_url();
     let port: u16 = system_config::service_port("iora-intelligence", 8099);
 
-    let db = SqlitePoolOptions::new().max_connections(5).connect(&db_url).await?;
+    let db = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await?;
     init_db(&db).await?;
 
     let http_client = reqwest::Client::builder()
@@ -204,7 +205,10 @@ async fn main() -> Result<()> {
         .route("/api/intelligence/anomalies", get(get_anomalies))
         .route("/api/intelligence/suggestions", get(get_suggestions))
         .route("/api/intelligence/maintenance", get(get_maintenance))
-        .route("/api/intelligence/maintenance/run/:task_type", get(run_maintenance_task))
+        .route(
+            "/api/intelligence/maintenance/run/:task_type",
+            get(run_maintenance_task),
+        )
         .route("/api/intelligence/history", get(get_history))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -228,12 +232,14 @@ async fn init_db(db: &SqlitePool) -> Result<()> {
             response_time_ms INTEGER,
             status TEXT,
             anomalies TEXT
-        )"
-    ).execute(db).await?;
+        )",
+    )
+    .execute(db)
+    .await?;
 
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_health_history_time ON health_history(timestamp)"
-    ).execute(db).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_health_history_time ON health_history(timestamp)")
+        .execute(db)
+        .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS maintenance_log (
@@ -243,8 +249,10 @@ async fn init_db(db: &SqlitePool) -> Result<()> {
             completed_at TEXT,
             status TEXT NOT NULL,
             details TEXT
-        )"
-    ).execute(db).await?;
+        )",
+    )
+    .execute(db)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS suggestions_log (
@@ -254,8 +262,10 @@ async fn init_db(db: &SqlitePool) -> Result<()> {
             title TEXT NOT NULL,
             action TEXT,
             auto_fixed INTEGER DEFAULT 0
-        )"
-    ).execute(db).await?;
+        )",
+    )
+    .execute(db)
+    .await?;
 
     Ok(())
 }
@@ -286,26 +296,48 @@ async fn gather_intelligence(state: &AppState) -> anyhow::Result<()> {
     let now = Utc::now();
 
     // 1. Fetch service status from watchdog
-    let watchdog_data: serde_json::Value = state.http_client
-        .get(&format!("{}/api/watchdog/status", state.watchdog_url))
-        .send().await?.json().await?;
+    let watchdog_data: serde_json::Value = state
+        .http_client
+        .get(format!("{}/api/watchdog/status", state.watchdog_url))
+        .send()
+        .await?
+        .json()
+        .await?;
 
-    let services = watchdog_data["services"].as_array().cloned().unwrap_or_default();
+    let services = watchdog_data["services"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
 
     // 2. Fetch system metrics
-    let metrics: serde_json::Value = state.http_client
-        .get(&format!("{}/api/watchdog/metrics", state.watchdog_url))
-        .send().await?.json().await?;
+    let metrics: serde_json::Value = state
+        .http_client
+        .get(format!("{}/api/watchdog/metrics", state.watchdog_url))
+        .send()
+        .await?
+        .json()
+        .await?;
 
     // 3. Fetch disk info from supervisor
-    let disk_info: serde_json::Value = state.http_client
-        .get(&format!("{}/api/supervisor/system/info", state.supervisor_url))
-        .send().await?.json().await?;
+    let disk_info: serde_json::Value = state
+        .http_client
+        .get(format!(
+            "{}/api/supervisor/system/info",
+            state.supervisor_url
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
 
     // 4. Fetch recovery history from watchdog
-    let recovery: serde_json::Value = state.http_client
-        .get(&format!("{}/api/watchdog/recovery", state.watchdog_url))
-        .send().await?.json().await?;
+    let recovery: serde_json::Value = state
+        .http_client
+        .get(format!("{}/api/watchdog/recovery", state.watchdog_url))
+        .send()
+        .await?
+        .json()
+        .await?;
 
     // 5. Compute health scores for each service
     let mut health_scores = Vec::new();
@@ -371,10 +403,22 @@ async fn gather_intelligence(state: &AppState) -> anyhow::Result<()> {
     let mem_percent = metrics["memory_percent"].as_f64().unwrap_or(0.0) as f32;
 
     // Disk metrics from supervisor
-    let disks = disk_info["disks"].as_array().map(|d| d.clone()).unwrap_or_default();
-    let disk_total: f64 = disks.iter().filter_map(|d| d["total_space"].as_u64()).sum::<u64>() as f64 / 1_073_741_824.0;
-    let disk_used: f64 = disks.iter().filter_map(|d| d["used_space"].as_u64()).sum::<u64>() as f64 / 1_073_741_824.0;
-    let disk_percent = if disk_total > 0.0 { (disk_used / disk_total) * 100.0 } else { 0.0 };
+    let disks = disk_info["disks"].as_array().cloned().unwrap_or_default();
+    let disk_total: f64 = disks
+        .iter()
+        .filter_map(|d| d["total_space"].as_u64())
+        .sum::<u64>() as f64
+        / 1_073_741_824.0;
+    let disk_used: f64 = disks
+        .iter()
+        .filter_map(|d| d["used_space"].as_u64())
+        .sum::<u64>() as f64
+        / 1_073_741_824.0;
+    let disk_percent = if disk_total > 0.0 {
+        (disk_used / disk_total) * 100.0
+    } else {
+        0.0
+    };
 
     let healthy_count = health_scores.iter().filter(|s| s.score >= 75).count();
 
@@ -412,7 +456,12 @@ async fn gather_intelligence(state: &AppState) -> anyhow::Result<()> {
             detected_at: now.to_rfc3339(),
             anomaly_type: "disk_growth".to_string(),
             service_name: "system".to_string(),
-            severity: if disk_percent > 95.0 { "critical" } else { "warning" }.to_string(),
+            severity: if disk_percent > 95.0 {
+                "critical"
+            } else {
+                "warning"
+            }
+            .to_string(),
             description: format!("Disk usage at {:.0}%", disk_percent),
             current_value: format!("{:.1} GB / {:.1} GB", disk_used, disk_total),
             baseline_value: "< 80% (healthy)".to_string(),
@@ -429,7 +478,9 @@ async fn gather_intelligence(state: &AppState) -> anyhow::Result<()> {
     }
 
     // 9. Overall score
-    let overall_score = if health_scores.is_empty() { 0 } else {
+    let overall_score = if health_scores.is_empty() {
+        0
+    } else {
         health_scores.iter().map(|s| s.score as u32).sum::<u32>() / health_scores.len() as u32
     } as u8;
 
@@ -454,16 +505,30 @@ async fn gather_intelligence(state: &AppState) -> anyhow::Result<()> {
 
 // ─── Scoring Logic ──────────────────────────────────────────────────────────
 
-fn compute_service_score(name: &str, status: &str, failures: u32, response_time: Option<u64>, uptime: f64) -> u8 {
+fn compute_service_score(
+    name: &str,
+    status: &str,
+    failures: u32,
+    response_time: Option<u64>,
+    uptime: f64,
+) -> u8 {
     let mut score: i32 = 100;
 
     // Status penalty
     match status {
         "healthy" => {}
-        "degraded" => { score -= 20; }
-        "unhealthy" => { score -= 40; }
-        "unreachable" => { score -= 70; }
-        _ => { score -= 30; }
+        "degraded" => {
+            score -= 20;
+        }
+        "unhealthy" => {
+            score -= 40;
+        }
+        "unreachable" => {
+            score -= 70;
+        }
+        _ => {
+            score -= 30;
+        }
     }
 
     // Failure penalty
@@ -488,13 +553,13 @@ fn compute_service_score(name: &str, status: &str, failures: u32, response_time:
         score = score.max(10); // never below 10 for core visibility
     }
 
-    score.max(0).min(100) as u8
+    score.clamp(0, 100) as u8
 }
 
 async fn compute_trend(db: &SqlitePool, service: &str, current_score: u8) -> TrendDirection {
     // Look at last 5 scores for trend
     let rows: Vec<(i32,)> = sqlx::query_as(
-        "SELECT score FROM health_history WHERE service_name = ? ORDER BY timestamp DESC LIMIT 5"
+        "SELECT score FROM health_history WHERE service_name = ? ORDER BY timestamp DESC LIMIT 5",
     )
     .bind(service)
     .fetch_all(db)
@@ -505,36 +570,50 @@ async fn compute_trend(db: &SqlitePool, service: &str, current_score: u8) -> Tre
         return TrendDirection::Stable;
     }
 
-    let avg_old: f64 = rows.iter().skip(1).map(|(s,)| *s as f64).sum::<f64>() / (rows.len() - 1) as f64;
+    let avg_old: f64 =
+        rows.iter().skip(1).map(|(s,)| *s as f64).sum::<f64>() / (rows.len() - 1) as f64;
     let diff = current_score as f64 - avg_old;
 
-    if diff > 10.0 { TrendDirection::Improving }
-    else if diff < -15.0 { TrendDirection::Critical }
-    else if diff < -5.0 { TrendDirection::Degrading }
-    else { TrendDirection::Stable }
+    if diff > 10.0 {
+        TrendDirection::Improving
+    } else if diff < -15.0 {
+        TrendDirection::Critical
+    } else if diff < -5.0 {
+        TrendDirection::Degrading
+    } else {
+        TrendDirection::Stable
+    }
 }
 
 async fn predict_failure(state: &AppState, service: &str) -> Option<String> {
     // Simple linear regression on last 10 scores
     let rows: Vec<(i32,)> = sqlx::query_as(
-        "SELECT score FROM health_history WHERE service_name = ? ORDER BY timestamp DESC LIMIT 10"
+        "SELECT score FROM health_history WHERE service_name = ? ORDER BY timestamp DESC LIMIT 10",
     )
     .bind(service)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
 
-    if rows.len() < 5 { return None; }
+    if rows.len() < 5 {
+        return None;
+    }
 
     let scores: Vec<i32> = rows.iter().map(|(s,)| *s).rev().collect();
     let n = scores.len() as f64;
 
     // Simple slope: if scores are consistently dropping
     let first_avg: f64 = scores[..3].iter().map(|&s| s as f64).sum::<f64>() / 3.0;
-    let last_avg: f64 = scores[scores.len()-3..].iter().map(|&s| s as f64).sum::<f64>() / 3.0;
+    let last_avg: f64 = scores[scores.len() - 3..]
+        .iter()
+        .map(|&s| s as f64)
+        .sum::<f64>()
+        / 3.0;
     let drops_per_cycle = (first_avg - last_avg).max(0.0);
 
-    if drops_per_cycle < 3.0 { return None; }
+    if drops_per_cycle < 3.0 {
+        return None;
+    }
 
     let cycles_to_zero = last_avg / drops_per_cycle;
     let hours = (cycles_to_zero * n / 10.0).max(1.0) as i64; // 10 samples ≈ 10*60s = ~10 min per cycle
@@ -548,18 +627,32 @@ async fn predict_failure(state: &AppState, service: &str) -> Option<String> {
 
 // ─── Suggestions ────────────────────────────────────────────────────────────
 
-fn generate_service_suggestions(service: &str, score: u8, failures: u32, response_time: Option<u64>) -> Vec<String> {
+fn generate_service_suggestions(
+    service: &str,
+    score: u8,
+    failures: u32,
+    response_time: Option<u64>,
+) -> Vec<String> {
     let mut s = Vec::new();
 
     if score < 50 {
-        s.push(format!("{} ist kritisch — manuelle Überprüfung empfohlen", service));
+        s.push(format!(
+            "{} ist kritisch — manuelle Überprüfung empfohlen",
+            service
+        ));
     }
     if failures >= 3 {
-        s.push(format!("{} ist {}× hintereinander ausgefallen — Logs prüfen: journalctl -u {}.service -n 100", service, failures, service));
+        s.push(format!(
+            "{} ist {}× hintereinander ausgefallen — Logs prüfen: journalctl -u {}.service -n 100",
+            service, failures, service
+        ));
     }
     if let Some(rt) = response_time {
         if rt > 2000 {
-            s.push(format!("{} antwortet sehr langsam ({}ms) — Datenbank oder Netzwerk prüfen", service, rt));
+            s.push(format!(
+                "{} antwortet sehr langsam ({}ms) — Datenbank oder Netzwerk prüfen",
+                service, rt
+            ));
         }
     }
     if score >= 75 && failures == 0 {
@@ -569,7 +662,10 @@ fn generate_service_suggestions(service: &str, score: u8, failures: u32, respons
     s
 }
 
-fn generate_system_suggestions(metrics: &SystemMetricsSnapshot, recovery: &serde_json::Value) -> Vec<Suggestion> {
+fn generate_system_suggestions(
+    metrics: &SystemMetricsSnapshot,
+    recovery: &serde_json::Value,
+) -> Vec<Suggestion> {
     let mut s = Vec::new();
 
     // Memory warning
@@ -578,8 +674,12 @@ fn generate_system_suggestions(metrics: &SystemMetricsSnapshot, recovery: &serde
             priority: 2,
             category: "performance".to_string(),
             title: "Hoher RAM-Verbrauch".to_string(),
-            description: format!("{:.0}% RAM belegt. Unbenutzte Dienste deaktivieren oder RAM erhöhen.", metrics.memory_percent),
-            action: "RAM-intensive Dienste identifizieren: ps aux --sort=-%mem | head -10".to_string(),
+            description: format!(
+                "{:.0}% RAM belegt. Unbenutzte Dienste deaktivieren oder RAM erhöhen.",
+                metrics.memory_percent
+            ),
+            action: "RAM-intensive Dienste identifizieren: ps aux --sort=-%mem | head -10"
+                .to_string(),
             auto_fixable: false,
             auto_fix_command: None,
         });
@@ -592,7 +692,10 @@ fn generate_system_suggestions(metrics: &SystemMetricsSnapshot, recovery: &serde
                 priority: 2,
                 category: "maintenance".to_string(),
                 title: "Viele Service-Neustarts".to_string(),
-                description: format!("{} Recovery-Versuche durchgeführt — Stabilitätsprobleme untersuchen", total),
+                description: format!(
+                    "{} Recovery-Versuche durchgeführt — Stabilitätsprobleme untersuchen",
+                    total
+                ),
                 action: "Recovery-Log analysieren und Root Causes beheben".to_string(),
                 auto_fixable: false,
                 auto_fix_command: None,
@@ -601,12 +704,18 @@ fn generate_system_suggestions(metrics: &SystemMetricsSnapshot, recovery: &serde
     }
 
     // Healthy system
-    if metrics.healthy_count == metrics.service_count && metrics.cpu_percent < 50.0 && metrics.memory_percent < 70.0 {
+    if metrics.healthy_count == metrics.service_count
+        && metrics.cpu_percent < 50.0
+        && metrics.memory_percent < 70.0
+    {
         s.push(Suggestion {
             priority: 5,
             category: "maintenance".to_string(),
             title: "System läuft optimal".to_string(),
-            description: format!("Alle {} Dienste gesund, CPU {:.0}%, RAM {:.0}%", metrics.service_count, metrics.cpu_percent, metrics.memory_percent),
+            description: format!(
+                "Alle {} Dienste gesund, CPU {:.0}%, RAM {:.0}%",
+                metrics.service_count, metrics.cpu_percent, metrics.memory_percent
+            ),
             action: "Kein Handlungsbedarf".to_string(),
             auto_fixable: false,
             auto_fix_command: None,
@@ -676,7 +785,7 @@ async fn run_scheduled_maintenance(state: &AppState) {
     let tasks = get_maintenance_tasks(state).await;
     for task in tasks {
         if task.auto_enabled && task.status == "pending" {
-            let now = Utc::now().to_rfc3339();
+            let _now = Utc::now().to_rfc3339();
             // Check if it's time to run
             if let Some(ref last) = task.last_run {
                 if let Ok(last_time) = DateTime::parse_from_rfc3339(last) {
@@ -691,27 +800,41 @@ async fn run_scheduled_maintenance(state: &AppState) {
             match task.task_type.as_str() {
                 "disk_check" => {
                     // Check disk space via supervisor
-                    if let Ok(resp) = state.http_client
-                        .get(&format!("{}/api/supervisor/system/info", state.supervisor_url))
-                        .send().await
+                    if let Ok(resp) = state
+                        .http_client
+                        .get(format!(
+                            "{}/api/supervisor/system/info",
+                            state.supervisor_url
+                        ))
+                        .send()
+                        .await
                     {
                         if let Ok(data) = resp.json::<serde_json::Value>().await {
                             if let Some(disks) = data["disks"].as_array() {
                                 for disk in disks {
                                     if disk["usage_percent"].as_f64().unwrap_or(0.0) > 90.0 {
-                                        warn!("Disk {} is at {}% — triggering cleanup",
+                                        warn!(
+                                            "Disk {} is at {}% — triggering cleanup",
                                             disk["mount_point"].as_str().unwrap_or("?"),
-                                            disk["usage_percent"].as_f64().unwrap_or(0.0));
+                                            disk["usage_percent"].as_f64().unwrap_or(0.0)
+                                        );
                                     }
                                 }
                             }
                         }
                     }
-                    log_maintenance(&state.db, "disk_check", "completed", "Disk check passed").await;
+                    log_maintenance(&state.db, "disk_check", "completed", "Disk check passed")
+                        .await;
                 }
                 "health_report" => {
                     // The intelligence gathering loop already stores data; just log
-                    log_maintenance(&state.db, "health_report", "completed", "Health report generated").await;
+                    log_maintenance(
+                        &state.db,
+                        "health_report",
+                        "completed",
+                        "Health report generated",
+                    )
+                    .await;
                 }
                 _ => {}
             }
@@ -786,25 +909,22 @@ async fn run_maintenance_task(
         "log_cleanup" => {
             let output = tokio::process::Command::new("journalctl")
                 .args(["--vacuum-time=30d"])
-                .output().await;
+                .output()
+                .await;
             match output {
                 Ok(o) if o.status.success() => "Logs cleaned (30d retention)".to_string(),
                 Ok(o) => format!("Cleanup warning: {}", String::from_utf8_lossy(&o.stderr)),
                 Err(e) => format!("Cleanup failed: {}", e),
             }
         }
-        "health_report" => {
-            match gather_intelligence(&state).await {
-                Ok(()) => "Health report regenerated".to_string(),
-                Err(e) => format!("Report failed: {}", e),
-            }
-        }
-        "db_vacuum" => {
-            match sqlx::query("VACUUM").execute(&state.db).await {
-                Ok(_) => "Database vacuumed".to_string(),
-                Err(e) => format!("Vacuum failed: {}", e),
-            }
-        }
+        "health_report" => match gather_intelligence(&state).await {
+            Ok(()) => "Health report regenerated".to_string(),
+            Err(e) => format!("Report failed: {}", e),
+        },
+        "db_vacuum" => match sqlx::query("VACUUM").execute(&state.db).await {
+            Ok(_) => "Database vacuumed".to_string(),
+            Err(e) => format!("Vacuum failed: {}", e),
+        },
         _ => format!("Unknown task: {}", task_type),
     };
 
@@ -825,15 +945,18 @@ async fn get_history(State(state): State<Arc<AppState>>) -> Json<serde_json::Val
     .await
     .unwrap_or_default();
 
-    let history: Vec<serde_json::Value> = rows.into_iter().map(|(ts, name, score, rt, status)| {
-        serde_json::json!({
-            "timestamp": ts,
-            "service_name": name,
-            "score": score,
-            "response_time_ms": rt,
-            "status": status,
+    let history: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(ts, name, score, rt, status)| {
+            serde_json::json!({
+                "timestamp": ts,
+                "service_name": name,
+                "score": score,
+                "response_time_ms": rt,
+                "status": status,
+            })
         })
-    }).collect();
+        .collect();
 
     Json(serde_json::json!({ "history": history, "total": history.len() }))
 }
