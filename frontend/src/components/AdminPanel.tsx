@@ -28,6 +28,7 @@ import { InfrastructureVisualization } from './InfrastructureVisualization'
 import { getBackendUrl, getDevBridgeUrl } from '@/lib/config'
 import { useTheme } from '@/contexts/ThemeContext'
 import { authFetch } from '@/lib/authHelpers'
+import { OsPermissionEditor } from '@/components/OsPermissionEditor'
 
 interface CloudSettings {
   connectorHost: string
@@ -2384,6 +2385,7 @@ function UsersTab({ token }: { token: string }) {
                   </select>
                 </div>
               </div>
+              <OsPermissionEditor userId={u.id} isAdmin={u.is_admin} />
               <div className="flex justify-end gap-2">
                 <button onClick={() => setEditingUser(null)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all">Abbrechen</button>
                 <button onClick={() => handleEdit(u.id)} disabled={actionLoading === u.id} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-white shadow-sm shadow-accent/25 hover:bg-accent/85 transition-all disabled:opacity-50 flex items-center gap-1.5">

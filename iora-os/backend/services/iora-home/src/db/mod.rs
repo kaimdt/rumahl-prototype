@@ -158,6 +158,10 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
             "032_refresh_tokens",
             include_str!("../../migrations/032_refresh_tokens.sql"),
         ),
+        (
+            "033_user_os_permissions",
+            include_str!("../../migrations/033_user_os_permissions.sql"),
+        ),
     ];
 
     // Apply each migration if not already applied

@@ -45,13 +45,16 @@ function loadPlugins() {
   return count;
 }
 
-function runPlugin(id, input) {
+async function runPlugin(id, input) {
   const entry = loaded.get(id);
   if (!entry) throw new Error(`plugin not found: ${id}`);
   const logs = [];
   let result = null;
   let error = null;
+  const module = { exports: {} };
   const ctx = vm.createContext({
+    module,
+    exports: module.exports,
     iora: {
       log: (msg) => logs.push({ level: 'info', msg: String(msg) }),
       error: (msg) => logs.push({ level: 'error', msg: String(msg) }),
@@ -66,6 +69,17 @@ function runPlugin(id, input) {
   });
   try {
     entry.script.runInContext(ctx, { timeout: EXEC_TIMEOUT_MS });
+    const exported = module.exports;
+    const handler = exported.execute || exported.handler || exported.default ||
+      (typeof exported === 'function' ? exported : null);
+    if (typeof handler === 'function') {
+      result = await Promise.race([
+        Promise.resolve(handler(input)),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('plugin execution timed out')), EXEC_TIMEOUT_MS);
+        }),
+      ]);
+    }
   } catch (e) {
     error = String(e && e.message || e);
   }
@@ -93,11 +107,11 @@ const server = http.createServer((req, res) => {
     const id = req.url.slice('/execute/'.length);
     let body = '';
     req.on('data', (c) => { body += c; });
-    req.on('end', () => {
+    req.on('end', async () => {
       let input = {};
       try { input = body ? JSON.parse(body) : {}; } catch (_) {}
       try {
-        const r = runPlugin(id, input);
+        const r = await runPlugin(id, input);
         send(r.ok ? 200 : 500, r);
       } catch (e) {
         send(404, { ok: false, error: String(e.message || e) });

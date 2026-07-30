@@ -1446,6 +1446,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/users/:user_id/admin", put(admin_set_user_admin))
         .route("/api/admin/users/:user_id", put(admin_update_user))
         .route("/api/admin/users/:user_id", delete(admin_delete_user))
+        .route(
+            "/api/admin/users/:user_id/os-permissions",
+            get(admin_get_user_os_permissions).put(admin_set_user_os_permissions),
+        )
         .route("/api/admin/api-keys", get(admin_list_all_api_keys))
         .route("/api/admin/api-keys/:key_id", delete(admin_delete_api_key))
         .route("/api/admin/ha/config", get(admin_ha_config))
@@ -1691,6 +1695,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Authenticated routes (JWT or API key required)
     let auth_routes = Router::new()
+        .route("/api/os/permissions", get(get_my_os_permissions))
+        .route("/api/os/control/*path", any(user_iora_control_proxy))
+        .route("/api/os/backups/*path", any(user_backup_proxy))
         .route("/api/keys", get(list_my_api_keys))
         .route("/api/keys", post(create_api_key))
         .route("/api/keys/:key_id", put(update_api_key))
@@ -6525,6 +6532,23 @@ async fn proxy_files(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
+    let identity = req.extensions().get::<middleware::AuthIdentity>().cloned();
+    let Some(identity) = identity else {
+        return ErrorResponse::unauthorized("Authentication required").into_response();
+    };
+    let permission = if req.method() == axum::http::Method::GET {
+        "os.files.read"
+    } else {
+        "os.files.write"
+    };
+    match user_has_os_permission(&state, identity.user_id(), permission).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return ErrorResponse::forbidden(format!("OS permission '{}' is required", permission))
+                .into_response()
+        }
+        Err(error) => return error.into_response(),
+    }
     let base = microservice_url("IORA_FILES_URL", "iora-files", 8100);
     forward_request_to(&state, &base, req).await
 }
@@ -8290,8 +8314,17 @@ fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
                 let interval = hc.get("interval").and_then(|v| v.as_u64()).unwrap_or(30);
                 let timeout = hc.get("timeout").and_then(|v| v.as_u64()).unwrap_or(10);
                 let retries = hc.get("retries").and_then(|v| v.as_u64()).unwrap_or(3);
-                yaml.push_str(&format!(
-                    "    healthcheck:\n      test: [\"CMD\", \"curl\", \"-f\", \"{endpoint}\"]\n      interval: {interval}s\n      timeout: {timeout}s\n      retries: {retries}\n"
+                let internal_port = ports
+                    .and_then(|values| values.first())
+                    .and_then(|port| port.get("port"))
+                    .and_then(|port| port.as_u64())
+                    .unwrap_or(3000);
+                let health_url = health_check_url(endpoint, internal_port);
+                yaml.push_str(&compose_healthcheck_yaml(
+                    &health_url,
+                    interval,
+                    timeout,
+                    retries,
                 ));
             }
 
@@ -8561,6 +8594,69 @@ async fn supervisor_bundle_status(
 }
 
 /// Generate a docker-compose.yml from an app's `docker_config` (single-container).
+fn health_check_url(endpoint: &str, internal_port: u64) -> String {
+    let endpoint = endpoint.replace(['\r', '\n'], "").replace('\'', "%27");
+    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        endpoint
+    } else {
+        let path = if endpoint.starts_with('/') {
+            endpoint
+        } else {
+            format!("/{endpoint}")
+        };
+        format!("http://127.0.0.1:{internal_port}{path}")
+    }
+}
+
+fn compose_healthcheck_yaml(health_url: &str, interval: u64, timeout: u64, retries: u64) -> String {
+    let command = format!(
+        "if command -v wget >/dev/null 2>&1; then wget -q --spider '{health_url}'; \
+         elif command -v curl >/dev/null 2>&1; then curl -fsS '{health_url}' >/dev/null; \
+         elif command -v node >/dev/null 2>&1; then node -e \"fetch('{health_url}').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"; \
+         elif command -v python3 >/dev/null 2>&1; then python3 -c \"import urllib.request; urllib.request.urlopen('{health_url}', timeout={timeout})\"; \
+         else exit 1; fi"
+    );
+    let encoded_command =
+        serde_json::to_string(&command).unwrap_or_else(|_| "\"exit 1\"".to_string());
+    format!(
+        "    healthcheck:\n      test: [\"CMD-SHELL\", {encoded_command}]\n      interval: {interval}s\n      timeout: {timeout}s\n      retries: {retries}\n"
+    )
+}
+
+#[cfg(test)]
+mod compose_healthcheck_tests {
+    use super::{compose_healthcheck_yaml, health_check_url};
+
+    #[test]
+    fn relative_endpoint_uses_container_loopback_and_internal_port() {
+        assert_eq!(
+            health_check_url("/health", 3000),
+            "http://127.0.0.1:3000/health"
+        );
+    }
+
+    #[test]
+    fn absolute_health_url_is_preserved() {
+        assert_eq!(
+            health_check_url("http://127.0.0.1:8080/status", 3000),
+            "http://127.0.0.1:8080/status"
+        );
+    }
+
+    #[test]
+    fn generated_healthcheck_has_portable_runtime_fallbacks() {
+        let yaml = compose_healthcheck_yaml("http://127.0.0.1:3000/health", 30, 10, 3);
+        assert!(yaml.contains("[\"CMD-SHELL\""));
+        assert!(yaml.contains("command -v wget"));
+        assert!(yaml.contains("command -v curl"));
+        assert!(yaml.contains("command -v node"));
+        assert!(yaml.contains("command -v python3"));
+        assert!(yaml.contains("interval: 30s"));
+        assert!(yaml.contains("timeout: 10s"));
+        assert!(yaml.contains("retries: 3"));
+    }
+}
+
 fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String {
     let image = docker
         .get("base_image")
@@ -8692,11 +8788,19 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
         let interval = hc.get("interval").and_then(|v| v.as_u64()).unwrap_or(30);
         let timeout = hc.get("timeout").and_then(|v| v.as_u64()).unwrap_or(10);
         let retries = hc.get("retries").and_then(|v| v.as_u64()).unwrap_or(3);
-        yaml.push_str(&format!(
-            "    healthcheck:\n      test: [\"CMD\", \"curl\", \"-f\", \"http://localhost:{}{}\"]\n      interval: {}s\n      timeout: {}s\n      retries: {}\n",
-            docker.get("internal_ports").and_then(|p| p.as_array()).and_then(|a| a.first()).and_then(|p| p.get("port").and_then(|v| v.as_u64())).unwrap_or(3000),
-            endpoint,
-            interval, timeout, retries
+        let internal_port = docker
+            .get("internal_ports")
+            .and_then(|ports| ports.as_array())
+            .and_then(|ports| ports.first())
+            .and_then(|port| port.get("port"))
+            .and_then(|port| port.as_u64())
+            .unwrap_or(3000);
+        let health_url = health_check_url(endpoint, internal_port);
+        yaml.push_str(&compose_healthcheck_yaml(
+            &health_url,
+            interval,
+            timeout,
+            retries,
         ));
     }
 
@@ -9124,6 +9228,36 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                     // iora-assist so the agent can discover and call them. This
                     // runs for every app type (not just Docker apps).
                     spawn_push_app_capabilities(state.clone(), app.clone());
+                    if app.kind == "plugin" {
+                        match register_installed_plugin(&state, &app).await {
+                            Ok(()) => {
+                                let _ = state.local_appstore.set_status(&app_id, "stopped").await;
+                                state.local_appstore.append_log(
+                                    &app_id,
+                                    local_appstore::LogEntry {
+                                        timestamp: chrono::Utc::now().to_rfc3339(),
+                                        level: "INFO".to_string(),
+                                        message: "Plugin registered in the shared runtime sandbox."
+                                            .to_string(),
+                                        source: "plugin-install".to_string(),
+                                    },
+                                );
+                            }
+                            Err(error) => {
+                                let _ = state.local_appstore.set_status(&app_id, "error").await;
+                                state.local_appstore.append_log(
+                                    &app_id,
+                                    local_appstore::LogEntry {
+                                        timestamp: chrono::Utc::now().to_rfc3339(),
+                                        level: "ERROR".to_string(),
+                                        message: error,
+                                        source: "plugin-install".to_string(),
+                                    },
+                                );
+                            }
+                        }
+                        return;
+                    }
                     if app.docker_config.is_none() && app.bundle_config.is_none() {
                         let _ = state.local_appstore.set_status(&app_id, "stopped").await;
                         return;
@@ -10221,6 +10355,79 @@ async fn app_logs_stream(
 
 // ── Plugin Handlers ───────────────────────────────────────────────────
 
+fn installed_plugin_entry_path(
+    store: &local_appstore::LocalAppStore,
+    plugin: &local_appstore::InstalledApp,
+) -> Result<std::path::PathBuf, String> {
+    let plugin_dir = store.base_dir().join(&plugin.id);
+    let configured_entry = plugin
+        .manifest
+        .extra
+        .get("main")
+        .or_else(|| plugin.manifest.extra.get("entry"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim_start_matches("./").to_string());
+    let candidates = configured_entry
+        .into_iter()
+        .chain(["index.js", "plugin.js", "main.js"].map(str::to_string));
+
+    for candidate in candidates {
+        let candidate_path = std::path::Path::new(&candidate);
+        if candidate_path.is_absolute()
+            || candidate_path
+                .components()
+                .any(|component| component == std::path::Component::ParentDir)
+        {
+            return Err(format!("Invalid plugin entry path: '{candidate}'"));
+        }
+        let entry_path = plugin_dir.join(candidate_path);
+        if entry_path.is_file() {
+            let extension = entry_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            if extension != "js" {
+                return Err(format!(
+                    "Plugin entry '{}' must be compiled JavaScript (.js) for the runtime sandbox",
+                    candidate
+                ));
+            }
+            return Ok(entry_path);
+        }
+    }
+
+    Err(format!(
+        "No JavaScript entry point found for plugin '{}'",
+        plugin.id
+    ))
+}
+
+async fn register_installed_plugin(
+    state: &AppState,
+    plugin: &local_appstore::InstalledApp,
+) -> Result<(), String> {
+    let entry_path = installed_plugin_entry_path(&state.local_appstore, plugin)?;
+    let running = state
+        .plugin_sandbox
+        .ensure_running()
+        .await
+        .map_err(|error| format!("Plugin sandbox could not be started: {error:#}"))?;
+    if !running {
+        return Err("Docker is unavailable; plugin sandbox cannot start".to_string());
+    }
+    let manifest = serde_json::to_value(&plugin.manifest)
+        .map_err(|error| format!("Plugin manifest could not be serialized: {error}"))?;
+    state
+        .plugin_sandbox
+        .register_plugin(plugin_sandbox::PluginRegistration {
+            plugin_id: plugin.id.clone(),
+            manifest,
+            source_path: entry_path,
+        })
+        .await
+        .map_err(|error| format!("Plugin registration failed: {error:#}"))
+}
+
 // The frontend PluginsTab expects Array<[PluginMetadata, PluginStats | null]>.
 async fn core_plugins_list(State(state): State<AppState>) -> Json<Value> {
     let installed = state.local_appstore.list().await;
@@ -10288,6 +10495,14 @@ async fn core_plugins_enable(
     State(state): State<AppState>,
     axum::extract::Path(plugin_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let plugin = installed
+        .iter()
+        .find(|app| app.id == plugin_id && app.kind == "plugin")
+        .ok_or_else(|| ErrorResponse::not_found(format!("Plugin '{}' not found", plugin_id)))?;
+    register_installed_plugin(&state, plugin)
+        .await
+        .map_err(ErrorResponse::service_unavailable)?;
     state
         .local_appstore
         .enable(&plugin_id, true)
@@ -10309,6 +10524,13 @@ async fn core_plugins_disable(
         .enable(&plugin_id, false)
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    state
+        .plugin_sandbox
+        .unregister_plugin(&plugin_id)
+        .await
+        .map_err(|error| {
+            ErrorResponse::internal(format!("Plugin sandbox cleanup failed: {error:#}"))
+        })?;
     Ok(Json(json!({
         "success": true,
         "plugin_id": plugin_id,
@@ -10320,6 +10542,13 @@ async fn core_plugins_uninstall(
     State(state): State<AppState>,
     axum::extract::Path(plugin_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    state
+        .plugin_sandbox
+        .unregister_plugin(&plugin_id)
+        .await
+        .map_err(|error| {
+            ErrorResponse::internal(format!("Plugin sandbox cleanup failed: {error:#}"))
+        })?;
     state
         .local_appstore
         .uninstall(&plugin_id)
@@ -10933,7 +11162,11 @@ fn read_current_iora_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-async fn core_updates_check(State(state): State<AppState>) -> Json<Value> {
+async fn core_updates_check(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> Result<Json<Value>, ErrorResponse> {
+    require_user_os_permission(&state, &identity, "os.updates").await?;
     let current = read_current_iora_version();
     let server = std::env::var("IORA_UPDATE_SERVER")
         .unwrap_or_else(|_| "https://update.kaimdt.com".to_string());
@@ -10998,7 +11231,7 @@ async fn core_updates_check(State(state): State<AppState>) -> Json<Value> {
         }
     }
 
-    Json(json!({ "updates": updates }))
+    Ok(Json(json!({ "updates": updates })))
 }
 
 #[derive(sqlx::FromRow)]
@@ -11012,7 +11245,11 @@ struct UpdateHistoryRow {
     error_message: Option<String>,
 }
 
-async fn core_updates_history(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
+async fn core_updates_history(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> Result<Json<Value>, ErrorResponse> {
+    require_user_os_permission(&state, &identity, "os.updates").await?;
     let rows = sqlx::query_as::<_, UpdateHistoryRow>(
         "SELECT id, provider_id, from_version, to_version, status, installed_at, error_message
          FROM update_history
@@ -11043,8 +11280,10 @@ async fn core_updates_history(State(state): State<AppState>) -> Result<Json<Valu
 
 async fn core_updates_install(
     State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
     Path(provider_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    require_user_os_permission(&state, &identity, "os.updates").await?;
     let id = uuid::Uuid::new_v4().to_string();
     let from_version = read_current_iora_version();
 
@@ -11098,8 +11337,10 @@ async fn core_updates_install(
 
 async fn core_updates_rollback(
     State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
     Path(update_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    require_user_os_permission(&state, &identity, "os.updates").await?;
     // Mark the named history entry as rolled_back. Actual disk-level
     // rollback is performed by RAUC slot-switching on next boot, which is
     // outside the scope of this HTTP handler.
@@ -13703,6 +13944,172 @@ async fn delete_api_key(
 // ═══════════════════════════════════════════════════════════════════════
 // Admin Endpoints
 // ═══════════════════════════════════════════════════════════════════════
+
+const OS_PERMISSIONS: [&str; 8] = [
+    "os.files.read",
+    "os.files.write",
+    "os.network.read",
+    "os.network.write",
+    "os.system.read",
+    "os.power",
+    "os.updates",
+    "os.backups",
+];
+
+fn role_os_permissions(role: &str) -> Vec<&'static str> {
+    match role {
+        "admin" => OS_PERMISSIONS.to_vec(),
+        "maintenance" => vec![
+            "os.files.read",
+            "os.network.read",
+            "os.system.read",
+            "os.updates",
+            "os.backups",
+        ],
+        "editor" => vec!["os.files.read", "os.files.write", "os.system.read"],
+        "viewer" => vec!["os.files.read"],
+        _ => vec!["os.files.read", "os.files.write"],
+    }
+}
+
+#[cfg(test)]
+mod os_permission_tests {
+    use super::{role_os_permissions, OS_PERMISSIONS};
+
+    #[test]
+    fn admin_role_receives_every_os_permission() {
+        assert_eq!(role_os_permissions("admin"), OS_PERMISSIONS.to_vec());
+    }
+
+    #[test]
+    fn viewer_cannot_change_files_or_control_power() {
+        let permissions = role_os_permissions("viewer");
+        assert!(permissions.contains(&"os.files.read"));
+        assert!(!permissions.contains(&"os.files.write"));
+        assert!(!permissions.contains(&"os.power"));
+    }
+
+    #[test]
+    fn maintenance_role_can_inspect_system_but_not_control_power() {
+        let permissions = role_os_permissions("maintenance");
+        assert!(permissions.contains(&"os.system.read"));
+        assert!(permissions.contains(&"os.network.read"));
+        assert!(!permissions.contains(&"os.power"));
+    }
+}
+
+async fn effective_os_permissions(
+    state: &AppState,
+    user_id: &str,
+) -> Result<HashMap<String, bool>, ErrorResponse> {
+    let user = state
+        .config_repo
+        .get_user_by_id(user_id)
+        .await
+        .map_err(|error| ErrorResponse::internal(format!("Failed to load user: {error}")))?
+        .ok_or_else(|| ErrorResponse::not_found("User not found"))?;
+    let defaults = if user.is_admin {
+        OS_PERMISSIONS.to_vec()
+    } else {
+        role_os_permissions(&user.role)
+    };
+    let mut permissions: HashMap<String, bool> = OS_PERMISSIONS
+        .iter()
+        .map(|permission| ((*permission).to_string(), defaults.contains(permission)))
+        .collect();
+    if !user.is_admin {
+        let overrides = state
+            .config_repo
+            .get_user_os_permission_overrides(user_id)
+            .await
+            .map_err(|error| {
+                ErrorResponse::internal(format!("Failed to load OS permissions: {error}"))
+            })?;
+        for (permission, allowed) in overrides {
+            if permissions.contains_key(&permission) {
+                permissions.insert(permission, allowed);
+            }
+        }
+    }
+    Ok(permissions)
+}
+
+async fn user_has_os_permission(
+    state: &AppState,
+    user_id: &str,
+    permission: &str,
+) -> Result<bool, ErrorResponse> {
+    Ok(effective_os_permissions(state, user_id)
+        .await?
+        .get(permission)
+        .copied()
+        .unwrap_or(false))
+}
+
+async fn require_user_os_permission(
+    state: &AppState,
+    identity: &middleware::AuthIdentity,
+    permission: &str,
+) -> Result<(), ErrorResponse> {
+    if user_has_os_permission(state, identity.user_id(), permission).await? {
+        Ok(())
+    } else {
+        Err(ErrorResponse::forbidden(format!(
+            "OS permission '{}' is required",
+            permission
+        )))
+    }
+}
+
+async fn get_my_os_permissions(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let permissions = effective_os_permissions(&state, identity.user_id()).await?;
+    Ok(Json(json!({ "permissions": permissions })))
+}
+
+async fn admin_get_user_os_permissions(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let permissions = effective_os_permissions(&state, &user_id).await?;
+    let overrides = state
+        .config_repo
+        .get_user_os_permission_overrides(&user_id)
+        .await
+        .map_err(|error| {
+            ErrorResponse::internal(format!("Failed to load OS permission overrides: {error}"))
+        })?;
+    Ok(Json(json!({
+        "permissions": permissions,
+        "overrides": overrides.into_iter().collect::<HashMap<_, _>>(),
+    })))
+}
+
+async fn admin_set_user_os_permissions(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    Json(body): Json<HashMap<String, bool>>,
+) -> Result<Json<Value>, ErrorResponse> {
+    if body.keys().any(|permission| {
+        !OS_PERMISSIONS
+            .iter()
+            .any(|known| *known == permission.as_str())
+    }) {
+        return Err(ErrorResponse::bad_request("Unknown OS permission"));
+    }
+    let overrides: Vec<(String, bool)> = body.into_iter().collect();
+    state
+        .config_repo
+        .replace_user_os_permission_overrides(&user_id, &overrides)
+        .await
+        .map_err(|error| {
+            ErrorResponse::internal(format!("Failed to update OS permissions: {error}"))
+        })?;
+    let permissions = effective_os_permissions(&state, &user_id).await?;
+    Ok(Json(json!({ "success": true, "permissions": permissions })))
+}
 
 /// Admin: List all users with details
 async fn admin_list_users(
@@ -17923,6 +18330,77 @@ async fn admin_control_overview(State(state): State<AppState>) -> Json<Value> {
 /// already gated by the admin middleware on the `admin_routes` group, so we
 /// simply replay the verb, headers (minus hop-by-hop), and body, and stream
 /// the upstream response back unchanged.
+async fn user_iora_control_proxy(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+    method: axum::http::Method,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+    raw_query: RawQuery,
+    body: axum::body::Bytes,
+) -> Response {
+    let required_permission =
+        if path == "system" || path.starts_with("os/disks") || path.starts_with("os/processes") {
+            "os.system.read"
+        } else if path.starts_with("os/network/set") {
+            "os.network.write"
+        } else if path.starts_with("os/network") {
+            "os.network.read"
+        } else if path.starts_with("os/reboot") || path.starts_with("os/shutdown") {
+            "os.power"
+        } else {
+            return ErrorResponse::forbidden("OS endpoint is not delegated").into_response();
+        };
+    match user_has_os_permission(&state, identity.user_id(), required_permission).await {
+        Ok(true) => {
+            admin_iora_control_proxy(State(state), method, Path(path), headers, raw_query, body)
+                .await
+        }
+        Ok(false) => ErrorResponse::forbidden(format!(
+            "OS permission '{}' is required",
+            required_permission
+        ))
+        .into_response(),
+        Err(error) => error.into_response(),
+    }
+}
+
+async fn user_backup_proxy(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+    Path(path): Path<String>,
+    req: axum::extract::Request,
+) -> Response {
+    if let Err(error) = require_user_os_permission(&state, &identity, "os.backups").await {
+        return error.into_response();
+    }
+    let allowed = matches!(
+        path.as_str(),
+        "list" | "create" | "restore" | "config" | "scheduler/status"
+    );
+    if !allowed {
+        return ErrorResponse::forbidden("Backup endpoint is not delegated").into_response();
+    }
+    let base = microservice_url("IORA_BACKUP_URL", "iora-backup", 8107);
+    let new_path = format!("/api/backup/{path}");
+    let query = req
+        .uri()
+        .query()
+        .map(|value| format!("?{value}"))
+        .unwrap_or_default();
+    let new_uri = format!("{new_path}{query}")
+        .parse()
+        .unwrap_or_else(|_| req.uri().clone());
+    let (mut parts, body) = req.into_parts();
+    parts.uri = new_uri;
+    forward_request_to(
+        &state,
+        &base,
+        axum::extract::Request::from_parts(parts, body),
+    )
+    .await
+}
+
 async fn admin_iora_control_proxy(
     State(state): State<AppState>,
     method: axum::http::Method,

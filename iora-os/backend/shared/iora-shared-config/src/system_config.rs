@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 // ═══════════════════════════════════════════════════════════════════════
 
 const DEFAULT_PORTS: &[(&str, u16)] = &[
-    ("iora-home", 3001),
+    ("iora-home", 8126),
     ("iora-core", 8090),
     ("iora-control", 8091),
     ("iora-assist", 8092),
@@ -203,7 +203,7 @@ pub fn service_url(service: &str, default_port: u16) -> String {
 
 /// Backend API base URL (iora-home or the main API gateway).
 pub fn backend_url() -> String {
-    service_url("iora-home", 3001)
+    service_url("iora-home", 8126)
 }
 
 /// ORA Assist / AI service URL.

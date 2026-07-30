@@ -136,6 +136,18 @@ struct RegisterServiceRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CoreServiceEntry {
+    name: String,
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoreServiceListResponse {
+    #[serde(default)]
+    services: Vec<CoreServiceEntry>,
+}
+
+#[derive(Debug, Deserialize)]
 struct HeartbeatRequest {
     service_name: String,
     status: Option<String>,
@@ -273,6 +285,69 @@ async fn health_check_loop(state: AppState) {
             }
 
             state.services.write().await.insert(name, service);
+        }
+    }
+}
+
+async fn core_service_sync_loop(state: AppState) {
+    let core_url = system_config::service_url("iora-core", 8090);
+    let endpoint = format!("{}/api/core/services", core_url.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            error!("Cannot create core service sync client: {}", error);
+            return;
+        }
+    };
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
+
+    loop {
+        interval.tick().await;
+        let response = match client.get(&endpoint).send().await {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) => {
+                warn!(
+                    "Core service sync returned HTTP {} from {}",
+                    response.status(),
+                    endpoint
+                );
+                continue;
+            }
+            Err(error) => {
+                warn!("Core service sync failed for {}: {}", endpoint, error);
+                continue;
+            }
+        };
+        let discovered = match response.json::<CoreServiceListResponse>().await {
+            Ok(discovered) => discovered,
+            Err(error) => {
+                warn!("Core service sync returned invalid JSON: {}", error);
+                continue;
+            }
+        };
+
+        let now = Utc::now().to_rfc3339();
+        let mut services = state.services.write().await;
+        for service in discovered.services {
+            if service.name.trim().is_empty() || service.url.trim().is_empty() {
+                continue;
+            }
+            services
+                .entry(service.name.clone())
+                .and_modify(|current| current.url = service.url.clone())
+                .or_insert_with(|| ServiceStatus {
+                    name: service.name,
+                    url: service.url,
+                    status: "unknown".to_string(),
+                    response_time_ms: None,
+                    last_check: now.clone(),
+                    last_success: None,
+                    consecutive_failures: 0,
+                    uptime_percent: 100.0,
+                });
         }
     }
 }
@@ -829,19 +904,37 @@ async fn get_recovery_history(State(state): State<AppState>) -> Json<serde_json:
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
+fn aggregate_health_status(
+    healthy_count: usize,
+    total_count: usize,
+    core_is_down: bool,
+) -> &'static str {
+    if total_count == 0 || core_is_down {
+        "degraded"
+    } else if healthy_count == total_count {
+        "healthy"
+    } else if healthy_count > 0 {
+        "degraded"
+    } else {
+        "unhealthy"
+    }
+}
+
 async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
     let services = state.services.read().await;
     let healthy_count = services.values().filter(|s| s.status == "healthy").count();
     let total_count = services.len();
+    let core_is_down = *state.core_is_down.read().await;
+    let status = aggregate_health_status(healthy_count, total_count, core_is_down);
 
     Json(serde_json::json!({
         "service": "iora-watchdog",
-        "status": "healthy",
+        "status": status,
         "uptime_seconds": state.started_at.elapsed().as_secs(),
         "timestamp": Utc::now().to_rfc3339(),
         "monitored_services": total_count,
         "healthy_services": healthy_count,
-        "core_is_down": *state.core_is_down.read().await,
+        "core_is_down": core_is_down,
     }))
 }
 
@@ -850,13 +943,7 @@ async fn health_text(State(state): State<AppState>) -> impl IntoResponse {
     let healthy_count = services.values().filter(|s| s.status == "healthy").count();
     let total_count = services.len();
     let core_is_down = *state.core_is_down.read().await;
-    let status_text = if healthy_count == total_count && !core_is_down {
-        "healthy"
-    } else if healthy_count > 0 {
-        "degraded"
-    } else {
-        "unhealthy"
-    };
+    let status_text = aggregate_health_status(healthy_count, total_count, core_is_down);
 
     let body = format!(
         "service: iora-watchdog\nstatus: {}\nuptime_seconds: {}\nmonitored_services: {}\nhealthy_services: {}\ncore_is_down: {}\ntimestamp: {}\n",
@@ -1017,7 +1104,19 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let state = AppState {
-        services: Arc::new(RwLock::new(HashMap::new())),
+        services: Arc::new(RwLock::new(HashMap::from([(
+            "iora-core".to_string(),
+            ServiceStatus {
+                name: "iora-core".to_string(),
+                url: system_config::service_url("iora-core", 8090),
+                status: "unknown".to_string(),
+                response_time_ms: None,
+                last_check: Utc::now().to_rfc3339(),
+                last_success: None,
+                consecutive_failures: 0,
+                uptime_percent: 100.0,
+            },
+        )]))),
         events_tx,
         started_at: Arc::new(Instant::now()),
         core_is_down: Arc::new(RwLock::new(false)),
@@ -1039,6 +1138,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start background health checking
     tokio::spawn(health_check_loop(state.clone()));
+    tokio::spawn(core_service_sync_loop(state.clone()));
     tokio::spawn(system_metrics_loop(state.clone()));
 
     let app = Router::new()
@@ -1077,4 +1177,34 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::aggregate_health_status;
+
+    #[test]
+    fn empty_service_set_is_not_healthy() {
+        assert_eq!(aggregate_health_status(0, 0, false), "degraded");
+    }
+
+    #[test]
+    fn all_services_healthy_is_healthy() {
+        assert_eq!(aggregate_health_status(3, 3, false), "healthy");
+    }
+
+    #[test]
+    fn partial_outage_is_degraded() {
+        assert_eq!(aggregate_health_status(2, 3, false), "degraded");
+    }
+
+    #[test]
+    fn complete_outage_is_unhealthy() {
+        assert_eq!(aggregate_health_status(0, 3, false), "unhealthy");
+    }
+
+    #[test]
+    fn core_outage_is_degraded_even_when_other_services_respond() {
+        assert_eq!(aggregate_health_status(2, 2, true), "degraded");
+    }
 }

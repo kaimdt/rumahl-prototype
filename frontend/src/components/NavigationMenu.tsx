@@ -258,6 +258,24 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
             {/* ── Navigation controls: always at the bottom ── */}
             <div className="px-1.5 sm:px-2.5 py-1.5 sm:py-2">
               <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <Tip content={t('os.openLauncher')}>
+              <motion.button
+                onClick={() => handlePageSelect('launcher')}
+                className={`relative min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full transition-colors duration-200 focus-ring flex items-center justify-center ${
+                  currentPageId === 'launcher' ? 'text-foreground' : 'text-foreground/40 hover:text-foreground/70'
+                }`}
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.92 }}
+              >
+                {currentPageId === 'launcher' && (
+                  <motion.div
+                    layoutId="navActiveIndicator"
+                    className="absolute inset-0 rounded-full bg-accent/15"
+                  />
+                )}
+                <DotsNine size={19} weight={currentPageId === 'launcher' ? 'fill' : 'regular'} className="relative" />
+              </motion.button>
+            </Tip>
             {displayPages.map((page) => {
               const Icon = iconMap[page.icon as keyof typeof iconMap]
               const isActive = currentPageId === page.id

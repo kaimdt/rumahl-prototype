@@ -5,6 +5,7 @@
   },
   "common": {
     "save": "Speichern",
+    "saving": "Wird gespeichert…",
     "cancel": "Abbrechen",
     "close": "Schließen",
     "delete": "Löschen",
@@ -95,6 +96,121 @@
     "allApps": "Alle Apps",
     "userMenu": "Benutzermenü",
     "notifications": "Benachrichtigungen"
+  },
+  "os": {
+    "title": "ORA Home",
+    "eyebrow": "ORA OS",
+    "greeting": "Willkommen, {{name}}",
+    "defaultUser": "Zuhause",
+    "subtitle": "Deine Apps, Geräte und Systemwerkzeuge an einem Ort.",
+    "search": "Apps suchen",
+    "allApps": "Alle Apps",
+    "openLauncher": "Homescreen öffnen",
+    "systemApp": "System",
+    "installedApp": "App",
+    "customApp": "Eigene",
+    "noApps": "Keine passenden Apps gefunden.",
+    "shell": {
+      "openQuickSettings": "Schnelleinstellungen öffnen",
+      "quickSettings": "Schnelleinstellungen",
+      "systemReady": "Native Systemdienste verfügbar",
+      "systemLimited": "Eingeschränkte Systemverbindung",
+      "apps": "Alle Apps",
+      "sleepOn": "Schlafmodus aktiv",
+      "sleepOff": "Schlafmodus aus",
+      "recentApps": "Letzte Apps",
+      "lock": "Sperren",
+      "taskSwitcherHint": "Apps mit Alt oder Option + Tab wechseln",
+      "cpu": "CPU",
+      "memory": "Speicher",
+      "uptime": "Laufzeit",
+      "uptimeDays": "{{days}}T {{hours}}Std",
+      "uptimeHours": "{{hours}}Std",
+      "reboot": "Neu starten",
+      "shutdown": "Herunterfahren",
+      "confirmReboot": "ORA OS in fünf Sekunden neu starten?",
+      "confirmShutdown": "ORA OS in fünf Sekunden herunterfahren?",
+      "noSystemData": "Systemdaten nicht verfügbar"
+    },
+    "lock": {
+      "sessionLocked": "Sitzung gesperrt",
+      "password": "Passwort",
+      "pin": "PIN",
+      "unlock": "Entsperren",
+      "unlocking": "Wird entsperrt…",
+      "invalidCredential": "Passwort oder PIN ist nicht korrekt.",
+      "usePin": "Mit PIN entsperren",
+      "usePassword": "Mit Passwort entsperren"
+    },
+    "permissions": {
+      "title": "ORA-OS-Berechtigungen",
+      "adminFullAccess": "Administratoren haben immer Vollzugriff",
+      "items": {
+        "os.files.read": "Dateien anzeigen",
+        "os.files.write": "Dateien verändern",
+        "os.network.read": "Netzwerk anzeigen",
+        "os.network.write": "Netzwerkeinstellungen ändern",
+        "os.system.read": "Systemmonitor anzeigen",
+        "os.power": "Neu starten und herunterfahren",
+        "os.updates": "Updates verwalten",
+        "os.backups": "Backups verwalten"
+      }
+    },
+    "apps": {
+      "home": { "name": "Home", "description": "Smart-Home-Dashboard und Automationen" },
+      "admin": { "name": "Control Center", "description": "Administration und Systemverwaltung" },
+      "settings": { "name": "Einstellungen", "description": "ORA OS personalisieren" },
+      "agent": { "name": "Agent", "description": "KI-Assistent und Entwicklungsagent" },
+      "streaming": { "name": "Streaming", "description": "Medien mit Displays teilen" },
+      "share": { "name": "Teilen", "description": "Apps und Inhalte teilen" },
+      "docs": { "name": "Dokumentation", "description": "Anleitungen und Systemdokumentation" }
+      ,"files": { "name": "Dateien", "description": "Persönliche Dateien und Speicher" }
+      ,"network": { "name": "Netzwerk", "description": "Schnittstellen und Netzwerkaktivität" }
+      ,"system": { "name": "Systemmonitor", "description": "Ressourcen, Datenträger und Prozesse" }
+      ,"updates": { "name": "Updates", "description": "ORA OS sicher und aktuell halten" }
+      ,"backups": { "name": "Backups", "description": "Systemdaten sichern und wiederherstellen" }
+    },
+    "systemApps": {
+      "unavailable": "Der Systemdienst ist derzeit nicht verfügbar.",
+      "usedStorage": "Belegter Speicher",
+      "files": "Dateien",
+      "quota": "Speicherlimit",
+      "noFiles": "Keine Dateien vorhanden.",
+      "downloadFailed": "Die Datei konnte nicht heruntergeladen werden.",
+      "uploadFailed": "Die Datei konnte nicht hochgeladen werden.",
+      "folderFailed": "Der Ordner konnte nicht erstellt werden.",
+      "folderName": "Name des neuen Ordners",
+      "createFolder": "Ordner erstellen",
+      "upload": "Hochladen",
+      "folder": "Ordner",
+      "active": "Aktiv",
+      "noAddress": "Keine Hardwareadresse",
+      "received": "Empfangen",
+      "sent": "Gesendet",
+      "noInterfaces": "Keine Netzwerkschnittstellen gefunden.",
+      "dhcpHint": "Die automatische Adressierung kann die aktuelle Verbindung unterbrechen.",
+      "enableDhcp": "DHCP aktivieren",
+      "confirmDhcp": "IPv4 und IPv6 auf DHCP umstellen? Die aktuelle Verbindung kann unterbrochen werden.",
+      "networkChangeFailed": "Die Netzwerkkonfiguration konnte nicht übernommen werden.",
+      "storage": "Speicher",
+      "processes": "Aktive Prozesse"
+    },
+    "maintenance": {
+      "unavailable": "Der Wartungsdienst ist derzeit nicht verfügbar.",
+      "noUpdateData": "Keine Updateinformationen verfügbar.",
+      "critical": "Kritisch",
+      "install": "Installieren",
+      "confirmUpdate": "Systemupdate installieren?",
+      "confirmUpdateHint": "ORA OS kann während der Installation Dienste oder das Gerät neu starten.",
+      "updateFailed": "Das Update konnte nicht gestartet werden.",
+      "createBackup": "Vollständiges Backup erstellen",
+      "noBackups": "Keine Backups vorhanden.",
+      "backupFailed": "Das Backup konnte nicht erstellt werden.",
+      "restore": "Wiederherstellen",
+      "confirmRestore": "Dieses Backup zur Wiederherstellung vorbereiten?",
+      "confirmRestoreHint": "Der Backup-Dienst entpackt die Daten in einen geschützten Staging-Bereich. Bestehende Daten werden nicht automatisch überschrieben.",
+      "restoreFailed": "Das Backup konnte nicht zur Wiederherstellung vorbereitet werden."
+    }
   },
   "settings": {
     "title": "Einstellungen",

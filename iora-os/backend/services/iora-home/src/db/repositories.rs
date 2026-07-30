@@ -996,6 +996,43 @@ impl ConfigRepository {
         Ok(())
     }
 
+    pub async fn get_user_os_permission_overrides(
+        &self,
+        user_id: &str,
+    ) -> anyhow::Result<Vec<(String, bool)>> {
+        let permissions = sqlx::query_as::<_, (String, bool)>(
+            "SELECT permission, allowed FROM user_os_permissions WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(permissions)
+    }
+
+    pub async fn replace_user_os_permission_overrides(
+        &self,
+        user_id: &str,
+        permissions: &[(String, bool)],
+    ) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM user_os_permissions WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        for (permission, allowed) in permissions {
+            sqlx::query(
+                "INSERT INTO user_os_permissions (user_id, permission, allowed, updated_at) VALUES ($1, $2, $3, NOW())",
+            )
+            .bind(user_id)
+            .bind(permission)
+            .bind(allowed)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn set_user_password(
         &self,
         user_id: &str,

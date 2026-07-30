@@ -53,7 +53,6 @@ export default defineConfig({
             '@radix-ui/react-popover',
             '@radix-ui/react-tooltip',
           ],
-          'vendor-icons': ['@phosphor-icons/react'],
         },
       },
     },

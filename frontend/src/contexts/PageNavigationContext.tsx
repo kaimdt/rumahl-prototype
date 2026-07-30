@@ -287,10 +287,10 @@ export const iconMap = {
   Megaphone,
 }
 
-const builtInPages = ['lights', 'climate', 'switches', 'sensors', 'settings', 'docs', 'streaming']
+const builtInPages = ['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'docs', 'streaming']
 
 function pageIdToPath(id: string, docPath?: string): string {
-  if (id === 'home') return '/'
+  if (id === 'launcher') return '/'
   if (id === 'admin') return '/admin'
   if (id === 'docs' && docPath) return `/docs/${docPath}`
   if (builtInPages.includes(id)) return `/${id}`
@@ -298,7 +298,7 @@ function pageIdToPath(id: string, docPath?: string): string {
 }
 
 function pathToPageId(path: string): string {
-  if (path === '/' || path === '') return 'home'
+  if (path === '/' || path === '') return 'launcher'
   if (path.startsWith('/admin')) return 'admin'
   if (path.startsWith('/docs/') || path.startsWith('/docs')) return 'docs'
   if (path.startsWith('/page/')) return path.slice(6)

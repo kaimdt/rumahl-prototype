@@ -5,6 +5,7 @@
   },
   "common": {
     "save": "Save",
+    "saving": "Saving…",
     "cancel": "Cancel",
     "close": "Close",
     "delete": "Delete",
@@ -95,6 +96,121 @@
     "allApps": "All Apps",
     "userMenu": "User Menu",
     "notifications": "Notifications"
+  },
+  "os": {
+    "title": "ORA Home",
+    "eyebrow": "ORA OS",
+    "greeting": "Welcome, {{name}}",
+    "defaultUser": "Home",
+    "subtitle": "Your apps, devices, and system tools in one place.",
+    "search": "Search apps",
+    "allApps": "All apps",
+    "openLauncher": "Open homescreen",
+    "systemApp": "System",
+    "installedApp": "App",
+    "customApp": "Custom",
+    "noApps": "No matching apps found.",
+    "shell": {
+      "openQuickSettings": "Open quick settings",
+      "quickSettings": "Quick settings",
+      "systemReady": "Native system services available",
+      "systemLimited": "Limited system connection",
+      "apps": "All apps",
+      "sleepOn": "Sleep mode on",
+      "sleepOff": "Sleep mode off",
+      "recentApps": "Recent apps",
+      "lock": "Lock",
+      "taskSwitcherHint": "Switch apps with Alt or Option + Tab",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "uptime": "Uptime",
+      "uptimeDays": "{{days}}d {{hours}}h",
+      "uptimeHours": "{{hours}}h",
+      "reboot": "Restart",
+      "shutdown": "Shut down",
+      "confirmReboot": "Restart ORA OS in five seconds?",
+      "confirmShutdown": "Shut down ORA OS in five seconds?",
+      "noSystemData": "System data unavailable"
+    },
+    "lock": {
+      "sessionLocked": "Session locked",
+      "password": "Password",
+      "pin": "PIN",
+      "unlock": "Unlock",
+      "unlocking": "Unlocking…",
+      "invalidCredential": "Password or PIN is incorrect.",
+      "usePin": "Unlock with PIN",
+      "usePassword": "Unlock with password"
+    },
+    "permissions": {
+      "title": "ORA OS permissions",
+      "adminFullAccess": "Administrators always have full access",
+      "items": {
+        "os.files.read": "View files",
+        "os.files.write": "Change files",
+        "os.network.read": "View network",
+        "os.network.write": "Change network settings",
+        "os.system.read": "View system monitor",
+        "os.power": "Restart and shut down",
+        "os.updates": "Manage updates",
+        "os.backups": "Manage backups"
+      }
+    },
+    "apps": {
+      "home": { "name": "Home", "description": "Smart home dashboard and automations" },
+      "admin": { "name": "Control Center", "description": "Administration and system management" },
+      "settings": { "name": "Settings", "description": "Personalize ORA OS" },
+      "agent": { "name": "Agent", "description": "AI assistant and development agent" },
+      "streaming": { "name": "Streaming", "description": "Share media with displays" },
+      "share": { "name": "Share", "description": "Share apps and content" },
+      "docs": { "name": "Documentation", "description": "Guides and system documentation" }
+      ,"files": { "name": "Files", "description": "Personal files and storage" }
+      ,"network": { "name": "Network", "description": "Interfaces and network activity" }
+      ,"system": { "name": "System Monitor", "description": "Resources, disks, and processes" }
+      ,"updates": { "name": "Updates", "description": "Keep ORA OS secure and current" }
+      ,"backups": { "name": "Backups", "description": "Protect and restore system data" }
+    },
+    "systemApps": {
+      "unavailable": "The system service is currently unavailable.",
+      "usedStorage": "Used storage",
+      "files": "Files",
+      "quota": "Storage limit",
+      "noFiles": "No files available.",
+      "downloadFailed": "The file could not be downloaded.",
+      "uploadFailed": "The file could not be uploaded.",
+      "folderFailed": "The folder could not be created.",
+      "folderName": "New folder name",
+      "createFolder": "Create folder",
+      "upload": "Upload",
+      "folder": "Folder",
+      "active": "Active",
+      "noAddress": "No hardware address",
+      "received": "Received",
+      "sent": "Sent",
+      "noInterfaces": "No network interfaces found.",
+      "dhcpHint": "Automatic addressing can interrupt the current connection.",
+      "enableDhcp": "Enable DHCP",
+      "confirmDhcp": "Switch IPv4 and IPv6 to DHCP? The current connection may be interrupted.",
+      "networkChangeFailed": "The network configuration could not be applied.",
+      "storage": "Storage",
+      "processes": "Active processes"
+    },
+    "maintenance": {
+      "unavailable": "The maintenance service is currently unavailable.",
+      "noUpdateData": "No update information is available.",
+      "critical": "Critical",
+      "install": "Install",
+      "confirmUpdate": "Install system update?",
+      "confirmUpdateHint": "ORA OS may restart services or the device during installation.",
+      "updateFailed": "The update could not be started.",
+      "createBackup": "Create complete backup",
+      "noBackups": "No backups available.",
+      "backupFailed": "The backup could not be created.",
+      "restore": "Restore",
+      "confirmRestore": "Prepare this backup for restoration?",
+      "confirmRestoreHint": "The backup service extracts the data into a protected staging area. Existing data is not overwritten automatically.",
+      "restoreFailed": "The backup could not be prepared for restoration."
+    }
   },
   "settings": {
     "title": "Settings",

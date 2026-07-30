@@ -13,12 +13,12 @@ import { useConfiguration } from '@/contexts/ConfigurationContext'
 import { EntityDiscoveryProvider, useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
 import { DynamicOverviewProvider, useDynamicOverview, getVisibleWidgetTypes } from '@/contexts/DynamicOverviewContext'
 import { useEntityStore } from '@/hooks/useEntityStore'
-import { LightWidget } from '@/components/widgets/LightWidget'
-import { ClimateWidget } from '@/components/widgets/ClimateWidget'
-import { SwitchWidget } from '@/components/widgets/SwitchWidget'
-import { SensorWidget } from '@/components/widgets/SensorWidget'
-import { MediaPlayerWidget } from '@/components/widgets/MediaPlayerWidget'
 import { NavigationMenu } from '@/components/NavigationMenu'
+import { OsHomeScreen } from '@/components/OsHomeScreen'
+import { OsSystemShell } from '@/components/OsSystemShell'
+import { OsSessionLock } from '@/components/OsSessionLock'
+import { OsSystemApp } from '@/components/OsSystemApp'
+import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
 import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
 import { LoginPage } from '@/components/LoginPage'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
@@ -26,9 +26,14 @@ import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotific
 // Heavy admin/editor routes: lazy-loaded to keep the initial bundle small.
 // They are only rendered when the user navigates to the corresponding page.
 const PageDesigner = lazy(() => import('@/components/PageDesigner').then(m => ({ default: m.PageDesigner })))
-import { CustomPageRenderer } from '@/components/CustomPageRenderer'
-import { SettingsPage } from '@/components/SettingsPage'
-import { SimpleDashboard } from '@/components/SimpleDashboard'
+const CustomPageRenderer = lazy(() => import('@/components/CustomPageRenderer').then(m => ({ default: m.CustomPageRenderer })))
+const SettingsPage = lazy(() => import('@/components/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const SimpleDashboard = lazy(() => import('@/components/SimpleDashboard').then(m => ({ default: m.SimpleDashboard })))
+const LightWidget = lazy(() => import('@/components/widgets/LightWidget').then(m => ({ default: m.LightWidget })))
+const ClimateWidget = lazy(() => import('@/components/widgets/ClimateWidget').then(m => ({ default: m.ClimateWidget })))
+const SwitchWidget = lazy(() => import('@/components/widgets/SwitchWidget').then(m => ({ default: m.SwitchWidget })))
+const SensorWidget = lazy(() => import('@/components/widgets/SensorWidget').then(m => ({ default: m.SensorWidget })))
+const MediaPlayerWidget = lazy(() => import('@/components/widgets/MediaPlayerWidget').then(m => ({ default: m.MediaPlayerWidget })))
 // Share page for the Apps & Features app menu
 const SharePage = lazy(() => import('./components/SharePage').then(m => ({ default: m.SharePage })))
 import { DynamicBackground } from '@/components/DynamicBackground'
@@ -148,7 +153,7 @@ function DashboardContent() {
   // Set data-page attribute for theme CSS targeting
   useEffect(() => {
     const pageType = (() => {
-      if (['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent'].includes(currentPageId)) return currentPageId
+      if (['launcher', 'settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups'].includes(currentPageId)) return currentPageId
       if (['home', 'lights', 'climate', 'switches', 'sensors', 'music'].includes(currentPageId)) return currentPageId
       if (currentPage?.pageSource?.kind === 'app') return 'app-page'
       return 'custom-page'
@@ -605,7 +610,7 @@ function DashboardContent() {
                 <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
                 <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
                 <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
-                  {currentPageId === 'settings' ? 'Home' : currentPageId === 'admin' ? 'Home' : currentPageId === 'docs' ? t('navigation.docs') : currentPageId === 'streaming' ? t('navigation.streaming') : 'Home'}
+                  {currentPageId === 'launcher' ? t('os.title') : currentPageId === 'settings' ? t('navigation.settings') : currentPageId === 'admin' ? t('navigation.admin') : currentPageId === 'docs' ? t('navigation.docs') : currentPageId === 'streaming' ? t('navigation.streaming') : t('navigation.home')}
                 </span>
               </div>
               <div className="flex items-center gap-4">
@@ -618,6 +623,7 @@ function DashboardContent() {
           </header>
 
           <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
+          <Suspense fallback={<DashboardSkeleton />}>
           <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {
             // App Settings standalone page (opened in new tab from AppStoreTab)
@@ -626,7 +632,7 @@ function DashboardContent() {
             }
 
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
-            const systemPageIds = ['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent']
+            const systemPageIds = ['launcher', 'settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
 
             const resolvePageType = (): 'dashboard' | 'app' | 'system' | 'custom' => {
               if (currentPage?.pageType) return currentPage.pageType
@@ -650,13 +656,19 @@ function DashboardContent() {
 
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
-            const nonHAPages = ['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent']
+            const nonHAPages = ['launcher', 'settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
             const isNonHAPage = nonHAPages.includes(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
               return (
                 <Suspense fallback={null}>
+                  {currentPageId === 'launcher' && <OsHomeScreen />}
+                  {currentPageId === 'os-files' && <OsSystemApp kind="files" />}
+                  {currentPageId === 'os-network' && <OsSystemApp kind="network" />}
+                  {currentPageId === 'os-system' && <OsSystemApp kind="system" />}
+                  {currentPageId === 'os-updates' && <OsMaintenanceApp kind="updates" />}
+                  {currentPageId === 'os-backups' && <OsMaintenanceApp kind="backups" />}
                   {currentPageId === 'settings' && (
                     <SettingsPage
                       user={user}
@@ -844,6 +856,7 @@ function DashboardContent() {
             )
           })()}
         </PageTransitionWrapper>
+        </Suspense>
         </main>
         </div>
       </div>
@@ -944,6 +957,7 @@ function DashboardContent() {
                   )}
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                  <Suspense fallback={<DashboardSkeleton />}>
                   <CustomPageRenderer
                     page={modalPage}
                     entities={entities}
@@ -952,6 +966,7 @@ function DashboardContent() {
                     weatherEntity={weatherEntity}
                     lightEntities={lightEntities}
                   />
+                  </Suspense>
                 </div>
               </motion.div>
             </>
@@ -959,6 +974,8 @@ function DashboardContent() {
         })()}
       </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner} />
+      {!showPageDesigner && <OsSystemShell />}
+      <OsSessionLock />
       <ORAAssistant />
       {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}
     </>
