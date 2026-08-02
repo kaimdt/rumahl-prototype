@@ -1,4 +1,4 @@
-import type { IframeMessage, IoraEvent, EventHandler } from './types';
+import type { IframeMessage, IoraEvent, EventHandler, OsFileOpenResult, OsFileSaveRequest, OsFileSaveResult } from './types';
 
 /**
  * IORA Iframe SDK
@@ -267,6 +267,22 @@ export default class IoraIframe {
    */
   async navigateTo(pageId: string): Promise<void> {
     return this.call('ui.navigateTo', pageId);
+  }
+
+  /**
+   * Ask the user to select one file from their personal ORA Cloud.
+   * The app only receives the explicitly selected file.
+   */
+  async openFile(): Promise<OsFileOpenResult> {
+    return this.call('files.open');
+  }
+
+  /**
+   * Ask the user where a file should be saved in their personal ORA Cloud.
+   * The save only happens after confirmation in the ORA system dialog.
+   */
+  async saveFile(file: OsFileSaveRequest): Promise<OsFileSaveResult> {
+    return this.call('files.save', file);
   }
 
   /**

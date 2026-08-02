@@ -244,6 +244,20 @@
       "storage": "Speicher",
       "processes": "Aktive Prozesse"
     },
+    "filePicker": {
+      "openTitle": "Datei mit App öffnen",
+      "saveTitle": "In ORA Cloud speichern",
+      "requestedBy": "Angefordert von {{app}}",
+      "loadFailed": "Der persönliche Speicher konnte nicht geladen werden.",
+      "openFailed": "Die ausgewählte Datei konnte nicht geöffnet werden.",
+      "saveFailed": "Die Datei konnte nicht gespeichert werden.",
+      "folder": "Ordner",
+      "empty": "Dieser Ordner ist leer.",
+      "selectFile": "Wähle eine Datei aus.",
+      "saveAs": "Speichern als {{name}}",
+      "open": "Öffnen",
+      "save": "Speichern"
+    },
     "maintenance": {
       "unavailable": "Der Wartungsdienst ist derzeit nicht verfügbar.",
       "noUpdateData": "Keine Updateinformationen verfügbar.",

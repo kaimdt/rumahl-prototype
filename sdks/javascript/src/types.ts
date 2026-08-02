@@ -110,6 +110,25 @@ export interface IframeMessage {
 
 export type EventHandler = (event: IoraEvent) => void;
 
+export interface OsFileOpenResult {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  dataBase64: string;
+}
+
+export interface OsFileSaveRequest {
+  name: string;
+  mimeType?: string;
+  dataBase64: string;
+}
+
+export interface OsFileSaveResult {
+  id: string;
+  name: string;
+}
+
 // ─── Voice / STT / TTS Types ───────────────────────────────────────────────
 
 export interface SttTranscriptionResult {

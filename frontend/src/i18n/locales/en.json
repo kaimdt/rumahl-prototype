@@ -244,6 +244,20 @@
       "storage": "Storage",
       "processes": "Active processes"
     },
+    "filePicker": {
+      "openTitle": "Open file with app",
+      "saveTitle": "Save to ORA Cloud",
+      "requestedBy": "Requested by {{app}}",
+      "loadFailed": "Personal storage could not be loaded.",
+      "openFailed": "The selected file could not be opened.",
+      "saveFailed": "The file could not be saved.",
+      "folder": "Folder",
+      "empty": "This folder is empty.",
+      "selectFile": "Select a file.",
+      "saveAs": "Save as {{name}}",
+      "open": "Open",
+      "save": "Save"
+    },
     "maintenance": {
       "unavailable": "The maintenance service is currently unavailable.",
       "noUpdateData": "No update information is available.",

@@ -5,6 +5,7 @@ import { useLongPressDialog } from '@/hooks/useLongPressDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
+import { OsAppFilePickerDialog, type AppFileOpenResult, type AppFileSaveRequest } from '@/components/OsAppFilePickerDialog'
 
 interface IFrameWidgetConfig {
   url?: string
@@ -40,6 +41,9 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
   const { dialogOpen, setDialogOpen, longPressHandlers } = useLongPressDialog()
   const pendingRequests = useRef<Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>>(new Map())
   const messageIdCounter = useRef(0)
+  const iframeSecurityToken = useRef(crypto.randomUUID())
+  const filePickerResolver = useRef<((value: AppFileOpenResult | { id: string; name: string } | null) => void) | null>(null)
+  const [filePickerRequest, setFilePickerRequest] = useState<{ mode: 'open' | 'save'; saveRequest?: AppFileSaveRequest } | null>(null)
 
   // Auto-refresh
   useEffect(() => {
@@ -53,6 +57,12 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
     if (!url) return
 
     const handleMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return
+      try {
+        if (event.origin !== new URL(url, window.location.href).origin) return
+      } catch {
+        return
+      }
       const msg = event.data
       if (!msg || typeof msg !== 'object') return
 
@@ -84,7 +94,23 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
     return () => window.removeEventListener('message', handleMessage)
   }, [url])
 
+  const requestFilePicker = useCallback((mode: 'open' | 'save', saveRequest?: AppFileSaveRequest) => {
+    return new Promise<AppFileOpenResult | { id: string; name: string } | null>((resolve) => {
+      filePickerResolver.current = resolve
+      setFilePickerRequest({ mode, saveRequest })
+    })
+  }, [])
+
+  const closeFilePicker = useCallback((result: AppFileOpenResult | { id: string; name: string } | null) => {
+    filePickerResolver.current?.(result)
+    filePickerResolver.current = null
+    setFilePickerRequest(null)
+  }, [])
+
   const handleIframeRequest = useCallback(async (msg: any) => {
+    const targetOrigin = (() => {
+      try { return new URL(url!, window.location.href).origin } catch { return window.location.origin }
+    })()
     const sendResponse = (result: any, error?: string) => {
       if (msg.id && iframeRef.current?.contentWindow) {
         iframeRef.current.contentWindow.postMessage({
@@ -92,15 +118,26 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
           id: msg.id,
           result,
           error: error ? { code: -1, message: error } : undefined,
-        }, '*')
+        }, targetOrigin)
       }
     }
 
     try {
+      if (msg.method !== 'auth.requestToken' && msg.params?.[0] !== iframeSecurityToken.current) {
+        sendResponse(null, 'Invalid iframe security token')
+        return
+      }
       switch (msg.method) {
-        case 'auth.requestToken':
-          sendResponse({ token: 'iora-iframe-token-' + (appId || 'unknown') })
+        case 'auth.requestToken': {
+          const requestedAppId = msg.params?.[0]
+          if (!appId || requestedAppId !== appId) return
+          iframeRef.current?.contentWindow?.postMessage({
+            type: 'response',
+            method: 'auth.requestToken',
+            result: { token: iframeSecurityToken.current },
+          }, targetOrigin)
           break
+        }
 
         case 'ui.requestFullscreen':
           if (iframeRef.current?.requestFullscreen) {
@@ -146,6 +183,33 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
           }
           sendResponse({ success: true })
           break
+
+        case 'files.open': {
+          if (!appId) {
+            sendResponse(null, 'File access requires an identified ORA app')
+            break
+          }
+          const result = await requestFilePicker('open')
+          if (result) sendResponse(result)
+          else sendResponse(null, 'File selection cancelled')
+          break
+        }
+
+        case 'files.save': {
+          if (!appId) {
+            sendResponse(null, 'File access requires an identified ORA app')
+            break
+          }
+          const saveRequest = msg.params?.[1] as AppFileSaveRequest | undefined
+          if (!saveRequest?.name || !saveRequest.dataBase64) {
+            sendResponse(null, 'A file name and Base64 data are required')
+            break
+          }
+          const result = await requestFilePicker('save', saveRequest)
+          if (result) sendResponse(result)
+          else sendResponse(null, 'Save operation cancelled')
+          break
+        }
 
         case 'entities.list':
           // Forward to IORA API
@@ -208,7 +272,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
     } catch (e) {
       sendResponse(null, (e as Error).message)
     }
-  }, [appId, setDialogOpen])
+  }, [appId, requestFilePicker, setDialogOpen, url])
 
   const handleIframeEvent = useCallback((event: any) => {
     if (event.type === 'app.proxy.status') {
@@ -243,6 +307,15 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
 
   return (
     <>
+    {filePickerRequest && (
+      <OsAppFilePickerDialog
+        appName={title}
+        mode={filePickerRequest.mode}
+        saveRequest={filePickerRequest.saveRequest}
+        onCancel={() => closeFilePicker(null)}
+        onComplete={closeFilePicker}
+      />
+    )}
     <motion.div
       {...longPressHandlers}
       className={`${variant === 'borderless' ? '' : 'glass-card'} rounded-2xl h-full flex flex-col overflow-hidden relative`}

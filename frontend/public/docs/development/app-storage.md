@@ -110,7 +110,7 @@ GET /api/apps/:app_id/storage/usage
 ```typescript
 import IoraClient from '@iora/sdk';
 
-const client = new IoraClient('http://iora.local:8126', 'your-api-key');
+const client = new IoraClient('http://localhost:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Store a file
@@ -128,6 +128,30 @@ await client.appStorage.setKv('theme', { mode: 'dark' });
 const usage = await client.appStorage.getUsage();
 console.log('Usage:', usage.usage_percent.toFixed(1) + '%');
 ```
+
+## User-selected ORA Cloud files
+
+App storage is private to the app. If an iframe app needs a document from the user's personal ORA Cloud, use the system file picker instead of calling `/api/files` directly. ORA always shows a confirmation dialog and only returns the file selected by the user.
+
+```typescript
+import { createIoraIframe } from '@iora/sdk';
+
+const ora = createIoraIframe('my-app');
+await ora.ready();
+
+// Opens the ORA system picker. The result contains only the selected file.
+const file = await ora.openFile();
+const bytes = Uint8Array.from(atob(file.dataBase64), value => value.charCodeAt(0));
+
+// Opens the ORA save dialog. The user chooses the destination folder.
+const saved = await ora.saveFile({
+  name: 'report.json',
+  mimeType: 'application/json',
+  dataBase64: btoa(JSON.stringify({ status: 'complete' })),
+});
+```
+
+The app never receives the user's authentication token, a physical storage path, or unrestricted folder access. Cancelling the system dialog rejects the SDK request without exposing a file.
 
 ## Best Practices
 
