@@ -1,29 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ArrowClockwise,
   Cpu,
-  File,
-  Folder,
   HardDrive,
   Network,
-  Plus,
-  UploadSimple,
   WifiHigh,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { authFetch } from '@/lib/authHelpers'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
-
-interface FileEntry {
-  id: string
-  name?: string
-  original_name?: string
-  size?: number
-  size_bytes?: number
-  mime_type?: string | null
-  is_folder?: boolean
-  updated_at?: string
-}
+import { OsFileExplorer } from '@/components/OsFileExplorer'
 
 interface NetworkInterface {
   name: string
@@ -88,16 +74,12 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [files, setFiles] = useState<FileEntry[]>([])
-  const [quota, setQuota] = useState<{ used?: number; limit?: number; file_count?: number } | null>(null)
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
   const [disks, setDisks] = useState<DiskEntry[]>([])
   const [processes, setProcesses] = useState<ProcessEntry[]>([])
   const [system, setSystem] = useState<SystemData | null>(null)
-  const [folderName, setFolderName] = useState('')
   const [networkConfirmation, setNetworkConfirmation] = useState(false)
   const [working, setWorking] = useState(false)
-  const uploadRef = useRef<HTMLInputElement>(null)
   const { can } = useOsPermissions()
 
   const load = useCallback(async () => {
@@ -105,14 +87,7 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
     setError('')
     try {
       if (kind === 'files') {
-        const [filesResponse, quotaResponse] = await Promise.all([
-          authFetch('/api/files/'),
-          authFetch('/api/files/quota'),
-        ])
-        if (!filesResponse.ok) throw new Error(`HTTP ${filesResponse.status}`)
-        const filesData = await filesResponse.json()
-        setFiles(Array.isArray(filesData) ? filesData : filesData.files || [])
-        setQuota(quotaResponse.ok ? await quotaResponse.json() : null)
+        return
       } else if (kind === 'network') {
         const response = await authFetch('/api/os/control/os/network')
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -139,60 +114,6 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
   useEffect(() => {
     load()
   }, [load])
-
-  const downloadFile = async (entry: FileEntry) => {
-    if (entry.is_folder) return
-    try {
-      const response = await authFetch(`/api/files/${entry.id}/download`)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const url = URL.createObjectURL(await response.blob())
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = entry.original_name || entry.name || 'download'
-      anchor.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      setError(t('os.systemApps.downloadFailed'))
-    }
-  }
-
-  const uploadFile = async (file?: globalThis.File) => {
-    if (!file || !can('os.files.write')) return
-    setWorking(true)
-    setError('')
-    try {
-      const body = new FormData()
-      body.append('file', file)
-      const response = await authFetch('/api/files/upload', { method: 'POST', body })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      await load()
-    } catch {
-      setError(t('os.systemApps.uploadFailed'))
-    } finally {
-      setWorking(false)
-      if (uploadRef.current) uploadRef.current.value = ''
-    }
-  }
-
-  const createFolder = async () => {
-    if (!folderName.trim() || !can('os.files.write')) return
-    setWorking(true)
-    setError('')
-    try {
-      const response = await authFetch('/api/files/folders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: folderName.trim() }),
-      })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setFolderName('')
-      await load()
-    } catch {
-      setError(t('os.systemApps.folderFailed'))
-    } finally {
-      setWorking(false)
-    }
-  }
 
   const enableDhcp = async () => {
     setWorking(true)
@@ -226,30 +147,7 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
 
       {kind === 'files' && (
-        <>
-          {can('os.files.write') && (
-            <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-              <input value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder={t('os.systemApps.folderName')} className="min-h-11 rounded-xl border border-foreground/10 bg-foreground/5 px-3 text-sm outline-none" />
-              <button type="button" onClick={createFolder} disabled={working || !folderName.trim()} className="flex items-center justify-center gap-2 rounded-xl bg-foreground/8 px-4 py-2 text-sm disabled:opacity-40"><Plus size={16} />{t('os.systemApps.createFolder')}</button>
-              <button type="button" onClick={() => uploadRef.current?.click()} disabled={working} className="flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"><UploadSimple size={16} />{t('os.systemApps.upload')}</button>
-              <input ref={uploadRef} type="file" className="hidden" onChange={(event) => uploadFile(event.target.files?.[0])} />
-            </div>
-          )}
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div className="glass-card rounded-2xl p-4"><HardDrive size={20} className="mb-2 text-accent" /><p className="text-lg font-semibold">{formatBytes(quota?.used)}</p><p className="text-xs text-foreground/40">{t('os.systemApps.usedStorage')}</p></div>
-            <div className="glass-card rounded-2xl p-4"><File size={20} className="mb-2 text-accent" /><p className="text-lg font-semibold">{quota?.file_count ?? files.length}</p><p className="text-xs text-foreground/40">{t('os.systemApps.files')}</p></div>
-            <div className="glass-card col-span-2 rounded-2xl p-4 sm:col-span-1"><HardDrive size={20} className="mb-2 text-accent" /><p className="text-lg font-semibold">{formatBytes(quota?.limit)}</p><p className="text-xs text-foreground/40">{t('os.systemApps.quota')}</p></div>
-          </div>
-          <div className="glass-card overflow-hidden rounded-3xl">
-            {files.length === 0 && !loading ? <p className="p-8 text-center text-sm text-foreground/40">{t('os.systemApps.noFiles')}</p> : files.map((entry) => (
-              <button key={entry.id} type="button" onClick={() => downloadFile(entry)} className="flex w-full items-center gap-3 border-b border-foreground/7 p-4 text-left last:border-0 hover:bg-foreground/5">
-                {entry.is_folder ? <Folder size={22} weight="duotone" className="text-amber-400" /> : <File size={22} weight="duotone" className="text-accent" />}
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{entry.original_name || entry.name}</p><p className="text-xs text-foreground/35">{entry.mime_type || t('os.systemApps.folder')}</p></div>
-                <span className="text-xs text-foreground/40">{entry.is_folder ? '' : formatBytes(entry.size_bytes ?? entry.size)}</span>
-              </button>
-            ))}
-          </div>
-        </>
+        <OsFileExplorer />
       )}
 
       {kind === 'network' && (

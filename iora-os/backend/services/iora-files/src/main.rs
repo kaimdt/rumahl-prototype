@@ -355,7 +355,7 @@ async fn upload_file(
     // Check quota
     ensure_quota(&state, &user_id, 0).await?;
 
-    let folder_id: Option<String> = None;
+    let mut folder_id: Option<String> = None;
     let mut file_data: Option<(String, Vec<u8>)> = None;
 
     while let Some(field) = multipart
@@ -371,6 +371,14 @@ async fn upload_file(
                 .await
                 .map_err(|e| (StatusCode::BAD_REQUEST, format!("Read error: {}", e)))?;
             file_data = Some((original_name, data.to_vec()));
+        } else if name.as_str() == "folder_id" {
+            let value = field
+                .text()
+                .await
+                .map_err(|e| (StatusCode::BAD_REQUEST, format!("Read error: {}", e)))?;
+            if !value.trim().is_empty() {
+                folder_id = Some(value);
+            }
         }
     }
 
@@ -385,6 +393,20 @@ async fn upload_file(
     let sanitized_name = sanitize_filename(&original_name);
     if sanitized_name.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
+    }
+
+    if let Some(ref target_folder_id) = folder_id {
+        let target_exists: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM files WHERE id = ? AND owner_id = ? AND is_folder = 1 AND deleted_at IS NULL",
+        )
+        .bind(target_folder_id)
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if target_exists.is_none() {
+            return Err((StatusCode::NOT_FOUND, "Target folder not found".to_string()));
+        }
     }
 
     // Check quota with actual file size
@@ -772,6 +794,23 @@ async fn create_folder(
     let folder_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let safe_name = sanitize_filename(&body.name);
+    if safe_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Invalid folder name".to_string()));
+    }
+
+    if let Some(ref parent_folder_id) = body.parent_folder_id {
+        let parent_exists: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM files WHERE id = ? AND owner_id = ? AND is_folder = 1 AND deleted_at IS NULL",
+        )
+        .bind(parent_folder_id)
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if parent_exists.is_none() {
+            return Err((StatusCode::NOT_FOUND, "Parent folder not found".to_string()));
+        }
+    }
 
     sqlx::query(
         "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
