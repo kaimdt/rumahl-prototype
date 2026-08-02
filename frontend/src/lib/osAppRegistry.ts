@@ -40,7 +40,6 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     descriptionKey: 'os.apps.home.description',
     icon: House,
     kind: 'system',
-    requiredPermission: 'os.files.read',
     accent: 'oklch(0.68 0.17 155)',
     order: 0,
   },

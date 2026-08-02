@@ -96,6 +96,11 @@
           "title": "Theme System",
           "path": "development/theme-system.md",
           "highlight": true
+        },
+        {
+          "title": "Launcher & Widget Packages",
+          "path": "development/launcher-widget-packages.md",
+          "highlight": true
         }
       ]
     },

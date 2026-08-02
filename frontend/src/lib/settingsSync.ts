@@ -31,6 +31,9 @@ const SYNCED_KEYS = [
   'ha-font-size',
   'ha-widget-compact',
   'ha-global-card-style',
+  'iora-os-launcher',
+  'iora-os-custom-launchers',
+  'iora-os-launcher-widgets',
 ]
 
 let syncUserId: string | null = null
@@ -83,6 +86,7 @@ export async function loadSettingsFromBackend() {
         console.log('[SettingsSync] Restored', pref.preference_key, 'from backend')
       }
     }
+    window.dispatchEvent(new CustomEvent('iora:settings-synced'))
   } catch (err) {
     console.warn('[SettingsSync] Failed to load settings from backend:', err)
   }

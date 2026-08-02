@@ -12,6 +12,7 @@ import { WarningDetailModal } from '@/components/NotificationCenter'
 import { useNotifications } from '@/contexts/NotificationContext'
 import { useLocalStorage } from '@/lib/storage'
 import { Tip } from '@/components/ui/tip'
+import { createPortal } from 'react-dom'
 
 // ── Dynamic Island Notification ──────────────────────────────────────
 
@@ -135,7 +136,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const normalRadius = navStyle === 'classic' ? 16 : navStyle === 'minimal' ? 12 : 9999
   const notifRadius = navStyle === 'classic' ? 20 : navStyle === 'minimal' ? 16 : 28
 
-  return (
+  return createPortal(
     <>
       <motion.div
         data-nav="root"
@@ -731,7 +732,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
                 className="mt-4 w-full py-2 text-xs text-foreground/40 hover:text-foreground/60 transition-colors"
                 whileTap={{ scale: 0.98 }}
               >
-                Schließen
+                {t('common.close')}
               </motion.button>
             </motion.div>
           </>
@@ -758,6 +759,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
           timestamp: latestNotification.created_at,
         } : null}
       />
-    </>
+    </>,
+    document.body,
   )
 }

@@ -16,6 +16,7 @@ import { useEntityStore } from '@/hooks/useEntityStore'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { OsHomeScreen } from '@/components/OsHomeScreen'
 import { OsSystemShell } from '@/components/OsSystemShell'
+import { OsAppCloseButton } from '@/components/OsAppCloseButton'
 import { OsSessionLock } from '@/components/OsSessionLock'
 import { OsSystemApp } from '@/components/OsSystemApp'
 import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
@@ -973,7 +974,8 @@ function DashboardContent() {
           )
         })()}
       </AnimatePresence>
-      <NavigationMenu hidden={showPageDesigner} />
+      <NavigationMenu hidden={showPageDesigner || currentPageId === 'launcher'} />
+      {!showPageDesigner && <OsAppCloseButton />}
       {!showPageDesigner && <OsSystemShell />}
       <OsSessionLock />
       <ORAAssistant />
