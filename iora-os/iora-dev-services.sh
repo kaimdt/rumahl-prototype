@@ -58,6 +58,15 @@ _iora_service() {
     local mem_limit=""
     [ -n "$memory_max" ] && mem_limit="MemoryMax=${memory_max}"
 
+    # Cargo parallelism: each rustc needs ~2GB RAM. Without a limit cargo
+    # uses ALL cores (e.g. 16 x 2GB = 32GB) and the OOM killer kills the
+    # service -> systemd restart loop. Budget 4GB per job, 2..8 jobs.
+    local mem_mb cargo_jobs
+    mem_mb=$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 8192)
+    cargo_jobs=$(( mem_mb / 4096 ))
+    [ "$cargo_jobs" -lt 2 ] && cargo_jobs=2
+    [ "$cargo_jobs" -gt 8 ] && cargo_jobs=8
+
     if [ "$RUN_MODE" = "source" ]; then
         # SOURCE MODE: run `cargo run -p <svc>` straight from the 1:1 mirror.
         # cargo compiles incrementally in the VM; the hot-reload daemon
@@ -72,7 +81,7 @@ ${after:+Wants=${after}}
 ConditionPathExists=/home/iora/iora/iora-os/backend/Cargo.toml
 ConditionPathExists=/home/iora/.cargo/bin/cargo
 StartLimitBurst=5
-StartLimitIntervalSec=30
+StartLimitIntervalSec=300
 
 [Service]
 Type=simple
@@ -81,7 +90,9 @@ Group=iora
 WorkingDirectory=/home/iora/iora/iora-os/backend
 ExecStart=/home/iora/.cargo/bin/cargo run -p ${name}
 Restart=always
-RestartSec=5
+RestartSec=15
+# Keep rustc parallelity within the VM's RAM (see cargo_jobs above)
+Environment=CARGO_BUILD_JOBS=${cargo_jobs}
 ${port:+Environment=PORT=${port}}
 Environment=RUST_LOG=${name//-/_}=debug
 EnvironmentFile=-/etc/iora/${name}.env
@@ -111,7 +122,7 @@ ${after:+After=${after}}
 ${after:+Wants=${after}}
 ConditionPathExists=${binary}
 StartLimitBurst=5
-StartLimitIntervalSec=30
+StartLimitIntervalSec=300
 
 [Service]
 Type=simple
@@ -119,7 +130,7 @@ User=root
 WorkingDirectory=${datadir}
 ExecStart=${binary}
 Restart=always
-RestartSec=2
+RestartSec=10
 ${port:+Environment=PORT=${port}}
 StandardOutput=journal
 StandardError=journal

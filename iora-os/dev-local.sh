@@ -34,7 +34,7 @@ set -uo pipefail
 
 # ── Version (Banner zeigt die laufende Version – erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzählen) ──────────────
-DEV_LOCAL_VERSION="2.4.8"
+DEV_LOCAL_VERSION="2.4.9"
 
 # ── Colors & Logging (defined first – earlier versions crashed because
 #    `log` was called before this point) ────────────────────────────────────
