@@ -44,6 +44,18 @@ function Test-Admin {
     return $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# Refresh the current session's PATH from the registry (winget/scoop installs
+# update the registry, not the running session – without this, freshly
+# installed tools are invisible until the shell is restarted)
+function Update-SessionPath {
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $newPath = ""
+    if ($machinePath) { $newPath = $machinePath }
+    if ($userPath) { $newPath = if ($newPath) { "$newPath;$userPath" } else { $userPath } }
+    if ($newPath) { $env:PATH = $newPath }
+}
+
 function Confirm-Yes {
     param([string]$Question)
     if ($Yes) { return $true }
@@ -59,14 +71,15 @@ elseif (Get-Command scoop -ErrorAction SilentlyContinue) { $Pm = "scoop" }
 function Ensure-Pm {
     if ($Pm) { return }
     Log-Warn "No package manager found (winget or scoop)."
+    if ($Check) { Log-Warn "  (--check: would install Scoop)"; return }
     if (Confirm-Yes "Install Scoop now? (no admin required)") {
-        if ($Check) { Log-Warn "  (--check: would install Scoop)"; return }
         try {
             Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
             Invoke-RestMethod -Uri get.scoop.sh -UseBasicParsing | Invoke-Expression
             $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
             if (Get-Command scoop -ErrorAction SilentlyContinue) {
                 $script:Pm = "scoop"
+                Update-SessionPath
                 Log-Ok "Scoop installed."
             }
         } catch {
@@ -80,36 +93,53 @@ function Ensure-Pm {
 }
 
 function Install-Pkg {
-    param([string]$Name, [string]$WingetId, [string]$ScoopName)
+    param([string]$Name, [string]$WingetId, [string]$ScoopName, [scriptblock]$Verify = $null)
     if ($Check) {
         Log-Warn "  (--check: $Name)"
-        return
+        return $false
     }
-    switch ($Pm) {
-        "winget" {
-            if ($WingetId) {
-                Log-Info "winget install $WingetId"
-                winget install --silent --accept-package-agreements --accept-source-agreements --id $WingetId 2>&1 | Out-Null
-            } else {
-                Log-Warn "No winget id for $Name – please install manually"
+    foreach ($attempt in 1..2) {
+        $ok = $false
+        switch ($Pm) {
+            "winget" {
+                if ($WingetId) {
+                    Log-Info "winget install $WingetId (attempt $attempt/2)"
+                    winget install --silent --accept-package-agreements --accept-source-agreements --id $WingetId 2>&1 | Out-Null
+                    Update-SessionPath
+                    $ok = ($LASTEXITCODE -eq 0)
+                } else {
+                    Log-Warn "No winget id for $Name – please install manually"
+                }
+            }
+            "scoop" {
+                if ($ScoopName) {
+                    Log-Info "scoop install $ScoopName (attempt $attempt/2)"
+                    scoop install $ScoopName 2>&1 | Out-Null
+                    Update-SessionPath
+                    $ok = ($LASTEXITCODE -eq 0)
+                } else {
+                    Log-Warn "No scoop name for $Name – please install manually"
+                }
             }
         }
-        "scoop" {
-            if ($ScoopName) {
-                Log-Info "scoop install $ScoopName"
-                scoop install $ScoopName 2>&1 | Out-Null
-            } else {
-                Log-Warn "No scoop name for $Name – please install manually"
-            }
+        if ($ok) {
+            if ($null -eq $Verify -or (& $Verify)) { return $true }
+            Log-Warn "$Name installed but not verified yet – retrying..."
+            Start-Sleep -Seconds 3
         }
     }
+    return $false
 }
 
 # ── Individual installers ───────────────────────────────────────────────
 function Ensure-Git {
     if (Get-Command git -ErrorAction SilentlyContinue) { Log-Ok "git already installed: $(git --version)"; return }
     Log-Info "Installing Git..."
-    Install-Pkg "git" "Git.Git" "git"
+    if (Install-Pkg "git" "Git.Git" "git" -Verify { Get-Command git -ErrorAction SilentlyContinue }) {
+        Log-Ok "git installed: $(git --version)"
+    } elseif (-not $Check) {
+        Log-Warn "git install failed – manual: https://git-scm.com"
+    }
 }
 
 function Ensure-OpenSsh {
@@ -123,14 +153,32 @@ function Ensure-OpenSsh {
         return
     }
     Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0 -ErrorAction SilentlyContinue | Out-Null
+    if (Get-Command ssh -ErrorAction SilentlyContinue) {
+        Log-Ok "OpenSSH enabled."
+    } else {
+        Log-Warn "OpenSSH still missing – re-run this script elevated or enable it manually."
+    }
+}
+
+# QEMU detection (PATH + common install locations, arch-aware)
+function Test-QemuInstalled {
+    $qemuBin = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "qemu-system-aarch64.exe" } else { "qemu-system-x86_64.exe" }
+    if (Get-Command $qemuBin -ErrorAction SilentlyContinue) { return $true }
+    foreach ($p in @("$env:ProgramFiles\qemu\$qemuBin", "${env:ProgramFiles(x86)}\qemu\$qemuBin", "$env:LOCALAPPDATA\Programs\qemu\$qemuBin")) {
+        if (Test-Path $p) { return $true }
+    }
+    return $false
 }
 
 function Ensure-Qemu {
-    if (Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue) {
-        Log-Ok "QEMU already installed."; return
-    }
+    if (Test-QemuInstalled) { Log-Ok "QEMU already installed."; return }
     Log-Info "Installing QEMU..."
-    Install-Pkg "qemu" "qemu" "qemu"
+    # NOTE: the correct winget ID is QEMU.QEMU – the plain "qemu" ID does not exist
+    if (Install-Pkg "qemu" "QEMU.QEMU" "qemu" -Verify { Test-QemuInstalled }) {
+        Log-Ok "QEMU installed."
+    } elseif (-not $Check) {
+        Log-Warn "QEMU install failed – manual: winget install QEMU.QEMU"
+    }
     # Common path that's not always on PATH after install
     foreach ($p in @("$env:ProgramFiles\qemu", "$env:ProgramFiles(x86)\qemu")) {
         if ((Test-Path $p) -and ($env:PATH -notlike "*$p*")) {
@@ -140,19 +188,45 @@ function Ensure-Qemu {
     }
 }
 
+# WSL detection / install with reboot detection (needed for tar/ISO creation)
+function Test-WslInstalled {
+    if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { return $false }
+    wsl --status 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Test-RebootPending {
+    $keys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+    )
+    foreach ($k in $keys) { if (Test-Path $k) { return $true } }
+    return $false
+}
+
 function Ensure-Wsl {
-    if (Get-Command wsl -ErrorAction SilentlyContinue) {
-        $vers = wsl --version 2>$null
-        if ($vers) { Log-Ok "WSL2 already installed."; return }
-    }
+    if (Test-WslInstalled) { Log-Ok "WSL2 already installed."; return }
     Log-Warn "WSL2 not detected. dev-local.ps1 requires WSL2 for tar/ISO creation."
     if ($Check) { Log-Warn "  (--check: would install WSL2)"; return }
     if (-not (Test-Admin)) {
-        Log-Warn "Admin rights required: run 'wsl --install' in an elevated PowerShell."
+        Log-Warn "Admin rights required: run 'wsl --install -d Debian' in an elevated PowerShell, then re-run."
         return
     }
     Log-Info "Installing WSL2 + default Debian distribution..."
     wsl --install -d Debian --no-launch 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { wsl --install -d Debian 2>&1 | Out-Null }
+    if (Test-RebootPending) {
+        Log-Warn "A reboot is required to finish the WSL installation. Reboot, then re-run this script."
+    }
+    if (Test-WslInstalled) { Log-Ok "WSL2 installed." } else { Log-Warn "WSL2 not ready yet (reboot may be pending)." }
+}
+
+# Hardware virtualization check (WHPX acceleration + WSL2 need it)
+function Test-VirtualizationEnabled {
+    try {
+        $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+        return [bool]$cs.HypervisorPresent
+    } catch { return $false }
 }
 
 function Ensure-Rust {
@@ -167,8 +241,12 @@ function Ensure-Rust {
         try {
             Invoke-WebRequest -Uri $rustupUrl -OutFile $rustupExe -UseBasicParsing
             & $rustupExe -y --default-toolchain stable --profile minimal
-            $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
-            Log-Ok "rustup installed."
+            Update-SessionPath
+            if (Get-Command rustup -ErrorAction SilentlyContinue) {
+                Log-Ok "rustup installed."
+            } else {
+                Log-Warn "rustup installed but not on PATH yet – open a new shell."
+            }
         } catch {
             Log-Err "Failed to install rustup: $_"
         }
@@ -183,13 +261,18 @@ function Ensure-Rust {
 function Ensure-Zig {
     if (Get-Command zig -ErrorAction SilentlyContinue) { Log-Ok "zig already installed."; return }
     Log-Info "Installing Zig (for cross-compilation)..."
-    Install-Pkg "zig" "zig.zig" "zig"
+    if (Install-Pkg "zig" "zig.zig" "zig" -Verify { Get-Command zig -ErrorAction SilentlyContinue }) {
+        Log-Ok "zig installed."
+    } elseif (-not $Check) {
+        Log-Warn "zig install failed – manual: https://ziglang.org/download/"
+    }
 }
 
 function Ensure-CargoExtras {
     if ($SkipRust) { return }
     if ($Check) { Log-Warn "  (--check: would cargo-install sccache + cargo-zigbuild)"; return }
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { return }
+    Update-SessionPath
     foreach ($c in @("sccache", "cargo-zigbuild")) {
         if (-not (Get-Command $c -ErrorAction SilentlyContinue)) {
             Log-Info "cargo install --locked $c (may take a minute) ..."
@@ -200,13 +283,28 @@ function Ensure-CargoExtras {
     }
 }
 
+function Test-NodeRuns {
+    # Robust check: some systems have broken node shims (dead symlinks) that
+    # pass Get-Command but fail on execution
+    $cmd = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $cmd) { return $false }
+    try {
+        $out = & node --version 2>$null
+        return ($LASTEXITCODE -eq 0 -and $out)
+    } catch { return $false }
+}
+
 function Ensure-Node {
     if ($SkipNode) { Log-Info "Skipping Node.js (-SkipNode)"; return }
-    if (Get-Command node -ErrorAction SilentlyContinue) {
+    if (Test-NodeRuns) {
         Log-Ok "Node.js already installed: $(node --version)"; return
     }
     Log-Info "Installing Node.js LTS..."
-    Install-Pkg "node" "OpenJS.NodeJS.LTS" "nodejs-lts"
+    if (Install-Pkg "node" "OpenJS.NodeJS.LTS" "nodejs-lts" -Verify { Test-NodeRuns }) {
+        Log-Ok "Node.js installed: $(node --version)"
+    } elseif (-not $Check) {
+        Log-Warn "Node.js install failed – manual: https://nodejs.org"
+    }
 }
 
 function Ensure-Docker {
@@ -220,10 +318,37 @@ function Ensure-Docker {
         return
     }
     Log-Info "Installing Docker Desktop..."
-    Install-Pkg "docker" "Docker.DockerDesktop" $null
+    if (Install-Pkg "docker" "Docker.DockerDesktop" $null) {
+        Log-Ok "Docker Desktop installed – start it once and enable WSL2 integration."
+    } elseif (-not $Check) {
+        Log-Warn "Docker Desktop install failed – manual: https://www.docker.com/products/docker-desktop/"
+    }
 }
 
 # ── Final summary ───────────────────────────────────────────────────────
+# Get a tool's version string without tripping over broken shims (dead
+# symlinks that pass Get-Command but fail on execution)
+function Get-ToolVersion {
+    param([string]$Tool)
+    $cmd = Get-Command $Tool -ErrorAction SilentlyContinue
+    if (-not $cmd -or -not $cmd.Source) { return "" }
+    try {
+        $item = Get-Item $cmd.Source -ErrorAction Stop
+        if ($item.LinkType -and $item.Target) {
+            $target = $item.Target
+            if (-not [System.IO.Path]::IsPathRooted($target)) {
+                $target = Join-Path (Split-Path -Parent $item.FullName) $target
+            }
+            if (-not (Test-Path $target)) { return "" }  # broken symlink
+        }
+    } catch { return "" }
+    $oldEAP = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try { $out = (& $Tool --version 2>$null | Select-Object -First 1) } catch { $out = "" }
+    $ErrorActionPreference = $oldEAP
+    return $out
+}
+
 function Show-Summary {
     Write-Host ""
     Log-Ok "Done. Summary:"
@@ -231,7 +356,7 @@ function Show-Summary {
     foreach ($t in $tools) {
         $c = Get-Command $t -ErrorAction SilentlyContinue
         if ($c) {
-            $ver = try { (& $t --version 2>$null | Select-Object -First 1) } catch { "" }
+            $ver = Get-ToolVersion $t
             Write-Host ("  {0,-20}" -f $t) -ForegroundColor Green -NoNewline
             Write-Host " $ver"
         } else {
@@ -257,6 +382,11 @@ Ensure-Zig
 Ensure-CargoExtras
 Ensure-Node
 Ensure-Docker
+
+if (-not (Test-VirtualizationEnabled)) {
+    Log-Warn "Hardware virtualization not detected – QEMU will fall back to slow software emulation (TCG)."
+    Log-Warn "Enable VT-x/AMD-V in BIOS, or run: Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform"
+}
 
 Show-Summary
 

@@ -3,7 +3,8 @@
 # install-requirements.sh – Top-level installer dispatcher
 # ============================================================================
 # Detects the host environment (WSL, native Linux, macOS) and forwards to
-# the appropriate platform-specific installer.
+# the appropriate platform-specific installer. Homebrew is installed
+# automatically on macOS when missing.
 #
 # All options after --auto/--linux/--wsl/--macos are forwarded verbatim, e.g.:
 #   ./install-requirements.sh --dev-only -y
@@ -76,25 +77,7 @@ case "$MODE" in
         exec "$SCRIPT_DIR/install-requirements-wsl.sh" "$@"
         ;;
     macos)
-        if ! command -v brew >/dev/null 2>&1; then
-            echo "[ERROR] Homebrew not found. Install from https://brew.sh first." >&2
-            exit 1
-        fi
-        echo "[INFO] Installing macOS dev dependencies via Homebrew..."
-        brew update
-        brew install qemu socat git curl jq rustup-init node mold || true
-        brew install --cask docker || true
-        if ! command -v cargo >/dev/null 2>&1; then
-            rustup-init -y --default-toolchain stable --profile minimal
-        fi
-        # fswatch for dev-watch.sh
-        brew install fswatch || true
-        # Optional cargo helpers
-        for crate in sccache cargo-zigbuild; do
-            command -v "$crate" >/dev/null 2>&1 || cargo install --locked "$crate" || true
-        done
-        command -v zig >/dev/null 2>&1 || brew install zig || true
-        echo "[SUCCESS] macOS installation complete."
+        exec "$SCRIPT_DIR/install-requirements-macos.sh" "$@"
         ;;
     *)
         echo "[ERROR] Invalid mode: $MODE" >&2

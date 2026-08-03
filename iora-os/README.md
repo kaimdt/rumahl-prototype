@@ -296,7 +296,7 @@ cd iora/iora-os
 Or use the provided requirement scripts:
 
 ```bash
-# Auto-detect Linux VM vs WSL (recommended)
+# Auto-detect Linux VM vs WSL vs macOS (recommended)
 ./install-requirements.sh --auto
 
 # Native Linux
@@ -304,7 +304,14 @@ Or use the provided requirement scripts:
 
 # WSL
 ./install-requirements-wsl.sh
+
+# macOS (installs Homebrew automatically if missing)
+./install-requirements-macos.sh
 ```
+
+All installers are idempotent and self-healing: they repair broken apt/dpkg
+state, retry transient download failures, auto-install missing tools
+(QEMU, ISO tooling), and fix KVM access on Linux automatically.
 
 ### Configure Buildroot
 

@@ -57,6 +57,11 @@ else
     auto_clean_disk_space() { :; }
     detect_missing_deps() { return 0; }
     auto_install_deps() { :; }
+    run_auto_repairs() { :; }
+    auto_install_qemu() { return 1; }
+    auto_install_iso_tools() { return 1; }
+    auto_fix_apt_state() { :; }
+    auto_fix_kvm_access() { return 1; }
     start_health_monitor() { :; }
     stop_health_monitor() { :; }
     send_notification() { :; }
@@ -478,17 +483,19 @@ fi
 log "Checking dependencies..."
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1 ($2)"; }
 
-# First, try auto-detection and auto-install
-if command -v detect_missing_deps >/dev/null 2>&1; then
-    missing_deps=$(detect_missing_deps 2>/dev/null || echo "")
-    if [ -n "$missing_deps" ]; then
-        log "Auto-installing missing dependencies: $missing_deps"
-        auto_install_deps $missing_deps || warn "Some dependencies could not be auto-installed"
-    fi
+# Full auto-repair pass: apt self-heal, missing deps (QEMU/rsync/ISO tools), KVM group
+if command -v run_auto_repairs >/dev/null 2>&1; then
+    run_auto_repairs || warn "Auto-repair pass had issues – continuing anyway"
+fi
+
+# QEMU-specific retry (arch-aware) if still missing
+if ! command -v "$QEMU_BIN" >/dev/null 2>&1 && command -v auto_install_qemu >/dev/null 2>&1; then
+    warn "$QEMU_BIN still missing – trying dedicated auto-install..."
+    auto_install_qemu || warn "QEMU auto-install failed"
 fi
 
 # Then verify critical tools
-need_cmd "$QEMU_BIN" "Install QEMU (brew install qemu  /  apt install qemu-system-${HOST_ARCH%_*})"
+need_cmd "$QEMU_BIN" "Install QEMU (brew install qemu / apt install qemu-system-x86)"
 need_cmd qemu-img   "Comes with QEMU"
 need_cmd curl       "Install curl"
 need_cmd ssh        "Install openssh-client"
@@ -509,6 +516,14 @@ choose_accel() {
     if $IS_LINUX; then
         if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
             echo "kvm"; return
+        fi
+        # Try to fix KVM access automatically before falling back to TCG
+        if command -v auto_fix_kvm_access >/dev/null 2>&1; then
+            dim "Attempting to fix KVM access..."
+            if auto_fix_kvm_access; then
+                log "KVM access fixed – using KVM acceleration"
+                echo "kvm"; return
+            fi
         fi
         warn "/dev/kvm not accessible – falling back to TCG (slow!). Add your user to the 'kvm' group."
         echo "tcg"; return
@@ -658,6 +673,13 @@ instance-id: iora-dev-vm
 local-hostname: iora-dev
 METAEOF
 
+    # Auto-install a missing ISO creation tool instead of failing outright
+    if ! command -v genisoimage >/dev/null 2>&1 && ! command -v mkisofs >/dev/null 2>&1 && ! command -v xorriso >/dev/null 2>&1 && ! { $IS_MACOS && command -v hdiutil >/dev/null 2>&1; }; then
+        warn "No ISO creation tool found – attempting auto-install..."
+        if command -v auto_install_iso_tools >/dev/null 2>&1; then
+            auto_install_iso_tools || warn "ISO tool auto-install failed"
+        fi
+    fi
     log "Generating cloud-init seed ISO..."
     if command -v genisoimage >/dev/null 2>&1; then
         genisoimage -output "$SEED_ISO" -volid cidata -joliet -rock "$seed_dir" >/dev/null 2>&1 \

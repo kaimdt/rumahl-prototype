@@ -8,6 +8,16 @@
 # Usage: source this file from dev-local.sh or dev-watch.sh
 # ============================================================================
 
+# ── Logging helpers (fallbacks for standalone sourcing; the calling script's
+#    log/ok/warn/dim functions take precedence when already defined) ────────
+if ! declare -F log >/dev/null 2>&1; then
+    log()  { printf '[*] %s\n' "$*"; }
+    ok()   { printf '[+] %s\n' "$*"; }
+    warn() { printf '[!] %s\n' "$*" >&2; }
+    err()  { printf '[X] %s\n' "$*" >&2; }
+    dim()  { printf '%s\n' "$*"; }
+fi
+
 # ── Auto-Detection Functions ───────────────────────────────────────────────
 
 # Check if port is in use and identify the process
@@ -91,15 +101,27 @@ auto_clean_disk_space() {
     ok "Cache cleanup complete"
 }
 
-# Detect missing dependencies
+# Detect missing dependencies (arch-aware: macOS ARM needs qemu-system-aarch64;
+# Debian/Ubuntu ship the qemu-system-x86 package while the binary is qemu-system-x86_64)
 detect_missing_deps() {
     local missing=()
+    local qemu_bin="qemu-system-x86_64"
+    case "$(uname -m)" in
+        arm64|aarch64) qemu_bin="qemu-system-aarch64" ;;
+    esac
 
-    for cmd in qemu-system-x86_64 ssh curl rsync; do
+    for cmd in "$qemu_bin" ssh curl rsync; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
     done
+
+    # ISO creation tools: Linux needs genisoimage/xorriso, macOS has hdiutil built-in
+    if [ "$(uname -s)" = "Linux" ]; then
+        if ! command -v genisoimage >/dev/null 2>&1 && ! command -v mkisofs >/dev/null 2>&1 && ! command -v xorriso >/dev/null 2>&1; then
+            missing+=("genisoimage")
+        fi
+    fi
 
     if [ ${#missing[@]} -gt 0 ]; then
         echo "${missing[@]}"
@@ -108,7 +130,132 @@ detect_missing_deps() {
     return 0
 }
 
-# Auto-install missing dependencies (best-effort)
+# ── Generic retry helper (used by all auto-fix functions) ──────────────────
+retry_cmd() {
+    local max="${1:-3}"; shift
+    local attempt=0
+    until "$@"; do
+        attempt=$((attempt + 1))
+        if [ "$attempt" -ge "$max" ]; then
+            return 1
+        fi
+        warn "Command failed (attempt $attempt/$max) – retrying: $*"
+        sleep 3
+    done
+    return 0
+}
+
+# Verify a command becomes available after an install (retry loop)
+verify_installed() {
+    local cmd="$1"
+    local tries="${2:-3}"
+    local i=0
+    while [ "$i" -lt "$tries" ]; do
+        command -v "$cmd" >/dev/null 2>&1 && return 0
+        i=$((i + 1))
+        [ "$i" -lt "$tries" ] && sleep 3
+    done
+    return 1
+}
+
+# Fix broken dpkg/apt state (interrupted installs, stale locks)
+auto_fix_apt_state() {
+    command -v apt-get >/dev/null 2>&1 || return 0
+    local sudo_cmd=""
+    [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"
+    log "Repairing apt/dpkg state (if needed)..."
+    ${sudo_cmd} dpkg --configure -a >/dev/null 2>&1 || true
+    ${sudo_cmd} apt-get install -y --fix-broken >/dev/null 2>&1 || true
+    # Wait out stale dpkg locks (e.g. another apt process still running)
+    if command -v fuser >/dev/null 2>&1; then
+        for _ in 1 2 3 4 5; do
+            fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+            warn "dpkg is locked by another process – waiting 5s..."
+            sleep 5
+        done
+    fi
+    return 0
+}
+
+# Ensure KVM is accessible on Linux hosts (load module, add user to kvm group)
+auto_fix_kvm_access() {
+    [ "$(uname -s)" = "Linux" ] || return 0
+    [ -r /dev/kvm ] && [ -w /dev/kvm ] && return 0
+    local sudo_cmd=""
+    [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"
+
+    if [ ! -e /dev/kvm ]; then
+        warn "/dev/kvm missing – trying to load KVM module..."
+        ${sudo_cmd} modprobe kvm_intel >/dev/null 2>&1 || ${sudo_cmd} modprobe kvm_amd >/dev/null 2>&1 || true
+    fi
+    if [ -e /dev/kvm ] && { [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; }; then
+        if ! getent group kvm >/dev/null 2>&1; then
+            ${sudo_cmd} groupadd -r kvm >/dev/null 2>&1 || true
+        fi
+        local user="${SUDO_USER:-$(id -un)}"
+        if ! id -nG "$user" 2>/dev/null | grep -qw kvm; then
+            log "Adding '$user' to the 'kvm' group..."
+            ${sudo_cmd} usermod -aG kvm "$user" >/dev/null 2>&1 && \
+                warn "Added '$user' to 'kvm' group – re-login or run 'newgrp kvm' to use KVM acceleration."
+        fi
+    fi
+    [ -r /dev/kvm ] && [ -w /dev/kvm ]
+}
+
+# Install an ISO creation tool (genisoimage/xorriso on Linux; macOS has hdiutil)
+auto_install_iso_tools() {
+    command -v genisoimage >/dev/null 2>&1 && return 0
+    command -v mkisofs >/dev/null 2>&1 && return 0
+    command -v xorriso >/dev/null 2>&1 && return 0
+    [ "$(uname -s)" = "Darwin" ] && command -v hdiutil >/dev/null 2>&1 && return 0
+
+    if command -v brew >/dev/null 2>&1; then
+        log "Installing ISO tools via Homebrew (cdrtools)..."
+        brew install cdrtools >/dev/null 2>&1 || true
+    elif command -v apt-get >/dev/null 2>&1; then
+        auto_fix_apt_state
+        local sudo_cmd=""
+        [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"
+        log "Installing ISO tools via apt (xorriso + genisoimage)..."
+        ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso genisoimage >/dev/null 2>&1 || \
+            ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso >/dev/null 2>&1 || true
+    else
+        warn "No package manager found to install ISO tools."
+        return 1
+    fi
+    command -v genisoimage >/dev/null 2>&1 || command -v mkisofs >/dev/null 2>&1 || command -v xorriso >/dev/null 2>&1
+}
+
+# Install QEMU when missing (platform-aware)
+auto_install_qemu() {
+    local qemu_bin="qemu-system-x86_64"
+    case "$(uname -m)" in
+        arm64|aarch64) qemu_bin="qemu-system-aarch64" ;;
+    esac
+    command -v "$qemu_bin" >/dev/null 2>&1 && return 0
+
+    if command -v brew >/dev/null 2>&1; then
+        log "Installing QEMU via Homebrew (large download, may take a while)..."
+        retry_cmd 2 brew install qemu || warn "brew install qemu failed"
+    elif command -v apt-get >/dev/null 2>&1; then
+        auto_fix_apt_state
+        local sudo_cmd=""
+        [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"
+        local apt_pkg="qemu-system-x86"
+        case "$(uname -m)" in
+            arm64|aarch64) apt_pkg="qemu-system-arm" ;;
+        esac
+        log "Installing QEMU via apt ($apt_pkg)..."
+        retry_cmd 2 ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y "$apt_pkg" qemu-utils || \
+            warn "apt install qemu failed"
+    else
+        warn "No package manager found to install QEMU."
+        return 1
+    fi
+    verify_installed "$qemu_bin" 3
+}
+
+# Auto-install missing dependencies (best-effort, platform-aware package mapping)
 auto_install_deps() {
     local deps=("$@")
 
@@ -118,32 +265,64 @@ auto_install_deps() {
 
     log "Detected missing dependencies: ${deps[*]}"
 
-    # macOS
+    # macOS (Homebrew)
     if command -v brew >/dev/null 2>&1; then
         log "Installing via Homebrew..."
+        local uniq_pkgs=() p
         for dep in "${deps[@]}"; do
             case "$dep" in
-                qemu-system-x86_64) brew install qemu 2>&1 | grep -v "Warning:" || true ;;
-                *) brew install "$dep" 2>&1 | grep -v "Warning:" || true ;;
+                qemu-system-x86_64|qemu-system-aarch64) p="qemu" ;;
+                genisoimage|mkisofs) p="cdrtools" ;;
+                *) p="$dep" ;;
+            esac
+            case " ${uniq_pkgs[*]} " in
+                *" $p "*) ;;
+                *) uniq_pkgs+=("$p") ;;
             esac
         done
+        brew install "${uniq_pkgs[@]}" 2>&1 | grep -viE "warning|already installed" || true
         return 0
     fi
 
-    # Debian/Ubuntu
+    # Debian/Ubuntu (apt-get)
     if command -v apt-get >/dev/null 2>&1; then
-        log "Installing via apt-get (requires sudo)..."
+        auto_fix_apt_state
+        local sudo_cmd=""
+        [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"
+        local apt_pkgs=()
         for dep in "${deps[@]}"; do
             case "$dep" in
-                qemu-system-x86_64) sudo apt-get install -y qemu-system-x86 >/dev/null 2>&1 || true ;;
-                *) sudo apt-get install -y "$dep" >/dev/null 2>&1 || true ;;
+                qemu-system-x86_64|qemu-system-aarch64)
+                    case "$(uname -m)" in
+                        arm64|aarch64) apt_pkgs+=("qemu-system-arm" "qemu-utils") ;;
+                        *) apt_pkgs+=("qemu-system-x86" "qemu-utils") ;;
+                    esac ;;
+                genisoimage|mkisofs) apt_pkgs+=("xorriso" "genisoimage") ;;
+                *) apt_pkgs+=("$dep") ;;
             esac
         done
+        log "Installing via apt-get: ${apt_pkgs[*]}"
+        retry_cmd 3 ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y "${apt_pkgs[@]}" >/dev/null 2>&1 || \
+            warn "apt-get install failed for: ${apt_pkgs[*]}"
         return 0
     fi
 
     warn "Could not auto-install dependencies. Please install manually: ${deps[*]}"
     return 1
+}
+
+# ── Run all cheap host-level auto-repairs in one go ────────────────────────
+run_auto_repairs() {
+    log "Running automatic environment checks & repairs..."
+    auto_fix_apt_state
+    local missing
+    missing=$(detect_missing_deps 2>/dev/null || echo "")
+    if [ -n "$missing" ]; then
+        log "Auto-installing missing dependencies: $missing"
+        auto_install_deps $missing || warn "Some dependencies could not be auto-installed"
+    fi
+    auto_fix_kvm_access
+    ok "Environment checks complete"
 }
 
 # Check VM health and attempt recovery
@@ -368,6 +547,13 @@ export -f detect_low_disk_space
 export -f auto_clean_disk_space
 export -f detect_missing_deps
 export -f auto_install_deps
+export -f retry_cmd
+export -f verify_installed
+export -f auto_fix_apt_state
+export -f auto_fix_kvm_access
+export -f auto_install_iso_tools
+export -f auto_install_qemu
+export -f run_auto_repairs
 export -f check_vm_health
 export -f auto_recover_vm
 export -f detect_memory_pressure

@@ -14,8 +14,15 @@ Bash library providing intelligent auto-detection and auto-repair functions for 
 - `auto_resolve_port_conflict(port, service)` — Automatically free port or reuse existing IORA VM
 - `detect_low_disk_space(path, min_gb)` — Check if disk space is low
 - `auto_clean_disk_space(cache_dir)` — Remove old logs, backups, ISOs
-- `detect_missing_deps()` — Find missing required commands
-- `auto_install_deps(deps...)` — Auto-install via brew/apt
+- `detect_missing_deps()` — Find missing required commands (arch-aware)
+- `auto_install_deps(deps...)` — Auto-install via brew/apt with platform-aware package mapping
+- `retry_cmd(max, cmd...)` — Run a command with automatic retries
+- `verify_installed(cmd, tries)` — Wait until a command becomes available after install
+- `auto_fix_apt_state()` — Repair broken dpkg/apt state (configure -a, fix-broken, lock wait)
+- `auto_fix_kvm_access()` — Load KVM module + add user to kvm group (Linux)
+- `auto_install_iso_tools()` — Install genisoimage/xorriso/cdrtools when missing
+- `auto_install_qemu()` — Install QEMU via brew/apt when missing (arch-aware)
+- `run_auto_repairs()` — Run all cheap host-level auto-repairs in one go
 - `check_vm_health(host, port, key)` — Test VM SSH connectivity and systemd health
 - `auto_recover_vm(host, port, key)` — Restart failed services, vacuum journal
 - `detect_memory_pressure(threshold)` — Check if system is under memory pressure
@@ -46,8 +53,17 @@ PowerShell module providing equivalent functionality for Windows.
 - `Resolve-PortConflict` — Auto-resolve port conflicts
 - `Test-DiskSpace` — Check disk space
 - `Invoke-DiskCleanup` — Clean cache directory
-- `Test-Dependencies` — Find missing dependencies
-- `Install-MissingDependencies` — Auto-install via winget/choco
+- `Test-Dependencies` — Find missing dependencies (arch-aware)
+- `Install-MissingDependencies` — Auto-install via winget
+- `Update-SessionPath` — Refresh PATH from registry for the current session
+- `Test-QemuAvailable` — Detect QEMU on PATH + common install locations
+- `Install-WithWinget` — Generic winget install with retry + verification
+- `Install-QemuIfMissing` — Auto-install QEMU via winget (QEMU.QEMU)
+- `Test-WslAvailable` / `Install-WslIfMissing` — Detect/install WSL2 with reboot detection
+- `Test-RebootPending` — Check Windows reboot-pending registry keys
+- `Test-VirtualizationEnabled` — Check Hyper-V/WHPX presence
+- `Invoke-WslAptRepair` — Repair apt state inside WSL + install ISO tooling
+- `Invoke-AutoRepairs` — Run all cheap host-level auto-repairs in one go
 - `Test-VMHealth` — Check VM SSH connectivity
 - `Invoke-VMRecovery` — Auto-recover failed services
 - `Test-MemoryPressure` — Check Windows memory usage

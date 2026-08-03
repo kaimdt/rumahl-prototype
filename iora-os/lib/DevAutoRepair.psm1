@@ -7,6 +7,16 @@
 # Usage: Import-Module ./lib/DevAutoRepair.psm1
 # ============================================================================
 
+# ── Logging fallbacks (used when the module is imported standalone; the
+#    calling script's Write-Info/Write-Success/Write-Warn/Write-Err functions
+#    take precedence when defined) ──────────────────────────────────────────
+if (-not (Get-Command Write-Info -ErrorAction SilentlyContinue)) {
+    function Write-Info    { param([string]$Msg) Write-Host "[*] $Msg" -ForegroundColor Cyan }
+    function Write-Success { param([string]$Msg) Write-Host "[+] $Msg" -ForegroundColor Green }
+    function Write-Warn    { param([string]$Msg) Write-Host "[!] $Msg" -ForegroundColor Yellow }
+    function Write-Err     { param([string]$Msg) Write-Host "[X] $Msg" -ForegroundColor Red }
+}
+
 # ── Auto-Detection Functions ───────────────────────────────────────────────
 
 function Test-PortConflict {
@@ -14,16 +24,22 @@ function Test-PortConflict {
         [int]$Port
     )
 
-    $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    if ($connections) {
-        $process = Get-Process -Id $connections[0].OwningProcess -ErrorAction SilentlyContinue
-        if ($process) {
-            return @{
-                InUse = $true
-                ProcessId = $process.Id
-                ProcessName = $process.ProcessName
+    # Windows: native cmdlet; other platforms (pwsh on macOS/Linux): netstat fallback
+    if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+        $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        if ($connections) {
+            $process = Get-Process -Id $connections[0].OwningProcess -ErrorAction SilentlyContinue
+            if ($process) {
+                return @{
+                    InUse = $true
+                    ProcessId = $process.Id
+                    ProcessName = $process.ProcessName
+                }
             }
         }
+    } else {
+        $out = netstat -an 2>$null | Select-String -Pattern "LISTEN" | Select-String -Pattern "[:.]${Port}\s"
+        if ($out) { return @{ InUse = $true; ProcessId = 0; ProcessName = "unknown" } }
     }
 
     return @{ InUse = $false }
@@ -67,8 +83,16 @@ function Test-DiskSpace {
         [int]$MinimumGB = 5
     )
 
-    $drive = (Get-Item $Path).PSDrive
-    $freeSpaceGB = [math]::Round($drive.Free / 1GB, 2)
+    $freeSpaceGB = 0
+    try {
+        $item = Get-Item $Path -ErrorAction Stop
+        $drive = $item.PSDrive
+        if (-not $drive) { $drive = Get-PSDrive -PSProvider FileSystem | Select-Object -First 1 }
+        if ($drive) { $freeSpaceGB = [math]::Round($drive.Free / 1GB, 2) }
+    } catch {
+        $drive = Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | Sort-Object Free -Descending | Select-Object -First 1
+        if ($drive) { $freeSpaceGB = [math]::Round($drive.Free / 1GB, 2) }
+    }
 
     if ($freeSpaceGB -lt $MinimumGB) {
         Write-Warn "Low disk space: ${freeSpaceGB}GB available (minimum: ${MinimumGB}GB)"
@@ -106,17 +130,9 @@ function Invoke-DiskCleanup {
 function Test-Dependencies {
     $missing = @()
 
-    $commands = @{
-        "qemu-system-x86_64" = "qemu-system-x86_64.exe"
-        "ssh" = "ssh.exe"
-        "curl" = "curl.exe"
-    }
-
-    foreach ($cmd in $commands.Keys) {
-        $exe = $commands[$cmd]
-        if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) {
-            $missing += $cmd
-        }
+    if (-not (Test-QemuAvailable)) { $missing += "qemu" }
+    foreach ($exe in @("ssh.exe", "curl.exe", "rsync.exe")) {
+        if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { $missing += $exe }
     }
 
     if ($missing.Count -gt 0) {
@@ -129,6 +145,117 @@ function Test-Dependencies {
     return @{ HasMissing = $false }
 }
 
+# ── Session PATH refresh (winget/scoop installs update the registry, not the
+#    current session – re-read Machine+User PATH so freshly installed tools
+#    are found immediately) ──────────────────────────────────────────────────
+function Update-SessionPath {
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:PATH = "$machinePath;$userPath"
+}
+
+# ── QEMU detection (PATH + common install locations, arch-aware) ────────────
+function Test-QemuAvailable {
+    param([string]$QemuBin = "")
+    if (-not $QemuBin) {
+        $QemuBin = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "qemu-system-aarch64.exe" } else { "qemu-system-x86_64.exe" }
+    }
+    if (Get-Command $QemuBin -ErrorAction SilentlyContinue) { return $true }
+    foreach ($p in @("$env:ProgramFiles\qemu\$QemuBin", "${env:ProgramFiles(x86)}\qemu\$QemuBin", "$env:LOCALAPPDATA\Programs\qemu\$QemuBin")) {
+        if (Test-Path $p) { return $true }
+    }
+    return $false
+}
+
+# ── Generic winget install with retry + optional post-verification ──────────
+function Install-WithWinget {
+    param(
+        [string]$WingetId,
+        [scriptblock]$Verify = $null
+    )
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return $false }
+    foreach ($attempt in 1..2) {
+        Write-Info "winget install $WingetId (attempt $attempt/2)..."
+        winget install --silent --accept-package-agreements --accept-source-agreements --id $WingetId 2>&1 | Out-Null
+        Update-SessionPath
+        if ($LASTEXITCODE -eq 0) {
+            if ($null -eq $Verify -or (& $Verify)) { return $true }
+        }
+        Start-Sleep -Seconds 3
+    }
+    return $false
+}
+
+# ── Auto-install QEMU via winget when missing ──────────────────────────────
+function Install-QemuIfMissing {
+    if (Test-QemuAvailable) { return $true }
+    Write-Info "QEMU not found – installing via winget (QEMU.QEMU, may take a while)..."
+    if (Install-WithWinget -WingetId "QEMU.QEMU" -Verify { Test-QemuAvailable }) {
+        Write-Success "QEMU installed."
+        return $true
+    }
+    Write-Warn "QEMU install via winget failed. Manual: winget install QEMU.QEMU"
+    return $false
+}
+
+# ── WSL detection / auto-install (needed for tar + ISO creation) ───────────
+function Test-WslAvailable {
+    if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { return $false }
+    wsl --status 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Test-RebootPending {
+    $keys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\RebootRequired"
+    )
+    foreach ($k in $keys) { if (Test-Path $k) { return $true } }
+    return $false
+}
+
+function Install-WslIfMissing {
+    if (Test-WslAvailable) { return $true }
+    Write-Info "WSL2 not detected – installing via 'wsl --install' (requires admin)..."
+    $isAdmin = $false
+    try {
+        $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        $isAdmin = $false
+    }
+    if (-not $isAdmin) {
+        Write-Warn "Admin rights required. Run 'wsl --install -d Debian' in an elevated terminal, then re-run this script."
+        return $false
+    }
+    wsl --install -d Debian --no-launch 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { wsl --install -d Debian 2>&1 | Out-Null }
+    Start-Sleep -Seconds 3
+    if (Test-RebootPending) {
+        Write-Warn "A reboot is required to finish the WSL installation. Please reboot and re-run the dev scripts."
+    }
+    return (Test-WslAvailable)
+}
+
+# ── Hardware virtualization hint (WHPX acceleration needs Hyper-V) ──────────
+function Test-VirtualizationEnabled {
+    try {
+        $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+        if ($cs.HypervisorPresent) { return $true }
+    } catch { }
+    return $false
+}
+
+# ── Repair broken apt/dpkg state inside WSL and ensure ISO tooling ─────────
+function Invoke-WslAptRepair {
+    $probe = wsl bash -c "command -v genisoimage || command -v xorriso || echo NEED_ISO" 2>$null
+    if ("$probe" -match "genisoimage|xorriso") { return $true }
+    Write-Info "Installing ISO tooling inside WSL (genisoimage + xorriso)..."
+    wsl sudo bash -c "dpkg --configure -a 2>/dev/null; apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genisoimage xorriso" 2>&1 | Out-Null
+    $check = wsl bash -c "command -v genisoimage || command -v xorriso || echo MISSING" 2>$null
+    return ("$check" -notmatch "MISSING")
+}
+
 function Install-MissingDependencies {
     param(
         [string[]]$Dependencies
@@ -139,33 +266,43 @@ function Install-MissingDependencies {
     }
 
     Write-Info "Detected missing dependencies: $($Dependencies -join ', ')"
-
-    # Check for winget
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Info "Installing via winget..."
-        foreach ($dep in $Dependencies) {
-            switch ($dep) {
-                "qemu-system-x86_64" {
-                    winget install -e --id QEMU.QEMU --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
-                }
-            }
+    foreach ($dep in $Dependencies) {
+        if ($dep -match "qemu") {
+            if (-not (Install-QemuIfMissing)) { return $false }
+        } else {
+            Write-Warn "Cannot auto-install '$dep' here – run .\install-requirements.ps1 for the full setup."
         }
-        return $true
+    }
+    return $true
+}
+
+# ── Run all cheap host-level auto-repairs in one go ─────────────────────────
+function Invoke-AutoRepairs {
+    param([string]$CacheDir = "")
+    Write-Info "Running automatic environment checks & repairs..."
+
+    # 1. Dependencies (QEMU etc.)
+    $depCheck = Test-Dependencies
+    if ($depCheck.HasMissing) {
+        Install-MissingDependencies -Dependencies $depCheck.Missing | Out-Null
+        Update-SessionPath
+    }
+    if (-not (Test-QemuAvailable)) { Install-QemuIfMissing | Out-Null }
+
+    # 2. Disk space (if a cache dir was provided)
+    if ($CacheDir -and (Test-Path $CacheDir) -and -not (Test-DiskSpace -Path $CacheDir -MinimumGB 5)) {
+        Invoke-DiskCleanup -CacheDir $CacheDir
     }
 
-    # Check for chocolatey
-    if (Get-Command choco -ErrorAction SilentlyContinue) {
-        Write-Info "Installing via Chocolatey..."
-        foreach ($dep in $Dependencies) {
-            switch ($dep) {
-                "qemu-system-x86_64" { choco install qemu -y 2>&1 | Out-Null }
-            }
-        }
-        return $true
+    # 3. WSL (needed for ISO creation on Windows)
+    if (-not (Test-WslAvailable)) { Install-WslIfMissing | Out-Null }
+
+    # 4. Virtualization hint
+    if (-not (Test-VirtualizationEnabled)) {
+        Write-Warn "Hardware virtualization (Hyper-V/WHPX) not detected – QEMU will be slow (TCG fallback)."
     }
 
-    Write-Warn "Could not auto-install dependencies. Please install manually: $($Dependencies -join ', ')"
-    return $false
+    Write-Success "Environment checks complete"
 }
 
 function Test-VMHealth {
@@ -405,6 +542,16 @@ Export-ModuleMember -Function @(
     'Invoke-DiskCleanup',
     'Test-Dependencies',
     'Install-MissingDependencies',
+    'Update-SessionPath',
+    'Test-QemuAvailable',
+    'Install-WithWinget',
+    'Install-QemuIfMissing',
+    'Test-WslAvailable',
+    'Install-WslIfMissing',
+    'Test-RebootPending',
+    'Test-VirtualizationEnabled',
+    'Invoke-WslAptRepair',
+    'Invoke-AutoRepairs',
     'Test-VMHealth',
     'Invoke-VMRecovery',
     'Test-MemoryPressure',

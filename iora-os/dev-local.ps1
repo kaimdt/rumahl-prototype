@@ -159,20 +159,35 @@ try {
 function Find-Qemu {
     if ($QemuPath -and (Test-Path $QemuPath)) { return $QemuPath }
     $qemuBin = if ($HOST_ARCH -eq "ARM64") { "qemu-system-aarch64.exe" } else { "qemu-system-x86_64.exe" }
-    $paths = @(
-        (Get-Command $qemuBin -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
-        (Join-Path $env:ProgramFiles "qemu\$qemuBin"),
-        (Join-Path ${env:ProgramFiles(x86)} "qemu\$qemuBin"),
-        (Join-Path $env:LOCALAPPDATA "Programs\qemu\$qemuBin"),
-        "C:\Program Files\qemu\$qemuBin"
-    )
+    $paths = @()
+    $fromPath = Get-Command $qemuBin -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+    if ($fromPath) { $paths += $fromPath }
+    if ($env:ProgramFiles) { $paths += (Join-Path $env:ProgramFiles "qemu\$qemuBin") }
+    if (${env:ProgramFiles(x86)}) { $paths += (Join-Path ${env:ProgramFiles(x86)} "qemu\$qemuBin") }
+    if ($env:LOCALAPPDATA) { $paths += (Join-Path $env:LOCALAPPDATA "Programs\qemu\$qemuBin") }
+    $paths += "C:\Program Files\qemu\$qemuBin"
     foreach ($p in $paths) {
         if ($p -and (Test-Path $p)) { return $p }
     }
-    Stop-WithError "QEMU not found. Install with: winget install QEMU.QEMU"
+    return $null
 }
 
 $QEMU_BIN = Find-Qemu
+if (-not $QEMU_BIN) {
+    Write-Warn "QEMU not found – attempting automatic installation..."
+    if (Get-Command Install-QemuIfMissing -ErrorAction SilentlyContinue) {
+        [void](Install-QemuIfMissing)
+        Update-SessionPath
+    } else {
+        # Inline fallback when the auto-repair module is unavailable
+        winget install --silent --accept-package-agreements --accept-source-agreements --id QEMU.QEMU 2>&1 | Out-Null
+        $env:PATH = "$env:ProgramFiles\qemu;$env:PATH"
+    }
+    $QEMU_BIN = Find-Qemu
+    if (-not $QEMU_BIN) {
+        Stop-WithError "QEMU not found. Install with: winget install QEMU.QEMU"
+    }
+}
 Write-Success "QEMU: $QEMU_BIN"
 $QEMU_DIR = Split-Path -Parent $QEMU_BIN
 $QEMU_IMG = Join-Path $QEMU_DIR "qemu-img.exe"
@@ -184,6 +199,18 @@ try {
     wsl --status 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { $WSL_AVAILABLE = $true }
 } catch { }
+if (-not $WSL_AVAILABLE) {
+    Write-Warn "WSL2 not detected – attempting automatic installation..."
+    if (Get-Command Install-WslIfMissing -ErrorAction SilentlyContinue) {
+        [void](Install-WslIfMissing)
+        $WSL_AVAILABLE = Test-WslAvailable
+    } else {
+        # Inline fallback when the auto-repair module is unavailable
+        wsl --install -d Debian --no-launch 2>&1 | Out-Null
+        wsl --status 2>&1 | Out-Null
+        $WSL_AVAILABLE = ($LASTEXITCODE -eq 0)
+    }
+}
 if (-not $WSL_AVAILABLE) {
     Stop-WithError "WSL2 is required. Install with: wsl --install (then reboot)."
 }
