@@ -43,6 +43,7 @@ param(
     [switch] $Watcher,
     [switch] $Foreground,
     [switch] $SkipWhpx,
+    [switch] $Uefi,
     [ValidateSet("source", "build")]
     [string] $Mode = "source",
     [ValidatePattern('^\d+(GB|G)?$')]
@@ -62,7 +63,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.9"
+$DEV_LOCAL_VERSION = "2.5.0"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -87,6 +88,7 @@ if ($Help) {
     Write-Host "  -NoWatch       Don't auto-launch dev-watch TUI"
     Write-Host "  -Watcher        Launch dev-watch TUI in new terminal (VM must be running)"
     Write-Host "  -Foreground    Keep this window attached to QEMU"
+    Write-Host "  -Uefi          Force UEFI (OVMF) firmware instead of SeaBIOS"
     Write-Host "  -Ram 8GB       Set VM RAM (default: auto)"
     Write-Host "  -CpuCount 4    Set VM CPU count (default: auto)"
     exit 0
@@ -610,46 +612,76 @@ if ($Status) {
     exit 0
 }
 
-# -- UEFI firmware ----------------------------------------------------------
-$FW = $null
+# -- Boot firmware selection (UEFI/OVMF vs SeaBIOS/BIOS) ---------------------
+# The Debian cloud image is BIOS-only (its EFI System Partition is empty, no
+# \EFI\BOOT\BOOTX64.EFI): under OVMF it falls into the "UEFI Interactive
+# Shell" and never boots. SeaBIOS boots it reliably (same configuration as the
+# proven dev-local.sh TCG path). We try UEFI first, self-heal to SeaBIOS when
+# the shell trap is detected (see wait loop below) and remember the choice in
+# a marker file so later runs boot directly. ARM64 has no SeaBIOS and always
+# uses UEFI. Use -Uefi to force UEFI (e.g. for EFI-capable IORA OS images).
+$BOOT_FIRMWARE_MARKER = Join-Path $CACHE "boot-firmware"
+$useUefi = $false
 if ($HOST_ARCH -eq "ARM64") {
-    $fwPaths = @(
-        (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
-        (Join-Path $QEMU_DIR "..\share\edk2-aarch64-code.fd"),
-        (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
-    )
-    $fwIsFlash = $false
+    # ARM64: edk2 is the only option (no SeaBIOS for aarch64)
+    $useUefi = $true
+} elseif ($SkipWhpx) {
+    # The TCG fallback always boots via SeaBIOS (OVMF+TCG is unstable on
+    # some Windows QEMU builds - see Step 4)
+    if ($Uefi) { Write-Warn "-Uefi ignored: the TCG fallback (-SkipWhpx) always boots via SeaBIOS." }
+} elseif ($Uefi) {
+    $useUefi = $true
+} elseif ((Test-Path $BOOT_FIRMWARE_MARKER) -and ((Get-Content $BOOT_FIRMWARE_MARKER -Raw -ErrorAction SilentlyContinue).Trim() -eq "seabios")) {
+    Write-Dim "Boot firmware: SeaBIOS (remembered from a previous auto-heal; use -Uefi to force UEFI)"
+    $useUefi = $false
 } else {
-    $fwPaths = @(
-        (Join-Path $QEMU_DIR "share\edk2-x86_64-code.fd"),
-        (Join-Path $QEMU_DIR "edk2-x86_64-code.fd"),
-        (Join-Path $QEMU_DIR "OVMF_CODE.fd")
-    )
-    $fwIsFlash = $true
+    $useUefi = $true
 }
-foreach ($f in $fwPaths) { if (Test-Path $f) { $FW = $f; break } }
-if (-not $FW) { Stop-WithError "UEFI firmware not found in $QEMU_DIR" }
-if ($fwIsFlash) {
-    $FW_CODE_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
-    Copy-Item $FW $FW_CODE_CACHED -Force -ErrorAction SilentlyContinue
-    $FW = $FW_CODE_CACHED
 
-    # Cache writable VARS file (required for UEFI boot variables persistence)
-    $FW_VARS_CACHED = Join-Path $CACHE "OVMF_VARS.fd"
-    if (-not (Test-Path $FW_VARS_CACHED)) {
-        $varsPaths = @(
-            (Join-Path $QEMU_DIR "share\edk2-x86_64-vars.fd"),
-            (Join-Path $QEMU_DIR "share\edk2-i386-vars.fd"),
-            (Join-Path $QEMU_DIR "edk2-x86_64-vars.fd"),
-            (Join-Path $QEMU_DIR "edk2-i386-vars.fd")
+# -- UEFI firmware (only needed when booting UEFI) ---------------------------
+$FW = $null
+if ($useUefi) {
+    if ($HOST_ARCH -eq "ARM64") {
+        $fwPaths = @(
+            (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
+            (Join-Path $QEMU_DIR "..\share\edk2-aarch64-code.fd"),
+            (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
         )
-        foreach ($v in $varsPaths) { if (Test-Path $v) { Copy-Item $v $FW_VARS_CACHED -Force -ErrorAction SilentlyContinue; break } }
+        $fwIsFlash = $false
+    } else {
+        $fwPaths = @(
+            (Join-Path $QEMU_DIR "share\edk2-x86_64-code.fd"),
+            (Join-Path $QEMU_DIR "edk2-x86_64-code.fd"),
+            (Join-Path $QEMU_DIR "OVMF_CODE.fd")
+        )
+        $fwIsFlash = $true
     }
-    if (Test-Path $FW_VARS_CACHED) {
-        Write-Dim "  VARS: $FW_VARS_CACHED"
+    foreach ($f in $fwPaths) { if (Test-Path $f) { $FW = $f; break } }
+    if (-not $FW) { Stop-WithError "UEFI firmware not found in $QEMU_DIR" }
+    if ($fwIsFlash) {
+        $FW_CODE_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
+        Copy-Item $FW $FW_CODE_CACHED -Force -ErrorAction SilentlyContinue
+        $FW = $FW_CODE_CACHED
+
+        # Cache writable VARS file (required for UEFI boot variables persistence)
+        $FW_VARS_CACHED = Join-Path $CACHE "OVMF_VARS.fd"
+        if (-not (Test-Path $FW_VARS_CACHED)) {
+            $varsPaths = @(
+                (Join-Path $QEMU_DIR "share\edk2-x86_64-vars.fd"),
+                (Join-Path $QEMU_DIR "share\edk2-i386-vars.fd"),
+                (Join-Path $QEMU_DIR "edk2-x86_64-vars.fd"),
+                (Join-Path $QEMU_DIR "edk2-i386-vars.fd")
+            )
+            foreach ($v in $varsPaths) { if (Test-Path $v) { Copy-Item $v $FW_VARS_CACHED -Force -ErrorAction SilentlyContinue; break } }
+        }
+        if (Test-Path $FW_VARS_CACHED) {
+            Write-Dim "  VARS: $FW_VARS_CACHED"
+        }
     }
+    Write-Success "Boot firmware: UEFI ($FW)"
+} else {
+    Write-Success "Boot firmware: SeaBIOS (BIOS)"
 }
-Write-Success "UEFI firmware: $FW"
 
 # -- -Clean / -CleanAll -----------------------------------------------------
 if ($Clean -or $CleanAll) {
@@ -962,41 +994,56 @@ if ($existingProc) {
         $QmpPort = 8130
         while ((Test-PortListening -Port $QmpPort) -and $QmpPort -lt 8150) { $QmpPort++ }
 
-        $fwDrive = if ($fwIsFlash) {
-            $base = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
-            if (Test-Path $FW_VARS_CACHED) {
-                $base += @("-drive", "if=pflash,format=raw,file=$FW_VARS_CACHED")
+        # QEMU argument builder - reused verbatim by the UEFI-shell
+        # self-heal (reboots the VM with SeaBIOS without duplicating the
+        # whole argument list).
+        function Build-QemuArgs {
+            param([string] $Firmware)  # "uefi" | "seabios"
+            $fwDrv = @()
+            if ($Firmware -eq "uefi") {
+                if ($fwIsFlash) {
+                    $fwDrv = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
+                    if (Test-Path $FW_VARS_CACHED) {
+                        $fwDrv += @("-drive", "if=pflash,format=raw,file=$FW_VARS_CACHED")
+                    }
+                } else {
+                    $fwDrv = @("-bios", $FW)
+                }
             }
-            $base
-        } else {
-            @("-bios", $FW)
+            $a = @(
+                "-name", "IORA-Dev",
+                "-m", $VM_RAM,
+                "-smp", $VM_CPUS
+            ) + $fwDrv + @(
+                # bootindex makes OVMF put the disk first even when the NVRAM
+                # BootOrder is empty/polluted (UEFI shell trap); SeaBIOS
+                # honours it as well. bootindex is a device property, so the
+                # drives use if=none + explicit -device pairs.
+                "-drive", "file=$VM_DISK,format=qcow2,if=none,id=iora-disk",
+                "-device", "virtio-blk-pci,drive=iora-disk,bootindex=1",
+                "-drive", "file=$SEED_ISO,format=raw,media=cdrom,if=none,id=iora-seed",
+                "-device", "ide-cd,drive=iora-seed,bootindex=2",
+                "-netdev", $fwd,
+                # virtio NIC (proven config; e1000 had DHCP issues under WHPX)
+                "-device", "virtio-net-pci,netdev=n0",
+                # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
+                "-device", "virtio-serial-pci",
+                "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
+                "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
+                # QMP: hypervisor control channel (status, pause, screenshot, ...)
+                "-qmp", "tcp:127.0.0.1:$QmpPort,server=on,wait=off",
+                # RAM ballooning (Proxmox-style memory control)
+                "-device", "virtio-balloon-pci",
+                "-device", "virtio-gpu",
+                "-machine", "${VM_MACHINE},accel=whpx",
+                "-serial", "file:$($CACHE)\qemu-serial.log",
+                "-display", "gtk,show-cursor=on"
+            )
+            $a += @("-boot", "order=d,menu=off")
+            return $a
         }
 
-        $qemuArgs = @(
-            "-name", "IORA-Dev",
-            "-m", $VM_RAM,
-            "-smp", $VM_CPUS
-        ) + $fwDrive + @(
-            "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
-            "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
-            "-netdev", $fwd,
-            # virtio NIC (proven config; e1000 had DHCP issues under WHPX)
-            "-device", "virtio-net-pci,netdev=n0",
-            # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
-            "-device", "virtio-serial-pci",
-            "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
-            "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
-            # QMP: hypervisor control channel (status, pause, screenshot, ...)
-            "-qmp", "tcp:127.0.0.1:$QmpPort,server=on,wait=off",
-            # RAM ballooning (Proxmox-style memory control)
-            "-device", "virtio-balloon-pci",
-            "-device", "virtio-gpu",
-            "-machine", "${VM_MACHINE},accel=whpx",
-            "-serial", "file:$($CACHE)\qemu-serial.log",
-            "-display", "gtk,show-cursor=on"
-        )
-
-        $qemuArgs += @("-boot", "order=d,menu=off")
+        $qemuArgs = Build-QemuArgs -Firmware $(if ($useUefi) { "uefi" } else { "seabios" })
 
         function Start-Qemu {
             param([string[]] $QemuArgs, [string] $Accel, [switch] $NoWindow)
@@ -1040,13 +1087,24 @@ if ($existingProc) {
         if ($useWhpx) {
             $qemuProc = Start-Qemu -QemuArgs $qemuArgs -Accel "WHPX"
             if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
+                $stderrText = ""
+                if (Test-Path $QEMU_STDERR) { $stderrText = (Get-Content $QEMU_STDERR -Raw -ErrorAction SilentlyContinue) }
                 Write-Warn "WHPX failed; falling back to TCG."
                 Write-Dim "  Last 10 lines of ${QEMU_STDERR}:"
-                if (Test-Path $QEMU_STDERR) {
-                    Get-Content $QEMU_STDERR -Tail 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-                }
+                (($stderrText -split "`r?`n") | Select-Object -Last 10) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
                 if (-not $qemuProc.HasExited) { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue }
-                # WHPX can corrupt the overlay; recreate it
+                # Distinguish a QEMU COMMAND-LINE error (a bug in the QEMU
+                # arguments or an incompatible QEMU version - the provisioned
+                # disk must NOT be touched) from a real WHPX/acceleration
+                # failure (fall back to TCG and recreate the overlay, since a
+                # crashed WHPX can corrupt it). Errors that mention WHPX are
+                # always treated as acceleration failures.
+                $argError = $stderrText -notmatch 'whpx|WHPX|hypervisor' -and $stderrText -match 'exe: -[a-zA-Z]|does not support the option|invalid option|unrecognized'
+                if ($argError) {
+                    Stop-WithError "QEMU rejected the command line (configuration error, see stderr above). The VM disk was NOT modified. Fix the QEMU arguments (or update QEMU), then re-run; use -SkipWhpx to boot via TCG/SeaBIOS in the meantime."
+                }
+                # Real WHPX failure: WHPX can corrupt the overlay; recreate it
+                Write-Warn "Overlay recreated from the base image (WHPX failure) - the VM will be re-provisioned automatically."
                 Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
                 & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
                 $useWhpx = $false
@@ -1103,10 +1161,66 @@ $waited = 0
 $ready = $false
 $timeout = 900
 $lastDiag = 0
+
+# -- Self-healing: UEFI shell trap detection ---------------------------------
+# The Debian cloud image has an EMPTY EFI System Partition: when OVMF finds
+# no bootable loader it falls back to the "UEFI Interactive Shell" and the
+# VM never boots. We detect that state in the serial log (QEMU truncates the
+# log on every start, so position tracking resets automatically), restart the
+# VM with SeaBIOS (which boots the image reliably) and remember the choice in
+# $BOOT_FIRMWARE_MARKER so future runs boot directly. Only runs when this
+# script started QEMU itself (Build-QemuArgs exists) - attached VMs are left
+# untouched.
+$healDone = $false
+$script:serialPos = 0
+function Read-SerialNew {
+    if (-not (Test-Path $serialLog)) { return "" }
+    try {
+        $fs = [System.IO.File]::Open($serialLog, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            if ($fs.Length -lt $script:serialPos) { $script:serialPos = 0 }  # file was (re)created
+            $fs.Position = $script:serialPos
+            $ms = New-Object System.IO.MemoryStream
+            $buf = New-Object byte[] 65536
+            while (($n = $fs.Read($buf, 0, $buf.Length)) -gt 0) { $ms.Write($buf, 0, $n) }
+            $script:serialPos = $fs.Position
+            return [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
+        } finally { $fs.Close() }
+    } catch {
+        return ""
+    }
+}
+
 while ($waited -lt $timeout) {
     if ($qemuProc.HasExited) {
         Stop-WithError "QEMU exited (code $($qemuProc.ExitCode)). See $QEMU_STDERR"
     }
+
+    # UEFI shell trap -> restart with SeaBIOS (once per run)
+    if ($useUefi -and -not $healDone -and (Get-Command Build-QemuArgs -ErrorAction SilentlyContinue)) {
+        $newSerial = Read-SerialNew
+        if ($newSerial -match "UEFI Interactive Shell|Shell>") {
+            Write-Warn "VM landed in the UEFI Interactive Shell (cloud image has no UEFI bootloader)."
+            Write-Warn "Auto-healing: restarting the VM with SeaBIOS..."
+            try { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue } catch { }
+            Set-Content -Path $BOOT_FIRMWARE_MARKER -Value "seabios" -NoNewline -Encoding ASCII
+            $qemuProc = Start-Qemu -QemuArgs (Build-QemuArgs -Firmware "seabios") -Accel "WHPX (SeaBIOS)"
+            if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
+                Write-Warn "WHPX restart failed during auto-heal - falling back to TCG/SeaBIOS."
+                $qemuProc = Start-Qemu -QemuArgs $tcgArgs -Accel "TCG"
+                if (-not (Test-Alive -Proc $qemuProc -WaitSec 20)) {
+                    Stop-WithError "QEMU crashed during auto-heal (WHPX and TCG). See $QEMU_STDERR"
+                }
+            }
+            $healDone = $true
+            $script:serialPos = 0
+            $waited = 0
+            $lastDiag = 0
+            Write-Success "Auto-healed: VM now boots via SeaBIOS. Waiting for cloud-init..."
+            continue
+        }
+    }
+
     # Primaerer Kanal: QEMU-Guest-Agent (funktioniert OHNE IP); SSH als Alternative
     $bootReady = $false
     $qgaOut = Invoke-QgaExec -Command 'test -f /var/lib/cloud/instance/boot-finished && echo READY' -TimeoutSec 10
@@ -1156,24 +1270,53 @@ $repoWsl = ConvertTo-WslPath $REPO_ROOT
 $keyWsl = ConvertTo-WslPath $SSH_KEY
 # drvfs keys have loose permissions that ssh refuses - stage a 0600 copy in WSL
 wsl bash -c "mkdir -p ~/.ssh && install -m 600 '$keyWsl' ~/.ssh/iora_dev_key 2>/dev/null || cp '$keyWsl' ~/.ssh/iora_dev_key" 2>$null | Out-Null
+# The rsync fast path needs rsync in WSL (the VM gets it during provisioning)
+$null = wsl bash -c "command -v rsync >/dev/null 2>&1 || sudo apt-get install -y -qq rsync 2>&1 | tail -1" 2>$null
 $syncExcludes = "--exclude='.git' --exclude='target' --exclude='node_modules' --exclude='.cache' --exclude='buildroot-*' --exclude='releases' --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' --exclude='*.tar.gz' --exclude='.iora-dev'"
 $syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/iora_dev_key -p $SshPort"
-wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@127.0.0.1:/home/iora/iora/ && ssh $syncSsh root@127.0.0.1 'chown -R iora:iora /home/iora/iora'" 2>&1 | Out-Null
-$mainSyncOk = ($LASTEXITCODE -eq 0)
+# WSL2 NAT mode: the VM's forwarded ports live on the Windows host, which WSL
+# reaches via its default-route gateway (127.0.0.1 inside WSL only works in
+# mirrored mode). Probe 127.0.0.1 first, then derive the gateway from
+# /proc/net/route, so the rsync fast path works in both WSL network modes.
+function Get-WslSyncHost {
+    $null = wsl bash -c "ssh $syncSsh root@127.0.0.1 'true'" 2>$null
+    if ($LASTEXITCODE -eq 0) { return "127.0.0.1" }
+    $route = wsl bash -c "cat /proc/net/route" 2>$null
+    foreach ($l in $route) {
+        if ($l -match '^[A-Za-z0-9]+\s+00000000\s+([0-9A-Fa-f]{8})') {
+            $h = $matches[1]
+            $ip = @()
+            for ($i = 6; $i -ge 0; $i -= 2) { $ip += [Convert]::ToInt32($h.Substring($i, 2), 16) }
+            return ($ip -join '.')
+        }
+    }
+    return $null
+}
+$wslHost = Get-WslSyncHost
+if ($wslHost) {
+    wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@${wslHost}:/home/iora/iora/ && ssh $syncSsh root@${wslHost} 'chown -R iora:iora /home/iora/iora'" 2>&1 | Out-Null
+}
+$mainSyncOk = ($LASTEXITCODE -eq 0) -and $wslHost
 if ($mainSyncOk -and $Mode -eq "build") {
     # Build mode: also mirror the drop-box so host-built binaries reach the daemon
-    wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@127.0.0.1:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
+    wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@${wslHost}:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
 }
 if (-not $mainSyncOk) {
     Write-Warn "WSL rsync failed - falling back to tar+scp..."
     $projectTar = Join-Path $CACHE "iora-project.tar.gz"
     Push-Location $REPO_ROOT
     try {
-        tar -czf $projectTar `
-            --exclude='.git' --exclude='target' --exclude='node_modules' `
-            --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
-            --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
-            --exclude='*.tar.gz' --exclude='.iora-dev' . 2>$null
+        # Splatted args: keeps --exclude= patterns intact with both GNU tar
+        # (git-bash) and bsdtar (Windows) - inline quotes in bare tokens break
+        # on some tar builds (e.g. "Child returned status 128"). System32 tar
+        # is used explicitly so the path cannot be hijacked by a git-bash PATH.
+        $tarBin = Join-Path $env:SystemRoot "System32\tar.exe"
+        if (-not (Test-Path $tarBin)) { $tarBin = "tar" }
+        $tarArgs = @('-czf', $projectTar)
+        foreach ($e in @('.git', 'target', 'node_modules', '.cache', 'buildroot-*', 'releases', '*.img', '*.qcow2', '*.iso', '*.tar.gz', '.iora-dev')) {
+            $tarArgs += "--exclude=$e"
+        }
+        & $tarBin @tarArgs '.' 2>$null
     } finally {
         Pop-Location
     }
@@ -1227,6 +1370,37 @@ systemctl enable --now docker postgresql nginx 2>/dev/null || true
     $installOutput | Select-Object -Last 5
     if ($installExitCode -ne 0) {
         Stop-WithError "Installing system packages failed in VM (ssh exit code $installExitCode)."
+    }
+
+    Write-Info "Installing UEFI bootloader (grub-efi) so the VM can boot via OVMF..."
+    $grubEfiScript = @'
+set -e
+# The Debian cloud image ships with an EMPTY EFI System Partition and can only
+# boot via BIOS/SeaBIOS. Installing grub-efi makes the VM UEFI-bootable too
+# (parity with the RPi4/IORA OS target). --no-nvram: we run in BIOS mode and
+# must not touch efibootmgr. The BOOTX64.EFI copy covers the OVMF removable-
+# media fallback path even without NVRAM boot entries.
+export DEBIAN_FRONTEND=noninteractive
+echo "--- installing grub-efi-amd64 ---"
+apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 grub-efi-amd64
+mkdir -p /boot/efi
+mountpoint -q /boot/efi || mount /boot/efi 2>/dev/null || true
+if grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --no-nvram --recheck 2>&1 | tail -n 4; then
+    mkdir -p /boot/efi/EFI/BOOT
+    cp -f /boot/efi/EFI/debian/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || true
+    echo "--- update-grub ---"
+    update-grub 2>&1 | tail -n 2
+    echo "GRUB_EFI_OK"
+else
+    echo "grub-install failed - VM stays BIOS-only (SeaBIOS self-heal remains active)"
+fi
+'@
+    $grubEfiOut = Invoke-SSHStdin $grubEfiScript
+    $grubEfiOut | Select-Object -Last 4
+    if (($grubEfiOut -join "`n") -match "GRUB_EFI_OK") {
+        Write-Success "VM is now UEFI-bootable (grub-efi installed into the ESP)"
+    } else {
+        Write-Warn "grub-efi install did not complete - VM stays BIOS/SeaBIOS-only"
     }
 
     Write-Info "Configuring PostgreSQL roles and dev-mode marker..."
@@ -1288,6 +1462,10 @@ done
 
     Invoke-SSH 'mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned' | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
+    # The VM is now UEFI-bootable (grub-efi installed): clear the SeaBIOS
+    # marker so the NEXT boot tries UEFI/OVMF again. If that fails, the
+    # self-heal kicks in and re-marks SeaBIOS - the system self-corrects.
+    Remove-Item $BOOT_FIRMWARE_MARKER -Force -ErrorAction SilentlyContinue
     Write-Success "Provisioning complete"
 }
 

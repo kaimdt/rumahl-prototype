@@ -299,6 +299,38 @@ systemctl restart iora-db-init
 lsof -i :8126
 ```
 
+### VM bleibt in der „UEFI Interactive Shell“ hängen
+
+Symptom: Das QEMU-Fenster zeigt die UEFI-Shell (`Shell>`) statt Debian zu booten.
+
+Ursache: Die OVMF-NVRAM (`OVMF_VARS.fd`) enthält keine Boot-Reihenfolge mit der VM-Disk
+(typisch nach einem Cache-Reset, z.B. `-Clean`), und ohne explizites `bootindex` wird die
+Disk von OVMF nicht in den BootOrder aufgenommen. Das Debian-Cloud-Image bootet dann nicht.
+
+Der Dev-Server behebt das seit v2.5.0 **automatisch**:
+
+1. Die VM wird mit explizitem `bootindex` auf der Disk gestartet → OVMF bootet GRUB direkt.
+2. Falls die VM trotzdem in der UEFI-Shell landet, erkennt das Skript das im Serial-Log
+   („UEFI Interactive Shell“), startet die VM mit **SeaBIOS** neu und merkt sich das in
+   `.cache/boot-firmware` (Inhalt `seabios`) für künftige Starts.
+3. Nach einer erfolgreichen Provisionierung wird der Marker entfernt → beim nächsten Start
+   wird UEFI erneut versucht (selbstkorrigierendes System).
+
+Manuell steuern:
+
+```bash
+# UEFI/OVMF erzwingen (z.B. für EFI-fähige IORA-OS-Images)
+./dev-local.ps1 -Uefi
+
+# Marker zurücksetzen (wieder UEFI zuerst versuchen)
+rm .cache/boot-firmware
+
+# Marker löschen + Boot-Log prüfen
+cat .cache/qemu-serial.log
+```
+
+Hinweis: Das TCG-Fallback (`-SkipWhpx`) bootet immer über SeaBIOS; `-Uefi` wird dort ignoriert.
+
 ## Unterschiede zur Produktion
 
 | Feature | Dev VM | IORA OS Produktion |
