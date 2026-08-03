@@ -62,7 +62,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.1"
+$DEV_LOCAL_VERSION = "2.4.2"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -816,6 +816,7 @@ if (Get-Command Test-DiskSpace -ErrorAction SilentlyContinue) {
 }
 
 $existingProc = Get-QemuPid
+$skippedPorts = @()
 if ($existingProc) {
     Write-Success "QEMU already running (PID $($existingProc.Id)) - attaching to existing VM."
     $qemuProc = $existingProc
@@ -843,9 +844,36 @@ if ($existingProc) {
     if (-not $existingProc) {
         Write-Info "Starting QEMU..."
 
-        # Build the netdev hostfwd string
-        $fwd = "user,id=n0,hostfwd=tcp::${SshPort}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101"
-        foreach ($p in $FWD_PORTS) { $fwd += ",hostfwd=tcp::${p}-:${p}" }
+        # -- Port availability: ANY busy forward port kills QEMU's user-net --
+        # ("Could not set up host forwarding rule ..."). Check every port and
+        # skip busy ones with a warning instead of crashing.
+        function Test-PortListening {
+            param([int]$Port)
+            if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+                return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+            }
+            return [bool](netstat -an 2>$null | Select-String -Pattern "LISTEN" | Select-String -Pattern "[:.]${Port}\s")
+        }
+        $skippedPorts = @()
+        function Add-PortIfFree {
+            param([int]$Port, [string]$GuestPort)
+            if (Test-PortListening -Port $Port) {
+                Write-Warn "Port $Port is in use on the host - not forwarding it (the VM service stays reachable inside the VM)."
+                $script:skippedPorts += $Port
+            } else {
+                $script:forwardRules += ",hostfwd=tcp::${Port}-:${GuestPort}"
+            }
+        }
+
+        # Build the netdev hostfwd string (only free ports)
+        $script:forwardRules = ",hostfwd=tcp::${SshPort}-:22"
+        Add-PortIfFree -Port $VM_HOME -GuestPort 8126
+        Add-PortIfFree -Port $VM_BRIDGE -GuestPort 8101
+        foreach ($p in $FWD_PORTS) { Add-PortIfFree -Port $p -GuestPort $p }
+        $fwd = "user,id=n0" + $script:forwardRules
+        if ($skippedPorts.Count -gt 0) {
+            Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
+        }
 
         $fwDrive = if ($fwIsFlash) {
             $base = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
@@ -917,6 +945,10 @@ if ($existingProc) {
             $qemuProc = Start-Qemu -QemuArgs $qemuArgs -Accel "WHPX"
             if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
                 Write-Warn "WHPX failed; falling back to TCG."
+                Write-Dim "  Last 10 lines of ${QEMU_STDERR}:"
+                if (Test-Path $QEMU_STDERR) {
+                    Get-Content $QEMU_STDERR -Tail 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+                }
                 if (-not $qemuProc.HasExited) { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue }
                 # WHPX can corrupt the overlay; recreate it
                 Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
@@ -1373,6 +1405,7 @@ $readyBanner = @"
   |  MODE                                                               |
   |    Run mode:         $Mode (source = cargo run / build = binaries)  |
   |    Sync watcher:     wsl bash dev-sync.sh --watch (~1s latency)     |
+$(if ($skippedPorts.Count -gt 0) { "  |    NOT forwarded:   $($skippedPorts -join ', ') (busy on host)        |" })
   |                                                                     |
   |  Logs                                                               |
   |    Setup log         $LOG_FILE
