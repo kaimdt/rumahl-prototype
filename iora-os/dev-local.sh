@@ -34,7 +34,7 @@ set -uo pipefail
 
 # ── Version (Banner zeigt die laufende Version – erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzählen) ──────────────
-DEV_LOCAL_VERSION="2.4.7"
+DEV_LOCAL_VERSION="2.4.8"
 
 # ── Colors & Logging (defined first – earlier versions crashed because
 #    `log` was called before this point) ────────────────────────────────────
@@ -830,6 +830,9 @@ else
             QEMU_ARGS+=(-device virtio-serial-device)
             QEMU_ARGS+=(-chardev "socket,id=qga0,path=$CACHE/qga.sock,server=on,wait=off")
             QEMU_ARGS+=(-device "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0")
+            # QMP: hypervisor control channel (status, pause, screenshot, ...)
+            QEMU_ARGS+=(-qmp "unix:$CACHE/qmp.sock,server=on,wait=off")
+            QEMU_ARGS+=(-device virtio-balloon-device)
             FW="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
             if [ ! -f "$FW" ]; then
                 FW=$(find /opt/homebrew /usr/share/qemu /usr/share/edk2 -name "edk2-aarch64-code.fd" 2>/dev/null | head -1)
@@ -842,6 +845,9 @@ else
             QEMU_ARGS+=(-device virtio-serial-pci)
             QEMU_ARGS+=(-chardev "socket,id=qga0,path=$CACHE/qga.sock,server=on,wait=off")
             QEMU_ARGS+=(-device "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0")
+            # QMP: hypervisor control channel (status, pause, screenshot, ...)
+            QEMU_ARGS+=(-qmp "unix:$CACHE/qmp.sock,server=on,wait=off")
+            QEMU_ARGS+=(-device virtio-balloon-pci)
         fi
 
         # Detach unless --foreground requested
@@ -1380,6 +1386,7 @@ cat <<EOF
   |    Run mode:         $RUN_MODE (source = cargo run / build = binaries)   |
   |    Sync watcher:     dev-sync.sh --watch (~1s mirror latency)       |
   |    Guest agent:      socat - UNIX-CONNECT:<cache>/qga.sock         |
+  |    QMP control:      ./qmp.sh status | screenshot | pause           |
 $(if [ "${#SKIPPED_PORTS[@]}" -gt 0 ]; then printf '  |    NOT forwarded:   %s (busy on host)                         |\n' "${SKIPPED_PORTS[*]}"; fi)
   |    Dev Watch TUI     $REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch
   |                                                                     |

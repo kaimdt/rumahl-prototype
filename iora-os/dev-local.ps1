@@ -62,7 +62,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.7"
+$DEV_LOCAL_VERSION = "2.4.8"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -956,6 +956,12 @@ if ($existingProc) {
         $QgaPort = 8109
         while ((Test-PortListening -Port $QgaPort) -and $QgaPort -lt 8130) { $QgaPort++ }
 
+        # QMP (QEMU Machine Protocol) port - hypervisor-level control like
+        # Proxmox: status, pause/resume, powerdown, screenshots, sendkey,
+        # balloon. Auto-pick a free port as well.
+        $QmpPort = 8130
+        while ((Test-PortListening -Port $QmpPort) -and $QmpPort -lt 8150) { $QmpPort++ }
+
         $fwDrive = if ($fwIsFlash) {
             $base = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
             if (Test-Path $FW_VARS_CACHED) {
@@ -980,6 +986,10 @@ if ($existingProc) {
             "-device", "virtio-serial-pci",
             "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
             "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
+            # QMP: hypervisor control channel (status, pause, screenshot, ...)
+            "-qmp", "tcp:127.0.0.1:$QmpPort,server=on,wait=off",
+            # RAM ballooning (Proxmox-style memory control)
+            "-device", "virtio-balloon-pci",
             "-device", "virtio-gpu",
             "-machine", "${VM_MACHINE},accel=whpx",
             "-serial", "file:$($CACHE)\qemu-serial.log",
@@ -1063,6 +1073,10 @@ if ($existingProc) {
                 "-device", "virtio-serial-pci",
                 "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
                 "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
+                # QMP: hypervisor control channel (status, pause, screenshot, ...)
+                "-qmp", "tcp:127.0.0.1:$QmpPort,server=on,wait=off",
+                # RAM ballooning (Proxmox-style memory control)
+                "-device", "virtio-balloon-pci",
                 "-serial", "file:$($CACHE)\qemu-serial.log",
                 "-display", "none",
                 "-monitor", "none"
@@ -1521,6 +1535,7 @@ $readyBanner = @"
   |    Run mode:         $Mode (source = cargo run / build = binaries)  |
   |    Sync watcher:     wsl bash dev-sync.sh --watch (~1s latency)     |
   |    Guest agent:      .\qga.ps1 ping | exec "cmd" (no IP needed)  |
+  |    QMP control:      .\qmp.ps1 status | screenshot | pause       |
 $(if ($skippedPorts.Count -gt 0) { "  |    NOT forwarded:   $($skippedPorts -join ', ') (busy on host)        |" })
   |                                                                     |
   |  Logs                                                               |
