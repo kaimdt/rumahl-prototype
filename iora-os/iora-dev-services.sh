@@ -30,7 +30,7 @@ esac
 # Marker for the hot-reload daemon (iora-dev-hot-reload.sh) and dev scripts
 mkdir -p /etc/iora
 echo "$RUN_MODE" > /etc/iora/dev-run-mode
-log "Run mode: $RUN_MODE"
+echo "Run mode: $RUN_MODE"
 
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()    { echo -e "${BLUE}[svc]${NC} $*"; }
@@ -70,6 +70,7 @@ Documentation=https://iora-os.dev/services/${name}
 ${after:+After=${after}}
 ${after:+Wants=${after}}
 ConditionPathExists=/home/iora/iora/iora-os/backend/Cargo.toml
+ConditionPathExists=/home/iora/.cargo/bin/cargo
 StartLimitBurst=5
 StartLimitIntervalSec=30
 

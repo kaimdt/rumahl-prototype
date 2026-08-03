@@ -62,7 +62,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.3"
+$DEV_LOCAL_VERSION = "2.4.4"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -1077,6 +1077,12 @@ if (-not $mainSyncOk) {
 }
 Write-Success "Project synced (1:1 mirror at /home/iora/iora)"
 
+# -- Register systemd services (ALWAYS, not only on first provision): the
+#    script is idempotent and this is what makes -Mode source/build switches
+#    take effect on re-runs without --reprovision.
+Write-Info "Registering IORA OS systemd services (mode: $Mode)..."
+Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh --$Mode-mode 2>&1" | Select-Object -Last 8
+
 if ($needProvision) {
     Write-Info "Installing system packages (slow first-run step)..."
     $installScript = @'
@@ -1166,8 +1172,6 @@ for s in iora-dev-compat.sh iora-dev-improvements.sh iora-optimize-memory.sh ior
 done
 '@
     Invoke-SSHStdin $compatScript | Select-Object -Last 12
-    Write-Info "Registering IORA OS systemd services (mode: $Mode)..."
-    Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh --$Mode-mode 2>&1" | Select-Object -Last 8
 
     Invoke-SSH 'mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned' | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline

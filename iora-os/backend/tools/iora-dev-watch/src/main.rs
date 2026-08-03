@@ -67,6 +67,18 @@ fn bg_cmd(program: &str) -> TokioCommand {
     cmd
 }
 
+/// True when a native rsync binary is on PATH (macOS/Linux/WSL). Windows
+/// hosts rely on dev-sync.sh (WSL rsync) for the 1:1 mirror instead.
+fn rsync_available() -> bool {
+    std::process::Command::new("rsync")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 // ═══ Constants ═══════════════════════════════════════════════════════════
 
 const RENDER_INTERVAL_MS: u64 = 33; // ~30 FPS
@@ -257,6 +269,15 @@ impl Backend {
     }
 
     async fn sync_sources(&self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
+        // Hosts without a native rsync (Windows) cannot sync directly; the
+        // 1:1 mirror is maintained by dev-sync.sh (WSL rsync) instead.
+        if !rsync_available() {
+            let _ = tx.send(AppEvent::Log(
+                "[RUST] rsync not available on this host - source sync skipped (use dev-sync.sh --watch)"
+                    .into(),
+            ));
+            return Ok(());
+        }
         let _ = tx.send(AppEvent::Log("[RUST] Full source sync...".into()));
         let mut ssh_opts: Vec<String> = self.ssh_args();
         ssh_opts.pop(); // drop user@host

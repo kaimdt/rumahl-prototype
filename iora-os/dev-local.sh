@@ -34,7 +34,7 @@ set -uo pipefail
 
 # ── Version (Banner zeigt die laufende Version – erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzählen) ──────────────
-DEV_LOCAL_VERSION="2.4.3"
+DEV_LOCAL_VERSION="2.4.4"
 
 # ── Colors & Logging (defined first – earlier versions crashed because
 #    `log` was called before this point) ────────────────────────────────────
@@ -910,6 +910,13 @@ else
 fi
 ssh_vm "chown -R iora:iora /home/iora/iora" 2>/dev/null || true
 
+# ── Register systemd services (ALWAYS, not only on first provision): the
+#    script is idempotent and this is what makes --source-mode/--build-mode
+#    switches take effect on re-runs without --reprovision.
+log "Registering IORA OS systemd services (mode: $RUN_MODE)..."
+ssh_vm "bash /home/iora/iora/iora-os/iora-dev-services.sh --${RUN_MODE}-mode 2>&1" | tail -8 \
+    || warn "iora-dev-services.sh reported errors"
+
 if $need_provision; then
     log "Installing system packages (apt) – this is the slow first-run step..."
     ssh_vm bash -s <<'INSTEOF' || die "Package install failed"
@@ -1027,10 +1034,6 @@ CEOF
     log "Applying IORA OS compat layer + improvements (one SSH session)..."
     ssh_vm 'for s in iora-dev-compat.sh iora-dev-improvements.sh; do echo "=== $s ==="; bash "/home/iora/iora/iora-os/$s" 2>&1 | tail -n 8; echo; done' \
         || warn "compat/improvements reported errors"
-
-    log "Registering IORA OS systemd services (mode: $RUN_MODE)..."
-    ssh_vm "bash /home/iora/iora/iora-os/iora-dev-services.sh --${RUN_MODE}-mode 2>&1" | tail -8 \
-        || warn "iora-dev-services.sh reported errors"
 
     # Mark as provisioned
     ssh_vm "mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned"
