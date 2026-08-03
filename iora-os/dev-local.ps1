@@ -1668,6 +1668,57 @@ for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
     su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
         || su - postgres -c "psql -c \"CREATE DATABASE $db OWNER iora\""
 done
+# -- Self-healing: newer services reference postgres DBs that were never
+#    created ("database ... does not exist"). Create every DB that any
+#    /etc/iora/<svc>.env points at - idempotent, runs on every dev-local run.
+for envf in /etc/iora/iora-*.env; do
+    [ -f "$envf" ] || continue
+    url=$(grep '^DATABASE_URL=' "$envf" 2>/dev/null | head -1 | cut -d= -f2-)
+    case "$url" in
+        postgres://*)
+            db=$(echo "$url" | sed -E 's|.*/([^?]*).*|\1|')
+            # DB names may contain dashes (e.g. iora_domain-validator) - quote
+            # them and whitelist the charset
+            case "$db" in *[!a-zA-Z0-9_-]*) db="";; esac
+            if [ -n "$db" ]; then
+                su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
+                    || su - postgres -c "psql -c \"CREATE DATABASE \\\"$db\\\" OWNER iora\""
+            fi
+            ;;
+    esac
+done
+# -- SQLite-backed services must not get a postgres URL (sqlx would try to
+#    open the URL as a file -> "unable to open database file"). This covers
+#    both /etc/iora/<svc>.env and the priority-1 db-credentials files.
+for svc in iora-api iora-connector iora-files iora-gateway iora-intelligence; do
+    for envf in "/etc/iora/$svc.env" "/etc/iora/db-credentials/$svc.env"; do
+        if [ -f "$envf" ] && grep -q '^DATABASE_URL=postgres://' "$envf" 2>/dev/null; then
+            mkdir -p "/var/lib/iora/$svc"
+            chown iora:iora "/var/lib/iora/$svc" 2>/dev/null || true
+            sed -i "s|^DATABASE_URL=.*|DATABASE_URL=sqlite:///var/lib/iora/$svc/$svc.db?mode=rwc|" "$envf"
+            echo "iora-db-init: fixed $svc to sqlite ($envf)"
+        fi
+    done
+done
+# -- iora-security needs a 32-byte hex DB encryption key (production parity)
+envf=/etc/iora/iora-security.env
+if [ -f "$envf" ] && ! grep -q '^SECURITY_DB_KEY=' "$envf"; then
+    key=$(openssl rand -hex 32 2>/dev/null)
+    if [ -n "$key" ]; then
+        echo "SECURITY_DB_KEY=$key" >> "$envf"
+        echo "iora-db-init: generated SECURITY_DB_KEY"
+    fi
+fi
+# -- Port collision avoidance: iora-developer-app and iora-intelligence both
+#    default to 8099 (iora-api's port). Pin them to free ports.
+for pv in "iora-developer-app 8110" "iora-intelligence 8112"; do
+    svc=${pv% *}; port=${pv#* }
+    envf="/etc/iora/$svc.env"
+    if [ -f "$envf" ] && ! grep -q "^PORT=$port" "$envf" 2>/dev/null; then
+        echo "PORT=$port" >> "$envf"
+        echo "iora-db-init: pinned $svc to port $port"
+    fi
+done
 mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data /var/lib/iora/iora-home
 chown iora:iora /var/lib/iora/iora-home 2>/dev/null || true
 if [ "$(cat /etc/iora/dev-run-mode 2>/dev/null || echo source)" = "build" ]; then
@@ -1704,7 +1755,9 @@ if [ -f /etc/iora/iora-home.env ]; then
 fi
 systemctl daemon-reload
 systemctl reset-failed iora-db-init 2>/dev/null
+# Restart all IORA services so the env/db fixes take effect immediately
 systemctl restart iora-home 2>/dev/null
+systemctl try-restart iora-*.service 2>/dev/null
 systemctl enable --now iora-hot-reload.path 2>/dev/null
 systemctl enable --now iora-health-check.timer 2>/dev/null
 '@

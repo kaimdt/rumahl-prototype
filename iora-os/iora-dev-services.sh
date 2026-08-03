@@ -735,6 +735,7 @@ IORA_PORTS[iora-files]=8103
 IORA_PORTS[iora-network-monitor]=8104
 IORA_PORTS[iora-nginx]=8089
 IORA_PORTS[iora-resource-manager]=8105
+IORA_PORTS[iora-intelligence]=8112
 IORA_PORTS[iora-updater]=8106
 IORA_PORTS[iora-connector]=8088
 

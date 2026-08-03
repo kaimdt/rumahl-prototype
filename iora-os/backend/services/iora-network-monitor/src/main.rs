@@ -29,7 +29,9 @@ use tower_http::cors::CorsLayer;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
-const DEFAULT_PORT: u16 = 8103;
+// 8104 per the IORA port map (8103 belongs to iora-files) - read via
+// system_config::service_port so PORT / IORA_NETWORK_MONITOR_PORT win.
+const DEFAULT_PORT: u16 = 8104;
 const SCAN_INTERVAL_SECS: u64 = 60; // Scan network every 60 seconds
 
 // ─── Data Structures ────────────────────────────────────────────────────────
@@ -506,7 +508,8 @@ async fn main() -> Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
+    let port = system_config::service_port("iora-network-monitor", DEFAULT_PORT);
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     info!("iora-network-monitor listening on {}", addr);
     let _hb = iora_shared_heartbeat::spawn_default(
         "iora-network-monitor",
