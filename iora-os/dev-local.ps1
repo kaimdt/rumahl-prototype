@@ -60,6 +60,10 @@ param(
 # explicitly where it matters.
 $ErrorActionPreference = "Continue"
 
+# -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
+#    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
+$DEV_LOCAL_VERSION = "2.4.0"
+
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
 if ($doubleDashArgs) {
@@ -140,7 +144,7 @@ if (-not (Test-PowerShell7)) {
 }
 
 Write-Host ""
-Write-Host "  IORA OS - Local Dev VM (Windows / QEMU)" -ForegroundColor Cyan
+Write-Host "  IORA OS - Local Dev VM (Windows / QEMU)  v$DEV_LOCAL_VERSION" -ForegroundColor Cyan
 Write-Host ""
 
 # -- Paths ------------------------------------------------------------------
@@ -779,7 +783,12 @@ echo "[+] ISO created: $SEED_ISO"
     Set-Content -Path $seedScript -Value $seedBash -NoNewline -Encoding ASCII
     $seedScriptWsl = ConvertTo-WslPath $seedScript
 
-    $isoOut = wsl bash $seedScriptWsl 2>&1
+    $isoOut = wsl -u root bash $seedScriptWsl 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        # Fallback: default user (the script uses sudo -n internally)
+        Write-Dim "  wsl -u root failed - retrying as default user..."
+        $isoOut = wsl bash $seedScriptWsl 2>&1
+    }
     $created = ($LASTEXITCODE -eq 0) -and (Test-Path $SEED_ISO) -and ((Get-Item $SEED_ISO -ErrorAction SilentlyContinue).Length -gt 0)
     if (-not $created) {
         $isoOut | Select-Object -Last 15 | ForEach-Object { Write-Dim "  $_" }

@@ -32,6 +32,10 @@ set -uo pipefail
 # NOTE: deliberately NOT using `set -e`. We handle errors explicitly so a
 # transient failure (e.g. apt mirror hiccup) doesn't abort the whole bootstrap.
 
+# ── Version (Banner zeigt die laufende Version – erleichtert das Erkennen
+#    veralteter Kopien; bei Fragen/Fixes immer hier hochzählen) ──────────────
+DEV_LOCAL_VERSION="2.4.0"
+
 # ── Colors & Logging (defined first – earlier versions crashed because
 #    `log` was called before this point) ────────────────────────────────────
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -238,6 +242,7 @@ for a in "$@"; do
     esac
 done
 log "Run mode: $RUN_MODE ($([ "$RUN_MODE" = "source" ] && echo 'cargo run from 1:1 mirror' || echo 'deployed binaries'))"
+dim "dev-local.sh v$DEV_LOCAL_VERSION"
 
 # ── Helpers for managing the VM lifecycle ──────────────────────────────────
 vm_pid() {
