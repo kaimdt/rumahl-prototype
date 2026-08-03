@@ -128,7 +128,7 @@ repair_apt_state() {
     $CHECK_ONLY && return
     log "Checking apt/dpkg health..."
     ${SUDO} dpkg --configure -a >/dev/null 2>&1 || true
-    ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-broken >/dev/null 2>&1 || true
+    ${SUDO} env DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-broken >/dev/null 2>&1 || true
     # Wait out a concurrent apt/dpkg process (e.g. unattended-upgrades)
     if command -v fuser >/dev/null 2>&1; then
         for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -142,7 +142,7 @@ repair_apt_state() {
 # Run apt-get with automatic repair + retry (transient mirror/lock hiccups)
 run_apt() {
     local attempt=0
-    until ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get "$@"; do
+    until ${SUDO} env DEBIAN_FRONTEND=noninteractive apt-get "$@"; do
         attempt=$((attempt + 1))
         if [ "$attempt" -ge 3 ]; then
             return 1

@@ -137,6 +137,36 @@ The dashboard is available at **http://localhost:3001**.
 
 ### Development Mode
 
+**Dev VM (production-like IORA OS environment)**:
+
+```bash
+cd iora-os
+./dev-local.sh --source-mode   # default: services run via cargo run from the 1:1 mirror
+./dev-local.sh --build-mode    # alternative: run deployed binaries (/usr/bin/iora-*)
+```
+
+The dev VM keeps a **1:1 mirror of your repository** at `/home/iora/iora`:
+
+```bash
+./dev-sync.sh --once           # full mirror now
+./dev-sync.sh --watch          # continuous mirror (~1s latency, fswatch/inotifywait)
+```
+
+- **Source mode**: Rust services run via `cargo run` from the mirror (incremental
+  recompile on change); the frontend runs as a Vite dev server inside the VM with
+  HMR (backend proxies via `IORA_FRONTEND_DEV_URL`). The in-VM hot-reload daemon
+  (`iora-hot-reload.service`) restarts the affected service automatically when
+  its sources change.
+- **Build mode**: `dev-watch.sh` builds inside the VM and ships the binaries
+  through the mirror drop-box (`/home/iora/iora/.iora-dev/binaries`); the in-VM
+  hot-reload daemon installs them to `/usr/bin/iora-*` and restarts the
+  services – the classic production-like flow, fully mirror-based.
+- **Windows**: run the scripts in PowerShell (`dev-local.ps1 -Mode source`); the
+  mirror sync uses WSL rsync (incremental) – start the watcher with
+  `wsl bash dev-sync.sh --watch`.
+
+**Direct (no VM)**:
+
 ```bash
 # Terminal 1 — Backend (with auto-reload)
 cd iora-os/backend && cargo run -p iora-home

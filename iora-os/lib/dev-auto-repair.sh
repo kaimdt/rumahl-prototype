@@ -245,8 +245,14 @@ auto_install_iso_tools() {
         local sudo_cmd=""
         [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"
         log "Installing ISO tools via apt (xorriso + genisoimage)..."
-        ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso genisoimage >/dev/null 2>&1 || \
-            ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso >/dev/null 2>&1 || true
+        # Fast path: install first - apt-get update only runs when the
+        # package index is stale (saves 30-60s on fresh systems)
+        if ! ${sudo_cmd} env DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso genisoimage >/dev/null 2>&1; then
+            warn "Package lists stale? Running apt-get update (one-time)..."
+            ${sudo_cmd} apt-get update >/dev/null 2>&1 || true
+            ${sudo_cmd} env DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso genisoimage >/dev/null 2>&1 || \
+                ${sudo_cmd} env DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso >/dev/null 2>&1 || true
+        fi
     else
         warn "No package manager found to install ISO tools."
         return 1
@@ -274,7 +280,7 @@ auto_install_qemu() {
             arm64|aarch64) apt_pkg="qemu-system-arm" ;;
         esac
         log "Installing QEMU via apt ($apt_pkg)..."
-        retry_cmd 2 ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y "$apt_pkg" qemu-utils || \
+        retry_cmd 2 ${sudo_cmd} env DEBIAN_FRONTEND=noninteractive apt-get install -y "$apt_pkg" qemu-utils || \
             warn "apt install qemu failed"
     else
         warn "No package manager found to install QEMU."
@@ -330,7 +336,7 @@ auto_install_deps() {
             esac
         done
         log "Installing via apt-get: ${apt_pkgs[*]}"
-        retry_cmd 3 ${sudo_cmd} DEBIAN_FRONTEND=noninteractive apt-get install -y "${apt_pkgs[@]}" >/dev/null 2>&1 || \
+        retry_cmd 3 ${sudo_cmd} env DEBIAN_FRONTEND=noninteractive apt-get install -y "${apt_pkgs[@]}" >/dev/null 2>&1 || \
             warn "apt-get install failed for: ${apt_pkgs[*]}"
         return 0
     fi

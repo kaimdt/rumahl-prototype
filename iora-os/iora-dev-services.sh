@@ -9,10 +9,28 @@
 #   - Config:   /etc/iora/
 #   - Logs:     journalctl -u iora-*
 #
-# Usage: sudo ./iora-dev-services.sh
+# Usage: sudo ./iora-dev-services.sh [--source-mode|--build-mode]
+#   --source-mode (default)  Units run `cargo run -p <svc>` from the synced
+#                            1:1 mirror (/home/iora/iora) - no build step.
+#   --build-mode             Units run the deployed binaries /usr/bin/iora-*
 # ============================================================================
 
 set -euo pipefail
+
+# -- Run mode -----------------------------------------------------------------
+RUN_MODE="source"
+case "${1:-}" in
+    --source-mode) RUN_MODE="source"; shift ;;
+    --build-mode)  RUN_MODE="build"; shift ;;
+    -h|--help)     echo "Usage: $0 [--source-mode|--build-mode]"; exit 0 ;;
+    "") ;;
+    *) echo "Unknown argument: $1 (use --source-mode or --build-mode)" >&2; exit 1 ;;
+esac
+
+# Marker for the hot-reload daemon (iora-dev-hot-reload.sh) and dev scripts
+mkdir -p /etc/iora
+echo "$RUN_MODE" > /etc/iora/dev-run-mode
+log "Run mode: $RUN_MODE"
 
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()    { echo -e "${BLUE}[svc]${NC} $*"; }
@@ -40,6 +58,50 @@ _iora_service() {
     local mem_limit=""
     [ -n "$memory_max" ] && mem_limit="MemoryMax=${memory_max}"
 
+    if [ "$RUN_MODE" = "source" ]; then
+        # SOURCE MODE: run `cargo run -p <svc>` straight from the 1:1 mirror.
+        # cargo compiles incrementally in the VM; the hot-reload daemon
+        # (iora-hot-reload.service) restarts this unit on source changes.
+        chown -R iora:iora "$datadir" 2>/dev/null || true
+        cat > "${SVC_DIR}/${name}.service" <<EOF
+[Unit]
+Description=IORA ${name} Service (source mode - cargo run)
+Documentation=https://iora-os.dev/services/${name}
+${after:+After=${after}}
+${after:+Wants=${after}}
+ConditionPathExists=/home/iora/iora/iora-os/backend/Cargo.toml
+StartLimitBurst=5
+StartLimitIntervalSec=30
+
+[Service]
+Type=simple
+User=iora
+Group=iora
+WorkingDirectory=/home/iora/iora/iora-os/backend
+ExecStart=/home/iora/.cargo/bin/cargo run -p ${name}
+Restart=always
+RestartSec=5
+${port:+Environment=PORT=${port}}
+Environment=RUST_LOG=${name//-/_}=debug
+EnvironmentFile=-/etc/iora/${name}.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=${name}
+${mem_limit}
+
+# Source mode: cargo needs write access to the tree (target/) and ~/.cargo
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=/home/iora/iora /home/iora/.cargo /opt/iora/data
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        return 0
+    fi
+
+    # BUILD MODE: run the deployed binary (EXAKT wie IORA OS)
     cat > "${SVC_DIR}/${name}.service" <<EOF
 [Unit]
 Description=IORA ${name} Service
@@ -405,14 +467,7 @@ server {
     gzip_comp_level 6;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
 
-    # Frontend (SPA) – served by iora-home or static files
-    root /opt/iora/build/dist;
-    index index.html;
-
-    # Frontend routes (SPA fallback)
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
+    # Frontend (SPA) – __FRONTEND_BLOCK__
 
     # API – iora-home (main API)
     location /api/ {
@@ -575,6 +630,55 @@ server {
     }
 }
 NGINXEOF
+
+# Frontend block depends on the run mode:
+#   source: proxy to iora-home, which forwards to the Vite dev server
+#           (IORA_FRONTEND_DEV_URL) incl. HMR websocket upgrades
+#   build:  serve the static dist files (production-like)
+if [ "$RUN_MODE" = "source" ]; then
+    log "nginx: source mode - frontend proxied to iora-home (Vite HMR)"
+    python3 - <<'PYEOF'
+import re
+path = '/etc/nginx/sites-available/iora-gateway'
+with open(path) as f:
+    content = f.read()
+block = """    location / {
+        proxy_pass http://iora_home;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 86400s;
+    }
+"""
+content = re.sub(r'    # .*__FRONTEND_BLOCK__\n', block, content)
+with open(path, 'w') as f:
+    f.write(content)
+PYEOF
+else
+    log "nginx: build mode - frontend served from /opt/iora/build/dist"
+    python3 - <<'PYEOF'
+import re
+path = '/etc/nginx/sites-available/iora-gateway'
+with open(path) as f:
+    content = f.read()
+block = """    root /opt/iora/build/dist;
+    index index.html;
+
+    # Frontend routes (SPA fallback)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+"""
+content = re.sub(r'    # .*__FRONTEND_BLOCK__\n', block, content)
+with open(path, 'w') as f:
+    f.write(content)
+PYEOF
+fi
 
 ln -sf /etc/nginx/sites-available/iora-gateway /etc/nginx/sites-enabled/iora-gateway
 
@@ -891,6 +995,7 @@ log "  $(ls ${SVC_DIR}/iora-*.service 2>/dev/null | wc -l) IORA service units cr
 log "  FULL = fully functional | STUB = exists but no-op | APP = Rust binary unit"
 echo ""
 log "Binary paths: /usr/bin/iora-* (EXAKT wie IORA OS)"
+log "Run mode:     $RUN_MODE ($([ "$RUN_MODE" = "source" ] && echo 'cargo run from 1:1 mirror' || echo 'deployed binaries'))"
 log "Data paths:   /opt/iora/data/<svc>/ (EXAKT wie IORA OS)"
 log "Config paths: /etc/iora/<svc>.env (EXAKT wie IORA OS)"
 echo ""

@@ -19,6 +19,9 @@
 #   ./dev-local.sh --ssh            SSH directly into the running VM
 #   ./dev-local.sh --reprovision    Force re-running the in-VM setup steps
 #   ./dev-local.sh --no-watch       Don't auto-launch dev-watch TUI
+#   ./dev-local.sh --source-mode     Run services via cargo run from the 1:1
+#                                    source mirror (default)
+#   ./dev-local.sh --build-mode      Run deployed binaries (/usr/bin/iora-*)
 #   ./dev-local.sh --watcher        Launch dev-watch TUI in new terminal (VM must be running)
 #   ./dev-local.sh --foreground     Attach to QEMU process (Ctrl+C kills VM)
 #   ./dev-local.sh --help
@@ -211,6 +214,7 @@ REPROVISION=false
 NO_WATCH=false
 FOREGROUND=false
 DO_WATCHER=false
+RUN_MODE="source"
 for a in "$@"; do
     case "$a" in
         --clean)        CLEAN=true ;;
@@ -223,14 +227,17 @@ for a in "$@"; do
         --log)          DO_LOG=true ;;
         --reprovision)  REPROVISION=true ;;
         --no-watch)     NO_WATCH=true ;;
+        --source-mode)  RUN_MODE="source" ;;
+        --build-mode)   RUN_MODE="build" ;;
         --foreground)   FOREGROUND=true ;;
         --watcher)      DO_WATCHER=true ;;
         -h|--help)
-            sed -n '4,24p' "$0"
+            sed -n '4,26p' "$0"
             exit 0 ;;
         *) die "Unknown argument: $a (try --help)" ;;
     esac
 done
+log "Run mode: $RUN_MODE ($([ "$RUN_MODE" = "source" ] && echo 'cargo run from 1:1 mirror' || echo 'deployed binaries'))"
 
 # ── Helpers for managing the VM lifecycle ──────────────────────────────────
 vm_pid() {
@@ -891,7 +898,8 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
     sleep 3
 done
 apt-get update -qq
-apt-get install -y -qq \
+# --no-install-recommends + retries: smaller download, faster provisioning
+apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
     curl git ca-certificates build-essential pkg-config libssl-dev \
     nodejs npm docker.io postgresql postgresql-client rsync \
     python3 python3-pip htop vim mold nginx openssl socat \
@@ -993,17 +1001,13 @@ git-fetch-with-cli = true
 CEOF
     ssh_vm "chown iora:iora /home/iora/.cargo/config.toml"
 
-    log "Applying IORA OS compatibility layer..."
-    ssh_vm "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" | tail -8 \
-        || warn "iora-dev-compat.sh reported errors"
+    log "Applying IORA OS compat layer + improvements (one SSH session)..."
+    ssh_vm 'for s in iora-dev-compat.sh iora-dev-improvements.sh; do echo "=== $s ==="; bash "/home/iora/iora/iora-os/$s" 2>&1 | tail -n 8; echo; done' \
+        || warn "compat/improvements reported errors"
 
-    log "Registering IORA OS systemd services..."
-    ssh_vm "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | tail -8 \
+    log "Registering IORA OS systemd services (mode: $RUN_MODE)..."
+    ssh_vm "bash /home/iora/iora/iora-os/iora-dev-services.sh --${RUN_MODE}-mode 2>&1" | tail -8 \
         || warn "iora-dev-services.sh reported errors"
-
-    log "Applying IORA OS improvements..."
-    ssh_vm "bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1" | tail -8 \
-        || warn "iora-dev-improvements.sh reported errors"
 
     # Mark as provisioned
     ssh_vm "mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned"
@@ -1054,11 +1058,16 @@ fi
 
 # iora-home systemd override for dev VM
 mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data
+if [ "$(cat /etc/iora/dev-run-mode 2>/dev/null || echo source)" = "build" ]; then
 cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 [Service]
 # Database URL will be loaded from /etc/iora/db-credentials/iora-home.env
 WorkingDirectory=/opt/iora/build/iora-home
 CFG
+else
+# Source mode: no WorkingDirectory override (unit runs cargo run from the mirror)
+rm -f /etc/systemd/system/iora-home.service.d/db.conf
+fi
 
 # Central log viewer: iora-home must be able to read other services' journals.
 cat > /etc/systemd/system/iora-home.service.d/logs.conf <<CFG
@@ -1094,10 +1103,74 @@ echo "[OK] Database initialization complete"
 DBEOF
 ok "Databases initialized"
 
-# ── Step 8: Build & deploy frontend (optional, skipped if npm missing) ─────
+# ── Step 8: Hot-reload daemon (keeps services in sync with the mirror) ─────
+log "Installing hot-reload daemon (mode: $RUN_MODE)..."
+ssh_vm bash -s <<'HOTEOF' 2>&1 | tail -5 || warn "hot-reload daemon install had warnings"
+set -e
+install -m 0755 /home/iora/iora/iora-os/iora-dev-hot-reload.sh /usr/local/bin/iora-dev-hot-reload.sh
+cat > /etc/systemd/system/iora-hot-reload.service <<'UNIT'
+[Unit]
+Description=IORA Dev VM Hot-Reload (1:1 mirror watcher)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/iora-dev-hot-reload.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now iora-hot-reload.service 2>/dev/null || true
+systemctl restart iora-hot-reload.service 2>/dev/null || true
+echo "[OK] hot-reload daemon active (mode: $(cat /etc/iora/dev-run-mode 2>/dev/null || echo source))"
+HOTEOF
+
+# ── Step 9: Frontend (source mode: Vite in VM / build mode: dist deploy) ────
+if [ "$RUN_MODE" = "source" ]; then
+    log "Source mode: setting up the Vite dev server in the VM..."
+    ssh_vm bash -s <<'VITEEOF' 2>&1 | tail -5 || warn "Vite setup had warnings"
+set +e
+cd /home/iora/iora/frontend || exit 0
+if [ -f package.json ]; then
+    [ -d node_modules ] || npm install --no-audit --no-fund 2>&1 | tail -3
+    cat > /etc/systemd/system/iora-frontend-dev.service <<'UNIT'
+[Unit]
+Description=IORA Frontend Vite Dev Server (source mode)
+After=network.target
+
+[Service]
+Type=simple
+User=iora
+Group=iora
+WorkingDirectory=/home/iora/iora/frontend
+ExecStart=/usr/bin/npm run dev -- --host 0.0.0.0 --port 5173
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=development
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+    systemctl enable --now iora-frontend-dev.service 2>/dev/null || true
+    # iora-home proxies frontend requests to Vite (HMR)
+    grep -q IORA_FRONTEND_DEV_URL /etc/iora/iora-home.env 2>/dev/null || \
+        echo 'IORA_FRONTEND_DEV_URL=http://127.0.0.1:5173' >> /etc/iora/iora-home.env
+    systemctl restart iora-home 2>/dev/null || true
+    echo "[OK] Vite dev server unit created (HMR via iora-home proxy)"
+fi
+VITEEOF
+else
 FRONTEND_DIR="$REPO_ROOT/frontend"
 if [ -f "$FRONTEND_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
-    log "Building frontend..."
+    log "Build mode: building frontend..."
     if (cd "$FRONTEND_DIR" && npm install --silent && npm run build) 2>&1 | tail -5; then
         if [ -d "$FRONTEND_DIR/dist" ]; then
             log "Deploying frontend to VM..."
@@ -1112,8 +1185,9 @@ if [ -f "$FRONTEND_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
 else
     warn "npm not found on host – skipping frontend build."
 fi
+fi
 
-# ── Step 9: Verification ───────────────────────────────────────────────────
+# ── Step 10: Verification ───────────────────────────────────────────────────
 log "Verifying IORA OS services..."
 SERVICES_CHECK=$(ssh_vm "systemctl list-unit-files --type=service 'iora-*' 2>/dev/null | grep -c '^iora-' || echo 0")
 log "IORA services registered: ${SERVICES_CHECK//[!0-9]/}"
@@ -1147,7 +1221,7 @@ else
     warn "iora-home not yet responding – it may still be building. Check: ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1 'journalctl -u iora-home -n 50'"
 fi
 
-# ── Step 10: Launch dev-watch TUI in a second terminal (best-effort) ─────
+# ── Step 11: Launch dev-watch TUI in a second terminal (best-effort) ─────
 if ! $NO_WATCH; then
     DASH_BIN="$REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch"
     if watcher_needs_build "$DASH_BIN"; then
@@ -1174,12 +1248,39 @@ if ! $NO_WATCH; then
     fi
 fi
 
-# ── Step 11: Start background health monitor ───────────────────────────────
+# ── Step 12: Start background health monitor ───────────────────────────────
 HEALTH_MONITOR_LOG="$CACHE/health-monitor.log"
 HEALTH_MONITOR_PID="$CACHE/health-monitor.pid"
 
 if command -v start_health_monitor >/dev/null 2>&1; then
     start_health_monitor "127.0.0.1" "$VM_SSH" "$SSH_KEY" "$HEALTH_MONITOR_LOG" "$HEALTH_MONITOR_PID"
+fi
+
+# ── Step 13: Launch the 1:1 sync watcher (best-effort) ────────────────────
+# Keeps the VM mirror in sync continuously (~1s latency) - the core of the
+# fast dev loop. Reuses the same terminal-launch pattern as the dev-watch TUI.
+if ! $NO_WATCH; then
+    SYNC_BIN="$SCRIPT_DIR/dev-sync.sh"
+    if [ -f "$SYNC_BIN" ]; then
+        SYNC_EXTRA=""
+        [ "$RUN_MODE" = "build" ] && SYNC_EXTRA="--with-binaries"
+        SYNC_CMD="'$SYNC_BIN' --watch --vm-port $VM_SSH --ssh-key $SSH_KEY $SYNC_EXTRA"
+        log "Launching 1:1 sync watcher (dev-sync.sh --watch)..."
+        if $IS_MACOS; then
+            osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && $SYNC_CMD\"" >/dev/null 2>&1 \
+                || warn "Couldn't auto-open Terminal.app. Run manually: $SYNC_BIN --watch"
+        else
+            if command -v gnome-terminal >/dev/null 2>&1; then
+                gnome-terminal -- bash -c "cd '$REPO_ROOT' && $SYNC_CMD" &
+            elif command -v konsole >/dev/null 2>&1; then
+                konsole -e bash -c "cd '$REPO_ROOT' && $SYNC_CMD" &
+            elif command -v xterm >/dev/null 2>&1; then
+                xterm -e "cd '$REPO_ROOT' && $SYNC_CMD" &
+            else
+                warn "No terminal emulator found. Run manually: $SYNC_BIN --watch"
+            fi
+        fi
+    fi
 fi
 
 # ── Banner ─────────────────────────────────────────────────────────────────
@@ -1203,6 +1304,10 @@ cat <<EOF
   |    Reprovision       ./dev-local.sh --reprovision                   |
   |    Full reset        ./dev-local.sh --clean                         |
   |    Launch watcher    ./dev-local.sh --watcher                       |
+  |                                                                     |
+  |  MODE                                                               |
+  |    Run mode:         $RUN_MODE (source = cargo run / build = binaries)   |
+  |    Sync watcher:     dev-sync.sh --watch (~1s mirror latency)       |
   |    Dev Watch TUI     $REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch
   |                                                                     |
   |  CO-BUDDY FEATURES                                                  |

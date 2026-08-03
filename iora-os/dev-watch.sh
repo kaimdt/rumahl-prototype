@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-# dev-watch.sh – IORA OS Dev-Loop (watch → build → deploy)
+# dev-watch.sh – IORA OS Dev-Loop (watch → build → mirror-deploy)
 # ============================================================================
-# Watches the Rust workspace and frontend, cross-compiles for the VM target,
-# uploads changed binaries via SSH and restarts the corresponding systemd
-# services. Works on macOS, Linux and WSL2.
+# Watches the Rust workspace and frontend, builds natively inside the Dev VM
+# and ships the built binaries through the 1:1 mirror drop-box
+# (/home/iora/iora/.iora-dev/binaries). The in-VM hot-reload daemon
+# (iora-hot-reload.service, build mode) installs them to /usr/bin/iora-*
+# and restarts the services – no direct scp/restart from the host.
+# Works on macOS, Linux and WSL2.
 #
 # Design goals: idempotent, autonomous, fault-tolerant.
 #
@@ -21,7 +24,8 @@
 #   ./dev-watch.sh --vm-host HOST        SSH host (default 127.0.0.1)
 #   ./dev-watch.sh --vm-port PORT        SSH port (default 2222)
 #   ./dev-watch.sh --ssh-key FILE        SSH key (default <repo>/iora-os/.cache/iora-dev-key)
-#   ./dev-watch.sh --no-restart          Upload but don't restart services
+#   ./dev-watch.sh --no-restart          Deploy binary but let the daemon skip
+#                                        the service restart
 #   ./dev-watch.sh --help
 # ============================================================================
 # shellcheck disable=SC2155,SC2034
@@ -140,6 +144,15 @@ SSH_OPTS=(
 ssh_vm() { ssh "${SSH_OPTS[@]}" -p "$VM_PORT" "root@$VM_HOST" "$@"; }
 scp_to_vm() { scp "${SSH_OPTS[@]}" -P "$VM_PORT" -q "$1" "root@$VM_HOST:$2"; }
 
+# ── Mirror drop-box (build mode) ────────────────────────────────────────────
+# Built binaries are dropped into the 1:1 mirror's drop box; the in-VM
+# hot-reload daemon installs them to /usr/bin/iora-* and restarts the
+# service (its own hash tracking avoids repeated deploys). The drop box
+# is inside the mirror but excluded from host sync (rsync --exclude
+# .iora-dev), so the mirror watcher never interferes with it.
+MIRROR_DROPBOX="/home/iora/iora/.iora-dev/binaries"
+MIRROR_NO_RESTART_FLAG="/etc/iora/.no-restart"
+
 vm_reachable() {
     [ -f "$SSH_KEY" ] || return 1
     ssh_vm -o ConnectTimeout=5 -o BatchMode=yes "true" 2>/dev/null
@@ -232,30 +245,18 @@ bin_changed() {
     return 0
 }
 
-# ── Deploy a single binary ────────────────────────────────────────────────
+# ── Deploy changed binaries through the mirror drop-box ────────────────────
+# The in-VM hot-reload daemon (build mode) picks files up from
+# $MIRROR_DROPBOX, installs them to /usr/bin/iora-* and restarts the
+# services. We only copy binaries that actually changed (hash tracking)
+# and then wait briefly for the daemon to finish.
 deploy_binary() {
     local name="$1" bin="$2"
-    local remote="/usr/bin/$name"
-
-    # Upload to a temp file, then atomically move into place (avoids
-    # corrupting a running binary on the VM mid-restart).
-    local tmp="/tmp/.iora-deploy-$name.$$"
-    if ! scp_to_vm "$bin" "$tmp"; then
-        err "    $name : scp failed"
+    if ! ssh_vm "mkdir -p '$MIRROR_DROPBOX' && install -m 0755 '$bin' '$MIRROR_DROPBOX/$name'" >/dev/null 2>&1; then
+        err "    $name : drop-box copy failed"
         return 1
     fi
-    if ! ssh_vm "install -m 0755 '$tmp' '$remote' && rm -f '$tmp'"; then
-        err "    $name : install failed"
-        ssh_vm "rm -f '$tmp'" >/dev/null 2>&1 || true
-        return 1
-    fi
-
-    if $DO_RESTART; then
-        # Use restart (starts inactive services too) after resetting any failed state
-        ssh_vm "systemctl reset-failed $name 2>/dev/null; systemctl restart $name 2>/dev/null || systemctl start $name 2>/dev/null || true" \
-            >/dev/null 2>&1 || true
-    fi
-    printf '    %s->%s %s\n' "$G" "$N" "$name"
+    printf '    %s->%s %s (mirror drop-box)\n' "$G" "$N" "$name"
     return 0
 }
 
@@ -317,18 +318,18 @@ deploy_many() {
         return 0
     fi
 
-    # ── 3. Build one combined remote script for all changed services ──
-    # Runs sequentially server-side but in a single SSH session (already
-    # cheap thanks to ControlMaster); the local 'wait' fanout would add
-    # complexity without measurable gain on small service counts.
+    # ── 3. Copy changed binaries into the mirror drop-box (one SSH call) ──
+    # The in-VM hot-reload daemon installs them to /usr/bin and restarts.
+    # The env/credentials provisioning lines are kept here so services can
+    # run standalone even on a fresh VM.
     local remote_script="set +e"$'\n'
-    local restart_block=""
+    remote_script+="mkdir -p '$MIRROR_DROPBOX'"$'\n'
     local home_changed=false
     for entry in "${to_deploy[@]}"; do
         local svc="${entry%%:*}"
         local svc_short="${svc#iora-}"
         [ "$svc" = "iora-home" ] && home_changed=true
-        remote_script+="install -m 0755 '$vm_target/$svc' '/usr/bin/$svc' 2>/dev/null"$'\n'
+        remote_script+="install -m 0755 '$vm_target/$svc' '$MIRROR_DROPBOX/$svc' 2>/dev/null"$'\n'
         remote_script+="mkdir -p /etc/iora/db-credentials /tmp/iora-sandboxes /opt/iora/build/$svc/data /etc/systemd/system/$svc.service.d"$'\n'
         remote_script+="[ -f /etc/iora/db-credentials/$svc.env ] || echo 'DATABASE_URL=postgres://root:iora@localhost/iora_${svc_short}' > /etc/iora/db-credentials/$svc.env"$'\n'
         remote_script+="[ -f /etc/iora/$svc.env ] || printf 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_${svc_short}\nRUST_LOG=${svc}=debug\n' > /etc/iora/$svc.env"$'\n'
@@ -336,16 +337,16 @@ deploy_many() {
         if [ "$svc" = "iora-home" ]; then
             remote_script+="grep -q IORA_BOOTSTRAP_ADMIN_USER /etc/iora/iora-home.env 2>/dev/null || printf 'IORA_BOOTSTRAP_ADMIN_USER=admin\nIORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234\n' >> /etc/iora/iora-home.env"$'\n'
         fi
-        if $DO_RESTART; then
-            restart_block+="systemctl reset-failed $svc 2>/dev/null; (systemctl restart $svc 2>/dev/null || systemctl start $svc 2>/dev/null) &"$'\n'
-        fi
     done
-    if $DO_RESTART && [ -n "$restart_block" ]; then
-        remote_script+="$restart_block"$'wait\n'
+    if $DO_RESTART; then
+        remote_script+="rm -f '$MIRROR_NO_RESTART_FLAG'"$'\n'
+    else
+        remote_script+="touch '$MIRROR_NO_RESTART_FLAG'"$'\n'
     fi
+    remote_script+="chown -R iora:iora '$MIRROR_DROPBOX' 2>/dev/null"$'\n'
 
     if ! ssh_vm "$remote_script" >/dev/null 2>&1; then
-        warn "  deploy: remote script reported errors (continuing)"
+        warn "  deploy: mirror drop-box update reported errors (continuing)"
     fi
 
     # ── 4. Idempotent admin-role fix (only if iora-home changed and only
@@ -367,17 +368,23 @@ deploy_many() {
         ) &
     fi
 
-    # ── 5. Persist hashes so the next deploy can skip unchanged ones ──
+    # ── 5. Wait for the daemon to deploy + restart, then persist hashes ──
     local deployed=0
     for entry in "${to_deploy[@]}"; do
         local svc="${entry%%:*}"
-        local hash="${entry#*:}"
-        echo "$hash" > "$HASH_DIR/$svc"
+        local want_hash="${entry#*:}"
+        local i got
+        for i in 1 2 3 4 5; do
+            got=$(ssh_vm "sha256sum /usr/bin/$svc 2>/dev/null | awk '{print \$1}'" 2>/dev/null | tr -d '\r')
+            [ "$got" = "$want_hash" ] && break
+            sleep 2
+        done
+        echo "$want_hash" > "$HASH_DIR/$svc"
         printf '    %s->%s %s\n' "$G" "$N" "$svc"
         deployed=$((deployed + 1))
     done
 
-    printf '  deployed=%d skipped=%d\n' "$deployed" "${#to_skip[@]}"
+    printf '  deployed=%d skipped=%d (mirror -> daemon)\n' "$deployed" "${#to_skip[@]}"
     return 0
 }
 
@@ -954,6 +961,8 @@ run_dashboard() {
                     _dash_log "${C}[DEPLOY]${N} Deploying..."
                     _dash_footer
                     rm -f "$HASH_DIR"/* 2>/dev/null || true
+                    # Force the in-VM daemon to re-evaluate too
+                    ssh_vm "rm -f /var/lib/iora/dev-binary-hashes/* 2>/dev/null || true" >/dev/null 2>&1 || true
                     deploy_many "${ALL_SERVICES[@]}" 2>&1 | while IFS= read -r l; do _dash_log "${M}[DEPLOY]${N} $l"; done
                     DASH_LAST_DEPLOY="${G}✓ deployed${N}"
                     _dash_refresh_services

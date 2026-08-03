@@ -43,6 +43,8 @@ param(
     [switch] $Watcher,
     [switch] $Foreground,
     [switch] $SkipWhpx,
+    [ValidateSet("source", "build")]
+    [string] $Mode = "source",
     [ValidatePattern('^\d+(GB|G)?$')]
     [string] $Ram = "",
     [ValidateRange(1, 64)]
@@ -283,6 +285,7 @@ $CARGO_JOBS = [Math]::Max(1, [Math]::Min($CARGO_JOBS, $VM_CPUS))
 
 Write-Info "Host: ${hostRamGB}GB RAM, ${HOST_CPUS} CPUs ($HOST_ARCH)"
 Write-Info "VM:   $VM_RAM RAM, $VM_CPUS CPUs, cargo -j$CARGO_JOBS"
+Write-Info "Mode: $Mode ($(if ($Mode -eq "source") { "cargo run from 1:1 mirror" } else { "deployed binaries" }))"
 
 # -- Arch-specific cloud image ----------------------------------------------
 if ($HOST_ARCH -eq "ARM64") {
@@ -633,9 +636,21 @@ if (-not (Test-Path $VM_DISK)) {
 # -- Step 3: SSH key + cloud-init seed ISO ----------------------------------
 if (-not (Test-Path $SSH_KEY)) {
     Write-Info "Generating SSH key for VM..."
-    $sshKeyWsl = ConvertTo-WslPath $SSH_KEY
-    wsl bash -c "ssh-keygen -t ed25519 -f '$sshKeyWsl' -N '' -C 'iora-dev-vm'" 2>$null
-    if ($LASTEXITCODE -ne 0) { Stop-WithError "ssh-keygen via WSL failed." }
+    # Prefer the Windows OpenSSH ssh-keygen (no WSL startup needed); the
+    # piped newline guards against an interactive passphrase prompt.
+    $keygenOk = $false
+    $winKeygen = Get-Command ssh-keygen.exe -ErrorAction SilentlyContinue
+    if ($winKeygen) {
+        "`n" | & $winKeygen.Source -t ed25519 -f $SSH_KEY -N "" -C "iora-dev-vm" 2>$null
+        $keygenOk = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $keygenOk) {
+        # Fallback: generate inside WSL
+        $sshKeyWsl = ConvertTo-WslPath $SSH_KEY
+        wsl bash -c "ssh-keygen -t ed25519 -f '$sshKeyWsl' -N '' -C 'iora-dev-vm'" 2>$null
+        $keygenOk = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $keygenOk) { Stop-WithError "ssh-keygen failed." }
     icacls $SSH_KEY /inheritance:r /grant:r "${env:USERNAME}:R" 2>$null | Out-Null
     icacls "$SSH_KEY.pub" /inheritance:r /grant:r "${env:USERNAME}:R" 2>$null | Out-Null
     Write-Success "SSH key: $SSH_KEY"
@@ -712,27 +727,37 @@ final_message: "IORA Dev VM ready."
     $seedDirWsl = ConvertTo-WslPath $seedDir
     $seedIsoWsl = ConvertTo-WslPath $SEED_ISO
 
-    $created = $false
-    foreach ($tool in @('genisoimage','mkisofs','xorriso')) {
-        wsl bash -c "command -v $tool" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            if ($tool -eq 'xorriso') {
-                wsl xorriso -as mkisofs -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>&1 | Out-Null
-            } else {
-                wsl $tool -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>&1 | Out-Null
-            }
-            if ($LASTEXITCODE -eq 0) { $created = $true; break }
-        }
-    }
-    if (-not $created) {
-        Write-Info "Installing genisoimage in WSL..."
-        wsl sudo apt-get update -qq 2>&1 | Out-Null
-        wsl sudo apt-get install -y -qq genisoimage 2>&1 | Out-Null
-        wsl genisoimage -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>&1 | Out-Null
-        $created = ($LASTEXITCODE -eq 0)
-    }
+    # Single WSL invocation: pick an existing ISO tool, otherwise install one
+    # (fast path WITHOUT apt-get update - update only runs when the package is
+    # unknown), then create the seed ISO. Saves 4-5 WSL startups and a
+    # needless package-index refresh on every run.
+    $wslScript = @"
+set -e
+TOOL=""
+for t in genisoimage mkisofs xorriso; do
+    command -v "\$t" >/dev/null 2>&1 && { TOOL="\$t"; break; }
+done
+if [ -z "\$TOOL" ]; then
+    echo "[*] genisoimage missing - trying install without apt update..."
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genisoimage >/dev/null 2>&1; then
+        echo "[*] Package lists stale - running apt-get update..."
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genisoimage
+    fi
+    if command -v genisoimage >/dev/null 2>&1; then TOOL="genisoimage"
+    elif command -v xorriso >/dev/null 2>&1; then TOOL="xorriso"; fi
+fi
+[ -n "\$TOOL" ] || { echo "[X] No ISO creation tool available in WSL"; exit 1; }
+if [ "\$TOOL" = "xorriso" ]; then
+    xorriso -as mkisofs -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl"
+else
+    "\$TOOL" -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl"
+fi
+"@
+    wsl bash -c $wslScript 2>&1 | Out-Null
+    $created = ($LASTEXITCODE -eq 0) -and (Test-Path $SEED_ISO)
     Remove-Item -Recurse -Force $seedDir -ErrorAction SilentlyContinue
-    if (-not $created) { Stop-WithError "Failed to create seed ISO. Install genisoimage in WSL." }
+    if (-not $created) { Stop-WithError "Failed to create seed ISO. Manual: wsl sudo apt-get install genisoimage" }
     Write-Success "Seed ISO created: $SEED_ISO"
 }
 
@@ -929,28 +954,45 @@ if ((Test-Path $PROVISIONED_MARKER) -and (-not $Reprovision)) {
     }
 }
 
-# Always sync source (cheap)
-Write-Info "Uploading project (tar+scp)..."
-$projectTar = Join-Path $CACHE "iora-project.tar.gz"
-Push-Location $REPO_ROOT
-try {
-    tar -czf $projectTar `
-        --exclude='.git' --exclude='target' --exclude='node_modules' `
-        --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
-        --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
-        --exclude='*.tar.gz' --exclude='.iora-dev' . 2>$null
-} finally {
-    Pop-Location
+# Always sync source (incremental 1:1 mirror via WSL rsync)
+Write-Info "Syncing project to VM (WSL rsync, incremental)..."
+$repoWsl = ConvertTo-WslPath $REPO_ROOT
+$keyWsl = ConvertTo-WslPath $SSH_KEY
+# drvfs keys have loose permissions that ssh refuses - stage a 0600 copy in WSL
+wsl bash -c "mkdir -p ~/.ssh && install -m 600 '$keyWsl' ~/.ssh/iora_dev_key 2>/dev/null || cp '$keyWsl' ~/.ssh/iora_dev_key" 2>$null | Out-Null
+$syncExcludes = "--exclude='.git' --exclude='target' --exclude='node_modules' --exclude='.cache' --exclude='buildroot-*' --exclude='releases' --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' --exclude='*.tar.gz' --exclude='.iora-dev'"
+$syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/iora_dev_key -p $SshPort"
+wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@127.0.0.1:/home/iora/iora/ && ssh $syncSsh root@127.0.0.1 'chown -R iora:iora /home/iora/iora'" 2>&1 | Out-Null
+$mainSyncOk = ($LASTEXITCODE -eq 0)
+if ($mainSyncOk -and $Mode -eq "build") {
+    # Build mode: also mirror the drop-box so host-built binaries reach the daemon
+    wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@127.0.0.1:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
 }
-if (-not (Test-Path $projectTar)) { Stop-WithError "tar archive missing." }
-
-$sizeMB = [Math]::Round((Get-Item $projectTar).Length / 1MB)
-Write-Info "  uploading ${sizeMB}MB archive..."
-Invoke-SSH 'mkdir -p /home/iora/iora' | Out-Null
-Send-SCP -LocalPath $projectTar -RemotePath "/home/iora/iora/" | Out-Null
-Invoke-SSH 'cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz && chown -R iora:iora /home/iora/iora' | Out-Null
-Remove-Item $projectTar -Force -ErrorAction SilentlyContinue
-Write-Success "Project uploaded"
+if (-not $mainSyncOk) {
+    Write-Warn "WSL rsync failed - falling back to tar+scp..."
+    $projectTar = Join-Path $CACHE "iora-project.tar.gz"
+    Push-Location $REPO_ROOT
+    try {
+        tar -czf $projectTar `
+            --exclude='.git' --exclude='target' --exclude='node_modules' `
+            --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
+            --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
+            --exclude='*.tar.gz' --exclude='.iora-dev' . 2>$null
+    } finally {
+        Pop-Location
+    }
+    if (Test-Path $projectTar) {
+        $sizeMB = [Math]::Round((Get-Item $projectTar).Length / 1MB)
+        Write-Info "  uploading ${sizeMB}MB archive..."
+        Invoke-SSH 'mkdir -p /home/iora/iora' | Out-Null
+        Send-SCP -LocalPath $projectTar -RemotePath "/home/iora/iora/" | Out-Null
+        Invoke-SSH 'cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz && chown -R iora:iora /home/iora/iora' | Out-Null
+        Remove-Item $projectTar -Force -ErrorAction SilentlyContinue
+    } else {
+        Stop-WithError "Project sync failed (rsync and tar fallback both failed)."
+    }
+}
+Write-Success "Project synced (1:1 mirror at /home/iora/iora)"
 
 if ($needProvision) {
     Write-Info "Installing system packages (slow first-run step)..."
@@ -970,7 +1012,8 @@ done
         systemctl reset-failed postgresql postgresql@15-main 2>/dev/null || true
     fi
 apt-get update -qq
-apt-get install -y -qq \
+# --no-install-recommends + retries: smaller download, faster provisioning
+apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
     curl git ca-certificates build-essential pkg-config libssl-dev \
     nodejs npm docker.io postgresql postgresql-client rsync \
     python3 python3-pip htop vim mold nginx openssl socat \
@@ -1031,16 +1074,17 @@ incremental = false
     Remove-Item $cargoCfgPath -Force -ErrorAction SilentlyContinue
     Write-Success "Cargo configured"
 
-    Write-Info "Applying IORA OS compatibility layer..."
-    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1' | Select-Object -Last 8
-    Write-Info "Registering IORA OS systemd services..."
-    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1' | Select-Object -Last 8
-    Write-Info "Applying IORA OS improvements..."
-    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1' | Select-Object -Last 8
-    Write-Info "Optimizing memory allocation for system resources..."
-    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-optimize-memory.sh 2>&1' | Select-Object -Last 8
-    Write-Info "Configuring Global Config access and live logs..."
-    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-config-sync.sh 2>&1' | Select-Object -Last 8
+    Write-Info "Applying IORA OS compat layer + improvements (one SSH session)..."
+    $compatScript = @'
+for s in iora-dev-compat.sh iora-dev-improvements.sh iora-optimize-memory.sh iora-config-sync.sh; do
+    echo "=== $s ==="
+    bash "/home/iora/iora/iora-os/$s" 2>&1 | tail -n 8
+    echo ""
+done
+'@
+    Invoke-SSHStdin $compatScript | Select-Object -Last 12
+    Write-Info "Registering IORA OS systemd services (mode: $Mode)..."
+    Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh --$Mode-mode 2>&1" | Select-Object -Last 8
 
     Invoke-SSH 'mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned' | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
@@ -1057,11 +1101,16 @@ for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
         || su - postgres -c "psql -c \"CREATE DATABASE $db OWNER iora\""
 done
 mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data
+if [ "$(cat /etc/iora/dev-run-mode 2>/dev/null || echo source)" = "build" ]; then
 cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 [Service]
 Environment=DATABASE_URL=postgres://root:iora@localhost/iora_home
 WorkingDirectory=/opt/iora/build/iora-home
 CFG
+else
+# Source mode: no WorkingDirectory override (unit runs cargo run from the mirror)
+rm -f /etc/systemd/system/iora-home.service.d/db.conf
+fi
 
 # Central log viewer: iora-home must be able to read other services' journals.
 cat > /etc/systemd/system/iora-home.service.d/logs.conf <<CFG
@@ -1093,28 +1142,93 @@ systemctl enable --now iora-health-check.timer 2>/dev/null
 $null = Invoke-SSHStdin $dbInitScript
 Write-Success "Databases initialized"
 
-# -- Step 8: Frontend build + deploy ----------------------------------------
-$frontendDir = Join-Path $REPO_ROOT "frontend"
-if ((Test-Path (Join-Path $frontendDir "package.json")) -and (Get-Command npm -ErrorAction SilentlyContinue)) {
-    Write-Info "Building frontend..."
-    Push-Location $frontendDir
-    try {
-        npm install 2>&1 | Select-Object -Last 3 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            npm run build 2>&1 | Select-Object -Last 3 | Out-Null
-            if (($LASTEXITCODE -eq 0) -and (Test-Path (Join-Path $frontendDir "dist"))) {
-                Write-Info "Deploying frontend to VM..."
-                Invoke-SSH "mkdir -p /opt/iora/build/dist" | Out-Null
-                Send-SCP -LocalPath (Join-Path $frontendDir "dist") -RemotePath "/opt/iora/build/" -Recurse | Out-Null
-                Write-Success "Frontend deployed"
-            } else { Write-Warn "Frontend build failed (non-fatal)" }
-        } else { Write-Warn "npm install failed (non-fatal)" }
-    } finally { Pop-Location }
+# -- Step 8: Hot-reload daemon ------------------------------------------------
+Write-Info "Installing hot-reload daemon (mode: $Mode)..."
+$hotReloadScript = @'
+set -e
+install -m 0755 /home/iora/iora/iora-os/iora-dev-hot-reload.sh /usr/local/bin/iora-dev-hot-reload.sh
+cat > /etc/systemd/system/iora-hot-reload.service <<'UNIT'
+[Unit]
+Description=IORA Dev VM Hot-Reload (1:1 mirror watcher)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/iora-dev-hot-reload.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now iora-hot-reload.service 2>/dev/null || true
+systemctl restart iora-hot-reload.service 2>/dev/null || true
+echo "[OK] hot-reload daemon active (mode: $(cat /etc/iora/dev-run-mode 2>/dev/null || echo source))"
+'@
+$null = Invoke-SSHStdin $hotReloadScript
+
+# -- Step 9: Frontend (source mode: Vite in VM / build mode: dist deploy) ----
+if ($Mode -eq "source") {
+    Write-Info "Source mode: setting up the Vite dev server in the VM..."
+    $viteScript = @'
+set +e
+cd /home/iora/iora/frontend || exit 0
+if [ -f package.json ]; then
+    [ -d node_modules ] || npm install --no-audit --no-fund 2>&1 | tail -3
+    cat > /etc/systemd/system/iora-frontend-dev.service <<'UNIT'
+[Unit]
+Description=IORA Frontend Vite Dev Server (source mode)
+After=network.target
+
+[Service]
+Type=simple
+User=iora
+Group=iora
+WorkingDirectory=/home/iora/iora/frontend
+ExecStart=/usr/bin/npm run dev -- --host 0.0.0.0 --port 5173
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=development
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+    systemctl enable --now iora-frontend-dev.service 2>/dev/null || true
+    grep -q IORA_FRONTEND_DEV_URL /etc/iora/iora-home.env 2>/dev/null || echo 'IORA_FRONTEND_DEV_URL=http://127.0.0.1:5173' >> /etc/iora/iora-home.env
+    systemctl restart iora-home 2>/dev/null || true
+    echo "[OK] Vite dev server unit created (HMR via iora-home proxy)"
+fi
+'@
+    $null = Invoke-SSHStdin $viteScript
 } else {
-    Write-Warn "npm not available - skipping frontend build."
+    $frontendDir = Join-Path $REPO_ROOT "frontend"
+    if ((Test-Path (Join-Path $frontendDir "package.json")) -and (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Info "Building frontend..."
+        Push-Location $frontendDir
+        try {
+            npm install 2>&1 | Select-Object -Last 3 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                npm run build 2>&1 | Select-Object -Last 3 | Out-Null
+                if (($LASTEXITCODE -eq 0) -and (Test-Path (Join-Path $frontendDir "dist"))) {
+                    Write-Info "Deploying frontend to VM..."
+                    Invoke-SSH "mkdir -p /opt/iora/build/dist" | Out-Null
+                    Send-SCP -LocalPath (Join-Path $frontendDir "dist") -RemotePath "/opt/iora/build/" -Recurse | Out-Null
+                    Write-Success "Frontend deployed"
+                } else { Write-Warn "Frontend build failed (non-fatal)" }
+            } else { Write-Warn "npm install failed (non-fatal)" }
+        } finally { Pop-Location }
+    } else {
+        Write-Warn "npm not available - skipping frontend build."
+    }
 }
 
-# -- Step 9: Verification ---------------------------------------------------
+# -- Step 10: Verification ---------------------------------------------------
 Write-Info "Verifying IORA OS services..."
 $svcCount = (Invoke-SSH 'systemctl list-unit-files --type=service ''iora-*'' 2>/dev/null | grep -c ''^iora-'' || echo 0').ToString().Trim()
 Write-Info "IORA services registered: $svcCount"
@@ -1216,6 +1330,10 @@ $readyBanner = @"
   |    Reprovision       .\dev-local.ps1 -Reprovision                   |
   |    Full reset        .\dev-local.ps1 -Clean                         |
   |    Launch watcher    .\dev-local.ps1 -Watcher                       |
+  |                                                                     |
+  |  MODE                                                               |
+  |    Run mode:         $Mode (source = cargo run / build = binaries)  |
+  |    Sync watcher:     wsl bash dev-sync.sh --watch (~1s latency)     |
   |                                                                     |
   |  Logs                                                               |
   |    Setup log         $LOG_FILE
