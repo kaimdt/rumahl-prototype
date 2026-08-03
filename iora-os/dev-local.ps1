@@ -44,6 +44,7 @@ param(
     [switch] $Foreground,
     [switch] $SkipWhpx,
     [switch] $Uefi,
+    [switch] $Freeze,
     [ValidateSet("source", "build")]
     [string] $Mode = "source",
     [ValidatePattern('^\d+(GB|G)?$')]
@@ -76,12 +77,12 @@ if ($doubleDashArgs) {
 if ($Help) {
     Write-Host "Usage: .\dev-local.ps1 [options]" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  -Clean         Drop cached VM disk + seed ISO (keep image)"
-    Write-Host "  -CleanAll      Also remove downloaded cloud image"
+    Write-Host "  -Clean         Drop cached VM disk + seed ISO (keep image + golden)"
+    Write-Host "  -CleanAll      Also remove downloaded cloud image + golden snapshot"
     Write-Host "  -Status        Show whether VM is running + health check"
     Write-Host "  -Stop          Stop the running VM"
     Write-Host "  -Reboot        Stop VM + restart fresh"
-    Write-Host "  -Rebuild       Stop VM, clean cache, start fresh"
+    Write-Host "  -Rebuild       Stop VM, clean cache, start fresh provision (drops golden)"
     Write-Host "  -SSH           SSH directly into the VM"
     Write-Host "  -Log           Live cloud-init / system logs"
     Write-Host "  -Reprovision   Force re-running the in-VM setup"
@@ -89,6 +90,8 @@ if ($Help) {
     Write-Host "  -Watcher        Launch dev-watch TUI in new terminal (VM must be running)"
     Write-Host "  -Foreground    Keep this window attached to QEMU"
     Write-Host "  -Uefi          Force UEFI (OVMF) firmware instead of SeaBIOS"
+    Write-Host "  -Freeze        Bake current provisioned VM state into a golden"
+    Write-Host "                 snapshot - resets (-Clean) become instant afterwards"
     Write-Host "  -Ram 8GB       Set VM RAM (default: auto)"
     Write-Host "  -CpuCount 4    Set VM CPU count (default: auto)"
     exit 0
@@ -304,11 +307,29 @@ if ($HOST_ARCH -eq "ARM64") {
     $VM_MACHINE = "q35"
 }
 $VM_DISK    = Join-Path $CACHE "iora-dev-vm.qcow2"
+$GOLDEN_DISK = Join-Path $CACHE "iora-dev-golden.qcow2"
 $SSH_KEY    = Join-Path $CACHE "iora-dev-key"
 $SEED_ISO   = Join-Path $CACHE "iora-dev-seed.iso"
 $QEMU_PIDFILE = Join-Path $CACHE "qemu.pid"
 $PROVISIONED_MARKER = Join-Path $CACHE ".provisioned"
 $QEMU_STDERR = Join-Path $CACHE "qemu-stderr.log"
+
+# -- Dev disk lifecycle ------------------------------------------------------
+function Reset-VmDisk {
+    # Recreate the dev overlay from the golden snapshot (if present) or the
+    # base image. Golden = provisioned state: a reset is instant and needs no
+    # re-provisioning; without golden the VM is re-provisioned automatically.
+    $src = if (Test-Path $GOLDEN_DISK) { $GOLDEN_DISK } else { $IMG_CACHE }
+    Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
+    & $QEMU_IMG create -f qcow2 -b $src -F qcow2 $VM_DISK 40G | Out-Null
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "qemu-img create failed (backing: $src)." }
+    if ($src -eq $GOLDEN_DISK) {
+        Write-Success "Dev disk reset to the golden snapshot (no re-provisioning needed)"
+        Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
+    } else {
+        Write-Dim "Dev disk recreated from the base image (will be re-provisioned)"
+    }
+}
 
 # -- Ports forwarded host -> VM (mirrors IORA OS systemd unit ports) --------
 $VM_HOME   = 8126
@@ -590,10 +611,42 @@ if ($Rebuild) {
         $_.Name -notlike "debian-12-cloud-*.qcow2"
     } | Remove-Item -Force -ErrorAction SilentlyContinue
     Remove-Item -Path (Join-Path $CACHE "seed") -Recurse -Force -ErrorAction SilentlyContinue
+    # Rebuild means a truly fresh provision: the golden snapshot is dropped too
+    Remove-Item $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
     & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
     & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
     Write-Info "Starting fresh provision..."
     # Fall through to normal start
+}
+
+# -- -Freeze: bake the current provisioned VM state into a golden snapshot ---
+if ($Freeze) {
+    $provisioned = $false
+    $p = Get-QemuPid
+    if (-not $p) { $p = Get-QemuProcess | Select-Object -First 1 }
+    if ($p) {
+        $check = Invoke-SSH 'test -f /etc/iora/dev-vm-provisioned && echo PROV_OK'
+        if ("$check" -match "PROV_OK") { $provisioned = $true }
+    }
+    if (-not $provisioned) {
+        Stop-WithError "VM is not provisioned yet - start it once and let provisioning finish, then re-run with -Freeze."
+    }
+    Write-Info "Freezing current VM state as golden snapshot..."
+    Stop-Vm
+    if (-not (Test-Path $VM_DISK)) { Stop-WithError "No VM disk found to freeze." }
+    Write-Info "Converting overlay to golden (compressed, takes a few minutes)..."
+    & $QEMU_IMG convert -O qcow2 -c $VM_DISK "$GOLDEN_DISK.tmp" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item "$GOLDEN_DISK.tmp" -Force -ErrorAction SilentlyContinue
+        Stop-WithError "qemu-img convert failed (is there enough free disk space?)."
+    }
+    Remove-Item $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
+    Move-Item "$GOLDEN_DISK.tmp" $GOLDEN_DISK -Force
+    Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
+    Reset-VmDisk
+    Write-Success "Golden snapshot saved: $GOLDEN_DISK"
+    Write-Info "Resets are now instant: .\dev-local.ps1 -Clean && .\dev-local.ps1"
+    exit 0
 }
 
 if ($Status) {
@@ -687,12 +740,14 @@ if ($useUefi) {
 if ($Clean -or $CleanAll) {
     Write-Info "Cleaning cache..."
     Stop-Vm
+    # Keep the base image and the golden snapshot (resets stay instant)
     Get-ChildItem -Path $CACHE -File -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -notlike "debian-12-cloud-*.qcow2"
+        $_.Name -notlike "debian-12-cloud-*.qcow2" -and $_.Name -ne "iora-dev-golden.qcow2"
     } | Remove-Item -Force -ErrorAction SilentlyContinue
     Remove-Item -Path (Join-Path $CACHE "seed") -Recurse -Force -ErrorAction SilentlyContinue
     if ($CleanAll) {
         Remove-Item -Path $IMG_CACHE -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
     }
     & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
     & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
@@ -722,9 +777,12 @@ if (-not (Test-Path $IMG_CACHE)) {
 
 # -- Step 2: VM disk overlay ------------------------------------------------
 if (-not (Test-Path $VM_DISK)) {
-    Write-Info "Creating VM disk overlay (40G)..."
-    & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
-    if ($LASTEXITCODE -ne 0) { Stop-WithError "qemu-img create failed." }
+    if (Test-Path $GOLDEN_DISK) {
+        Write-Info "Creating VM disk overlay (40G) on the golden snapshot..."
+    } else {
+        Write-Info "Creating VM disk overlay (40G)..."
+    }
+    Reset-VmDisk
 }
 
 # -- Step 3: SSH key + cloud-init seed ISO ----------------------------------
@@ -1104,9 +1162,10 @@ if ($existingProc) {
                     Stop-WithError "QEMU rejected the command line (configuration error, see stderr above). The VM disk was NOT modified. Fix the QEMU arguments (or update QEMU), then re-run; use -SkipWhpx to boot via TCG/SeaBIOS in the meantime."
                 }
                 # Real WHPX failure: WHPX can corrupt the overlay; recreate it
-                Write-Warn "Overlay recreated from the base image (WHPX failure) - the VM will be re-provisioned automatically."
-                Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
-                & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
+                # (from the golden snapshot when one exists - instant, no
+                # re-provisioning)
+                Write-Warn "Overlay recreated (WHPX failure) - using the golden snapshot if available."
+                Reset-VmDisk
                 $useWhpx = $false
             }
         }
@@ -1293,10 +1352,15 @@ function Get-WslSyncHost {
     return $null
 }
 $wslHost = Get-WslSyncHost
+$syncOut = ""
 if ($wslHost) {
-    wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@${wslHost}:/home/iora/iora/ && ssh $syncSsh root@${wslHost} 'chown -R iora:iora /home/iora/iora'" 2>&1 | Out-Null
+    $syncOut = wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@${wslHost}:/home/iora/iora/ && ssh $syncSsh root@${wslHost} 'chown -R iora:iora /home/iora/iora'" 2>&1
 }
 $mainSyncOk = ($LASTEXITCODE -eq 0) -and $wslHost
+if (-not $mainSyncOk) {
+    Write-Dim "  rsync output (last 12 lines):"
+    ($syncOut | Select-Object -Last 12) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+}
 if ($mainSyncOk -and $Mode -eq "build") {
     # Build mode: also mirror the drop-box so host-built binaries reach the daemon
     wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@${wslHost}:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
@@ -1316,7 +1380,7 @@ if (-not $mainSyncOk) {
         foreach ($e in @('.git', 'target', 'node_modules', '.cache', 'buildroot-*', 'releases', '*.img', '*.qcow2', '*.iso', '*.tar.gz', '.iora-dev')) {
             $tarArgs += "--exclude=$e"
         }
-        & $tarBin @tarArgs '.' 2>$null
+        $tarErr = & $tarBin @tarArgs '.' 2>&1
     } finally {
         Pop-Location
     }
@@ -1328,10 +1392,24 @@ if (-not $mainSyncOk) {
         Invoke-SSH 'cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz && chown -R iora:iora /home/iora/iora' | Out-Null
         Remove-Item $projectTar -Force -ErrorAction SilentlyContinue
     } else {
+        Write-Dim "  tar output (last 10 lines):"
+        ($tarErr | Select-Object -Last 10) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
         Stop-WithError "Project sync failed (rsync and tar fallback both failed)."
     }
 }
 Write-Success "Project synced (1:1 mirror at /home/iora/iora)"
+
+# Parallel: start the frontend npm install right after the mirror is in place
+# (runs while apt/rustup provision below; waited for in Step 9)
+$npmJob = $null
+if ($needProvision -and $Mode -eq "source") {
+    Write-Info "Starting frontend npm install in the background (parallel to provisioning)..."
+    $npmJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
+        param($sshBin, $sshOpts, $sshKey, $port)
+        $cmd = "cd /home/iora/iora/frontend && [ -d node_modules ] || npm install --no-audit --no-fund 2>&1"
+        & $sshBin @sshOpts -i $sshKey -p $port root@127.0.0.1 $cmd
+    }
+}
 
 # -- Register systemd services (ALWAYS, not only on first provision): the
 #    script is idempotent and this is what makes -Mode source/build switches
@@ -1340,6 +1418,15 @@ Write-Info "Registering IORA OS systemd services (mode: $Mode)..."
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh --$Mode-mode 2>&1" | Select-Object -Last 8
 
 if ($needProvision) {
+    # Parallel: the Rust toolchain installs via SSH while apt runs below
+    # (independent - saves minutes on first provisioning)
+    Write-Info "Starting Rust toolchain install in the background (parallel to apt)..."
+    $rustupJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
+        param($sshBin, $sshOpts, $sshKey, $port)
+        $cmd = "su - iora -c 'test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1"
+        & $sshBin @sshOpts -i $sshKey -p $port root@127.0.0.1 $cmd
+    }
+
     Write-Info "Installing system packages (slow first-run step)..."
     $installScript = @'
 set -e
@@ -1414,8 +1501,15 @@ mkdir -p /etc/iora && touch /etc/iora/os-dev-mode
 '@
     $null = Invoke-SSHStdin $postgresScript
 
-    Write-Info "Installing Rust toolchain (for in-VM cargo)..."
-    Invoke-SSH 'su - iora -c ''test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal'' 2>&1' | Select-Object -Last 5
+    Write-Info "Waiting for the Rust toolchain install..."
+    Wait-Job $rustupJob -TimeoutSec 900 | Out-Null
+    if ($rustupJob.State -eq "Running") {
+        Write-Warn "Rust toolchain install still running after 900s - continuing; it may be interrupted when the script exits."
+    } else {
+        Receive-Job $rustupJob | Select-Object -Last 4
+        Remove-Job $rustupJob -Force
+        Write-Success "Rust toolchain ready"
+    }
 
     Write-Info "Configuring Cargo (mold + sparse registry + incremental builds)..."
     $cargoCfgTemplate = @'
@@ -1450,6 +1544,30 @@ incremental = false
     Remove-Item $cargoCfgPath -Force -ErrorAction SilentlyContinue
     Write-Success "Cargo configured"
 
+    Write-Info "Seeding cargo registry from the host (faster first builds)..."
+    $cargoRegHost = Join-Path $env:USERPROFILE ".cargo\registry"
+    if ((Test-Path $cargoRegHost) -and $wslHost) {
+        $cargoRegWsl = ConvertTo-WslPath $cargoRegHost
+        $seedOut = wsl bash -c "rsync -az -e 'ssh $syncSsh' '$cargoRegWsl/' root@${wslHost}:/home/iora/.cargo/registry/ 2>&1"
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Cargo registry seeded from host"
+        } else {
+            Write-Warn "Cargo seeding failed - the first build will download crates"
+            ($seedOut | Select-Object -Last 5) | ForEach-Object { Write-Dim "  $_" }
+        }
+    } else {
+        Write-Dim "  (no host cargo registry found - skipping seeding)"
+    }
+
+    Write-Info "Pre-building all services (first boot after reset starts fast)..."
+    $prebuildOut = Invoke-SSH 'su - iora -c ''cd /home/iora/iora/iora-os/backend && cargo build --workspace 2>&1 | tail -2'''
+    $prebuildOut | Select-Object -Last 3
+    if (($prebuildOut -join "`n") -match "Finished") {
+        Write-Success "Workspace prebuilt - services start instantly after a reset"
+    } else {
+        Write-Warn "Workspace prebuild did not finish cleanly - the first boot after a reset will build services serially (slow)"
+    }
+
     Write-Info "Applying IORA OS compat layer + improvements (one SSH session)..."
     $compatScript = @'
 for s in iora-dev-compat.sh iora-dev-improvements.sh iora-optimize-memory.sh iora-config-sync.sh; do
@@ -1459,6 +1577,59 @@ for s in iora-dev-compat.sh iora-dev-improvements.sh iora-optimize-memory.sh ior
 done
 '@
     Invoke-SSHStdin $compatScript | Select-Object -Last 12
+
+    Write-Info "Security parity: AppArmor profiles + dev signing key..."
+    $securityScript = @'
+set -e
+# -- AppArmor: enable the daemon + install starter profiles in COMPLAIN mode
+#    (violations are logged, nothing is blocked - switch to enforce for
+#    testing the production behaviour)
+if ! command -v aa-status >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq --no-install-recommends apparmor apparmor-utils 2>&1 | tail -1
+fi
+if [ -d /home/iora/iora/iora-os/apparmor/dev-vm ]; then
+    mkdir -p /etc/apparmor.d
+    for p in /home/iora/iora/iora-os/apparmor/dev-vm/*; do
+        [ -f "$p" ] && install -m 644 "$p" "/etc/apparmor.d/$(basename "$p")"
+    done
+    aa-status --enabled 2>/dev/null && systemctl enable --now apparmor 2>/dev/null || true
+    for p in /etc/apparmor.d/iora-home /etc/apparmor.d/iora-core /etc/apparmor.d/iora-watchdog; do
+        [ -f "$p" ] && apparmor_parser -C -r "$p" 2>/dev/null || true
+    done
+    echo "--- apparmor: $(aa-status 2>/dev/null | head -2 | tail -1)"
+fi
+# -- Dev signing key: iora-sign parity for the build host. The wrapper builds
+#    iora-sign on first use and generates /etc/iora/dev-signing/iora-dev.key
+mkdir -p /etc/iora/dev-signing
+cat > /usr/local/bin/iora-dev-sign <<'SIGNEOF'
+#!/bin/bash
+# Sign a file with the IORA dev signing key (iora-sign parity on the build host)
+set -e
+KEY=/etc/iora/dev-signing/iora-dev.key
+if [ ! -f "$KEY" ]; then
+    mkdir -p /etc/iora/dev-signing
+    if [ ! -x /usr/bin/iora-sign ]; then
+        echo "Building iora-sign (first use)..." >&2
+        su - iora -c "cd /home/iora/iora/iora-os/backend && cargo build -p iora-sign -q" >&2
+        install -m 755 /home/iora/iora/iora-os/backend/target/debug/iora-sign /usr/bin/iora-sign
+    fi
+    /usr/bin/iora-sign keygen --out-dir /etc/iora/dev-signing --name iora-dev
+    echo "Dev signing key created: $KEY" >&2
+fi
+exec /usr/bin/iora-sign file --key "$KEY" --in "$1"
+SIGNEOF
+chmod 755 /usr/local/bin/iora-dev-sign
+# Generate the key now (best-effort - the first iora-sign build takes a moment)
+echo "IORA dev VM signing key - sign plugins/apps with: iora-dev-sign <file>" > /etc/iora/dev-signing/README
+if /usr/local/bin/iora-dev-sign /etc/iora/dev-signing/README 2>&1 | tail -1; then
+    echo "DEV_SIGN_OK"
+else
+    echo "dev signing key deferred (toolchain still busy)"
+fi
+'@
+    $securityOut = Invoke-SSHStdin $securityScript
+    $securityOut | Select-Object -Last 4
 
     Invoke-SSH 'mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned' | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
@@ -1478,7 +1649,8 @@ for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
     su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
         || su - postgres -c "psql -c \"CREATE DATABASE $db OWNER iora\""
 done
-mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data
+mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data /var/lib/iora/iora-home
+chown iora:iora /var/lib/iora/iora-home 2>/dev/null || true
 if [ "$(cat /etc/iora/dev-run-mode 2>/dev/null || echo source)" = "build" ]; then
 cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 [Service]
@@ -1550,6 +1722,20 @@ $null = Invoke-SSHStdin $hotReloadScript
 
 # -- Step 9: Frontend (source mode: Vite in VM / build mode: dist deploy) ----
 if ($Mode -eq "source") {
+    # If a fresh provisioning is expected, npm install was already started in
+    # the background right after the mirror sync - wait for it here so the
+    # vite step below is a no-op (or a safety retry).
+    if ($npmJob) {
+        Write-Info "Waiting for the background npm install..."
+        Wait-Job $npmJob -TimeoutSec 900 | Out-Null
+        if ($npmJob.State -eq "Running") {
+            Write-Warn "npm install still running - continuing (the vite step will retry if needed)."
+        } else {
+            Receive-Job $npmJob | Select-Object -Last 3
+            Remove-Job $npmJob -Force
+            $npmJob = $null
+        }
+    }
     Write-Info "Source mode: setting up the Vite dev server in the VM..."
     $viteScript = @'
 set +e

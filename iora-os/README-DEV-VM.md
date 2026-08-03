@@ -331,6 +331,46 @@ cat .cache/qemu-serial.log
 
 Hinweis: Das TCG-Fallback (`-SkipWhpx`) bootet immer über SeaBIOS; `-Uefi` wird dort ignoriert.
 
+### Golden-Snapshot: Reset in Sekunden statt Neuprovisionierung
+
+Nach einer erfolgreichen Provisionierung kann der komplette VM-Zustand als Golden-Snapshot
+konserviert werden – danach sind Resets quasi kostenlos:
+
+```bash
+# Aktuellen provisionierten Zustand einfrieren (~5-10 Min, einmalig)
+./dev-local.ps1 -Freeze
+
+# Reset auf den Golden-Zustand (Sekunden, keine Neuprovisionierung!)
+./dev-local.ps1 -Clean && ./dev-local.ps1
+
+# Golden-Snapshot verwerfen (kompletter Neuaufbau)
+./dev-local.ps1 -CleanAll
+# oder
+./dev-local.ps1 -Rebuild
+```
+
+Der Golden-Snapshot (`.cache/iora-dev-golden.qcow2`) enthält auch das vorab gebaute
+`target/` – Services starten nach einem Reset sofort, ohne Rebuild-Sturm. Auch ein echter
+WHPX-Fehler setzt auf den Golden zurück statt neu zu provisionieren.
+
+## Dev-Server-Features (v2.5.0+)
+
+- **ZRAM wie Produktion**: 50% RAM als zstd-komprimierter Swap (`zramswap`).
+- **IORA-Boot-Identität**: ASCII-IORA-Logo als Login-Banner (SSH + Konsole) und GRUB-Menü als „IORA OS".
+- **AppArmor**: Starter-Profile für iora-home/-core/-watchdog in `apparmor/dev-vm/`, geladen im
+  complain-Mode (loggt, blockiert nicht) – Enforcement wie Produktion testen: `flags=(complain)`
+  entfernen und `apparmor_parser -r /etc/apparmor.d/iora-*` ausführen.
+- **Dev-Signatur**: `/usr/local/bin/iora-dev-sign` in der VM signiert Dateien mit dem Dev-Schlüssel
+  `/etc/iora/dev-signing/iora-dev.key` (iora-sign-Parität, baut das Tool beim ersten Aufruf).
+- **Firewall-Parität**: Die IORA-Firewall erlaubt DHCP + alle Host-Forward-Ports (QEMU-slirp-
+  Subnetz 10.0.2.0/24) – ohne diese Anpassung verliert die VM nach dem ersten Reboot ihre IP
+  und kein Forward-Port ist erreichbar.
+- **Schneller Sync**: rsync-Fast-Path erkennt das WSL2-Gateway automatisch (NAT-Modus),
+  tar+scp-Fallback nutzt System32-tar mit sauberen Excludes; `dev-sync.sh --watch` funktioniert
+  damit auch aus WSL.
+- **Vorab gebaute Services**: Die Provisionierung baut das komplette Workspace einmal vor
+  (cargo build --workspace) – der erste Boot nach einem Reset startet alle Services sofort.
+
 ## Unterschiede zur Produktion
 
 | Feature | Dev VM | IORA OS Produktion |
@@ -338,8 +378,9 @@ Hinweis: Das TCG-Fallback (`-SkipWhpx`) bootet immer über SeaBIOS; `-Uefi` wird
 | Virtualisierung | QEMU/KVM | Bare Metal |
 | Storage | tmpfs (Dev) | LUKS-verschlüsselte Partition |
 | SSL | Self-signed | Let's Encrypt / Custom |
-| ZRAM | Optional | Standard (50% RAM) |
-| Binary Verification | Deaktiviert | Aktiviert (Signatur-Check) |
+| ZRAM | Standard (50% RAM, zstd) | Standard (50% RAM) |
+| Binary Verification | Dev-Signaturschlüssel (iora-dev-sign) | Aktiviert (Signatur-Check) |
+| AppArmor | Starter-Profile (complain mode) | Aktiviert |
 | Recovery Mode | Nicht verfügbar | Verfügbar (PIN-geschützt) |
 | Auto-Updates | Deaktiviert | Aktiviert |
 

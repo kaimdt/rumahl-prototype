@@ -212,6 +212,29 @@ ln -sf "${SVC_DIR}/iora-memory-monitor.timer" "${SVC_DIR}/timers.target.wants/io
 success "Memory monitoring timer created"
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ZRAM - production parity (IORA OS uses compressed swap at 50% of RAM)
+# ═══════════════════════════════════════════════════════════════════════════════
+log "Configuring ZRAM (50% RAM, zstd)..."
+if ! command -v zramctl >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq --no-install-recommends zram-tools 2>&1 | tail -1 || true
+fi
+if [ -f /etc/default/zramswap ]; then
+    grep -q '^ALGO='    /etc/default/zramswap && sed -i 's/^ALGO=.*/ALGO=zstd/'  /etc/default/zramswap || echo 'ALGO=zstd'    >> /etc/default/zramswap
+    grep -q '^PERCENT=' /etc/default/zramswap && sed -i 's/^PERCENT=.*/PERCENT=50/' /etc/default/zramswap || echo 'PERCENT=50' >> /etc/default/zramswap
+    systemctl enable zramswap 2>/dev/null || true
+    systemctl restart zramswap 2>/dev/null || true
+    if systemctl is-active --quiet zramswap; then
+        zram_info=$(zramctl --raw --output ALGORITHM,DISKSIZE --noheadings 2>/dev/null | head -1)
+        success "ZRAM active: ${zram_info:-unknown} (production parity: 50% RAM)"
+    else
+        warn "zramswap did not start - check: journalctl -u zramswap"
+    fi
+else
+    warn "zram-tools not available - skipping ZRAM"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Reload systemd
 # ═══════════════════════════════════════════════════════════════════════════════
 

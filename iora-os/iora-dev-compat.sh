@@ -554,6 +554,22 @@ iptables -A INPUT -p tcp --dport 5432 -s 127.0.0.1 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8080 -s 127.0.0.1 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8088:8126 -s 127.0.0.1 -j ACCEPT
 
+# Allow DHCP (UDP 67/68) and DHCPv6 (UDP 546): the dev VM gets its address
+# from the QEMU slirp DHCP server. Without these rules the firewall (INPUT
+# DROP) kills the network on every boot/renewal (the interface comes up with
+# no address and host forwards stay unreachable).
+iptables -A INPUT -p udp --dport 67:68 -j ACCEPT
+iptables -A INPUT -p udp --dport 546 -j ACCEPT
+
+# Dev VM: host connections arrive via QEMU slirp with source 10.0.2.0/24
+# (the host forwards all dev ports into the VM). Mirror the localhost rules
+# for that subnet, otherwise every forwarded service is unreachable.
+iptables -A INPUT -p tcp --dport 3001 -s 10.0.2.0/24 -j ACCEPT
+iptables -A INPUT -p tcp --dport 5432 -s 10.0.2.0/24 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8080 -s 10.0.2.0/24 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8088:8126 -s 10.0.2.0/24 -j ACCEPT
+iptables -A INPUT -p tcp -m multiport --dports 8090:8098 -s 10.0.2.0/24 -j ACCEPT
+
 # Allow ICMP (ping)
 iptables -A INPUT -p icmp -j ACCEPT
 
