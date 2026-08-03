@@ -18,6 +18,7 @@
 #   .\install-requirements.ps1 -SkipDocker      # Don't install Docker Desktop
 #   .\install-requirements.ps1 -SkipNode        # Skip Node.js
 #   .\install-requirements.ps1 -SkipRust        # Skip Rust toolchain
+#   .\install-requirements.ps1 -SkipPowerShell7  # Skip the PS7 recommendation
 #   .\install-requirements.ps1 -Yes             # Non-interactive
 # ============================================================================
 
@@ -45,7 +46,7 @@ function Test-Admin {
 }
 
 # Refresh the current session's PATH from the registry (winget/scoop installs
-# update the registry, not the running session – without this, freshly
+# update the registry, not the running session - without this, freshly
 # installed tools are invisible until the shell is restarted)
 function Update-SessionPath {
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -63,7 +64,7 @@ function Confirm-Yes {
     return ($a -eq "" -or $a -match '^[yY]')
 }
 
-# ── Package manager: prefer winget, fall back to scoop ──────────────────
+# -- Package manager: prefer winget, fall back to scoop ------------------
 $Pm = $null
 if (Get-Command winget -ErrorAction SilentlyContinue) { $Pm = "winget" }
 elseif (Get-Command scoop -ErrorAction SilentlyContinue) { $Pm = "scoop" }
@@ -108,7 +109,7 @@ function Install-Pkg {
                     Update-SessionPath
                     $ok = ($LASTEXITCODE -eq 0)
                 } else {
-                    Log-Warn "No winget id for $Name – please install manually"
+                    Log-Warn "No winget id for $Name - please install manually"
                 }
             }
             "scoop" {
@@ -118,27 +119,27 @@ function Install-Pkg {
                     Update-SessionPath
                     $ok = ($LASTEXITCODE -eq 0)
                 } else {
-                    Log-Warn "No scoop name for $Name – please install manually"
+                    Log-Warn "No scoop name for $Name - please install manually"
                 }
             }
         }
         if ($ok) {
             if ($null -eq $Verify -or (& $Verify)) { return $true }
-            Log-Warn "$Name installed but not verified yet – retrying..."
+            Log-Warn "$Name installed but not verified yet - retrying..."
             Start-Sleep -Seconds 3
         }
     }
     return $false
 }
 
-# ── Individual installers ───────────────────────────────────────────────
+# -- Individual installers -----------------------------------------------
 function Ensure-Git {
     if (Get-Command git -ErrorAction SilentlyContinue) { Log-Ok "git already installed: $(git --version)"; return }
     Log-Info "Installing Git..."
     if (Install-Pkg "git" "Git.Git" "git" -Verify { Get-Command git -ErrorAction SilentlyContinue }) {
         Log-Ok "git installed: $(git --version)"
     } elseif (-not $Check) {
-        Log-Warn "git install failed – manual: https://git-scm.com"
+        Log-Warn "git install failed - manual: https://git-scm.com"
     }
 }
 
@@ -156,7 +157,7 @@ function Ensure-OpenSsh {
     if (Get-Command ssh -ErrorAction SilentlyContinue) {
         Log-Ok "OpenSSH enabled."
     } else {
-        Log-Warn "OpenSSH still missing – re-run this script elevated or enable it manually."
+        Log-Warn "OpenSSH still missing - re-run this script elevated or enable it manually."
     }
 }
 
@@ -173,11 +174,11 @@ function Test-QemuInstalled {
 function Ensure-Qemu {
     if (Test-QemuInstalled) { Log-Ok "QEMU already installed."; return }
     Log-Info "Installing QEMU..."
-    # NOTE: the correct winget ID is QEMU.QEMU – the plain "qemu" ID does not exist
+    # NOTE: the correct winget ID is QEMU.QEMU - the plain "qemu" ID does not exist
     if (Install-Pkg "qemu" "QEMU.QEMU" "qemu" -Verify { Test-QemuInstalled }) {
         Log-Ok "QEMU installed."
     } elseif (-not $Check) {
-        Log-Warn "QEMU install failed – manual: winget install QEMU.QEMU"
+        Log-Warn "QEMU install failed - manual: winget install QEMU.QEMU"
     }
     # Common path that's not always on PATH after install
     foreach ($p in @("$env:ProgramFiles\qemu", "$env:ProgramFiles(x86)\qemu")) {
@@ -245,7 +246,7 @@ function Ensure-Rust {
             if (Get-Command rustup -ErrorAction SilentlyContinue) {
                 Log-Ok "rustup installed."
             } else {
-                Log-Warn "rustup installed but not on PATH yet – open a new shell."
+                Log-Warn "rustup installed but not on PATH yet - open a new shell."
             }
         } catch {
             Log-Err "Failed to install rustup: $_"
@@ -264,7 +265,7 @@ function Ensure-Zig {
     if (Install-Pkg "zig" "zig.zig" "zig" -Verify { Get-Command zig -ErrorAction SilentlyContinue }) {
         Log-Ok "zig installed."
     } elseif (-not $Check) {
-        Log-Warn "zig install failed – manual: https://ziglang.org/download/"
+        Log-Warn "zig install failed - manual: https://ziglang.org/download/"
     }
 }
 
@@ -285,13 +286,24 @@ function Ensure-CargoExtras {
 
 function Test-NodeRuns {
     # Robust check: some systems have broken node shims (dead symlinks) that
-    # pass Get-Command but fail on execution
+    # pass Get-Command but fail on execution - detect them without running them
     $cmd = Get-Command node -ErrorAction SilentlyContinue
     if (-not $cmd) { return $false }
     try {
-        $out = & node --version 2>$null
-        return ($LASTEXITCODE -eq 0 -and $out)
+        $item = Get-Item $cmd.Source -ErrorAction Stop
+        if ($item.LinkType -and $item.Target) {
+            $target = $item.Target
+            if (-not [System.IO.Path]::IsPathRooted($target)) {
+                $target = Join-Path (Split-Path -Parent $item.FullName) $target
+            }
+            if (-not (Test-Path $target)) { return $false }  # broken symlink
+        }
     } catch { return $false }
+    $oldEAP = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try { $out = & node --version 2>$null } catch { $out = $null }
+    $ErrorActionPreference = $oldEAP
+    return ($LASTEXITCODE -eq 0 -and $out)
 }
 
 function Ensure-Node {
@@ -303,7 +315,7 @@ function Ensure-Node {
     if (Install-Pkg "node" "OpenJS.NodeJS.LTS" "nodejs-lts" -Verify { Test-NodeRuns }) {
         Log-Ok "Node.js installed: $(node --version)"
     } elseif (-not $Check) {
-        Log-Warn "Node.js install failed – manual: https://nodejs.org"
+        Log-Warn "Node.js install failed - manual: https://nodejs.org"
     }
 }
 
@@ -319,13 +331,56 @@ function Ensure-Docker {
     }
     Log-Info "Installing Docker Desktop..."
     if (Install-Pkg "docker" "Docker.DockerDesktop" $null) {
-        Log-Ok "Docker Desktop installed – start it once and enable WSL2 integration."
+        Log-Ok "Docker Desktop installed - start it once and enable WSL2 integration."
     } elseif (-not $Check) {
-        Log-Warn "Docker Desktop install failed – manual: https://www.docker.com/products/docker-desktop/"
+        Log-Warn "Docker Desktop install failed - manual: https://www.docker.com/products/docker-desktop/"
     }
 }
 
-# ── Final summary ───────────────────────────────────────────────────────
+# -- PowerShell 7 recommendation -------------------------------------------
+# PS 5.1 reads .ps1 files without UTF-8 BOM as ANSI - non-ASCII characters in
+# messages/comments can break parsing. PowerShell 7 reads UTF-8 by default.
+function Ensure-PowerShell7 {
+    if ($SkipPowerShell7) { Log-Info "Skipping PowerShell 7 check (-SkipPowerShell7)"; return }
+    if ($PSVersionTable.PSEdition -eq "Core") {
+        Log-Ok "PowerShell $($PSVersionTable.PSVersion) (Core) - recommended edition."
+        return
+    }
+    Log-Warn "Windows PowerShell $($PSVersionTable.PSVersion) (Desktop) detected."
+    Log-Warn "  PS 5.1 reads .ps1 files without UTF-8 BOM as ANSI - special characters"
+    Log-Warn "  in messages can break parsing. PowerShell 7 avoids these pitfalls."
+    if ($Check) { Log-Warn "  (--check: would install PowerShell 7 via winget)"; return }
+    if ($Pm -ne "winget") {
+        Log-Warn "  Install PowerShell 7 manually: https://aka.ms/powershell-release"
+        return
+    }
+    if (-not (Confirm-Yes "Install PowerShell 7 now? (recommended)")) { return }
+    Log-Info "Installing PowerShell 7..."
+    winget install --silent --accept-package-agreements --accept-source-agreements --id Microsoft.PowerShell 2>&1 | Out-Null
+    Update-SessionPath
+    if (Get-Command pwsh -ErrorAction SilentlyContinue) {
+        Log-Ok "PowerShell 7 installed - re-run this script with 'pwsh' for the best experience."
+    } else {
+        Log-Warn "PowerShell 7 install may need elevation - run manually: winget install Microsoft.PowerShell"
+    }
+}
+
+# -- Windows Hypervisor Platform (WHPX acceleration for dev-local.ps1) ------
+function Ensure-HypervisorPlatform {
+    if (Test-VirtualizationEnabled) { return }
+    if ($Check) { Log-Warn "  (--check: would enable Windows Hypervisor Platform)"; return }
+    if (-not (Test-Admin)) {
+        Log-Warn "  For fast VM acceleration (WHPX), enable Windows Hypervisor Platform as admin:"
+        Log-Warn "    Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All"
+        return
+    }
+    if (-not (Confirm-Yes "Enable Windows Hypervisor Platform now? (admin + reboot required)")) { return }
+    Log-Info "Enabling Windows Hypervisor Platform..."
+    Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All -NoRestart 2>&1 | Out-Null
+    Log-Warn "Reboot required to finish - after reboot, QEMU can use WHPX acceleration."
+}
+
+# -- Final summary -------------------------------------------------------
 # Get a tool's version string without tripping over broken shims (dead
 # symlinks that pass Get-Command but fail on execution)
 function Get-ToolVersion {
@@ -366,13 +421,14 @@ function Show-Summary {
     }
 }
 
-# ── Main ─────────────────────────────────────────────────────────────────
+# -- Main -----------------------------------------------------------------
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host " IORA dev environment installer (Windows)" -ForegroundColor Cyan
 Write-Host "======================================================================" -ForegroundColor Cyan
-if ($Check) { Log-Warn "Running in --check mode – nothing will be installed." }
+if ($Check) { Log-Warn "Running in --check mode - nothing will be installed." }
 
 Ensure-Pm
+Ensure-PowerShell7
 Ensure-Git
 Ensure-OpenSsh
 Ensure-Qemu
@@ -384,8 +440,9 @@ Ensure-Node
 Ensure-Docker
 
 if (-not (Test-VirtualizationEnabled)) {
-    Log-Warn "Hardware virtualization not detected – QEMU will fall back to slow software emulation (TCG)."
+    Log-Warn "Hardware virtualization not detected - QEMU will fall back to slow software emulation (TCG)."
     Log-Warn "Enable VT-x/AMD-V in BIOS, or run: Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform"
+    Ensure-HypervisorPlatform
 }
 
 Show-Summary

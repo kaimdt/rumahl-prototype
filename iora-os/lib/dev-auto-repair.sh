@@ -202,6 +202,34 @@ auto_fix_kvm_access() {
     [ -r /dev/kvm ] && [ -w /dev/kvm ]
 }
 
+# Ensure Xcode Command Line Tools on macOS (required by Homebrew for QEMU)
+auto_fix_xcode_clt() {
+    [ "$(uname -s)" = "Darwin" ] || return 0
+    if xcode-select -p >/dev/null 2>&1; then
+        return 0
+    fi
+    warn "Xcode Command Line Tools are missing - Homebrew (QEMU install) needs them."
+    if [ -t 0 ] && [ -z "${CI:-}" ]; then
+        local ans
+        read -r -t 15 -p "[?] Install Xcode Command Line Tools now? (GUI prompt opens) [y/N] " ans || { echo; return 1; }
+        case "$ans" in
+            y|Y|yes|YES) ;;
+            *) warn "Skipped - run 'xcode-select --install' manually when ready."; return 1 ;;
+        esac
+    else
+        warn "Non-interactive run - skipping. Install with: xcode-select --install"
+        return 1
+    fi
+    log "Starting Xcode CLT installation (GUI prompt may appear)..."
+    xcode-select --install >/dev/null 2>&1 || true
+    for _ in {1..120}; do
+        xcode-select -p >/dev/null 2>&1 && { ok "Xcode Command Line Tools ready"; return 0; }
+        sleep 5
+    done
+    warn "Xcode CLT still not ready after ~10 min - check the installer or run 'xcode-select --install'."
+    return 1
+}
+
 # Install an ISO creation tool (genisoimage/xorriso on Linux; macOS has hdiutil)
 auto_install_iso_tools() {
     command -v genisoimage >/dev/null 2>&1 && return 0
@@ -553,6 +581,7 @@ export -f auto_fix_apt_state
 export -f auto_fix_kvm_access
 export -f auto_install_iso_tools
 export -f auto_install_qemu
+export -f auto_fix_xcode_clt
 export -f run_auto_repairs
 export -f check_vm_health
 export -f auto_recover_vm

@@ -283,6 +283,26 @@ ensure_zig() {
     warn "zig not auto-installed (no curl/jq). Manual: https://ziglang.org/download/"
 }
 
+# ── Post-install recommendations ──────────────────────────────────────────
+print_recommendations() {
+    echo
+    ok "Recommendations:"
+    if ! git config --get user.name 2>/dev/null | grep -q . || ! git config --get user.email 2>/dev/null | grep -q .; then
+        warn "  git user.name / user.email are not set:"
+        warn "    git config --global user.name 'Your Name'"
+        warn "    git config --global user.email 'you@example.com'"
+    else
+        ok "  git identity: $(git config --get user.name) <$(git config --get user.email)>"
+    fi
+    local ac
+    ac=$(git config --get core.autocrlf 2>/dev/null || true)
+    if [ "$ac" = "true" ]; then
+        warn "  core.autocrlf=true - git checks out CRLF line endings, which breaks bash"
+        warn "  scripts ('\\r: command not found'). Fix with: git config core.autocrlf input"
+    fi
+    ok "  Next step: ./dev-local.sh  (starts the IORA dev VM)"
+}
+
 print_summary() {
     echo
     ok "Done. Summary:"
@@ -316,6 +336,7 @@ case "$MODE" in
 esac
 
 print_summary
+print_recommendations
 
 $CHECK_ONLY && exit 0
 ok "Installation complete."

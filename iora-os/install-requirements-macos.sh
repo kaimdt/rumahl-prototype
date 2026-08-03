@@ -72,6 +72,33 @@ find_brew() {
     return 1
 }
 
+# ── Xcode Command Line Tools (required by Homebrew) ────────────────────────
+ensure_xcode_clt() {
+    if xcode-select -p >/dev/null 2>&1; then
+        return 0
+    fi
+    warn "Xcode Command Line Tools are not installed - Homebrew requires them."
+    $CHECK_ONLY && { warn "  (--check: would run 'xcode-select --install')"; return 1; }
+    if ! $ASSUME_YES; then
+        local ans=""
+        if [ -t 0 ] && [ -z "${CI:-}" ]; then
+            read -r -t 15 -p "[?] Install Xcode Command Line Tools now? (GUI prompt opens) [y/N] " ans || { echo; ans=""; }
+        fi
+        case "$ans" in
+            y|Y|yes|YES) ;;
+            *) warn "Skipped - run 'xcode-select --install' manually, then re-run this script."; return 1 ;;
+        esac
+    fi
+    log "Starting Xcode CLT installation (GUI prompt may appear)..."
+    xcode-select --install >/dev/null 2>&1 || true
+    for _ in {1..120}; do
+        xcode-select -p >/dev/null 2>&1 && { ok "Xcode Command Line Tools ready"; return 0; }
+        sleep 5
+    done
+    warn "Xcode CLT still not ready after ~10 min - check the installer or run 'xcode-select --install'."
+    return 1
+}
+
 ensure_brew() {
     if find_brew; then
         ok "Homebrew found: $BREW"
@@ -231,7 +258,26 @@ print_summary() {
     done
 }
 
+# ── Post-install recommendations ──────────────────────────────────────────
+print_recommendations() {
+    echo
+    ok "Recommendations:"
+    if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+        warn "  macOS ships an old Bash ($BASH_VERSION). The scripts still work, but"
+        warn "  'brew install bash' provides a modern Bash if you want it."
+    fi
+    if ! git config --get user.name 2>/dev/null | grep -q . || ! git config --get user.email 2>/dev/null | grep -q .; then
+        warn "  git user.name / user.email are not set:"
+        warn "    git config --global user.name 'Your Name'"
+        warn "    git config --global user.email 'you@example.com'"
+    else
+        ok "  git identity: $(git config --get user.name) <$(git config --get user.email)>"
+    fi
+    ok "  Next step: ./dev-local.sh  (starts the IORA dev VM)"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────
+ensure_xcode_clt || true
 if ! ensure_brew; then
     $CHECK_ONLY && exit 0
     exit 1
@@ -257,6 +303,7 @@ case "$MODE" in
 esac
 
 print_summary
+print_recommendations
 
 $CHECK_ONLY && exit 0
 ok "Installation complete. Restart your shell if new tools are not found."

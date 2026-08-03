@@ -22,6 +22,7 @@ Bash library providing intelligent auto-detection and auto-repair functions for 
 - `auto_fix_kvm_access()` — Load KVM module + add user to kvm group (Linux)
 - `auto_install_iso_tools()` — Install genisoimage/xorriso/cdrtools when missing
 - `auto_install_qemu()` — Install QEMU via brew/apt when missing (arch-aware)
+- `auto_fix_xcode_clt()` — Check/install Xcode Command Line Tools on macOS (asks first)
 - `run_auto_repairs()` — Run all cheap host-level auto-repairs in one go
 - `check_vm_health(host, port, key)` — Test VM SSH connectivity and systemd health
 - `auto_recover_vm(host, port, key)` — Restart failed services, vacuum journal
@@ -62,6 +63,7 @@ PowerShell module providing equivalent functionality for Windows.
 - `Test-WslAvailable` / `Install-WslIfMissing` — Detect/install WSL2 with reboot detection
 - `Test-RebootPending` — Check Windows reboot-pending registry keys
 - `Test-VirtualizationEnabled` — Check Hyper-V/WHPX presence
+- `Test-PowerShell7` / `Install-PowerShell7` — Detect PS 5.1 vs 7, install PS7 via winget
 - `Invoke-WslAptRepair` — Repair apt state inside WSL + install ISO tooling
 - `Invoke-AutoRepairs` — Run all cheap host-level auto-repairs in one go
 - `Test-VMHealth` — Check VM SSH connectivity

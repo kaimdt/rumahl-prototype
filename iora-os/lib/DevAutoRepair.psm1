@@ -1,5 +1,5 @@
 # ============================================================================
-# DevAutoRepair.psm1 – Intelligent Auto-Detection & Auto-Repair Library
+# DevAutoRepair.psm1 - Intelligent Auto-Detection & Auto-Repair Library
 # ============================================================================
 # Provides autonomous problem detection and repair functions for IORA dev VMs.
 # Designed to be non-intrusive and handle common development issues automatically.
@@ -7,9 +7,9 @@
 # Usage: Import-Module ./lib/DevAutoRepair.psm1
 # ============================================================================
 
-# ── Logging fallbacks (used when the module is imported standalone; the
+# -- Logging fallbacks (used when the module is imported standalone; the
 #    calling script's Write-Info/Write-Success/Write-Warn/Write-Err functions
-#    take precedence when defined) ──────────────────────────────────────────
+#    take precedence when defined) ------------------------------------------
 if (-not (Get-Command Write-Info -ErrorAction SilentlyContinue)) {
     function Write-Info    { param([string]$Msg) Write-Host "[*] $Msg" -ForegroundColor Cyan }
     function Write-Success { param([string]$Msg) Write-Host "[+] $Msg" -ForegroundColor Green }
@@ -17,7 +17,7 @@ if (-not (Get-Command Write-Info -ErrorAction SilentlyContinue)) {
     function Write-Err     { param([string]$Msg) Write-Host "[X] $Msg" -ForegroundColor Red }
 }
 
-# ── Auto-Detection Functions ───────────────────────────────────────────────
+# -- Auto-Detection Functions -----------------------------------------------
 
 function Test-PortConflict {
     param(
@@ -145,16 +145,16 @@ function Test-Dependencies {
     return @{ HasMissing = $false }
 }
 
-# ── Session PATH refresh (winget/scoop installs update the registry, not the
-#    current session – re-read Machine+User PATH so freshly installed tools
-#    are found immediately) ──────────────────────────────────────────────────
+# -- Session PATH refresh (winget/scoop installs update the registry, not the
+#    current session - re-read Machine+User PATH so freshly installed tools
+#    are found immediately) --------------------------------------------------
 function Update-SessionPath {
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $env:PATH = "$machinePath;$userPath"
 }
 
-# ── QEMU detection (PATH + common install locations, arch-aware) ────────────
+# -- QEMU detection (PATH + common install locations, arch-aware) ------------
 function Test-QemuAvailable {
     param([string]$QemuBin = "")
     if (-not $QemuBin) {
@@ -167,7 +167,7 @@ function Test-QemuAvailable {
     return $false
 }
 
-# ── Generic winget install with retry + optional post-verification ──────────
+# -- Generic winget install with retry + optional post-verification ----------
 function Install-WithWinget {
     param(
         [string]$WingetId,
@@ -186,10 +186,10 @@ function Install-WithWinget {
     return $false
 }
 
-# ── Auto-install QEMU via winget when missing ──────────────────────────────
+# -- Auto-install QEMU via winget when missing ------------------------------
 function Install-QemuIfMissing {
     if (Test-QemuAvailable) { return $true }
-    Write-Info "QEMU not found – installing via winget (QEMU.QEMU, may take a while)..."
+    Write-Info "QEMU not found - installing via winget (QEMU.QEMU, may take a while)..."
     if (Install-WithWinget -WingetId "QEMU.QEMU" -Verify { Test-QemuAvailable }) {
         Write-Success "QEMU installed."
         return $true
@@ -198,7 +198,7 @@ function Install-QemuIfMissing {
     return $false
 }
 
-# ── WSL detection / auto-install (needed for tar + ISO creation) ───────────
+# -- WSL detection / auto-install (needed for tar + ISO creation) -----------
 function Test-WslAvailable {
     if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { return $false }
     wsl --status 2>$null | Out-Null
@@ -217,7 +217,7 @@ function Test-RebootPending {
 
 function Install-WslIfMissing {
     if (Test-WslAvailable) { return $true }
-    Write-Info "WSL2 not detected – installing via 'wsl --install' (requires admin)..."
+    Write-Info "WSL2 not detected - installing via 'wsl --install' (requires admin)..."
     $isAdmin = $false
     try {
         $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -237,7 +237,7 @@ function Install-WslIfMissing {
     return (Test-WslAvailable)
 }
 
-# ── Hardware virtualization hint (WHPX acceleration needs Hyper-V) ──────────
+# -- Hardware virtualization hint (WHPX acceleration needs Hyper-V) ----------
 function Test-VirtualizationEnabled {
     try {
         $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
@@ -246,7 +246,7 @@ function Test-VirtualizationEnabled {
     return $false
 }
 
-# ── Repair broken apt/dpkg state inside WSL and ensure ISO tooling ─────────
+# -- Repair broken apt/dpkg state inside WSL and ensure ISO tooling ---------
 function Invoke-WslAptRepair {
     $probe = wsl bash -c "command -v genisoimage || command -v xorriso || echo NEED_ISO" 2>$null
     if ("$probe" -match "genisoimage|xorriso") { return $true }
@@ -270,13 +270,33 @@ function Install-MissingDependencies {
         if ($dep -match "qemu") {
             if (-not (Install-QemuIfMissing)) { return $false }
         } else {
-            Write-Warn "Cannot auto-install '$dep' here – run .\install-requirements.ps1 for the full setup."
+            Write-Warn "Cannot auto-install '$dep' here - run .\install-requirements.ps1 for the full setup."
         }
     }
     return $true
 }
 
-# ── Run all cheap host-level auto-repairs in one go ─────────────────────────
+# -- PowerShell 7 check / install -------------------------------------------
+# Windows PowerShell 5.1 reads .ps1 files without UTF-8 BOM as ANSI (cp1252),
+# which can break parsing when messages contain non-ASCII characters.
+# PowerShell 7 reads UTF-8 by default and avoids these pitfalls.
+function Test-PowerShell7 {
+    return ($PSVersionTable.PSEdition -eq "Core")
+}
+
+function Install-PowerShell7 {
+    if (Test-PowerShell7) { return $true }
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return $false }
+    Write-Info "Installing PowerShell 7 via winget..."
+    if (Install-WithWinget -WingetId "Microsoft.PowerShell" -Verify { Get-Command pwsh -ErrorAction SilentlyContinue }) {
+        Write-Success "PowerShell 7 installed - re-run the scripts with 'pwsh' for the best experience."
+        return $true
+    }
+    Write-Warn "PowerShell 7 install failed (may need elevation). Manual: https://aka.ms/powershell-release"
+    return $false
+}
+
+# -- Run all cheap host-level auto-repairs in one go -------------------------
 function Invoke-AutoRepairs {
     param([string]$CacheDir = "")
     Write-Info "Running automatic environment checks & repairs..."
@@ -299,7 +319,7 @@ function Invoke-AutoRepairs {
 
     # 4. Virtualization hint
     if (-not (Test-VirtualizationEnabled)) {
-        Write-Warn "Hardware virtualization (Hyper-V/WHPX) not detected – QEMU will be slow (TCG fallback)."
+        Write-Warn "Hardware virtualization (Hyper-V/WHPX) not detected - QEMU will be slow (TCG fallback)."
     }
 
     Write-Success "Environment checks complete"
@@ -391,7 +411,7 @@ function Invoke-VMRecovery {
     }
 }
 
-# ── Resource Management ────────────────────────────────────────────────────
+# -- Resource Management ----------------------------------------------------
 
 function Test-MemoryPressure {
     param(
@@ -443,7 +463,7 @@ function Optimize-VMResources {
     }
 }
 
-# ── Background Health Monitor ──────────────────────────────────────────────
+# -- Background Health Monitor ----------------------------------------------
 
 function Start-HealthMonitor {
     param(
@@ -514,7 +534,7 @@ function Stop-HealthMonitor {
     }
 }
 
-# ── Smart Notifications ────────────────────────────────────────────────────
+# -- Smart Notifications ----------------------------------------------------
 
 function Send-Notification {
     param(
@@ -550,6 +570,8 @@ Export-ModuleMember -Function @(
     'Install-WslIfMissing',
     'Test-RebootPending',
     'Test-VirtualizationEnabled',
+    'Test-PowerShell7',
+    'Install-PowerShell7',
     'Invoke-WslAptRepair',
     'Invoke-AutoRepairs',
     'Test-VMHealth',

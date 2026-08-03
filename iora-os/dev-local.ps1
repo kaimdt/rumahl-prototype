@@ -57,7 +57,7 @@ param(
 # explicitly where it matters.
 $ErrorActionPreference = "Continue"
 
-# ── Friendly error for Linux-style double-dash arguments ──────────────────
+# -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
 if ($doubleDashArgs) {
     Write-Host "[X] PowerShell uses single-dash arguments: -Clean not --clean" -ForegroundColor Red
@@ -85,7 +85,7 @@ if ($Help) {
     exit 0
 }
 
-# ── Logging helpers ────────────────────────────────────────────────────────
+# -- Logging helpers --------------------------------------------------------
 function Write-Info    { param([string]$Msg) Write-Host "[*] $Msg" -ForegroundColor Cyan }
 function Write-Success { param([string]$Msg) Write-Host "[+] $Msg" -ForegroundColor Green }
 function Write-Warn    { param([string]$Msg) Write-Host "[!] $Msg" -ForegroundColor Yellow }
@@ -97,7 +97,7 @@ function Stop-WithError {
     exit 1
 }
 
-# ── Load Auto-Repair Module ────────────────────────────────────────────────
+# -- Load Auto-Repair Module ------------------------------------------------
 $AUTO_REPAIR_MODULE = Join-Path $PSScriptRoot "lib\DevAutoRepair.psm1"
 if (Test-Path $AUTO_REPAIR_MODULE) {
     Import-Module $AUTO_REPAIR_MODULE -ErrorAction SilentlyContinue
@@ -112,16 +112,35 @@ if (Test-Path $AUTO_REPAIR_MODULE) {
     function Invoke-DiskCleanup { }
     function Test-Dependencies { return @{ HasMissing = $false } }
     function Install-MissingDependencies { }
+    function Test-PowerShell7 { return ($PSVersionTable.PSEdition -eq "Core") }
+    function Install-PowerShell7 { return $false }
     function Start-HealthMonitor { }
     function Stop-HealthMonitor { }
     function Send-Notification { }
+}
+
+# -- PowerShell 7 recommendation ---------------------------------------------
+# PS 5.1 reads .ps1 files without UTF-8 BOM as ANSI - non-ASCII characters can
+# break parsing. PowerShell 7 reads UTF-8 by default. Ask once, never force.
+if (-not (Test-PowerShell7)) {
+    Write-Warn "Windows PowerShell $($PSVersionTable.PSVersion) (5.1) detected."
+    Write-Warn "  PowerShell 7 is recommended: PS 5.1 misreads UTF-8 text in .ps1 files,"
+    Write-Warn "  which can break parsing. Install with: winget install Microsoft.PowerShell"
+    if (-not [Console]::IsInputRedirected) {
+        $ans = Read-Host "Install PowerShell 7 now and re-run this script with pwsh? [y/N]"
+        if ($ans -match '^[yY]') {
+            if (Install-PowerShell7) {
+                Write-Success "PowerShell 7 installed - re-run this script with: pwsh .\dev-local.ps1"
+            }
+        }
+    }
 }
 
 Write-Host ""
 Write-Host "  IORA OS - Local Dev VM (Windows / QEMU)" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Paths ──────────────────────────────────────────────────────────────────
+# -- Paths ------------------------------------------------------------------
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $REPO_ROOT  = Split-Path -Parent $SCRIPT_DIR
 $CACHE      = Join-Path $SCRIPT_DIR ".cache"
@@ -140,7 +159,7 @@ $IORA_SCC   = Join-Path $IORA_DEV "sccache"
 New-Item -ItemType Directory -Force -Path $IORA_BINS, $IORA_SCC | Out-Null
 Write-Info "Dev shared folder: $IORA_DEV"
 
-# ── Platform detection (CIM, not deprecated WMI) ───────────────────────────
+# -- Platform detection (CIM, not deprecated WMI) ---------------------------
 try {
     $proc = Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop | Select-Object -First 1
     if ($proc.Architecture -eq 12) { $HOST_ARCH = "ARM64" } else { $HOST_ARCH = "x86_64" }
@@ -155,7 +174,7 @@ try {
     $hostRamGB = 8
 }
 
-# ── QEMU detection ─────────────────────────────────────────────────────────
+# -- QEMU detection ---------------------------------------------------------
 function Find-Qemu {
     if ($QemuPath -and (Test-Path $QemuPath)) { return $QemuPath }
     $qemuBin = if ($HOST_ARCH -eq "ARM64") { "qemu-system-aarch64.exe" } else { "qemu-system-x86_64.exe" }
@@ -174,7 +193,7 @@ function Find-Qemu {
 
 $QEMU_BIN = Find-Qemu
 if (-not $QEMU_BIN) {
-    Write-Warn "QEMU not found – attempting automatic installation..."
+    Write-Warn "QEMU not found - attempting automatic installation..."
     if (Get-Command Install-QemuIfMissing -ErrorAction SilentlyContinue) {
         [void](Install-QemuIfMissing)
         Update-SessionPath
@@ -193,14 +212,14 @@ $QEMU_DIR = Split-Path -Parent $QEMU_BIN
 $QEMU_IMG = Join-Path $QEMU_DIR "qemu-img.exe"
 if (-not (Test-Path $QEMU_IMG)) { Stop-WithError "qemu-img.exe not found alongside QEMU." }
 
-# ── WSL detection (needed for tar + ISO creation) ──────────────────────────
+# -- WSL detection (needed for tar + ISO creation) --------------------------
 $WSL_AVAILABLE = $false
 try {
     wsl --status 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { $WSL_AVAILABLE = $true }
 } catch { }
 if (-not $WSL_AVAILABLE) {
-    Write-Warn "WSL2 not detected – attempting automatic installation..."
+    Write-Warn "WSL2 not detected - attempting automatic installation..."
     if (Get-Command Install-WslIfMissing -ErrorAction SilentlyContinue) {
         [void](Install-WslIfMissing)
         $WSL_AVAILABLE = Test-WslAvailable
@@ -216,14 +235,14 @@ if (-not $WSL_AVAILABLE) {
 }
 Write-Success "WSL2 available"
 
-# ── OpenSSH detection ──────────────────────────────────────────────────────
+# -- OpenSSH detection ------------------------------------------------------
 $SSH_BIN = (Get-Command ssh.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
 $SCP_BIN = (Get-Command scp.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
 if (-not $SSH_BIN -or -not $SCP_BIN) {
     Stop-WithError "OpenSSH not found. Install: Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"
 }
 
-# ── Config: VM sizing ──────────────────────────────────────────────────────
+# -- Config: VM sizing ------------------------------------------------------
 $VM_IDEAL_RAM = 16
 $VM_IDEAL_CPU = 16
 
@@ -252,7 +271,7 @@ $CARGO_JOBS = [Math]::Max(1, [Math]::Min($CARGO_JOBS, $VM_CPUS))
 Write-Info "Host: ${hostRamGB}GB RAM, ${HOST_CPUS} CPUs ($HOST_ARCH)"
 Write-Info "VM:   $VM_RAM RAM, $VM_CPUS CPUs, cargo -j$CARGO_JOBS"
 
-# ── Arch-specific cloud image ──────────────────────────────────────────────
+# -- Arch-specific cloud image ----------------------------------------------
 if ($HOST_ARCH -eq "ARM64") {
     $IMG_URL   = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-arm64.qcow2"
     $IMG_CACHE = Join-Path $CACHE "debian-12-cloud-arm64.qcow2"
@@ -269,12 +288,12 @@ $QEMU_PIDFILE = Join-Path $CACHE "qemu.pid"
 $PROVISIONED_MARKER = Join-Path $CACHE ".provisioned"
 $QEMU_STDERR = Join-Path $CACHE "qemu-stderr.log"
 
-# ── Ports forwarded host -> VM (mirrors IORA OS systemd unit ports) ────────
+# -- Ports forwarded host -> VM (mirrors IORA OS systemd unit ports) --------
 $VM_HOME   = 8126
 $VM_BRIDGE = 8101
 $FWD_PORTS = @(80, 443, 3001, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098)
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+# -- Helpers ----------------------------------------------------------------
 function ConvertTo-WslPath { param([string]$WinPath)
     $p = $WinPath.Replace('\', '/')
     return (wsl wslpath -a "$p" 2>$null)
@@ -381,7 +400,7 @@ function Test-WatcherNeedsBuild {
     return $latestSource -and $latestSource.LastWriteTimeUtc -gt (Get-Item $Binary).LastWriteTimeUtc
 }
 
-# ── -Status / -Stop / -Rebuild / -SSH fast paths ────────────────────────────
+# -- -Status / -Stop / -Rebuild / -SSH fast paths ----------------------------
 if ($Stop) {
     Stop-Vm
     exit 0
@@ -418,9 +437,9 @@ if ($Watcher) {
     }
     Write-Info "Launching IORA Dev Watch TUI..."
     # IMPORTANT: launch the exe DIRECTLY via Start-Process -FilePath. Do NOT
-    # wrap in `powershell -NoExit -Command "& '...'"` or `cmd /c "..."` — a
+    # wrap in `powershell -NoExit -Command "& '...'"` or `cmd /c "..."` - a
     # shell parent intercepts stdin, breaks crossterm's raw mode, and on cmd
-    # the nested-quotes parsing fails ("Die Syntax für den Dateinamen ... ist
+    # the nested-quotes parsing fails ("Die Syntax fuer den Dateinamen ... ist
     # falsch"). Direct launch makes the watcher own its console.
     $watcherArgs = @(
         '--vm-host', '127.0.0.1',
@@ -441,7 +460,7 @@ if ($Log) {
     if (-not $p) { $p = Get-QemuProcess | Select-Object -First 1 }
     if (-not $p) {
         Write-Warn "VM is not running. Showing last QEMU serial log:"
-        Write-Host "═══════════════ QEMU Serial Log ═══════════════" -ForegroundColor DarkGray
+        Write-Host "================ QEMU Serial Log ================" -ForegroundColor DarkGray
         if (Test-Path $serialLog) {
             Get-Content $serialLog -Tail 50
         } else {
@@ -466,7 +485,7 @@ if ($Log) {
         }
     } else {
         Write-Warn "SSH not yet reachable. Following QEMU serial console (live - Ctrl+C to stop):"
-        Write-Host "═══════════════ QEMU Serial Console ═══════════════" -ForegroundColor DarkGray
+        Write-Host "================ QEMU Serial Console ================" -ForegroundColor DarkGray
         if (Test-Path $serialLog) {
             Get-Content $serialLog -Wait -Tail 20
         } else {
@@ -513,7 +532,7 @@ if ($Status) {
     exit 0
 }
 
-# ── UEFI firmware ──────────────────────────────────────────────────────────
+# -- UEFI firmware ----------------------------------------------------------
 $FW = $null
 if ($HOST_ARCH -eq "ARM64") {
     $fwPaths = @(
@@ -554,7 +573,7 @@ if ($fwIsFlash) {
 }
 Write-Success "UEFI firmware: $FW"
 
-# ── -Clean / -CleanAll ─────────────────────────────────────────────────────
+# -- -Clean / -CleanAll -----------------------------------------------------
 if ($Clean -or $CleanAll) {
     Write-Info "Cleaning cache..."
     Stop-Vm
@@ -571,7 +590,7 @@ if ($Clean -or $CleanAll) {
     exit 0
 }
 
-# ── Step 1: Download cloud image ───────────────────────────────────────────
+# -- Step 1: Download cloud image -------------------------------------------
 if (-not (Test-Path $IMG_CACHE)) {
     Write-Info "Downloading Debian cloud image (~400MB, one-time)..."
     $ProgressPreference = 'SilentlyContinue'
@@ -591,14 +610,14 @@ if (-not (Test-Path $IMG_CACHE)) {
     $ProgressPreference = 'Continue'
 }
 
-# ── Step 2: VM disk overlay ────────────────────────────────────────────────
+# -- Step 2: VM disk overlay ------------------------------------------------
 if (-not (Test-Path $VM_DISK)) {
     Write-Info "Creating VM disk overlay (40G)..."
     & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
     if ($LASTEXITCODE -ne 0) { Stop-WithError "qemu-img create failed." }
 }
 
-# ── Step 3: SSH key + cloud-init seed ISO ──────────────────────────────────
+# -- Step 3: SSH key + cloud-init seed ISO ----------------------------------
 if (-not (Test-Path $SSH_KEY)) {
     Write-Info "Generating SSH key for VM..."
     $sshKeyWsl = ConvertTo-WslPath $SSH_KEY
@@ -706,7 +725,7 @@ final_message: "IORA Dev VM ready."
 
 if (-not (Test-Path $SEED_ISO)) { New-SeedIso }
 
-# ── Step 4: Start QEMU (only if not already running) ───────────────────────
+# -- Step 4: Start QEMU (only if not already running) -----------------------
 & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
 & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
 
@@ -861,11 +880,11 @@ if ($existingProc) {
     }
 }
 
-# ── Live serial console (separate window) ────────────────────────────────────
+# -- Live serial console (separate window) ------------------------------------
 $serialLog = Join-Path $CACHE "qemu-serial.log"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host 'IORA Dev VM - Serial Console (live)' -ForegroundColor Cyan; Get-Content -Wait -Tail 0 '$serialLog'" -WindowStyle Minimized | Out-Null
 
-# ── Step 5: Wait for cloud-init to finish ──────────────────────────────────
+# -- Step 5: Wait for cloud-init to finish ----------------------------------
 Write-Info "Waiting for cloud-init to finish (first boot may take 3-10 min)..."
 $waited = 0
 $ready = $false
@@ -887,7 +906,7 @@ if (-not $ready) {
 }
 Write-Success "SSH ready!"
 
-# ── Step 6: Provisioning (idempotent) ──────────────────────────────────────
+# -- Step 6: Provisioning (idempotent) --------------------------------------
 $needProvision = $true
 if ((Test-Path $PROVISIONED_MARKER) -and (-not $Reprovision)) {
     $check = Invoke-SSH 'test -f /etc/iora/dev-vm-provisioned && test -d /opt/iora && echo PROV_OK'
@@ -1015,7 +1034,7 @@ incremental = false
     Write-Success "Provisioning complete"
 }
 
-# ── Step 7: DB init + service enablement (always run; safe to repeat) ──────
+# -- Step 7: DB init + service enablement (always run; safe to repeat) ------
 Write-Info "Initializing databases..."
 $dbInitScript = @'
 set +e
@@ -1061,7 +1080,7 @@ systemctl enable --now iora-health-check.timer 2>/dev/null
 $null = Invoke-SSHStdin $dbInitScript
 Write-Success "Databases initialized"
 
-# ── Step 8: Frontend build + deploy ────────────────────────────────────────
+# -- Step 8: Frontend build + deploy ----------------------------------------
 $frontendDir = Join-Path $REPO_ROOT "frontend"
 if ((Test-Path (Join-Path $frontendDir "package.json")) -and (Get-Command npm -ErrorAction SilentlyContinue)) {
     Write-Info "Building frontend..."
@@ -1082,7 +1101,7 @@ if ((Test-Path (Join-Path $frontendDir "package.json")) -and (Get-Command npm -E
     Write-Warn "npm not available - skipping frontend build."
 }
 
-# ── Step 9: Verification ───────────────────────────────────────────────────
+# -- Step 9: Verification ---------------------------------------------------
 Write-Info "Verifying IORA OS services..."
 $svcCount = (Invoke-SSH 'systemctl list-unit-files --type=service ''iora-*'' 2>/dev/null | grep -c ''^iora-'' || echo 0').ToString().Trim()
 Write-Info "IORA services registered: $svcCount"
@@ -1108,7 +1127,7 @@ for ($i=0; $i -lt 12; $i++) {
 if ($healthOk) { Write-Success "iora-home OK on http://127.0.0.1:$VM_HOME" }
 else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $SshPort root@127.0.0.1 'journalctl -u iora-home -n 50'" }
 
-# ── Step 10: Launch dev-watch TUI ──────────────────────────────────────────
+# -- Step 10: Launch dev-watch TUI ------------------------------------------
 if (-not $NoWatch) {
     $dashBin = Join-Path $REPO_ROOT "iora-os\backend\target\debug\iora-dev-watch.exe"
     if (Test-WatcherNeedsBuild $dashBin) {
@@ -1135,7 +1154,7 @@ if (-not $NoWatch) {
     }
 }
 
-# ── Step 11: Start background health monitor ───────────────────────────────
+# -- Step 11: Start background health monitor -------------------------------
 $HEALTH_MONITOR_LOG = Join-Path $CACHE "health-monitor.log"
 $HEALTH_MONITOR_PID = Join-Path $CACHE "health-monitor.pid"
 
@@ -1144,7 +1163,7 @@ if (Get-Command Start-HealthMonitor -ErrorAction SilentlyContinue) {
         -LogFile $HEALTH_MONITOR_LOG -PIDFile $HEALTH_MONITOR_PID
 }
 
-# ── Banner ─────────────────────────────────────────────────────────────────
+# -- Banner -----------------------------------------------------------------
 Write-Host ""
 Write-Success "IORA Dev VM ready!"
 Write-Host ""

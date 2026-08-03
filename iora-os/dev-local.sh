@@ -60,6 +60,7 @@ else
     run_auto_repairs() { :; }
     auto_install_qemu() { return 1; }
     auto_install_iso_tools() { return 1; }
+    auto_fix_xcode_clt() { return 0; }
     auto_fix_apt_state() { :; }
     auto_fix_kvm_access() { return 1; }
     start_health_monitor() { :; }
@@ -482,6 +483,13 @@ fi
 # ── Sanity: required host tools (with auto-install) ────────────────────────
 log "Checking dependencies..."
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1 ($2)"; }
+
+# macOS: Xcode Command Line Tools are required by Homebrew (used for QEMU)
+if $IS_MACOS; then
+    if command -v auto_fix_xcode_clt >/dev/null 2>&1; then
+        auto_fix_xcode_clt || true
+    fi
+fi
 
 # Full auto-repair pass: apt self-heal, missing deps (QEMU/rsync/ISO tools), KVM group
 if command -v run_auto_repairs >/dev/null 2>&1; then

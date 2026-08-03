@@ -349,6 +349,25 @@ print_summary() {
     done
 }
 
+# ── Post-install recommendations ──────────────────────────────────────────
+print_recommendations() {
+    echo
+    ok "Recommendations:"
+    if ! git config --get user.name 2>/dev/null | grep -q . || ! git config --get user.email 2>/dev/null | grep -q .; then
+        warn "  git user.name / user.email are not set:"
+        warn "    git config --global user.name 'Your Name'"
+        warn "    git config --global user.email 'you@example.com'"
+    else
+        ok "  git identity: $(git config --get user.name) <$(git config --get user.email)>"
+    fi
+    if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+        ok "  KVM acceleration available - the dev VM will be fast."
+    else
+        warn "  /dev/kvm not usable - the dev VM will run in slow TCG mode."
+    fi
+    ok "  Next step: ./dev-local.sh  (starts the IORA dev VM)"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────
 ensure_apt_update
 install_pkgs COMMON_PKGS
@@ -376,6 +395,7 @@ esac
 ensure_kvm_access
 
 print_summary
+print_recommendations
 
 $CHECK_ONLY && exit 0
 ok "Installation complete."
