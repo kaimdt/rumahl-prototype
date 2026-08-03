@@ -59,7 +59,9 @@ PowerShell module providing equivalent functionality for Windows.
 - `Update-SessionPath` — Refresh PATH from registry for the current session
 - `Test-QemuAvailable` — Detect QEMU on PATH + common install locations
 - `Install-WithWinget` — Generic winget install with retry + verification
-- `Install-QemuIfMissing` — Auto-install QEMU via winget (QEMU.QEMU)
+- `Install-QemuIfMissing` — Auto-install QEMU (winget SoftwareFreedomConservancy.QEMU -> choco -> scoop -> official installer)
+- `Get-QemuWingetId` — Verify/find the current QEMU winget id dynamically
+- `Install-QemuViaChoco` / `Install-QemuViaScoop` / `Install-QemuManual` — Alternative QEMU sources
 - `Test-WslAvailable` / `Install-WslIfMissing` — Detect/install WSL2 with reboot detection
 - `Test-RebootPending` — Check Windows reboot-pending registry keys
 - `Test-VirtualizationEnabled` — Check Hyper-V/WHPX presence

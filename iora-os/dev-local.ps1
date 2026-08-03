@@ -7,7 +7,8 @@
 # Goals: maximum autonomy + idempotency + parity with dev-local.sh.
 #
 # Requirements:
-#   - QEMU            winget install QEMU.QEMU   (or choco install qemu)
+#   - QEMU            winget install SoftwareFreedomConservancy.QEMU
+#                     (or: choco install qemu / scoop install qemu / manual)
 #   - WSL2            wsl --install              (for ISO + tar)
 #   - OpenSSH Client  built into Windows 10/11
 #
@@ -198,13 +199,25 @@ if (-not $QEMU_BIN) {
         [void](Install-QemuIfMissing)
         Update-SessionPath
     } else {
-        # Inline fallback when the auto-repair module is unavailable
-        winget install --silent --accept-package-agreements --accept-source-agreements --id QEMU.QEMU 2>&1 | Out-Null
+        # Inline fallback when the auto-repair module is unavailable.
+        # Note: the old winget id "QEMU.QEMU" was removed (Feb 2025); the
+        # current id is SoftwareFreedomConservancy.QEMU.
+        winget show --id SoftwareFreedomConservancy.QEMU --accept-source-agreements 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            winget install --silent --accept-package-agreements --accept-source-agreements --id SoftwareFreedomConservancy.QEMU 2>&1 | Out-Null
+        } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+            choco install qemu -y --no-progress 2>&1 | Out-Null
+        } elseif (Get-Command scoop -ErrorAction SilentlyContinue) {
+            scoop install qemu 2>&1 | Out-Null
+        } else {
+            Write-Warn "No package manager found - manual install: https://qemu.weilnetz.de/w64/"
+        }
+        if (Get-Command Update-SessionPath -ErrorAction SilentlyContinue) { Update-SessionPath }
         $env:PATH = "$env:ProgramFiles\qemu;$env:PATH"
     }
     $QEMU_BIN = Find-Qemu
     if (-not $QEMU_BIN) {
-        Stop-WithError "QEMU not found. Install with: winget install QEMU.QEMU"
+        Stop-WithError "QEMU not found. Install with: winget install SoftwareFreedomConservancy.QEMU (or: choco install qemu / scoop install qemu / https://qemu.weilnetz.de/w64/)"
     }
 }
 Write-Success "QEMU: $QEMU_BIN"

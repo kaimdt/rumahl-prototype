@@ -186,15 +186,128 @@ function Install-WithWinget {
     return $false
 }
 
-# -- Auto-install QEMU via winget when missing ------------------------------
+# -- winget ID discovery -----------------------------------------------------
+# The old "QEMU.QEMU" id was REMOVED from winget (Feb 2025). The current
+# official id is SoftwareFreedomConservancy.QEMU - verified dynamically so
+# future changes cannot break the install chain again.
+function Get-QemuWingetId {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return "" }
+    winget show --id SoftwareFreedomConservancy.QEMU --accept-source-agreements 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { return "SoftwareFreedomConservancy.QEMU" }
+    # Dynamic fallback: any remaining qemu installer in the winget repo
+    try {
+        $line = winget search qemu --source winget --accept-source-agreements 2>$null |
+            Where-Object { $_ -match '\bqemu\b' -and $_ -match '\s+winget\s*$' } |
+            Select-Object -First 1
+        if ($line) {
+            $parts = ($line -split '\s+', 4)
+            if ($parts.Count -ge 2) { return $parts[1] }
+        }
+    } catch { }
+    return ""
+}
+
+function Install-QemuViaChoco {
+    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) { return $false }
+    Write-Info "Installing QEMU via Chocolatey..."
+    choco install qemu -y --no-progress 2>&1 | Out-Null
+    Update-SessionPath
+    return (Test-QemuAvailable)
+}
+
+function Install-QemuViaScoop {
+    if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) { return $false }
+    Write-Info "Installing QEMU via Scoop (per-user, no admin required)..."
+    scoop install qemu 2>&1 | Out-Null
+    Update-SessionPath
+    return (Test-QemuAvailable)
+}
+
+function Install-QemuManual {
+    # Official Windows builds by Stefan Weil (linked from qemu.org).
+    # Layout: w64/ contains year dirs (2011/..2025/), each with
+    # date-stamped installers: qemu-w64-setup-YYYYMMDD.exe
+    Write-Info "Downloading the official QEMU Windows installer (qemu.weilnetz.de)..."
+    try {
+        $base = "https://qemu.weilnetz.de/w64/"
+        $page = Invoke-WebRequest -Uri $base -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $links = [regex]::Matches($page.Content, 'href="([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+
+        # 1) Newer layout: year subdirectories -> use the newest year
+        $target = $base
+        $years = $links | Where-Object { $_ -match '^\d{4}/$' } |
+            ForEach-Object { [int]($_ -replace '/', '') } | Sort-Object -Descending
+        if ($years) {
+            $target = $base + $years[0] + "/"
+            $page = Invoke-WebRequest -Uri $target -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+            $links = [regex]::Matches($page.Content, 'href="([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+        }
+
+        # 2) Newest date-stamped installer in that listing
+        $latest = $links |
+            Where-Object { $_ -match '^qemu-w64-setup-(\d{8})\.exe$' } |
+            ForEach-Object {
+                [PSCustomObject]@{
+                    Stamp = [int][regex]::Match($_, '^qemu-w64-setup-(\d{8})\.exe$').Groups[1].Value
+                    File  = $_
+                }
+            } | Sort-Object Stamp -Descending | Select-Object -First 1
+        if (-not $latest) {
+            Write-Warn "No QEMU installer found on $target"
+            return $false
+        }
+        $url = $target + $latest.File
+        $installer = Join-Path $env:TEMP $latest.File
+        Write-Info "Downloading $url ..."
+        Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -TimeoutSec 900 -ErrorAction Stop
+        Write-Info "Running the silent installer (/S, installs to Program Files\qemu)..."
+        $p = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
+        Remove-Item $installer -Force -ErrorAction SilentlyContinue
+        Update-SessionPath
+        if ($p.ExitCode -eq 0 -and (Test-QemuAvailable)) {
+            Write-Success "QEMU installed via the official installer."
+            return $true
+        }
+        Write-Warn "Installer finished (exit $($p.ExitCode)) but QEMU was not found - check the installer log."
+        return $false
+    } catch {
+        Write-Warn "Manual QEMU download failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# -- Auto-install QEMU with a full fallback chain ----------------------------
 function Install-QemuIfMissing {
     if (Test-QemuAvailable) { return $true }
-    Write-Info "QEMU not found - installing via winget (QEMU.QEMU, may take a while)..."
-    if (Install-WithWinget -WingetId "QEMU.QEMU" -Verify { Test-QemuAvailable }) {
-        Write-Success "QEMU installed."
-        return $true
+    Write-Info "QEMU not found - trying automatic installation..."
+
+    # 1) winget with the current official id (verified dynamically)
+    $wingetId = Get-QemuWingetId
+    if ($wingetId) {
+        Write-Info "Installing QEMU via winget ($wingetId, may take a while)..."
+        if (Install-WithWinget -WingetId $wingetId -Verify { Test-QemuAvailable }) {
+            Write-Success "QEMU installed."
+            return $true
+        }
+        Write-Warn "winget install failed - trying alternatives..."
+    } else {
+        Write-Warn "QEMU not found in winget - trying alternatives..."
     }
-    Write-Warn "QEMU install via winget failed. Manual: winget install QEMU.QEMU"
+
+    # 2) Chocolatey
+    if (Install-QemuViaChoco) { Write-Success "QEMU installed via Chocolatey."; return $true }
+
+    # 3) Scoop (per-user, no admin)
+    if (Install-QemuViaScoop) { Write-Success "QEMU installed via Scoop."; return $true }
+
+    # 4) Official installer download
+    if (Install-QemuManual) { return $true }
+
+    Write-Warn "All automatic QEMU installs failed. Manual options:"
+    Write-Warn "  winget: winget install SoftwareFreedomConservancy.QEMU"
+    Write-Warn "  choco:  choco install qemu -y"
+    Write-Warn "  scoop:  scoop install qemu"
+    Write-Warn "  manual: https://qemu.weilnetz.de/w64/"
     return $false
 }
 
@@ -565,6 +678,10 @@ Export-ModuleMember -Function @(
     'Update-SessionPath',
     'Test-QemuAvailable',
     'Install-WithWinget',
+    'Get-QemuWingetId',
+    'Install-QemuViaChoco',
+    'Install-QemuViaScoop',
+    'Install-QemuManual',
     'Install-QemuIfMissing',
     'Test-WslAvailable',
     'Install-WslIfMissing',
