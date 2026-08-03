@@ -45,6 +45,7 @@ param(
     [switch] $SkipWhpx,
     [switch] $Uefi,
     [switch] $Freeze,
+    [switch] $Bridge,
     [ValidateSet("source", "build")]
     [string] $Mode = "source",
     [ValidatePattern('^\d+(GB|G)?$')]
@@ -64,7 +65,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.5.1"
+$DEV_LOCAL_VERSION = "2.6.0"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -92,6 +93,8 @@ if ($Help) {
     Write-Host "  -Uefi          Force UEFI (OVMF) firmware instead of SeaBIOS"
     Write-Host "  -Freeze        Bake current provisioned VM state into a golden"
     Write-Host "                 snapshot - resets (-Clean) become instant afterwards"
+    Write-Host "  -Bridge        Give the VM its own LAN IP (TAP + network bridge,"
+    Write-Host "                 like IORA OS production; needs admin once for setup)"
     Write-Host "  -Ram 8GB       Set VM RAM (default: auto)"
     Write-Host "  -CpuCount 4    Set VM CPU count (default: auto)"
     exit 0
@@ -314,6 +317,14 @@ $QEMU_PIDFILE = Join-Path $CACHE "qemu.pid"
 $PROVISIONED_MARKER = Join-Path $CACHE ".provisioned"
 $QEMU_STDERR = Join-Path $CACHE "qemu-stderr.log"
 
+# -- VM addressing ------------------------------------------------------------
+# Default: slirp user-net with hostfwd (VM reached via 127.0.0.1:<port>).
+# Bridge mode (-Bridge): the VM gets its own LAN IP via TAP + network bridge;
+# $VM_HOST is then set to that IP (discovered via the guest agent) and SSH/
+# health checks talk to the VM directly on port 22.
+$script:VM_HOST = "127.0.0.1"
+$script:VM_SSH_PORT = $SshPort
+
 # -- Dev disk lifecycle ------------------------------------------------------
 function Reset-VmDisk {
     # Recreate the dev overlay from the golden snapshot (if present) or the
@@ -393,7 +404,7 @@ $SSH_OPTS = @(
 
 function Invoke-SSH {
     param([string] $Command)
-    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 $Command 2>&1
+    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST $Command 2>&1
 }
 
 function Invoke-SSHStdin {
@@ -404,7 +415,7 @@ function Invoke-SSHStdin {
     $normalizedScript = ($Script -replace "`r`n", "`n") -replace "`r", "`n"
     [System.IO.File]::WriteAllText($tmp, $normalizedScript, [System.Text.Encoding]::ASCII)
     try {
-        $sshArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-p", $SshPort, "root@127.0.0.1", "bash -s")
+        $sshArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-p", $VM_SSH_PORT, "root@$VM_HOST", "bash -s")
         $proc = Start-Process -FilePath $SSH_BIN -ArgumentList $sshArgs -RedirectStandardInput $tmp -RedirectStandardOutput $stdout -RedirectStandardError $stderr -NoNewWindow -Wait -PassThru
         $global:LASTEXITCODE = $proc.ExitCode
         Get-Content $stdout -Raw -ErrorAction SilentlyContinue
@@ -474,14 +485,72 @@ function Invoke-QgaExec {
 
 function Send-SCP {
     param([string] $LocalPath, [string] $RemotePath, [switch] $Recurse)
-    $scpArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-P", $SshPort)
+    $scpArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-P", $VM_SSH_PORT)
     if ($Recurse) { $scpArgs += "-r" }
-    $scpArgs += @($LocalPath, "root@127.0.0.1:$RemotePath")
+    $scpArgs += @($LocalPath, "root@${VM_HOST}:$RemotePath")
     & $SCP_BIN @scpArgs 2>&1
 }
 
+# -- Bridge mode: give the VM its own LAN IP (TAP driver + network bridge) ---
+# The VM then behaves like IORA OS production: a normal device on the LAN
+# with its own DHCP address (reachable from the PC and other devices).
+# Requires admin once (TAP driver install + bridge creation); afterwards the
+# bridge persists and every start is automatic.
+function Initialize-BridgeNetwork {
+    # 1) TAP-Windows6 driver present?
+    $tap = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -like "TAP-Windows*" } | Select-Object -First 1
+    if (-not $tap) {
+        Write-Info "TAP-Windows driver missing - installing (admin required once)..."
+        $tapInstaller = Join-Path $CACHE "tap-windows-9.24.7.exe"
+        if (-not (Test-Path $tapInstaller)) {
+            try {
+                Invoke-WebRequest -Uri "https://build.openvpn.net/downloads/releases/tap-windows-9.24.7.exe" -OutFile $tapInstaller -UseBasicParsing -TimeoutSec 180
+            } catch {
+                Stop-WithError "TAP driver download failed: $_"
+            }
+        }
+        $p = Start-Process -FilePath $tapInstaller -ArgumentList "/S" -Wait -PassThru
+        Start-Sleep 4
+        $tap = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -like "TAP-Windows*" } | Select-Object -First 1
+        if (-not $tap) {
+            Stop-WithError "TAP adapter not present after install (needs admin). Run once as Administrator: $tapInstaller /S"
+        }
+    }
+    Write-Success "TAP adapter: $($tap.Name)"
+    $script:TapName = $tap.Name
+
+    # 2) Network bridge exists? (netsh bridge list shows bridge GUIDs)
+    $bridgeList = netsh bridge list 2>&1 | Out-String
+    if ($bridgeList -match "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-") {
+        Write-Success "Network bridge already exists"
+        return
+    }
+    $lanName = (Get-NetIPConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).InterfaceAlias
+    if (-not $lanName) { Stop-WithError "No LAN adapter with a default route found - bridge mode needs a wired Ethernet connection." }
+    Write-Dim "  Bridging: $lanName + $($tap.Name)"
+    $adapterTable = netsh bridge show adapter 2>&1 | Out-String
+    $lanId = $null; $tapId = $null
+    foreach ($line in ($adapterTable -split "`r?`n")) {
+        if ($line -match "^(\d+)\s+\{([0-9a-fA-F-]+)\}\s+(.+)$") {
+            $id = $matches[1]; $name = $matches[3].Trim()
+            if ($name -eq $lanName) { $lanId = $id }
+            if ($name -eq $tap.Name) { $tapId = $id }
+        }
+    }
+    if (-not $lanId -or -not $tapId) {
+        Stop-WithError "Could not map adapters from 'netsh bridge show adapter' (LAN='$lanName', TAP='$($tap.Name)'). Create the bridge once as Administrator: Network Connections -> select both adapters -> Bridge, or run this script as Administrator."
+    }
+    Write-Info "Creating network bridge ($lanName + $($tap.Name))..."
+    $out = netsh bridge create $lanId $tapId 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "netsh bridge create failed (run once as Administrator): $out"
+    }
+    Start-Sleep 3
+    Write-Success "Network bridge created - the VM will get its own LAN IP (DHCP)"
+}
+
 function Test-VmHealth {
-    foreach ($p in @("http://127.0.0.1:$VM_HOME/api/health", "http://127.0.0.1:$VM_HOME/health")) {
+    foreach ($p in @("http://${VM_HOST}:$VM_HOME/api/health", "http://${VM_HOST}:$VM_HOME/health")) {
         try {
             $resp = Invoke-WebRequest -Uri $p -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
             if ($resp.StatusCode -eq 200) { return $true }
@@ -514,7 +583,7 @@ if ($SSH) {
         Stop-WithError "VM is not running. Start it first: .\dev-local.ps1"
     }
     Write-Info "Connecting to VM via SSH..."
-    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1
+    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST
     exit 0
 }
 
@@ -543,7 +612,7 @@ if ($Watcher) {
     # the nested-quotes parsing fails ("Die Syntax fuer den Dateinamen ... ist
     # falsch"). Direct launch makes the watcher own its console.
     $watcherArgs = @(
-        '--vm-host', '127.0.0.1',
+        '--vm-host', "$VM_HOST",
         '--vm-port', "$SshPort",
         '--ssh-key', "$SSH_KEY"
     )
@@ -576,13 +645,13 @@ if ($Log) {
         $hasCloudMainLog = Invoke-SSH "test -f $cloudMainLog && echo YES" 2>$null
         if ("$hasCloudLog" -match "YES") {
             Write-Info "Live cloud-init output log (Ctrl+C to stop)..."
-            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f $cloudLog"
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST "tail -f $cloudLog"
         } elseif ("$hasCloudMainLog" -match "YES") {
             Write-Info "Live cloud-init main log (Ctrl+C to stop)..."
-            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f $cloudMainLog"
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST "tail -f $cloudMainLog"
         } else {
             Write-Info "SSH ready. Following syslog (Ctrl+C to stop)..."
-            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f /var/log/syslog"
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST "tail -f /var/log/syslog"
         }
     } else {
         Write-Warn "SSH not yet reachable. Following QEMU serial console (live - Ctrl+C to stop):"
@@ -1001,6 +1070,12 @@ if ($existingProc) {
     if (-not $existingProc) {
         Write-Info "Starting QEMU..."
 
+        # Bridge mode: TAP driver + network bridge (once), then the VM gets
+        # its own LAN IP - no hostfwd/port checks needed.
+        if ($Bridge) {
+            Initialize-BridgeNetwork
+        }
+
         # -- Port availability: ANY busy forward port kills QEMU's user-net --
         # ("Could not set up host forwarding rule ..."). Check every port and
         # skip busy ones with a warning instead of crashing.
@@ -1034,15 +1109,18 @@ if ($existingProc) {
             }
         }
 
-        # Build the netdev hostfwd string (only free ports)
-        $script:forwardRules = ",hostfwd=tcp::${SshPort}-:22"
-        Add-PortIfFree -Port $VM_HOME -GuestPort 8126
-        Add-PortIfFree -Port $VM_BRIDGE -GuestPort 8101
-        foreach ($p in $FWD_PORTS) { Add-PortIfFree -Port $p -GuestPort $p }
-        $fwd = "user,id=n0" + $script:forwardRules
-        if ($skippedPorts.Count -gt 0) {
-            Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
+        # Build the netdev hostfwd string (only free ports); bridge mode
+        # needs no forwarding - the VM is reachable directly via its LAN IP.
+        if (-not $Bridge) {
+            $script:forwardRules = ",hostfwd=tcp::${SshPort}-:22"
+            Add-PortIfFree -Port $VM_HOME -GuestPort 8126
+            Add-PortIfFree -Port $VM_BRIDGE -GuestPort 8101
+            foreach ($p in $FWD_PORTS) { Add-PortIfFree -Port $p -GuestPort $p }
+            if ($skippedPorts.Count -gt 0) {
+                Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
+            }
         }
+        $fwd = "user,id=n0" + $script:forwardRules
 
         # Guest-agent control port (localhost TCP on Windows; UNIX socket on
         # POSIX). Auto-pick a free port so a busy 8109 cannot kill QEMU.
@@ -1058,6 +1136,12 @@ if ($existingProc) {
         # QEMU argument builder - reused verbatim by the UEFI-shell
         # self-heal (reboots the VM with SeaBIOS without duplicating the
         # whole argument list).
+        $netArgs = if ($Bridge) {
+            @("-netdev", "tap,id=n0,ifname=$script:TapName", "-device", "virtio-net-pci,netdev=n0")
+        } else {
+            @("-netdev", $fwd, "-device", "virtio-net-pci,netdev=n0")
+        }
+
         function Build-QemuArgs {
             param([string] $Firmware)  # "uefi" | "seabios"
             $fwDrv = @()
@@ -1084,9 +1168,11 @@ if ($existingProc) {
                 "-device", "virtio-blk-pci,drive=iora-disk,bootindex=1",
                 "-drive", "file=$SEED_ISO,format=raw,media=cdrom,if=none,id=iora-seed",
                 "-device", "ide-cd,drive=iora-seed,bootindex=2",
-                "-netdev", $fwd,
+                # Bridge mode: TAP adapter on the LAN bridge (own DHCP IP like
+                # IORA OS production); otherwise slirp user-net + hostfwd.
+                $netArgs[0], $netArgs[1],
                 # virtio NIC (proven config; e1000 had DHCP issues under WHPX)
-                "-device", "virtio-net-pci,netdev=n0",
+                $netArgs[2], $netArgs[3],
                 # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
                 "-device", "virtio-serial-pci",
                 "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
@@ -1217,6 +1303,26 @@ if ($existingProc) {
 $serialLog = Join-Path $CACHE "qemu-serial.log"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host 'IORA Dev VM - Serial Console (live)' -ForegroundColor Cyan; Get-Content -Wait -Tail 0 '$serialLog'" -WindowStyle Minimized | Out-Null
 
+# -- Bridge mode: discover the VM's LAN IP via the guest agent ---------------
+# (QGA works over virtio-serial, independent of the network; the agent is
+# ensured by the dbInit step on every run.)
+if ($Bridge) {
+    Write-Info "Waiting for the VM's LAN IP (guest agent)..."
+    $vmIp = $null
+    $deadline = (Get-Date).AddSeconds(180)
+    while ((Get-Date) -lt $deadline -and -not $vmIp) {
+        $qgaIp = Invoke-QgaExec -Command 'ip -4 route get 1.1.1.1 2>/dev/null | awk "{print \$7; exit}"' -TimeoutSec 5
+        if ($qgaIp -match "\d+\.\d+\.\d+\.\d+") { $vmIp = $matches[0] }
+        if (-not $vmIp) { Start-Sleep -Seconds 5 }
+    }
+    if (-not $vmIp) {
+        Stop-WithError "Could not determine the VM's LAN IP (guest agent not responding). Check the network bridge and run again."
+    }
+    $script:VM_HOST = $vmIp
+    $script:VM_SSH_PORT = 22
+    Write-Success "VM LAN IP: $vmIp (SSH via port 22, services via http://${vmIp}:8126)"
+}
+
 # -- Step 5: Wait for cloud-init to finish ----------------------------------
 Write-Info "Waiting for cloud-init to finish (first boot may take 3-10 min)..."
 $waited = 0
@@ -1312,7 +1418,7 @@ while ($waited -lt $timeout) {
 }
 Write-Host ""
 if (-not $ready) {
-    Stop-WithError "Cloud-init timed out. Try: ssh -i $SSH_KEY -p $SshPort root@127.0.0.1"
+    Stop-WithError "Cloud-init timed out. Try: ssh -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST"
 }
 Write-Success "SSH ready!"
 
@@ -1335,12 +1441,13 @@ wsl bash -c "mkdir -p ~/.ssh && install -m 600 '$keyWsl' ~/.ssh/iora_dev_key 2>/
 # The rsync fast path needs rsync in WSL (the VM gets it during provisioning)
 $null = wsl bash -c "command -v rsync >/dev/null 2>&1 || sudo apt-get install -y -qq rsync 2>&1 | tail -1" 2>$null
 $syncExcludes = "--exclude='.git' --exclude='target' --exclude='node_modules' --exclude='.cache' --exclude='buildroot-*' --exclude='releases' --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' --exclude='*.tar.gz' --exclude='.iora-dev'"
-$syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/iora_dev_key -p $SshPort"
+$syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/iora_dev_key -p $VM_SSH_PORT"
 # WSL2 NAT mode: the VM's forwarded ports live on the Windows host, which WSL
 # reaches via its default-route gateway (127.0.0.1 inside WSL only works in
 # mirrored mode). Probe 127.0.0.1 first, then derive the gateway from
 # /proc/net/route, so the rsync fast path works in both WSL network modes.
 function Get-WslSyncHost {
+    if ($Bridge) { return $VM_HOST }
     $null = wsl bash -c "ssh $syncSsh root@127.0.0.1 'true'" 2>$null
     if ($LASTEXITCODE -eq 0) { return "127.0.0.1" }
     $route = wsl bash -c "cat /proc/net/route" 2>$null
@@ -1410,7 +1517,7 @@ if ($needProvision -and $Mode -eq "source") {
     $npmJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
         param($sshBin, $sshOpts, $sshKey, $port)
         $cmd = "cd /home/iora/iora/frontend && [ -d node_modules ] || npm install --no-audit --no-fund 2>&1"
-        & $sshBin @sshOpts -i $sshKey -p $port root@127.0.0.1 $cmd
+        & $sshBin @sshOpts -i $sshKey -p $port root@$script:VM_HOST $cmd
     }
 }
 
@@ -1427,7 +1534,7 @@ if ($needProvision) {
     $rustupJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
         param($sshBin, $sshOpts, $sshKey, $port)
         $cmd = "su - iora -c 'test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1"
-        & $sshBin @sshOpts -i $sshKey -p $port root@127.0.0.1 $cmd
+        & $sshBin @sshOpts -i $sshKey -p $port root@$script:VM_HOST $cmd
     }
 
     Write-Info "Installing system packages (slow first-run step)..."
@@ -1755,6 +1862,25 @@ if [ -f /etc/iora/iora-home.env ]; then
 fi
 systemctl daemon-reload
 systemctl reset-failed iora-db-init 2>/dev/null
+# Guest agent: reliable control channel + LAN IP discovery (bridge mode)
+if ! command -v qemu-ga >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq --no-install-recommends qemu-guest-agent 2>&1 | tail -1
+fi
+systemctl enable --now qemu-guest-agent 2>/dev/null || true
+# Bridge mode: allow the LAN subnet through the IORA firewall (the slirp
+# rules only cover 10.0.2.0/24 + localhost)
+lan=$(ip route 2>/dev/null | awk '/default via/ {print $1; exit}')
+case "$lan" in
+    ""|10.0.2.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*) ;;
+    *)
+        if command -v iptables >/dev/null 2>&1; then
+            iptables -C INPUT -p tcp -m multiport --dports 22,80,443,3001,5432,8080,8088:8130 -s "$lan" -j ACCEPT 2>/dev/null \
+                || iptables -A INPUT -p tcp -m multiport --dports 22,80,443,3001,5432,8080,8088:8130 -s "$lan" -j ACCEPT
+            echo "iora-db-init: firewall allows LAN subnet $lan (bridge mode)"
+        fi
+        ;;
+esac
 # Restart all IORA services so the env/db fixes take effect immediately
 systemctl restart iora-home 2>/dev/null
 systemctl try-restart iora-*.service 2>/dev/null
@@ -1887,8 +2013,8 @@ for ($i=0; $i -lt 12; $i++) {
     if (Test-VmHealth) { $healthOk = $true; break }
     Start-Sleep -Seconds 5
 }
-if ($healthOk) { Write-Success "iora-home OK on http://127.0.0.1:$VM_HOME" }
-else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $SshPort root@127.0.0.1 'journalctl -u iora-home -n 50'" }
+if ($healthOk) { Write-Success "iora-home OK on http://${VM_HOST}:$VM_HOME" }
+else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST 'journalctl -u iora-home -n 50'" }
 
 # -- Step 10: Launch dev-watch TUI ------------------------------------------
 if (-not $NoWatch) {
@@ -1909,7 +2035,7 @@ if (-not $NoWatch) {
         # TUI owns its console. Any shell wrapper (powershell -NoExit / cmd /c)
         # breaks raw mode + key handling and is fragile to quote escaping.
         $watcherArgs = @(
-            '--vm-host', '127.0.0.1',
+            '--vm-host', "$VM_HOST",
             '--vm-port', "$SshPort",
             '--ssh-key', "$SSH_KEY"
         )
@@ -1922,7 +2048,7 @@ $HEALTH_MONITOR_LOG = Join-Path $CACHE "health-monitor.log"
 $HEALTH_MONITOR_PID = Join-Path $CACHE "health-monitor.pid"
 
 if (Get-Command Start-HealthMonitor -ErrorAction SilentlyContinue) {
-    Start-HealthMonitor -VMHost "127.0.0.1" -VMPort $SshPort -SSHKey $SSH_KEY `
+    Start-HealthMonitor -VMHost $VM_HOST -VMPort $VM_SSH_PORT -SSHKey $SSH_KEY `
         -LogFile $HEALTH_MONITOR_LOG -PIDFile $HEALTH_MONITOR_PID
 }
 
@@ -1935,14 +2061,14 @@ $readyBanner = @"
   |                    IORA Dev VM ready                                |
   +====================================================================+
   |  WEB                                                                |
-  |    Dashboard (nginx) https://localhost                              |
-  |    Dashboard direct  http://localhost:$VM_HOME                            |
-  |    Dev Bridge        http://localhost:$VM_BRIDGE/dev/health               |
-  |    Swagger API       http://localhost:$VM_HOME/api/docs                   |
-  |    Global Config API http://localhost:$VM_HOME/api/settings               |
+  |    Dashboard (nginx) https://$VM_HOST                                      |
+  |    Dashboard direct  http://${VM_HOST}:$VM_HOME                                   |
+  |    Dev Bridge        http://${VM_HOST}:$VM_BRIDGE/dev/health                      |
+  |    Swagger API       http://${VM_HOST}:$VM_HOME/api/docs                          |
+  |    Global Config API http://${VM_HOST}:$VM_HOME/api/settings                      |
   |                                                                     |
   |  ACCESS                                                             |
-  |    SSH               ssh -i $SSH_KEY -p $SshPort root@127.0.0.1
+  |    SSH               ssh -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST
   |                                                                     |
   |  CO-BUDDY FEATURES                                                  |
   |    Auto-repair       Port conflicts, disk space, dependencies       |
@@ -1950,10 +2076,10 @@ $readyBanner = @"
   |    Smart Recovery    Auto-restart failed services                   |
   |                                                                     |
   |  LOGS (100% IORA OS compatible)                                     |
-  |    All services      ssh root@127.0.0.1 -p $SshPort 'journalctl -u iora-* -f'
-  |    Specific service  ssh root@127.0.0.1 -p $SshPort 'journalctl -u iora-home -f'
-  |    Last 100 lines    ssh root@127.0.0.1 -p $SshPort './iora-dev-logs.sh'
-  |    Follow all logs   ssh root@127.0.0.1 -p $SshPort './iora-dev-logs.sh -f'
+  |    All services      ssh root@$VM_HOST -p $VM_SSH_PORT 'journalctl -u iora-* -f'
+  |    Specific service  ssh root@$VM_HOST -p $VM_SSH_PORT 'journalctl -u iora-home -f'
+  |    Last 100 lines    ssh root@$VM_HOST -p $VM_SSH_PORT './iora-dev-logs.sh'
+  |    Follow all logs   ssh root@$VM_HOST -p $VM_SSH_PORT './iora-dev-logs.sh -f'
   |                                                                     |
   |  GLOBAL CONFIG                                                      |
   |    Get setting       ssh root@127.0.0.1 -p $SshPort 'iora-get-config ha.url'

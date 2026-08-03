@@ -331,6 +331,31 @@ cat .cache/qemu-serial.log
 
 Hinweis: Das TCG-Fallback (`-SkipWhpx`) bootet immer über SeaBIOS; `-Uefi` wird dort ignoriert.
 
+### Bridge-Modus: eigene LAN-IP wie IORA OS Produktion
+
+Die VM bekommt per TAP-Treiber + Netzwerkbrücke eine eigene IP vom LAN-Router (DHCP) –
+erreichbar vom PC und allen Geräten im Netz, genau wie ein echtes IORA OS:
+
+```powershell
+# Einmalig als Administrator (TAP-Treiber + Brücke werden automatisch eingerichtet):
+# (PowerShell als Admin starten)
+.\dev-local.ps1 -Bridge
+
+# Danach reicht ein normaler Start – Brücke und Treiber bleiben bestehen:
+.\dev-local.ps1 -Bridge
+```
+
+Voraussetzungen: kabelgebundenes Ethernet (WLAN-Adapter können nicht gebrückt werden),
+Internet beim ersten Mal (TAP-Treiber-Download). Das Skript:
+
+1. installiert den TAP-Windows6-Treiber (falls fehlt),
+2. erstellt die Netzwerkbrücke (LAN-Adapter + TAP) via `netsh bridge create`,
+3. startet QEMU mit dem TAP-Adapter statt slirp – die VM holt sich eine LAN-IP per DHCP,
+4. ermittelt die IP automatisch über den QEMU-Gast-Agenten und nutzt sie für SSH,
+   Sync und Health-Checks (SSH direkt auf Port 22).
+
+Ohne `-Bridge` gilt weiterhin der slirp-Modus mit Port-Forwards (`localhost:8126` etc.).
+
 ### Golden-Snapshot: Reset in Sekunden statt Neuprovisionierung
 
 Nach einer erfolgreichen Provisionierung kann der komplette VM-Zustand als Golden-Snapshot
