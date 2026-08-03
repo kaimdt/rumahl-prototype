@@ -928,19 +928,14 @@ if ($existingProc) {
         if (-not $useWhpx) {
             $tcgRam  = [Math]::Max(4, [Math]::Min([int]($VM_RAM -replace 'G',''), 8))
             $tcgCpus = [Math]::Max(2, [Math]::Min($VM_CPUS, 8))
+            # TCG fallback WITHOUT OVMF pflash: the proven dev-local.sh
+            # configuration boots the Debian cloud image with the default
+            # SeaBIOS - OVMF+TCG crashes on some Windows QEMU builds.
             $tcgArgs = @(
                 "-name", "IORA-Dev",
                 "-m", "${tcgRam}G",
                 "-smp", $tcgCpus,
-                "-machine", "${VM_MACHINE},accel=tcg"
-            )
-            if ($fwIsFlash) {
-                $tcgArgs += @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
-                if (Test-Path $FW_VARS_CACHED) {
-                    $tcgArgs += @("-drive", "if=pflash,format=raw,file=$FW_VARS_CACHED")
-                }
-            }
-            $tcgArgs += @(
+                "-machine", "${VM_MACHINE},accel=tcg",
                 "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
                 "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
                 "-boot", "order=d,menu=off",
@@ -952,7 +947,11 @@ if ($existingProc) {
             )
             $qemuProc = Start-Qemu -QemuArgs $tcgArgs -Accel "TCG"
             if (-not (Test-Alive -Proc $qemuProc -WaitSec 20)) {
-                Stop-WithError "QEMU/TCG also crashed. See $QEMU_STDERR"
+                Write-Err "QEMU/TCG also crashed. Last 20 lines of ${QEMU_STDERR}:"
+                if (Test-Path $QEMU_STDERR) {
+                    Get-Content $QEMU_STDERR -Tail 20 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+                }
+                Stop-WithError "QEMU crashed with both WHPX and TCG. Check the log above; common fixes: enable VT-x/AMD-V in BIOS, or update QEMU."
             }
         }
     }
