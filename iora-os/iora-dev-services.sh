@@ -71,6 +71,15 @@ _iora_service() {
         # SOURCE MODE: run `cargo run -p <svc>` straight from the 1:1 mirror.
         # cargo compiles incrementally in the VM; the hot-reload daemon
         # (iora-hot-reload.service) restarts this unit on source changes.
+        # iora-dev-bridge is the exception: it requires root (host-level
+        # channels) and would exit with "requires root (uid=0)" as iora.
+        local run_user="iora" run_group="iora"
+        [ "$name" = "iora-dev-bridge" ] && run_user="root" && run_group="root"
+        # As root, the rustup shim needs the iora toolchain/cargo env
+        local bridge_env=""
+        [ "$name" = "iora-dev-bridge" ] && bridge_env="Environment=HOME=/home/iora
+Environment=RUSTUP_HOME=/home/iora/.rustup
+Environment=CARGO_HOME=/home/iora/.cargo"
         chown -R iora:iora "$datadir" 2>/dev/null || true
         cat > "${SVC_DIR}/${name}.service" <<EOF
 [Unit]
@@ -85,14 +94,15 @@ StartLimitIntervalSec=300
 
 [Service]
 Type=simple
-User=iora
-Group=iora
+User=${run_user}
+Group=${run_group}
 WorkingDirectory=/home/iora/iora/iora-os/backend
 ExecStart=/home/iora/.cargo/bin/cargo run -p ${name}
 Restart=always
 RestartSec=15
 # Keep rustc parallelity within the VM's RAM (see cargo_jobs above)
 Environment=CARGO_BUILD_JOBS=${cargo_jobs}
+${bridge_env}
 ${port:+Environment=PORT=${port}}
 Environment=RUST_LOG=${name//-/_}=debug
 EnvironmentFile=-/etc/iora/${name}.env

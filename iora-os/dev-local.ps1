@@ -64,7 +64,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.5.0"
+$DEV_LOCAL_VERSION = "2.5.1"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -933,6 +933,9 @@ fi
 echo "[+] ISO created: $SEED_ISO"
 '@
     $seedBash = $seedBash.Replace('__SEED_DIR__', $seedDirWsl).Replace('__SEED_ISO__', $seedIsoWsl)
+    # The here-string inherits CRLF line endings from this .ps1 file, which
+    # breaks bash in WSL ("$'\r': command not found"). Normalize to LF.
+    $seedBash = (($seedBash -replace "`r`n", "`n") -replace "`r", "`n")
     $seedScript = Join-Path $CACHE "seed-create.sh"
     Set-Content -Path $seedScript -Value $seedBash -NoNewline -Encoding ASCII
     $seedScriptWsl = ConvertTo-WslPath $seedScript
@@ -1458,6 +1461,22 @@ systemctl enable --now docker postgresql nginx 2>/dev/null || true
     if ($installExitCode -ne 0) {
         Stop-WithError "Installing system packages failed in VM (ssh exit code $installExitCode)."
     }
+
+    Write-Info "Upgrading Node.js to 22 (Vite 7 needs Node >= 20.12, Debian 12 ships 18)..."
+    $nodeScript = @'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+if node --version 2>/dev/null | grep -qE "^v(2[02])" ; then
+    echo "node OK: $(node --version)"
+else
+    curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource-setup.sh
+    bash /tmp/nodesource-setup.sh 2>&1 | tail -1
+    apt-get install -y -qq nodejs 2>&1 | tail -1
+    echo "node upgraded: $(node --version)"
+fi
+'@
+    $nodeOut = Invoke-SSHStdin $nodeScript
+    $nodeOut | Select-Object -Last 2
 
     Write-Info "Installing UEFI bootloader (grub-efi) so the VM can boot via OVMF..."
     $grubEfiScript = @'
