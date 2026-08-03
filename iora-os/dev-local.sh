@@ -34,7 +34,7 @@ set -uo pipefail
 
 # ── Version (Banner zeigt die laufende Version – erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzählen) ──────────────
-DEV_LOCAL_VERSION="2.4.6"
+DEV_LOCAL_VERSION="2.4.7"
 
 # ── Colors & Logging (defined first – earlier versions crashed because
 #    `log` was called before this point) ────────────────────────────────────
@@ -868,6 +868,10 @@ fi
 
 # ── Step 5: Wait for cloud-init to finish ──────────────────────────────────
 log "Waiting for cloud-init to finish (first boot may take 3-10 min)..."
+# Primärer Kontrollkanal: QEMU-Guest-Agent via virtio-serial (funktioniert
+# OHNE IP/Netzwerk); SSH bleibt als Alternative.
+# shellcheck source=./qga.sh
+source "$SCRIPT_DIR/qga.sh" 2>/dev/null || true
 WAITED=0
 CLOUD_TIMEOUT=900
 LAST_DIAG=0
@@ -878,7 +882,16 @@ while [ $WAITED -lt $CLOUD_TIMEOUT ]; do
         tail -20 "$CACHE/qemu-stderr.log" 2>/dev/null >&2 || true
         die "VM crashed."
     fi
-    if ssh_vm "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
+    BOOT_READY=false
+    if [ -S "$CACHE/qga.sock" ] && command -v socat >/dev/null 2>&1; then
+        if qga_exec "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
+            BOOT_READY=true
+        fi
+    fi
+    if ! $BOOT_READY && ssh_vm "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
+        BOOT_READY=true
+    fi
+    if $BOOT_READY; then
         ok "Cloud-init completed"
         break
     fi

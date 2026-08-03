@@ -142,6 +142,10 @@ sync_now() {
         $QUIET || ok "Mirror in sync ($(date +%H:%M:%S))"
     else
         warn "rsync failed – retrying in 5s..."
+        # Control-channel hint: even without SSH the VM stays fully controllable
+        if [ -S "$CACHE/qga.sock" ] && command -v socat >/dev/null 2>&1; then
+            dim "  VM control still available without SSH: $SCRIPT_DIR/qga.sh exec 'systemctl status iora-home'"
+        fi
         sleep 5
         rsync -az "${EXCLUDES[@]}" -e "ssh ${SSH_OPTS[*]}" \
             "$REPO_ROOT/" "root@127.0.0.1:/home/iora/iora/" \

@@ -62,7 +62,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.6"
+$DEV_LOCAL_VERSION = "2.4.7"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -389,6 +389,64 @@ function Invoke-SSHStdin {
     } finally {
         Remove-Item $tmp, $stdout, $stderr -Force -ErrorAction SilentlyContinue
     }
+}
+
+# -- QEMU Guest Agent channel (works WITHOUT IP/network) --------------------
+# Primary control channel: JSON lines over the localhost TCP socket that
+# QEMU exposes (virtio-serial -> qemu-guest-agent inside the VM).
+function Invoke-QgaJson {
+    param([string]$Json, [int]$TimeoutSec = 10)
+    $port = 8109
+    if ($script:QgaPort) { $port = $script:QgaPort }
+    $client = $null
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $iar = $client.BeginConnect("127.0.0.1", $port, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne(3000)) { return $null }
+        $client.EndConnect($iar)
+        $stream = $client.GetStream()
+        $payload = [System.Text.Encoding]::UTF8.GetBytes($Json + "`n")
+        $stream.Write($payload, 0, $payload.Length)
+        $stream.Flush()
+        $stream.ReadTimeout = $TimeoutSec * 1000
+        $sb = New-Object System.Text.StringBuilder
+        $buf = New-Object byte[] 8192
+        while ($true) {
+            $n = $stream.Read($buf, 0, $buf.Length)
+            if ($n -le 0) { break }
+            [void]$sb.Append([System.Text.Encoding]::UTF8.GetString($buf, 0, $n))
+            if ($sb.ToString().Contains("`n")) { break }
+        }
+        return $sb.ToString().Trim()
+    } catch {
+        return $null
+    } finally {
+        if ($client) { $client.Close() }
+    }
+}
+
+function Invoke-QgaExec {
+    param([string]$Command, [int]$TimeoutSec = 60)
+    $cmdJson = $Command | ConvertTo-Json
+    $resp = Invoke-QgaJson ('{"execute":"guest-exec","arguments":{"path":"/bin/sh","arg":["-c",' + $cmdJson + '],"capture-output":true}}')
+    if (-not $resp) { return $null }
+    try { $execPid = ($resp | ConvertFrom-Json).return.pid } catch { return $null }
+    if (-not $execPid) { return $null }
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $st = Invoke-QgaJson ('{"execute":"guest-exec-status","arguments":{"pid":' + $execPid + '}}')
+        if (-not $st) { continue }
+        try { $r = $st | ConvertFrom-Json } catch { continue }
+        if ($null -ne $r.return.exitcode) {
+            if ($r.return.'out-data') {
+                try { return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($r.return.'out-data')) }
+                catch { return "" }
+            }
+            return ""
+        }
+    }
+    return $null
 }
 
 function Send-SCP {
@@ -893,6 +951,11 @@ if ($existingProc) {
             Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
         }
 
+        # Guest-agent control port (localhost TCP on Windows; UNIX socket on
+        # POSIX). Auto-pick a free port so a busy 8109 cannot kill QEMU.
+        $QgaPort = 8109
+        while ((Test-PortListening -Port $QgaPort) -and $QgaPort -lt 8130) { $QgaPort++ }
+
         $fwDrive = if ($fwIsFlash) {
             $base = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
             if (Test-Path $FW_VARS_CACHED) {
@@ -915,7 +978,7 @@ if ($existingProc) {
             "-device", "virtio-net-pci,netdev=n0",
             # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
             "-device", "virtio-serial-pci",
-            "-chardev", "socket,id=qga0,path=$($CACHE)\qga.sock,server=on,wait=off",
+            "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
             "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
             "-device", "virtio-gpu",
             "-machine", "${VM_MACHINE},accel=whpx",
@@ -998,7 +1061,7 @@ if ($existingProc) {
                 "-device", "virtio-net-pci,netdev=n0",
                 # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
                 "-device", "virtio-serial-pci",
-                "-chardev", "socket,id=qga0,path=$($CACHE)\qga.sock,server=on,wait=off",
+                "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
                 "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
                 "-serial", "file:$($CACHE)\qemu-serial.log",
                 "-display", "none",
@@ -1030,8 +1093,15 @@ while ($waited -lt $timeout) {
     if ($qemuProc.HasExited) {
         Stop-WithError "QEMU exited (code $($qemuProc.ExitCode)). See $QEMU_STDERR"
     }
-    $result = Invoke-SSH 'test -f /var/lib/cloud/instance/boot-finished && echo READY'
-    if ("$result" -match "READY") { $ready = $true; break }
+    # Primaerer Kanal: QEMU-Guest-Agent (funktioniert OHNE IP); SSH als Alternative
+    $bootReady = $false
+    $qgaOut = Invoke-QgaExec -Command 'test -f /var/lib/cloud/instance/boot-finished && echo READY' -TimeoutSec 10
+    if ("$qgaOut" -match "READY") { $bootReady = $true }
+    if (-not $bootReady) {
+        $result = Invoke-SSH 'test -f /var/lib/cloud/instance/boot-finished && echo READY'
+        if ("$result" -match "READY") { $bootReady = $true }
+    }
+    if ($bootReady) { $ready = $true; break }
     # Every 90s without SSH progress: show what the VM console is doing so the
     # user can see whether it is still booting, stuck on login, or offline.
     if (($waited - $lastDiag) -ge 90) {
@@ -1450,7 +1520,7 @@ $readyBanner = @"
   |  MODE                                                               |
   |    Run mode:         $Mode (source = cargo run / build = binaries)  |
   |    Sync watcher:     wsl bash dev-sync.sh --watch (~1s latency)     |
-  |    Guest agent:      socat - UNIX-CONNECT:<cache>\qga.sock     |
+  |    Guest agent:      .\qga.ps1 ping | exec "cmd" (no IP needed)  |
 $(if ($skippedPorts.Count -gt 0) { "  |    NOT forwarded:   $($skippedPorts -join ', ') (busy on host)        |" })
   |                                                                     |
   |  Logs                                                               |
