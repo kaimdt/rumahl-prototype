@@ -62,7 +62,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.2"
+$DEV_LOCAL_VERSION = "2.4.3"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -849,10 +849,22 @@ if ($existingProc) {
         # skip busy ones with a warning instead of crashing.
         function Test-PortListening {
             param([int]$Port)
+            # 1) NetTCPConnection (may miss listeners on some systems - best effort)
             if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
-                return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+                if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { return $true }
             }
-            return [bool](netstat -an 2>$null | Select-String -Pattern "LISTEN" | Select-String -Pattern "[:.]${Port}\s")
+            # 2) netstat (always available, catches everything)
+            if (netstat -ano 2>$null | Select-String -Pattern "LISTENING" | Select-String -Pattern "[:.]${Port}\s") { return $true }
+            # 3) Definitive: try to BIND the port ourselves - exactly what QEMU
+            #    will do. If the bind fails, QEMU would crash on this port too.
+            try {
+                $l = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
+                $l.Start()
+                $l.Stop()
+                return $false
+            } catch {
+                return $true
+            }
         }
         $skippedPorts = @()
         function Add-PortIfFree {
