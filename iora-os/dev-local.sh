@@ -34,7 +34,7 @@ set -uo pipefail
 
 # ── Version (Banner zeigt die laufende Version – erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzählen) ──────────────
-DEV_LOCAL_VERSION="2.4.5"
+DEV_LOCAL_VERSION="2.4.6"
 
 # ── Colors & Logging (defined first – earlier versions crashed because
 #    `log` was called before this point) ────────────────────────────────────
@@ -653,22 +653,34 @@ chpasswd:
 # Don't reach out to cloud metadata services
 datasource_list: [ NoCloud ]
 
-# Write DNS config early (before any network operations).
-# QEMU user-mode network sometimes doesn't forward DNS correctly
-# on macOS/HVF, so we set Cloudflare + Google DNS explicitly.
-write_files:
-  - path: /etc/resolv.conf
-    content: |
-      nameserver 1.1.1.1
-      nameserver 8.8.8.8
-      nameserver 8.8.4.4
-    permissions: '0644'
+# Netzwerk IMMER konfigurieren (QEMU user-net = 10.0.2.0/24): DHCP plus
+# statische Fallback-IP, damit die VM garantiert eine IP hat, selbst wenn
+# der Slirp-DHCP-Server nicht antwortet.
+network:
+  version: 2
+  ethernets:
+    en-any:
+      match:
+        name: "en*"
+      dhcp4: true
+      dhcp6: false
+      addresses: [10.0.2.15/24]
+      gateway4: 10.0.2.2
+      nameservers:
+        addresses: [10.0.2.3, 1.1.1.1]
+    eth-any:
+      match:
+        name: "eth*"
+      dhcp4: true
+      dhcp6: false
+      addresses: [10.0.2.16/24]
+      gateway4: 10.0.2.2
+      nameservers:
+        addresses: [10.0.2.3, 1.1.1.1]
 
 # Give the network stack time to initialize before package installs
 bootcmd:
   - sleep 3
-  - ip link set eth0 up || true
-  - sleep 2
 
 # Update apt cache before installing packages
 package_update: true
@@ -680,9 +692,11 @@ packages:
   - rsync
   - curl
   - ca-certificates
+  - qemu-guest-agent
 
 runcmd:
   - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
+  - systemctl enable --now qemu-guest-agent 2>/dev/null || true
   - 'systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true'
 
 final_message: "IORA Dev VM ready."
@@ -812,6 +826,10 @@ else
         # arm64 needs a virtio-net-device variant and UEFI firmware
         if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
             QEMU_ARGS+=(-device "virtio-net-device,netdev=n0")
+            # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
+            QEMU_ARGS+=(-device virtio-serial-device)
+            QEMU_ARGS+=(-chardev "socket,id=qga0,path=$CACHE/qga.sock,server=on,wait=off")
+            QEMU_ARGS+=(-device "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0")
             FW="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
             if [ ! -f "$FW" ]; then
                 FW=$(find /opt/homebrew /usr/share/qemu /usr/share/edk2 -name "edk2-aarch64-code.fd" 2>/dev/null | head -1)
@@ -820,6 +838,10 @@ else
             QEMU_ARGS+=(-boot order=d,menu=off)
         else
             QEMU_ARGS+=(-device "virtio-net-pci,netdev=n0")
+            # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
+            QEMU_ARGS+=(-device virtio-serial-pci)
+            QEMU_ARGS+=(-chardev "socket,id=qga0,path=$CACHE/qga.sock,server=on,wait=off")
+            QEMU_ARGS+=(-device "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0")
         fi
 
         # Detach unless --foreground requested
@@ -1344,6 +1366,7 @@ cat <<EOF
   |  MODE                                                               |
   |    Run mode:         $RUN_MODE (source = cargo run / build = binaries)   |
   |    Sync watcher:     dev-sync.sh --watch (~1s mirror latency)       |
+  |    Guest agent:      socat - UNIX-CONNECT:<cache>/qga.sock         |
 $(if [ "${#SKIPPED_PORTS[@]}" -gt 0 ]; then printf '  |    NOT forwarded:   %s (busy on host)                         |\n' "${SKIPPED_PORTS[*]}"; fi)
   |    Dev Watch TUI     $REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch
   |                                                                     |

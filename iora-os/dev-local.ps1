@@ -62,7 +62,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.5"
+$DEV_LOCAL_VERSION = "2.4.6"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -693,34 +693,40 @@ chpasswd:
 
 datasource_list: [ NoCloud ]
 
-write_files:
-  - path: /etc/resolv.conf
-    content: |
-      nameserver 8.8.8.8
-      nameserver 1.1.1.1
-      options use-vc
-    permissions: '0644'
-  - path: /etc/systemd/resolved.conf.d/disable-stub.conf
-    content: |
-      [Resolve]
-      DNSStubListener=no
-      LLMNR=no
-      MulticastDNS=no
-    permissions: '0644'
+# Netzwerk IMMER konfigurieren (QEMU user-net = 10.0.2.0/24): DHCP plus
+# statische Fallback-IP, damit die VM garantiert eine IP hat, selbst wenn
+# der Slirp-DHCP-Server nicht antwortet (bekannt unter WHPX + e1000).
+network:
+  version: 2
+  ethernets:
+    en-any:
+      match:
+        name: "en*"
+      dhcp4: true
+      dhcp6: false
+      addresses: [10.0.2.15/24]
+      gateway4: 10.0.2.2
+      nameservers:
+        addresses: [10.0.2.3, 1.1.1.1]
+    eth-any:
+      match:
+        name: "eth*"
+      dhcp4: true
+      dhcp6: false
+      addresses: [10.0.2.16/24]
+      gateway4: 10.0.2.2
+      nameservers:
+        addresses: [10.0.2.3, 1.1.1.1]
 
-bootcmd:
-  - sleep 3
-  - ip link set enp0s2 up || ip link set eth0 up || true
-  - sleep 2
-  - 'sysctl -w net.ipv6.conf.all.disable_ipv6=1 || true'
-  - 'sysctl -w net.ipv6.conf.default.disable_ipv6=1 || true'
+packages:
+  - qemu-guest-agent
 
 package_update: false
 package_upgrade: false
 
 runcmd:
   - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
-  - 'systemctl restart systemd-resolved 2>/dev/null || true'
+  - systemctl enable --now qemu-guest-agent 2>/dev/null || true
   - 'systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true'
 
 final_message: "IORA Dev VM ready."
@@ -905,7 +911,12 @@ if ($existingProc) {
             "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
             "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
             "-netdev", $fwd,
-            "-device", "e1000,netdev=n0",
+            # virtio NIC (proven config; e1000 had DHCP issues under WHPX)
+            "-device", "virtio-net-pci,netdev=n0",
+            # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
+            "-device", "virtio-serial-pci",
+            "-chardev", "socket,id=qga0,path=$($CACHE)\qga.sock,server=on,wait=off",
+            "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
             "-device", "virtio-gpu",
             "-machine", "${VM_MACHINE},accel=whpx",
             "-serial", "file:$($CACHE)\qemu-serial.log",
@@ -984,7 +995,11 @@ if ($existingProc) {
                 "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
                 "-boot", "order=d,menu=off",
                 "-netdev", $fwd,
-                "-device", "e1000,netdev=n0",
+                "-device", "virtio-net-pci,netdev=n0",
+                # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
+                "-device", "virtio-serial-pci",
+                "-chardev", "socket,id=qga0,path=$($CACHE)\qga.sock,server=on,wait=off",
+                "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
                 "-serial", "file:$($CACHE)\qemu-serial.log",
                 "-display", "none",
                 "-monitor", "none"
@@ -1435,6 +1450,7 @@ $readyBanner = @"
   |  MODE                                                               |
   |    Run mode:         $Mode (source = cargo run / build = binaries)  |
   |    Sync watcher:     wsl bash dev-sync.sh --watch (~1s latency)     |
+  |    Guest agent:      socat - UNIX-CONNECT:<cache>\qga.sock     |
 $(if ($skippedPorts.Count -gt 0) { "  |    NOT forwarded:   $($skippedPorts -join ', ') (busy on host)        |" })
   |                                                                     |
   |  Logs                                                               |
