@@ -727,37 +727,68 @@ final_message: "IORA Dev VM ready."
     $seedDirWsl = ConvertTo-WslPath $seedDir
     $seedIsoWsl = ConvertTo-WslPath $SEED_ISO
 
-    # Single WSL invocation: pick an existing ISO tool, otherwise install one
-    # (fast path WITHOUT apt-get update - update only runs when the package is
-    # unknown), then create the seed ISO. Saves 4-5 WSL startups and a
-    # needless package-index refresh on every run.
-    $wslScript = @"
-set -e
+    # Robust WSL execution: wsl.exe MANGLES inline `bash -c` scripts that
+    # contain quotes/newlines, so the script is written to a file first and
+    # run via `wsl bash <file>`. The script:
+    #   - prefers xorriso (genisoimage was REMOVED from Ubuntu 24.04+),
+    #   - installs WITHOUT apt-get update first (fast path; update only when
+    #     the package is unknown),
+    #   - uses `sudo -n` (fails fast instead of hanging on a password prompt)
+    #     and skips sudo entirely when running as root.
+    $seedBash = @'
+#!/usr/bin/env bash
+SEED_DIR="__SEED_DIR__"
+SEED_ISO="__SEED_ISO__"
+
 TOOL=""
-for t in genisoimage mkisofs xorriso; do
-    command -v "\$t" >/dev/null 2>&1 && { TOOL="\$t"; break; }
+for t in genisoimage xorriso mkisofs; do
+    command -v "$t" >/dev/null 2>&1 && { TOOL="$t"; break; }
 done
-if [ -z "\$TOOL" ]; then
-    echo "[*] genisoimage missing - trying install without apt update..."
-    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genisoimage >/dev/null 2>&1; then
-        echo "[*] Package lists stale - running apt-get update..."
-        sudo apt-get update -qq
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genisoimage
+
+if [ -z "$TOOL" ]; then
+    echo "[*] No ISO tool found - installing (xorriso preferred)..."
+    SUDO=""
+    if [ "$(id -u)" != "0" ]; then
+        if command -v sudo >/dev/null 2>&1; then SUDO="sudo -n"; else SUDO=""; fi
     fi
-    if command -v genisoimage >/dev/null 2>&1; then TOOL="genisoimage"
-    elif command -v xorriso >/dev/null 2>&1; then TOOL="xorriso"; fi
+    if ! $SUDO apt-get install -y -qq xorriso >/dev/null 2>&1; then
+        echo "[*] xorriso unavailable - trying genisoimage..."
+        if ! $SUDO apt-get install -y -qq genisoimage >/dev/null 2>&1; then
+            echo "[*] Package lists stale? Running apt-get update..."
+            $SUDO apt-get update -qq >/dev/null 2>&1
+            $SUDO apt-get install -y -qq xorriso >/dev/null 2>&1 || \
+                $SUDO apt-get install -y -qq genisoimage >/dev/null 2>&1
+        fi
+    fi
+    for t in xorriso genisoimage mkisofs; do
+        if command -v "$t" >/dev/null 2>&1; then TOOL="$t"; break; fi
+    done
 fi
-[ -n "\$TOOL" ] || { echo "[X] No ISO creation tool available in WSL"; exit 1; }
-if [ "\$TOOL" = "xorriso" ]; then
-    xorriso -as mkisofs -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl"
+
+[ -n "$TOOL" ] || { echo "[X] No ISO tool available. Manual: wsl sudo apt-get install xorriso"; exit 1; }
+echo "[*] Using $TOOL"
+if [ "$TOOL" = "xorriso" ]; then
+    xorriso -as mkisofs -output "$SEED_ISO" -volid cidata -joliet -rock "$SEED_DIR" || { echo "[X] xorriso failed"; exit 1; }
 else
-    "\$TOOL" -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl"
+    "$TOOL" -output "$SEED_ISO" -volid cidata -joliet -rock "$SEED_DIR" || { echo "[X] $TOOL failed"; exit 1; }
 fi
-"@
-    wsl bash -c $wslScript 2>&1 | Out-Null
-    $created = ($LASTEXITCODE -eq 0) -and (Test-Path $SEED_ISO)
+echo "[+] ISO created: $SEED_ISO"
+'@
+    $seedBash = $seedBash.Replace('__SEED_DIR__', $seedDirWsl).Replace('__SEED_ISO__', $seedIsoWsl)
+    $seedScript = Join-Path $CACHE "seed-create.sh"
+    Set-Content -Path $seedScript -Value $seedBash -NoNewline -Encoding ASCII
+    $seedScriptWsl = ConvertTo-WslPath $seedScript
+
+    $isoOut = wsl bash $seedScriptWsl 2>&1
+    $created = ($LASTEXITCODE -eq 0) -and (Test-Path $SEED_ISO) -and ((Get-Item $SEED_ISO -ErrorAction SilentlyContinue).Length -gt 0)
+    if (-not $created) {
+        $isoOut | Select-Object -Last 15 | ForEach-Object { Write-Dim "  $_" }
+        Remove-Item -Recurse -Force $seedDir -ErrorAction SilentlyContinue
+        Remove-Item $seedScript -Force -ErrorAction SilentlyContinue
+        Stop-WithError "Failed to create seed ISO (see output above). Manual: wsl sudo apt-get install xorriso"
+    }
     Remove-Item -Recurse -Force $seedDir -ErrorAction SilentlyContinue
-    if (-not $created) { Stop-WithError "Failed to create seed ISO. Manual: wsl sudo apt-get install genisoimage" }
+    Remove-Item $seedScript -Force -ErrorAction SilentlyContinue
     Write-Success "Seed ISO created: $SEED_ISO"
 }
 

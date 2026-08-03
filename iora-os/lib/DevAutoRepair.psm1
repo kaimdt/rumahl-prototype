@@ -363,10 +363,11 @@ function Test-VirtualizationEnabled {
 function Invoke-WslAptRepair {
     $probe = wsl bash -c "command -v genisoimage || command -v xorriso || echo NEED_ISO" 2>$null
     if ("$probe" -match "genisoimage|xorriso") { return $true }
-    Write-Info "Installing ISO tooling inside WSL (fast path - apt update only when needed)..."
-    # Single WSL call: try the install without apt-get update first; only when
-    # the package index is stale run the update, then install again.
-    $check = wsl bash -c "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genisoimage >/dev/null 2>&1 || { sudo apt-get update -qq >/dev/null 2>&1; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genisoimage >/dev/null 2>&1; }; command -v genisoimage || command -v xorriso || echo MISSING" 2>$null
+    Write-Info "Installing ISO tooling inside WSL (xorriso preferred, apt update only when needed)..."
+    # Single WSL call, fast path without apt-get update. xorriso first:
+    # genisoimage was removed from Ubuntu 24.04+. sudo -n fails fast instead
+    # of hanging on a password prompt; root users skip sudo entirely.
+    $check = wsl bash -c "SUDO=''; [ \"\$(id -u)\" != 0 ] && command -v sudo >/dev/null 2>&1 && SUDO='sudo -n'; \$SUDO apt-get install -y -qq xorriso >/dev/null 2>&1 || \$SUDO apt-get install -y -qq genisoimage >/dev/null 2>&1 || { \$SUDO apt-get update -qq >/dev/null 2>&1; \$SUDO apt-get install -y -qq xorriso >/dev/null 2>&1 || \$SUDO apt-get install -y -qq genisoimage >/dev/null 2>&1; }; command -v genisoimage || command -v xorriso || echo MISSING" 2>$null
     return ("$check" -notmatch "MISSING")
 }
 
