@@ -34,7 +34,7 @@ set -uo pipefail
 
 # ── Version (Banner zeigt die laufende Version – erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzählen) ──────────────
-DEV_LOCAL_VERSION="2.4.4"
+DEV_LOCAL_VERSION="2.4.5"
 
 # ── Colors & Logging (defined first – earlier versions crashed because
 #    `log` was called before this point) ────────────────────────────────────
@@ -848,6 +848,7 @@ fi
 log "Waiting for cloud-init to finish (first boot may take 3-10 min)..."
 WAITED=0
 CLOUD_TIMEOUT=900
+LAST_DIAG=0
 while [ $WAITED -lt $CLOUD_TIMEOUT ]; do
     # Bail out if QEMU died during boot
     if [ -n "$QEMU_CHILD_PID" ] && ! kill -0 "$QEMU_CHILD_PID" 2>/dev/null; then
@@ -858,6 +859,15 @@ while [ $WAITED -lt $CLOUD_TIMEOUT ]; do
     if ssh_vm "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
         ok "Cloud-init completed"
         break
+    fi
+    # Every 90s without SSH progress: show what the VM console is doing
+    if [ $((WAITED - LAST_DIAG)) -ge 90 ]; then
+        LAST_DIAG=$WAITED
+        echo
+        warn "No SSH response after ${WAITED}s – last VM console output:"
+        tail -8 "$CACHE/qemu-serial.log" 2>/dev/null | sed 's/^/  /' >&2 || true
+        warn "If the VM shows a login prompt: log in on the VM console (root / password iora) and run:"
+        warn "  ip a ; journalctl -u ssh -n 20 ; tail -30 /var/log/cloud-init-output.log"
     fi
     sleep 5; WAITED=$((WAITED+5))
     printf '.'

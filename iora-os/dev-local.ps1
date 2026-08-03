@@ -62,7 +62,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.4"
+$DEV_LOCAL_VERSION = "2.4.5"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -1010,12 +1010,26 @@ Write-Info "Waiting for cloud-init to finish (first boot may take 3-10 min)..."
 $waited = 0
 $ready = $false
 $timeout = 900
+$lastDiag = 0
 while ($waited -lt $timeout) {
     if ($qemuProc.HasExited) {
         Stop-WithError "QEMU exited (code $($qemuProc.ExitCode)). See $QEMU_STDERR"
     }
     $result = Invoke-SSH 'test -f /var/lib/cloud/instance/boot-finished && echo READY'
     if ("$result" -match "READY") { $ready = $true; break }
+    # Every 90s without SSH progress: show what the VM console is doing so the
+    # user can see whether it is still booting, stuck on login, or offline.
+    if (($waited - $lastDiag) -ge 90) {
+        $lastDiag = $waited
+        $serialLog = Join-Path $CACHE "qemu-serial.log"
+        Write-Host ""
+        Write-Warn "No SSH response after ${waited}s - last VM console output:"
+        if (Test-Path $serialLog) {
+            Get-Content $serialLog -Tail 8 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+        }
+        Write-Warn "If the VM shows a login prompt: log in on the VM console (root / password iora) and run:"
+        Write-Warn "  ip a ; journalctl -u ssh -n 20 ; tail -30 /var/log/cloud-init-output.log"
+    }
     Start-Sleep -Seconds 5
     $waited += 5
     Write-Host -NoNewline "."
