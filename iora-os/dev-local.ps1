@@ -43,6 +43,9 @@ param(
     [switch] $Watcher,
     [switch] $Foreground,
     [switch] $SkipWhpx,
+    [switch] $Uefi,
+    [switch] $Freeze,
+    [switch] $Bridge,
     [ValidateSet("source", "build")]
     [string] $Mode = "source",
     [ValidatePattern('^\d+(GB|G)?$')]
@@ -62,7 +65,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.4.9"
+$DEV_LOCAL_VERSION = "2.6.0"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -75,18 +78,23 @@ if ($doubleDashArgs) {
 if ($Help) {
     Write-Host "Usage: .\dev-local.ps1 [options]" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  -Clean         Drop cached VM disk + seed ISO (keep image)"
-    Write-Host "  -CleanAll      Also remove downloaded cloud image"
+    Write-Host "  -Clean         Drop cached VM disk + seed ISO (keep image + golden)"
+    Write-Host "  -CleanAll      Also remove downloaded cloud image + golden snapshot"
     Write-Host "  -Status        Show whether VM is running + health check"
     Write-Host "  -Stop          Stop the running VM"
     Write-Host "  -Reboot        Stop VM + restart fresh"
-    Write-Host "  -Rebuild       Stop VM, clean cache, start fresh"
+    Write-Host "  -Rebuild       Stop VM, clean cache, start fresh provision (drops golden)"
     Write-Host "  -SSH           SSH directly into the VM"
     Write-Host "  -Log           Live cloud-init / system logs"
     Write-Host "  -Reprovision   Force re-running the in-VM setup"
     Write-Host "  -NoWatch       Don't auto-launch dev-watch TUI"
     Write-Host "  -Watcher        Launch dev-watch TUI in new terminal (VM must be running)"
     Write-Host "  -Foreground    Keep this window attached to QEMU"
+    Write-Host "  -Uefi          Force UEFI (OVMF) firmware instead of SeaBIOS"
+    Write-Host "  -Freeze        Bake current provisioned VM state into a golden"
+    Write-Host "                 snapshot - resets (-Clean) become instant afterwards"
+    Write-Host "  -Bridge        Give the VM its own LAN IP (TAP + network bridge,"
+    Write-Host "                 like IORA OS production; needs admin once for setup)"
     Write-Host "  -Ram 8GB       Set VM RAM (default: auto)"
     Write-Host "  -CpuCount 4    Set VM CPU count (default: auto)"
     exit 0
@@ -302,11 +310,37 @@ if ($HOST_ARCH -eq "ARM64") {
     $VM_MACHINE = "q35"
 }
 $VM_DISK    = Join-Path $CACHE "iora-dev-vm.qcow2"
+$GOLDEN_DISK = Join-Path $CACHE "iora-dev-golden.qcow2"
 $SSH_KEY    = Join-Path $CACHE "iora-dev-key"
 $SEED_ISO   = Join-Path $CACHE "iora-dev-seed.iso"
 $QEMU_PIDFILE = Join-Path $CACHE "qemu.pid"
 $PROVISIONED_MARKER = Join-Path $CACHE ".provisioned"
 $QEMU_STDERR = Join-Path $CACHE "qemu-stderr.log"
+
+# -- VM addressing ------------------------------------------------------------
+# Default: slirp user-net with hostfwd (VM reached via 127.0.0.1:<port>).
+# Bridge mode (-Bridge): the VM gets its own LAN IP via TAP + network bridge;
+# $VM_HOST is then set to that IP (discovered via the guest agent) and SSH/
+# health checks talk to the VM directly on port 22.
+$script:VM_HOST = "127.0.0.1"
+$script:VM_SSH_PORT = $SshPort
+
+# -- Dev disk lifecycle ------------------------------------------------------
+function Reset-VmDisk {
+    # Recreate the dev overlay from the golden snapshot (if present) or the
+    # base image. Golden = provisioned state: a reset is instant and needs no
+    # re-provisioning; without golden the VM is re-provisioned automatically.
+    $src = if (Test-Path $GOLDEN_DISK) { $GOLDEN_DISK } else { $IMG_CACHE }
+    Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
+    & $QEMU_IMG create -f qcow2 -b $src -F qcow2 $VM_DISK 40G | Out-Null
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "qemu-img create failed (backing: $src)." }
+    if ($src -eq $GOLDEN_DISK) {
+        Write-Success "Dev disk reset to the golden snapshot (no re-provisioning needed)"
+        Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
+    } else {
+        Write-Dim "Dev disk recreated from the base image (will be re-provisioned)"
+    }
+}
 
 # -- Ports forwarded host -> VM (mirrors IORA OS systemd unit ports) --------
 $VM_HOME   = 8126
@@ -370,7 +404,7 @@ $SSH_OPTS = @(
 
 function Invoke-SSH {
     param([string] $Command)
-    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 $Command 2>&1
+    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST $Command 2>&1
 }
 
 function Invoke-SSHStdin {
@@ -381,7 +415,7 @@ function Invoke-SSHStdin {
     $normalizedScript = ($Script -replace "`r`n", "`n") -replace "`r", "`n"
     [System.IO.File]::WriteAllText($tmp, $normalizedScript, [System.Text.Encoding]::ASCII)
     try {
-        $sshArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-p", $SshPort, "root@127.0.0.1", "bash -s")
+        $sshArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-p", $VM_SSH_PORT, "root@$VM_HOST", "bash -s")
         $proc = Start-Process -FilePath $SSH_BIN -ArgumentList $sshArgs -RedirectStandardInput $tmp -RedirectStandardOutput $stdout -RedirectStandardError $stderr -NoNewWindow -Wait -PassThru
         $global:LASTEXITCODE = $proc.ExitCode
         Get-Content $stdout -Raw -ErrorAction SilentlyContinue
@@ -451,14 +485,72 @@ function Invoke-QgaExec {
 
 function Send-SCP {
     param([string] $LocalPath, [string] $RemotePath, [switch] $Recurse)
-    $scpArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-P", $SshPort)
+    $scpArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-P", $VM_SSH_PORT)
     if ($Recurse) { $scpArgs += "-r" }
-    $scpArgs += @($LocalPath, "root@127.0.0.1:$RemotePath")
+    $scpArgs += @($LocalPath, "root@${VM_HOST}:$RemotePath")
     & $SCP_BIN @scpArgs 2>&1
 }
 
+# -- Bridge mode: give the VM its own LAN IP (TAP driver + network bridge) ---
+# The VM then behaves like IORA OS production: a normal device on the LAN
+# with its own DHCP address (reachable from the PC and other devices).
+# Requires admin once (TAP driver install + bridge creation); afterwards the
+# bridge persists and every start is automatic.
+function Initialize-BridgeNetwork {
+    # 1) TAP-Windows6 driver present?
+    $tap = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -like "TAP-Windows*" } | Select-Object -First 1
+    if (-not $tap) {
+        Write-Info "TAP-Windows driver missing - installing (admin required once)..."
+        $tapInstaller = Join-Path $CACHE "tap-windows-9.24.7.exe"
+        if (-not (Test-Path $tapInstaller)) {
+            try {
+                Invoke-WebRequest -Uri "https://build.openvpn.net/downloads/releases/tap-windows-9.24.7.exe" -OutFile $tapInstaller -UseBasicParsing -TimeoutSec 180
+            } catch {
+                Stop-WithError "TAP driver download failed: $_"
+            }
+        }
+        $p = Start-Process -FilePath $tapInstaller -ArgumentList "/S" -Wait -PassThru
+        Start-Sleep 4
+        $tap = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -like "TAP-Windows*" } | Select-Object -First 1
+        if (-not $tap) {
+            Stop-WithError "TAP adapter not present after install (needs admin). Run once as Administrator: $tapInstaller /S"
+        }
+    }
+    Write-Success "TAP adapter: $($tap.Name)"
+    $script:TapName = $tap.Name
+
+    # 2) Network bridge exists? (netsh bridge list shows bridge GUIDs)
+    $bridgeList = netsh bridge list 2>&1 | Out-String
+    if ($bridgeList -match "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-") {
+        Write-Success "Network bridge already exists"
+        return
+    }
+    $lanName = (Get-NetIPConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).InterfaceAlias
+    if (-not $lanName) { Stop-WithError "No LAN adapter with a default route found - bridge mode needs a wired Ethernet connection." }
+    Write-Dim "  Bridging: $lanName + $($tap.Name)"
+    $adapterTable = netsh bridge show adapter 2>&1 | Out-String
+    $lanId = $null; $tapId = $null
+    foreach ($line in ($adapterTable -split "`r?`n")) {
+        if ($line -match "^(\d+)\s+\{([0-9a-fA-F-]+)\}\s+(.+)$") {
+            $id = $matches[1]; $name = $matches[3].Trim()
+            if ($name -eq $lanName) { $lanId = $id }
+            if ($name -eq $tap.Name) { $tapId = $id }
+        }
+    }
+    if (-not $lanId -or -not $tapId) {
+        Stop-WithError "Could not map adapters from 'netsh bridge show adapter' (LAN='$lanName', TAP='$($tap.Name)'). Create the bridge once as Administrator: Network Connections -> select both adapters -> Bridge, or run this script as Administrator."
+    }
+    Write-Info "Creating network bridge ($lanName + $($tap.Name))..."
+    $out = netsh bridge create $lanId $tapId 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "netsh bridge create failed (run once as Administrator): $out"
+    }
+    Start-Sleep 3
+    Write-Success "Network bridge created - the VM will get its own LAN IP (DHCP)"
+}
+
 function Test-VmHealth {
-    foreach ($p in @("http://127.0.0.1:$VM_HOME/api/health", "http://127.0.0.1:$VM_HOME/health")) {
+    foreach ($p in @("http://${VM_HOST}:$VM_HOME/api/health", "http://${VM_HOST}:$VM_HOME/health")) {
         try {
             $resp = Invoke-WebRequest -Uri $p -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
             if ($resp.StatusCode -eq 200) { return $true }
@@ -491,7 +583,7 @@ if ($SSH) {
         Stop-WithError "VM is not running. Start it first: .\dev-local.ps1"
     }
     Write-Info "Connecting to VM via SSH..."
-    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1
+    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST
     exit 0
 }
 
@@ -520,7 +612,7 @@ if ($Watcher) {
     # the nested-quotes parsing fails ("Die Syntax fuer den Dateinamen ... ist
     # falsch"). Direct launch makes the watcher own its console.
     $watcherArgs = @(
-        '--vm-host', '127.0.0.1',
+        '--vm-host', "$VM_HOST",
         '--vm-port', "$SshPort",
         '--ssh-key', "$SSH_KEY"
     )
@@ -553,13 +645,13 @@ if ($Log) {
         $hasCloudMainLog = Invoke-SSH "test -f $cloudMainLog && echo YES" 2>$null
         if ("$hasCloudLog" -match "YES") {
             Write-Info "Live cloud-init output log (Ctrl+C to stop)..."
-            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f $cloudLog"
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST "tail -f $cloudLog"
         } elseif ("$hasCloudMainLog" -match "YES") {
             Write-Info "Live cloud-init main log (Ctrl+C to stop)..."
-            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f $cloudMainLog"
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST "tail -f $cloudMainLog"
         } else {
             Write-Info "SSH ready. Following syslog (Ctrl+C to stop)..."
-            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f /var/log/syslog"
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST "tail -f /var/log/syslog"
         }
     } else {
         Write-Warn "SSH not yet reachable. Following QEMU serial console (live - Ctrl+C to stop):"
@@ -588,10 +680,42 @@ if ($Rebuild) {
         $_.Name -notlike "debian-12-cloud-*.qcow2"
     } | Remove-Item -Force -ErrorAction SilentlyContinue
     Remove-Item -Path (Join-Path $CACHE "seed") -Recurse -Force -ErrorAction SilentlyContinue
+    # Rebuild means a truly fresh provision: the golden snapshot is dropped too
+    Remove-Item $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
     & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
     & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
     Write-Info "Starting fresh provision..."
     # Fall through to normal start
+}
+
+# -- -Freeze: bake the current provisioned VM state into a golden snapshot ---
+if ($Freeze) {
+    $provisioned = $false
+    $p = Get-QemuPid
+    if (-not $p) { $p = Get-QemuProcess | Select-Object -First 1 }
+    if ($p) {
+        $check = Invoke-SSH 'test -f /etc/iora/dev-vm-provisioned && echo PROV_OK'
+        if ("$check" -match "PROV_OK") { $provisioned = $true }
+    }
+    if (-not $provisioned) {
+        Stop-WithError "VM is not provisioned yet - start it once and let provisioning finish, then re-run with -Freeze."
+    }
+    Write-Info "Freezing current VM state as golden snapshot..."
+    Stop-Vm
+    if (-not (Test-Path $VM_DISK)) { Stop-WithError "No VM disk found to freeze." }
+    Write-Info "Converting overlay to golden (compressed, takes a few minutes)..."
+    & $QEMU_IMG convert -O qcow2 -c $VM_DISK "$GOLDEN_DISK.tmp" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item "$GOLDEN_DISK.tmp" -Force -ErrorAction SilentlyContinue
+        Stop-WithError "qemu-img convert failed (is there enough free disk space?)."
+    }
+    Remove-Item $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
+    Move-Item "$GOLDEN_DISK.tmp" $GOLDEN_DISK -Force
+    Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
+    Reset-VmDisk
+    Write-Success "Golden snapshot saved: $GOLDEN_DISK"
+    Write-Info "Resets are now instant: .\dev-local.ps1 -Clean && .\dev-local.ps1"
+    exit 0
 }
 
 if ($Status) {
@@ -610,57 +734,89 @@ if ($Status) {
     exit 0
 }
 
-# -- UEFI firmware ----------------------------------------------------------
-$FW = $null
+# -- Boot firmware selection (UEFI/OVMF vs SeaBIOS/BIOS) ---------------------
+# The Debian cloud image is BIOS-only (its EFI System Partition is empty, no
+# \EFI\BOOT\BOOTX64.EFI): under OVMF it falls into the "UEFI Interactive
+# Shell" and never boots. SeaBIOS boots it reliably (same configuration as the
+# proven dev-local.sh TCG path). We try UEFI first, self-heal to SeaBIOS when
+# the shell trap is detected (see wait loop below) and remember the choice in
+# a marker file so later runs boot directly. ARM64 has no SeaBIOS and always
+# uses UEFI. Use -Uefi to force UEFI (e.g. for EFI-capable IORA OS images).
+$BOOT_FIRMWARE_MARKER = Join-Path $CACHE "boot-firmware"
+$useUefi = $false
 if ($HOST_ARCH -eq "ARM64") {
-    $fwPaths = @(
-        (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
-        (Join-Path $QEMU_DIR "..\share\edk2-aarch64-code.fd"),
-        (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
-    )
-    $fwIsFlash = $false
+    # ARM64: edk2 is the only option (no SeaBIOS for aarch64)
+    $useUefi = $true
+} elseif ($SkipWhpx) {
+    # The TCG fallback always boots via SeaBIOS (OVMF+TCG is unstable on
+    # some Windows QEMU builds - see Step 4)
+    if ($Uefi) { Write-Warn "-Uefi ignored: the TCG fallback (-SkipWhpx) always boots via SeaBIOS." }
+} elseif ($Uefi) {
+    $useUefi = $true
+} elseif ((Test-Path $BOOT_FIRMWARE_MARKER) -and ((Get-Content $BOOT_FIRMWARE_MARKER -Raw -ErrorAction SilentlyContinue).Trim() -eq "seabios")) {
+    Write-Dim "Boot firmware: SeaBIOS (remembered from a previous auto-heal; use -Uefi to force UEFI)"
+    $useUefi = $false
 } else {
-    $fwPaths = @(
-        (Join-Path $QEMU_DIR "share\edk2-x86_64-code.fd"),
-        (Join-Path $QEMU_DIR "edk2-x86_64-code.fd"),
-        (Join-Path $QEMU_DIR "OVMF_CODE.fd")
-    )
-    $fwIsFlash = $true
+    $useUefi = $true
 }
-foreach ($f in $fwPaths) { if (Test-Path $f) { $FW = $f; break } }
-if (-not $FW) { Stop-WithError "UEFI firmware not found in $QEMU_DIR" }
-if ($fwIsFlash) {
-    $FW_CODE_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
-    Copy-Item $FW $FW_CODE_CACHED -Force -ErrorAction SilentlyContinue
-    $FW = $FW_CODE_CACHED
 
-    # Cache writable VARS file (required for UEFI boot variables persistence)
-    $FW_VARS_CACHED = Join-Path $CACHE "OVMF_VARS.fd"
-    if (-not (Test-Path $FW_VARS_CACHED)) {
-        $varsPaths = @(
-            (Join-Path $QEMU_DIR "share\edk2-x86_64-vars.fd"),
-            (Join-Path $QEMU_DIR "share\edk2-i386-vars.fd"),
-            (Join-Path $QEMU_DIR "edk2-x86_64-vars.fd"),
-            (Join-Path $QEMU_DIR "edk2-i386-vars.fd")
+# -- UEFI firmware (only needed when booting UEFI) ---------------------------
+$FW = $null
+if ($useUefi) {
+    if ($HOST_ARCH -eq "ARM64") {
+        $fwPaths = @(
+            (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
+            (Join-Path $QEMU_DIR "..\share\edk2-aarch64-code.fd"),
+            (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
         )
-        foreach ($v in $varsPaths) { if (Test-Path $v) { Copy-Item $v $FW_VARS_CACHED -Force -ErrorAction SilentlyContinue; break } }
+        $fwIsFlash = $false
+    } else {
+        $fwPaths = @(
+            (Join-Path $QEMU_DIR "share\edk2-x86_64-code.fd"),
+            (Join-Path $QEMU_DIR "edk2-x86_64-code.fd"),
+            (Join-Path $QEMU_DIR "OVMF_CODE.fd")
+        )
+        $fwIsFlash = $true
     }
-    if (Test-Path $FW_VARS_CACHED) {
-        Write-Dim "  VARS: $FW_VARS_CACHED"
+    foreach ($f in $fwPaths) { if (Test-Path $f) { $FW = $f; break } }
+    if (-not $FW) { Stop-WithError "UEFI firmware not found in $QEMU_DIR" }
+    if ($fwIsFlash) {
+        $FW_CODE_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
+        Copy-Item $FW $FW_CODE_CACHED -Force -ErrorAction SilentlyContinue
+        $FW = $FW_CODE_CACHED
+
+        # Cache writable VARS file (required for UEFI boot variables persistence)
+        $FW_VARS_CACHED = Join-Path $CACHE "OVMF_VARS.fd"
+        if (-not (Test-Path $FW_VARS_CACHED)) {
+            $varsPaths = @(
+                (Join-Path $QEMU_DIR "share\edk2-x86_64-vars.fd"),
+                (Join-Path $QEMU_DIR "share\edk2-i386-vars.fd"),
+                (Join-Path $QEMU_DIR "edk2-x86_64-vars.fd"),
+                (Join-Path $QEMU_DIR "edk2-i386-vars.fd")
+            )
+            foreach ($v in $varsPaths) { if (Test-Path $v) { Copy-Item $v $FW_VARS_CACHED -Force -ErrorAction SilentlyContinue; break } }
+        }
+        if (Test-Path $FW_VARS_CACHED) {
+            Write-Dim "  VARS: $FW_VARS_CACHED"
+        }
     }
+    Write-Success "Boot firmware: UEFI ($FW)"
+} else {
+    Write-Success "Boot firmware: SeaBIOS (BIOS)"
 }
-Write-Success "UEFI firmware: $FW"
 
 # -- -Clean / -CleanAll -----------------------------------------------------
 if ($Clean -or $CleanAll) {
     Write-Info "Cleaning cache..."
     Stop-Vm
+    # Keep the base image and the golden snapshot (resets stay instant)
     Get-ChildItem -Path $CACHE -File -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -notlike "debian-12-cloud-*.qcow2"
+        $_.Name -notlike "debian-12-cloud-*.qcow2" -and $_.Name -ne "iora-dev-golden.qcow2"
     } | Remove-Item -Force -ErrorAction SilentlyContinue
     Remove-Item -Path (Join-Path $CACHE "seed") -Recurse -Force -ErrorAction SilentlyContinue
     if ($CleanAll) {
         Remove-Item -Path $IMG_CACHE -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
     }
     & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
     & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
@@ -690,9 +846,12 @@ if (-not (Test-Path $IMG_CACHE)) {
 
 # -- Step 2: VM disk overlay ------------------------------------------------
 if (-not (Test-Path $VM_DISK)) {
-    Write-Info "Creating VM disk overlay (40G)..."
-    & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
-    if ($LASTEXITCODE -ne 0) { Stop-WithError "qemu-img create failed." }
+    if (Test-Path $GOLDEN_DISK) {
+        Write-Info "Creating VM disk overlay (40G) on the golden snapshot..."
+    } else {
+        Write-Info "Creating VM disk overlay (40G)..."
+    }
+    Reset-VmDisk
 }
 
 # -- Step 3: SSH key + cloud-init seed ISO ----------------------------------
@@ -843,6 +1002,9 @@ fi
 echo "[+] ISO created: $SEED_ISO"
 '@
     $seedBash = $seedBash.Replace('__SEED_DIR__', $seedDirWsl).Replace('__SEED_ISO__', $seedIsoWsl)
+    # The here-string inherits CRLF line endings from this .ps1 file, which
+    # breaks bash in WSL ("$'\r': command not found"). Normalize to LF.
+    $seedBash = (($seedBash -replace "`r`n", "`n") -replace "`r", "`n")
     $seedScript = Join-Path $CACHE "seed-create.sh"
     Set-Content -Path $seedScript -Value $seedBash -NoNewline -Encoding ASCII
     $seedScriptWsl = ConvertTo-WslPath $seedScript
@@ -908,6 +1070,12 @@ if ($existingProc) {
     if (-not $existingProc) {
         Write-Info "Starting QEMU..."
 
+        # Bridge mode: TAP driver + network bridge (once), then the VM gets
+        # its own LAN IP - no hostfwd/port checks needed.
+        if ($Bridge) {
+            Initialize-BridgeNetwork
+        }
+
         # -- Port availability: ANY busy forward port kills QEMU's user-net --
         # ("Could not set up host forwarding rule ..."). Check every port and
         # skip busy ones with a warning instead of crashing.
@@ -941,15 +1109,18 @@ if ($existingProc) {
             }
         }
 
-        # Build the netdev hostfwd string (only free ports)
-        $script:forwardRules = ",hostfwd=tcp::${SshPort}-:22"
-        Add-PortIfFree -Port $VM_HOME -GuestPort 8126
-        Add-PortIfFree -Port $VM_BRIDGE -GuestPort 8101
-        foreach ($p in $FWD_PORTS) { Add-PortIfFree -Port $p -GuestPort $p }
-        $fwd = "user,id=n0" + $script:forwardRules
-        if ($skippedPorts.Count -gt 0) {
-            Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
+        # Build the netdev hostfwd string (only free ports); bridge mode
+        # needs no forwarding - the VM is reachable directly via its LAN IP.
+        if (-not $Bridge) {
+            $script:forwardRules = ",hostfwd=tcp::${SshPort}-:22"
+            Add-PortIfFree -Port $VM_HOME -GuestPort 8126
+            Add-PortIfFree -Port $VM_BRIDGE -GuestPort 8101
+            foreach ($p in $FWD_PORTS) { Add-PortIfFree -Port $p -GuestPort $p }
+            if ($skippedPorts.Count -gt 0) {
+                Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
+            }
         }
+        $fwd = "user,id=n0" + $script:forwardRules
 
         # Guest-agent control port (localhost TCP on Windows; UNIX socket on
         # POSIX). Auto-pick a free port so a busy 8109 cannot kill QEMU.
@@ -962,41 +1133,64 @@ if ($existingProc) {
         $QmpPort = 8130
         while ((Test-PortListening -Port $QmpPort) -and $QmpPort -lt 8150) { $QmpPort++ }
 
-        $fwDrive = if ($fwIsFlash) {
-            $base = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
-            if (Test-Path $FW_VARS_CACHED) {
-                $base += @("-drive", "if=pflash,format=raw,file=$FW_VARS_CACHED")
-            }
-            $base
+        # QEMU argument builder - reused verbatim by the UEFI-shell
+        # self-heal (reboots the VM with SeaBIOS without duplicating the
+        # whole argument list).
+        $netArgs = if ($Bridge) {
+            @("-netdev", "tap,id=n0,ifname=$script:TapName", "-device", "virtio-net-pci,netdev=n0")
         } else {
-            @("-bios", $FW)
+            @("-netdev", $fwd, "-device", "virtio-net-pci,netdev=n0")
         }
 
-        $qemuArgs = @(
-            "-name", "IORA-Dev",
-            "-m", $VM_RAM,
-            "-smp", $VM_CPUS
-        ) + $fwDrive + @(
-            "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
-            "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
-            "-netdev", $fwd,
-            # virtio NIC (proven config; e1000 had DHCP issues under WHPX)
-            "-device", "virtio-net-pci,netdev=n0",
-            # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
-            "-device", "virtio-serial-pci",
-            "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
-            "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
-            # QMP: hypervisor control channel (status, pause, screenshot, ...)
-            "-qmp", "tcp:127.0.0.1:$QmpPort,server=on,wait=off",
-            # RAM ballooning (Proxmox-style memory control)
-            "-device", "virtio-balloon-pci",
-            "-device", "virtio-gpu",
-            "-machine", "${VM_MACHINE},accel=whpx",
-            "-serial", "file:$($CACHE)\qemu-serial.log",
-            "-display", "gtk,show-cursor=on"
-        )
+        function Build-QemuArgs {
+            param([string] $Firmware)  # "uefi" | "seabios"
+            $fwDrv = @()
+            if ($Firmware -eq "uefi") {
+                if ($fwIsFlash) {
+                    $fwDrv = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
+                    if (Test-Path $FW_VARS_CACHED) {
+                        $fwDrv += @("-drive", "if=pflash,format=raw,file=$FW_VARS_CACHED")
+                    }
+                } else {
+                    $fwDrv = @("-bios", $FW)
+                }
+            }
+            $a = @(
+                "-name", "IORA-Dev",
+                "-m", $VM_RAM,
+                "-smp", $VM_CPUS
+            ) + $fwDrv + @(
+                # bootindex makes OVMF put the disk first even when the NVRAM
+                # BootOrder is empty/polluted (UEFI shell trap); SeaBIOS
+                # honours it as well. bootindex is a device property, so the
+                # drives use if=none + explicit -device pairs.
+                "-drive", "file=$VM_DISK,format=qcow2,if=none,id=iora-disk",
+                "-device", "virtio-blk-pci,drive=iora-disk,bootindex=1",
+                "-drive", "file=$SEED_ISO,format=raw,media=cdrom,if=none,id=iora-seed",
+                "-device", "ide-cd,drive=iora-seed,bootindex=2",
+                # Bridge mode: TAP adapter on the LAN bridge (own DHCP IP like
+                # IORA OS production); otherwise slirp user-net + hostfwd.
+                $netArgs[0], $netArgs[1],
+                # virtio NIC (proven config; e1000 had DHCP issues under WHPX)
+                $netArgs[2], $netArgs[3],
+                # Netzwerkunabhaengiger Host<->VM-Kanal (qemu-guest-agent)
+                "-device", "virtio-serial-pci",
+                "-chardev", "socket,id=qga0,host=127.0.0.1,port=$QgaPort,server=on,wait=off",
+                "-device", "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0",
+                # QMP: hypervisor control channel (status, pause, screenshot, ...)
+                "-qmp", "tcp:127.0.0.1:$QmpPort,server=on,wait=off",
+                # RAM ballooning (Proxmox-style memory control)
+                "-device", "virtio-balloon-pci",
+                "-device", "virtio-gpu",
+                "-machine", "${VM_MACHINE},accel=whpx",
+                "-serial", "file:$($CACHE)\qemu-serial.log",
+                "-display", "gtk,show-cursor=on"
+            )
+            $a += @("-boot", "order=d,menu=off")
+            return $a
+        }
 
-        $qemuArgs += @("-boot", "order=d,menu=off")
+        $qemuArgs = Build-QemuArgs -Firmware $(if ($useUefi) { "uefi" } else { "seabios" })
 
         function Start-Qemu {
             param([string[]] $QemuArgs, [string] $Accel, [switch] $NoWindow)
@@ -1040,15 +1234,27 @@ if ($existingProc) {
         if ($useWhpx) {
             $qemuProc = Start-Qemu -QemuArgs $qemuArgs -Accel "WHPX"
             if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
+                $stderrText = ""
+                if (Test-Path $QEMU_STDERR) { $stderrText = (Get-Content $QEMU_STDERR -Raw -ErrorAction SilentlyContinue) }
                 Write-Warn "WHPX failed; falling back to TCG."
                 Write-Dim "  Last 10 lines of ${QEMU_STDERR}:"
-                if (Test-Path $QEMU_STDERR) {
-                    Get-Content $QEMU_STDERR -Tail 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-                }
+                (($stderrText -split "`r?`n") | Select-Object -Last 10) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
                 if (-not $qemuProc.HasExited) { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue }
-                # WHPX can corrupt the overlay; recreate it
-                Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
-                & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
+                # Distinguish a QEMU COMMAND-LINE error (a bug in the QEMU
+                # arguments or an incompatible QEMU version - the provisioned
+                # disk must NOT be touched) from a real WHPX/acceleration
+                # failure (fall back to TCG and recreate the overlay, since a
+                # crashed WHPX can corrupt it). Errors that mention WHPX are
+                # always treated as acceleration failures.
+                $argError = $stderrText -notmatch 'whpx|WHPX|hypervisor' -and $stderrText -match 'exe: -[a-zA-Z]|does not support the option|invalid option|unrecognized'
+                if ($argError) {
+                    Stop-WithError "QEMU rejected the command line (configuration error, see stderr above). The VM disk was NOT modified. Fix the QEMU arguments (or update QEMU), then re-run; use -SkipWhpx to boot via TCG/SeaBIOS in the meantime."
+                }
+                # Real WHPX failure: WHPX can corrupt the overlay; recreate it
+                # (from the golden snapshot when one exists - instant, no
+                # re-provisioning)
+                Write-Warn "Overlay recreated (WHPX failure) - using the golden snapshot if available."
+                Reset-VmDisk
                 $useWhpx = $false
             }
         }
@@ -1097,16 +1303,92 @@ if ($existingProc) {
 $serialLog = Join-Path $CACHE "qemu-serial.log"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host 'IORA Dev VM - Serial Console (live)' -ForegroundColor Cyan; Get-Content -Wait -Tail 0 '$serialLog'" -WindowStyle Minimized | Out-Null
 
+# -- Bridge mode: discover the VM's LAN IP via the guest agent ---------------
+# (QGA works over virtio-serial, independent of the network; the agent is
+# ensured by the dbInit step on every run.)
+if ($Bridge) {
+    Write-Info "Waiting for the VM's LAN IP (guest agent)..."
+    $vmIp = $null
+    $deadline = (Get-Date).AddSeconds(180)
+    while ((Get-Date) -lt $deadline -and -not $vmIp) {
+        $qgaIp = Invoke-QgaExec -Command 'ip -4 route get 1.1.1.1 2>/dev/null | awk "{print \$7; exit}"' -TimeoutSec 5
+        if ($qgaIp -match "\d+\.\d+\.\d+\.\d+") { $vmIp = $matches[0] }
+        if (-not $vmIp) { Start-Sleep -Seconds 5 }
+    }
+    if (-not $vmIp) {
+        Stop-WithError "Could not determine the VM's LAN IP (guest agent not responding). Check the network bridge and run again."
+    }
+    $script:VM_HOST = $vmIp
+    $script:VM_SSH_PORT = 22
+    Write-Success "VM LAN IP: $vmIp (SSH via port 22, services via http://${vmIp}:8126)"
+}
+
 # -- Step 5: Wait for cloud-init to finish ----------------------------------
 Write-Info "Waiting for cloud-init to finish (first boot may take 3-10 min)..."
 $waited = 0
 $ready = $false
 $timeout = 900
 $lastDiag = 0
+
+# -- Self-healing: UEFI shell trap detection ---------------------------------
+# The Debian cloud image has an EMPTY EFI System Partition: when OVMF finds
+# no bootable loader it falls back to the "UEFI Interactive Shell" and the
+# VM never boots. We detect that state in the serial log (QEMU truncates the
+# log on every start, so position tracking resets automatically), restart the
+# VM with SeaBIOS (which boots the image reliably) and remember the choice in
+# $BOOT_FIRMWARE_MARKER so future runs boot directly. Only runs when this
+# script started QEMU itself (Build-QemuArgs exists) - attached VMs are left
+# untouched.
+$healDone = $false
+$script:serialPos = 0
+function Read-SerialNew {
+    if (-not (Test-Path $serialLog)) { return "" }
+    try {
+        $fs = [System.IO.File]::Open($serialLog, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            if ($fs.Length -lt $script:serialPos) { $script:serialPos = 0 }  # file was (re)created
+            $fs.Position = $script:serialPos
+            $ms = New-Object System.IO.MemoryStream
+            $buf = New-Object byte[] 65536
+            while (($n = $fs.Read($buf, 0, $buf.Length)) -gt 0) { $ms.Write($buf, 0, $n) }
+            $script:serialPos = $fs.Position
+            return [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
+        } finally { $fs.Close() }
+    } catch {
+        return ""
+    }
+}
+
 while ($waited -lt $timeout) {
     if ($qemuProc.HasExited) {
         Stop-WithError "QEMU exited (code $($qemuProc.ExitCode)). See $QEMU_STDERR"
     }
+
+    # UEFI shell trap -> restart with SeaBIOS (once per run)
+    if ($useUefi -and -not $healDone -and (Get-Command Build-QemuArgs -ErrorAction SilentlyContinue)) {
+        $newSerial = Read-SerialNew
+        if ($newSerial -match "UEFI Interactive Shell|Shell>") {
+            Write-Warn "VM landed in the UEFI Interactive Shell (cloud image has no UEFI bootloader)."
+            Write-Warn "Auto-healing: restarting the VM with SeaBIOS..."
+            try { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue } catch { }
+            Set-Content -Path $BOOT_FIRMWARE_MARKER -Value "seabios" -NoNewline -Encoding ASCII
+            $qemuProc = Start-Qemu -QemuArgs (Build-QemuArgs -Firmware "seabios") -Accel "WHPX (SeaBIOS)"
+            if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
+                Write-Warn "WHPX restart failed during auto-heal - falling back to TCG/SeaBIOS."
+                $qemuProc = Start-Qemu -QemuArgs $tcgArgs -Accel "TCG"
+                if (-not (Test-Alive -Proc $qemuProc -WaitSec 20)) {
+                    Stop-WithError "QEMU crashed during auto-heal (WHPX and TCG). See $QEMU_STDERR"
+                }
+            }
+            $healDone = $true
+            $script:serialPos = 0
+            $waited = 0
+            $lastDiag = 0
+            Write-Success "Auto-healed: VM now boots via SeaBIOS. Waiting for cloud-init..."
+            continue
+        }
+    }
+
     # Primaerer Kanal: QEMU-Guest-Agent (funktioniert OHNE IP); SSH als Alternative
     $bootReady = $false
     $qgaOut = Invoke-QgaExec -Command 'test -f /var/lib/cloud/instance/boot-finished && echo READY' -TimeoutSec 10
@@ -1136,7 +1418,7 @@ while ($waited -lt $timeout) {
 }
 Write-Host ""
 if (-not $ready) {
-    Stop-WithError "Cloud-init timed out. Try: ssh -i $SSH_KEY -p $SshPort root@127.0.0.1"
+    Stop-WithError "Cloud-init timed out. Try: ssh -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST"
 }
 Write-Success "SSH ready!"
 
@@ -1156,24 +1438,59 @@ $repoWsl = ConvertTo-WslPath $REPO_ROOT
 $keyWsl = ConvertTo-WslPath $SSH_KEY
 # drvfs keys have loose permissions that ssh refuses - stage a 0600 copy in WSL
 wsl bash -c "mkdir -p ~/.ssh && install -m 600 '$keyWsl' ~/.ssh/iora_dev_key 2>/dev/null || cp '$keyWsl' ~/.ssh/iora_dev_key" 2>$null | Out-Null
+# The rsync fast path needs rsync in WSL (the VM gets it during provisioning)
+$null = wsl bash -c "command -v rsync >/dev/null 2>&1 || sudo apt-get install -y -qq rsync 2>&1 | tail -1" 2>$null
 $syncExcludes = "--exclude='.git' --exclude='target' --exclude='node_modules' --exclude='.cache' --exclude='buildroot-*' --exclude='releases' --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' --exclude='*.tar.gz' --exclude='.iora-dev'"
-$syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/iora_dev_key -p $SshPort"
-wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@127.0.0.1:/home/iora/iora/ && ssh $syncSsh root@127.0.0.1 'chown -R iora:iora /home/iora/iora'" 2>&1 | Out-Null
-$mainSyncOk = ($LASTEXITCODE -eq 0)
+$syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/iora_dev_key -p $VM_SSH_PORT"
+# WSL2 NAT mode: the VM's forwarded ports live on the Windows host, which WSL
+# reaches via its default-route gateway (127.0.0.1 inside WSL only works in
+# mirrored mode). Probe 127.0.0.1 first, then derive the gateway from
+# /proc/net/route, so the rsync fast path works in both WSL network modes.
+function Get-WslSyncHost {
+    if ($Bridge) { return $VM_HOST }
+    $null = wsl bash -c "ssh $syncSsh root@127.0.0.1 'true'" 2>$null
+    if ($LASTEXITCODE -eq 0) { return "127.0.0.1" }
+    $route = wsl bash -c "cat /proc/net/route" 2>$null
+    foreach ($l in $route) {
+        if ($l -match '^[A-Za-z0-9]+\s+00000000\s+([0-9A-Fa-f]{8})') {
+            $h = $matches[1]
+            $ip = @()
+            for ($i = 6; $i -ge 0; $i -= 2) { $ip += [Convert]::ToInt32($h.Substring($i, 2), 16) }
+            return ($ip -join '.')
+        }
+    }
+    return $null
+}
+$wslHost = Get-WslSyncHost
+$syncOut = ""
+if ($wslHost) {
+    $syncOut = wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@${wslHost}:/home/iora/iora/ && ssh $syncSsh root@${wslHost} 'chown -R iora:iora /home/iora/iora'" 2>&1
+}
+$mainSyncOk = ($LASTEXITCODE -eq 0) -and $wslHost
+if (-not $mainSyncOk) {
+    Write-Dim "  rsync output (last 12 lines):"
+    ($syncOut | Select-Object -Last 12) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+}
 if ($mainSyncOk -and $Mode -eq "build") {
     # Build mode: also mirror the drop-box so host-built binaries reach the daemon
-    wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@127.0.0.1:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
+    wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@${wslHost}:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
 }
 if (-not $mainSyncOk) {
     Write-Warn "WSL rsync failed - falling back to tar+scp..."
     $projectTar = Join-Path $CACHE "iora-project.tar.gz"
     Push-Location $REPO_ROOT
     try {
-        tar -czf $projectTar `
-            --exclude='.git' --exclude='target' --exclude='node_modules' `
-            --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
-            --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
-            --exclude='*.tar.gz' --exclude='.iora-dev' . 2>$null
+        # Splatted args: keeps --exclude= patterns intact with both GNU tar
+        # (git-bash) and bsdtar (Windows) - inline quotes in bare tokens break
+        # on some tar builds (e.g. "Child returned status 128"). System32 tar
+        # is used explicitly so the path cannot be hijacked by a git-bash PATH.
+        $tarBin = Join-Path $env:SystemRoot "System32\tar.exe"
+        if (-not (Test-Path $tarBin)) { $tarBin = "tar" }
+        $tarArgs = @('-czf', $projectTar)
+        foreach ($e in @('.git', 'target', 'node_modules', '.cache', 'buildroot-*', 'releases', '*.img', '*.qcow2', '*.iso', '*.tar.gz', '.iora-dev')) {
+            $tarArgs += "--exclude=$e"
+        }
+        $tarErr = & $tarBin @tarArgs '.' 2>&1
     } finally {
         Pop-Location
     }
@@ -1185,10 +1502,24 @@ if (-not $mainSyncOk) {
         Invoke-SSH 'cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz && chown -R iora:iora /home/iora/iora' | Out-Null
         Remove-Item $projectTar -Force -ErrorAction SilentlyContinue
     } else {
+        Write-Dim "  tar output (last 10 lines):"
+        ($tarErr | Select-Object -Last 10) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
         Stop-WithError "Project sync failed (rsync and tar fallback both failed)."
     }
 }
 Write-Success "Project synced (1:1 mirror at /home/iora/iora)"
+
+# Parallel: start the frontend npm install right after the mirror is in place
+# (runs while apt/rustup provision below; waited for in Step 9)
+$npmJob = $null
+if ($needProvision -and $Mode -eq "source") {
+    Write-Info "Starting frontend npm install in the background (parallel to provisioning)..."
+    $npmJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
+        param($sshBin, $sshOpts, $sshKey, $port)
+        $cmd = "cd /home/iora/iora/frontend && [ -d node_modules ] || npm install --no-audit --no-fund 2>&1"
+        & $sshBin @sshOpts -i $sshKey -p $port root@$script:VM_HOST $cmd
+    }
+}
 
 # -- Register systemd services (ALWAYS, not only on first provision): the
 #    script is idempotent and this is what makes -Mode source/build switches
@@ -1197,6 +1528,15 @@ Write-Info "Registering IORA OS systemd services (mode: $Mode)..."
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh --$Mode-mode 2>&1" | Select-Object -Last 8
 
 if ($needProvision) {
+    # Parallel: the Rust toolchain installs via SSH while apt runs below
+    # (independent - saves minutes on first provisioning)
+    Write-Info "Starting Rust toolchain install in the background (parallel to apt)..."
+    $rustupJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
+        param($sshBin, $sshOpts, $sshKey, $port)
+        $cmd = "su - iora -c 'test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1"
+        & $sshBin @sshOpts -i $sshKey -p $port root@$script:VM_HOST $cmd
+    }
+
     Write-Info "Installing system packages (slow first-run step)..."
     $installScript = @'
 set -e
@@ -1229,6 +1569,53 @@ systemctl enable --now docker postgresql nginx 2>/dev/null || true
         Stop-WithError "Installing system packages failed in VM (ssh exit code $installExitCode)."
     }
 
+    Write-Info "Upgrading Node.js to 22 (Vite 7 needs Node >= 20.12, Debian 12 ships 18)..."
+    $nodeScript = @'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+if node --version 2>/dev/null | grep -qE "^v(2[02])" ; then
+    echo "node OK: $(node --version)"
+else
+    curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource-setup.sh
+    bash /tmp/nodesource-setup.sh 2>&1 | tail -1
+    apt-get install -y -qq nodejs 2>&1 | tail -1
+    echo "node upgraded: $(node --version)"
+fi
+'@
+    $nodeOut = Invoke-SSHStdin $nodeScript
+    $nodeOut | Select-Object -Last 2
+
+    Write-Info "Installing UEFI bootloader (grub-efi) so the VM can boot via OVMF..."
+    $grubEfiScript = @'
+set -e
+# The Debian cloud image ships with an EMPTY EFI System Partition and can only
+# boot via BIOS/SeaBIOS. Installing grub-efi makes the VM UEFI-bootable too
+# (parity with the RPi4/IORA OS target). --no-nvram: we run in BIOS mode and
+# must not touch efibootmgr. The BOOTX64.EFI copy covers the OVMF removable-
+# media fallback path even without NVRAM boot entries.
+export DEBIAN_FRONTEND=noninteractive
+echo "--- installing grub-efi-amd64 ---"
+apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 grub-efi-amd64
+mkdir -p /boot/efi
+mountpoint -q /boot/efi || mount /boot/efi 2>/dev/null || true
+if grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --no-nvram --recheck 2>&1 | tail -n 4; then
+    mkdir -p /boot/efi/EFI/BOOT
+    cp -f /boot/efi/EFI/debian/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || true
+    echo "--- update-grub ---"
+    update-grub 2>&1 | tail -n 2
+    echo "GRUB_EFI_OK"
+else
+    echo "grub-install failed - VM stays BIOS-only (SeaBIOS self-heal remains active)"
+fi
+'@
+    $grubEfiOut = Invoke-SSHStdin $grubEfiScript
+    $grubEfiOut | Select-Object -Last 4
+    if (($grubEfiOut -join "`n") -match "GRUB_EFI_OK") {
+        Write-Success "VM is now UEFI-bootable (grub-efi installed into the ESP)"
+    } else {
+        Write-Warn "grub-efi install did not complete - VM stays BIOS/SeaBIOS-only"
+    }
+
     Write-Info "Configuring PostgreSQL roles and dev-mode marker..."
     $postgresScript = @'
 set +e
@@ -1240,8 +1627,15 @@ mkdir -p /etc/iora && touch /etc/iora/os-dev-mode
 '@
     $null = Invoke-SSHStdin $postgresScript
 
-    Write-Info "Installing Rust toolchain (for in-VM cargo)..."
-    Invoke-SSH 'su - iora -c ''test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal'' 2>&1' | Select-Object -Last 5
+    Write-Info "Waiting for the Rust toolchain install..."
+    Wait-Job $rustupJob -TimeoutSec 900 | Out-Null
+    if ($rustupJob.State -eq "Running") {
+        Write-Warn "Rust toolchain install still running after 900s - continuing; it may be interrupted when the script exits."
+    } else {
+        Receive-Job $rustupJob | Select-Object -Last 4
+        Remove-Job $rustupJob -Force
+        Write-Success "Rust toolchain ready"
+    }
 
     Write-Info "Configuring Cargo (mold + sparse registry + incremental builds)..."
     $cargoCfgTemplate = @'
@@ -1276,6 +1670,30 @@ incremental = false
     Remove-Item $cargoCfgPath -Force -ErrorAction SilentlyContinue
     Write-Success "Cargo configured"
 
+    Write-Info "Seeding cargo registry from the host (faster first builds)..."
+    $cargoRegHost = Join-Path $env:USERPROFILE ".cargo\registry"
+    if ((Test-Path $cargoRegHost) -and $wslHost) {
+        $cargoRegWsl = ConvertTo-WslPath $cargoRegHost
+        $seedOut = wsl bash -c "rsync -az -e 'ssh $syncSsh' '$cargoRegWsl/' root@${wslHost}:/home/iora/.cargo/registry/ 2>&1"
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Cargo registry seeded from host"
+        } else {
+            Write-Warn "Cargo seeding failed - the first build will download crates"
+            ($seedOut | Select-Object -Last 5) | ForEach-Object { Write-Dim "  $_" }
+        }
+    } else {
+        Write-Dim "  (no host cargo registry found - skipping seeding)"
+    }
+
+    Write-Info "Pre-building all services (first boot after reset starts fast)..."
+    $prebuildOut = Invoke-SSH 'su - iora -c ''cd /home/iora/iora/iora-os/backend && cargo build --workspace 2>&1 | tail -2'''
+    $prebuildOut | Select-Object -Last 3
+    if (($prebuildOut -join "`n") -match "Finished") {
+        Write-Success "Workspace prebuilt - services start instantly after a reset"
+    } else {
+        Write-Warn "Workspace prebuild did not finish cleanly - the first boot after a reset will build services serially (slow)"
+    }
+
     Write-Info "Applying IORA OS compat layer + improvements (one SSH session)..."
     $compatScript = @'
 for s in iora-dev-compat.sh iora-dev-improvements.sh iora-optimize-memory.sh iora-config-sync.sh; do
@@ -1286,8 +1704,65 @@ done
 '@
     Invoke-SSHStdin $compatScript | Select-Object -Last 12
 
+    Write-Info "Security parity: AppArmor profiles + dev signing key..."
+    $securityScript = @'
+set -e
+# -- AppArmor: enable the daemon + install starter profiles in COMPLAIN mode
+#    (violations are logged, nothing is blocked - switch to enforce for
+#    testing the production behaviour)
+if ! command -v aa-status >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq --no-install-recommends apparmor apparmor-utils 2>&1 | tail -1
+fi
+if [ -d /home/iora/iora/iora-os/apparmor/dev-vm ]; then
+    mkdir -p /etc/apparmor.d
+    for p in /home/iora/iora/iora-os/apparmor/dev-vm/*; do
+        [ -f "$p" ] && install -m 644 "$p" "/etc/apparmor.d/$(basename "$p")"
+    done
+    aa-status --enabled 2>/dev/null && systemctl enable --now apparmor 2>/dev/null || true
+    for p in /etc/apparmor.d/iora-home /etc/apparmor.d/iora-core /etc/apparmor.d/iora-watchdog; do
+        [ -f "$p" ] && apparmor_parser -C -r "$p" 2>/dev/null || true
+    done
+    echo "--- apparmor: $(aa-status 2>/dev/null | head -2 | tail -1)"
+fi
+# -- Dev signing key: iora-sign parity for the build host. The wrapper builds
+#    iora-sign on first use and generates /etc/iora/dev-signing/iora-dev.key
+mkdir -p /etc/iora/dev-signing
+cat > /usr/local/bin/iora-dev-sign <<'SIGNEOF'
+#!/bin/bash
+# Sign a file with the IORA dev signing key (iora-sign parity on the build host)
+set -e
+KEY=/etc/iora/dev-signing/iora-dev.key
+if [ ! -f "$KEY" ]; then
+    mkdir -p /etc/iora/dev-signing
+    if [ ! -x /usr/bin/iora-sign ]; then
+        echo "Building iora-sign (first use)..." >&2
+        su - iora -c "cd /home/iora/iora/iora-os/backend && cargo build -p iora-sign -q" >&2
+        install -m 755 /home/iora/iora/iora-os/backend/target/debug/iora-sign /usr/bin/iora-sign
+    fi
+    /usr/bin/iora-sign keygen --out-dir /etc/iora/dev-signing --name iora-dev
+    echo "Dev signing key created: $KEY" >&2
+fi
+exec /usr/bin/iora-sign file --key "$KEY" --in "$1"
+SIGNEOF
+chmod 755 /usr/local/bin/iora-dev-sign
+# Generate the key now (best-effort - the first iora-sign build takes a moment)
+echo "IORA dev VM signing key - sign plugins/apps with: iora-dev-sign <file>" > /etc/iora/dev-signing/README
+if /usr/local/bin/iora-dev-sign /etc/iora/dev-signing/README 2>&1 | tail -1; then
+    echo "DEV_SIGN_OK"
+else
+    echo "dev signing key deferred (toolchain still busy)"
+fi
+'@
+    $securityOut = Invoke-SSHStdin $securityScript
+    $securityOut | Select-Object -Last 4
+
     Invoke-SSH 'mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned' | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
+    # The VM is now UEFI-bootable (grub-efi installed): clear the SeaBIOS
+    # marker so the NEXT boot tries UEFI/OVMF again. If that fails, the
+    # self-heal kicks in and re-marks SeaBIOS - the system self-corrects.
+    Remove-Item $BOOT_FIRMWARE_MARKER -Force -ErrorAction SilentlyContinue
     Write-Success "Provisioning complete"
 }
 
@@ -1300,7 +1775,59 @@ for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
     su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
         || su - postgres -c "psql -c \"CREATE DATABASE $db OWNER iora\""
 done
-mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data
+# -- Self-healing: newer services reference postgres DBs that were never
+#    created ("database ... does not exist"). Create every DB that any
+#    /etc/iora/<svc>.env points at - idempotent, runs on every dev-local run.
+for envf in /etc/iora/iora-*.env; do
+    [ -f "$envf" ] || continue
+    url=$(grep '^DATABASE_URL=' "$envf" 2>/dev/null | head -1 | cut -d= -f2-)
+    case "$url" in
+        postgres://*)
+            db=$(echo "$url" | sed -E 's|.*/([^?]*).*|\1|')
+            # DB names may contain dashes (e.g. iora_domain-validator) - quote
+            # them and whitelist the charset
+            case "$db" in *[!a-zA-Z0-9_-]*) db="";; esac
+            if [ -n "$db" ]; then
+                su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
+                    || su - postgres -c "psql -c \"CREATE DATABASE \\\"$db\\\" OWNER iora\""
+            fi
+            ;;
+    esac
+done
+# -- SQLite-backed services must not get a postgres URL (sqlx would try to
+#    open the URL as a file -> "unable to open database file"). This covers
+#    both /etc/iora/<svc>.env and the priority-1 db-credentials files.
+for svc in iora-api iora-connector iora-files iora-gateway iora-intelligence; do
+    for envf in "/etc/iora/$svc.env" "/etc/iora/db-credentials/$svc.env"; do
+        if [ -f "$envf" ] && grep -q '^DATABASE_URL=postgres://' "$envf" 2>/dev/null; then
+            mkdir -p "/var/lib/iora/$svc"
+            chown iora:iora "/var/lib/iora/$svc" 2>/dev/null || true
+            sed -i "s|^DATABASE_URL=.*|DATABASE_URL=sqlite:///var/lib/iora/$svc/$svc.db?mode=rwc|" "$envf"
+            echo "iora-db-init: fixed $svc to sqlite ($envf)"
+        fi
+    done
+done
+# -- iora-security needs a 32-byte hex DB encryption key (production parity)
+envf=/etc/iora/iora-security.env
+if [ -f "$envf" ] && ! grep -q '^SECURITY_DB_KEY=' "$envf"; then
+    key=$(openssl rand -hex 32 2>/dev/null)
+    if [ -n "$key" ]; then
+        echo "SECURITY_DB_KEY=$key" >> "$envf"
+        echo "iora-db-init: generated SECURITY_DB_KEY"
+    fi
+fi
+# -- Port collision avoidance: iora-developer-app and iora-intelligence both
+#    default to 8099 (iora-api's port). Pin them to free ports.
+for pv in "iora-developer-app 8110" "iora-intelligence 8112"; do
+    svc=${pv% *}; port=${pv#* }
+    envf="/etc/iora/$svc.env"
+    if [ -f "$envf" ] && ! grep -q "^PORT=$port" "$envf" 2>/dev/null; then
+        echo "PORT=$port" >> "$envf"
+        echo "iora-db-init: pinned $svc to port $port"
+    fi
+done
+mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data /var/lib/iora/iora-home
+chown iora:iora /var/lib/iora/iora-home 2>/dev/null || true
 if [ "$(cat /etc/iora/dev-run-mode 2>/dev/null || echo source)" = "build" ]; then
 cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 [Service]
@@ -1335,7 +1862,28 @@ if [ -f /etc/iora/iora-home.env ]; then
 fi
 systemctl daemon-reload
 systemctl reset-failed iora-db-init 2>/dev/null
+# Guest agent: reliable control channel + LAN IP discovery (bridge mode)
+if ! command -v qemu-ga >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq --no-install-recommends qemu-guest-agent 2>&1 | tail -1
+fi
+systemctl enable --now qemu-guest-agent 2>/dev/null || true
+# Bridge mode: allow the LAN subnet through the IORA firewall (the slirp
+# rules only cover 10.0.2.0/24 + localhost)
+lan=$(ip route 2>/dev/null | awk '/default via/ {print $1; exit}')
+case "$lan" in
+    ""|10.0.2.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*) ;;
+    *)
+        if command -v iptables >/dev/null 2>&1; then
+            iptables -C INPUT -p tcp -m multiport --dports 22,80,443,3001,5432,8080,8088:8130 -s "$lan" -j ACCEPT 2>/dev/null \
+                || iptables -A INPUT -p tcp -m multiport --dports 22,80,443,3001,5432,8080,8088:8130 -s "$lan" -j ACCEPT
+            echo "iora-db-init: firewall allows LAN subnet $lan (bridge mode)"
+        fi
+        ;;
+esac
+# Restart all IORA services so the env/db fixes take effect immediately
 systemctl restart iora-home 2>/dev/null
+systemctl try-restart iora-*.service 2>/dev/null
 systemctl enable --now iora-hot-reload.path 2>/dev/null
 systemctl enable --now iora-health-check.timer 2>/dev/null
 '@
@@ -1372,6 +1920,20 @@ $null = Invoke-SSHStdin $hotReloadScript
 
 # -- Step 9: Frontend (source mode: Vite in VM / build mode: dist deploy) ----
 if ($Mode -eq "source") {
+    # If a fresh provisioning is expected, npm install was already started in
+    # the background right after the mirror sync - wait for it here so the
+    # vite step below is a no-op (or a safety retry).
+    if ($npmJob) {
+        Write-Info "Waiting for the background npm install..."
+        Wait-Job $npmJob -TimeoutSec 900 | Out-Null
+        if ($npmJob.State -eq "Running") {
+            Write-Warn "npm install still running - continuing (the vite step will retry if needed)."
+        } else {
+            Receive-Job $npmJob | Select-Object -Last 3
+            Remove-Job $npmJob -Force
+            $npmJob = $null
+        }
+    }
     Write-Info "Source mode: setting up the Vite dev server in the VM..."
     $viteScript = @'
 set +e
@@ -1451,8 +2013,8 @@ for ($i=0; $i -lt 12; $i++) {
     if (Test-VmHealth) { $healthOk = $true; break }
     Start-Sleep -Seconds 5
 }
-if ($healthOk) { Write-Success "iora-home OK on http://127.0.0.1:$VM_HOME" }
-else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $SshPort root@127.0.0.1 'journalctl -u iora-home -n 50'" }
+if ($healthOk) { Write-Success "iora-home OK on http://${VM_HOST}:$VM_HOME" }
+else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST 'journalctl -u iora-home -n 50'" }
 
 # -- Step 10: Launch dev-watch TUI ------------------------------------------
 if (-not $NoWatch) {
@@ -1473,7 +2035,7 @@ if (-not $NoWatch) {
         # TUI owns its console. Any shell wrapper (powershell -NoExit / cmd /c)
         # breaks raw mode + key handling and is fragile to quote escaping.
         $watcherArgs = @(
-            '--vm-host', '127.0.0.1',
+            '--vm-host', "$VM_HOST",
             '--vm-port', "$SshPort",
             '--ssh-key', "$SSH_KEY"
         )
@@ -1486,7 +2048,7 @@ $HEALTH_MONITOR_LOG = Join-Path $CACHE "health-monitor.log"
 $HEALTH_MONITOR_PID = Join-Path $CACHE "health-monitor.pid"
 
 if (Get-Command Start-HealthMonitor -ErrorAction SilentlyContinue) {
-    Start-HealthMonitor -VMHost "127.0.0.1" -VMPort $SshPort -SSHKey $SSH_KEY `
+    Start-HealthMonitor -VMHost $VM_HOST -VMPort $VM_SSH_PORT -SSHKey $SSH_KEY `
         -LogFile $HEALTH_MONITOR_LOG -PIDFile $HEALTH_MONITOR_PID
 }
 
@@ -1499,14 +2061,14 @@ $readyBanner = @"
   |                    IORA Dev VM ready                                |
   +====================================================================+
   |  WEB                                                                |
-  |    Dashboard (nginx) https://localhost                              |
-  |    Dashboard direct  http://localhost:$VM_HOME                            |
-  |    Dev Bridge        http://localhost:$VM_BRIDGE/dev/health               |
-  |    Swagger API       http://localhost:$VM_HOME/api/docs                   |
-  |    Global Config API http://localhost:$VM_HOME/api/settings               |
+  |    Dashboard (nginx) https://$VM_HOST                                      |
+  |    Dashboard direct  http://${VM_HOST}:$VM_HOME                                   |
+  |    Dev Bridge        http://${VM_HOST}:$VM_BRIDGE/dev/health                      |
+  |    Swagger API       http://${VM_HOST}:$VM_HOME/api/docs                          |
+  |    Global Config API http://${VM_HOST}:$VM_HOME/api/settings                      |
   |                                                                     |
   |  ACCESS                                                             |
-  |    SSH               ssh -i $SSH_KEY -p $SshPort root@127.0.0.1
+  |    SSH               ssh -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST
   |                                                                     |
   |  CO-BUDDY FEATURES                                                  |
   |    Auto-repair       Port conflicts, disk space, dependencies       |
@@ -1514,10 +2076,10 @@ $readyBanner = @"
   |    Smart Recovery    Auto-restart failed services                   |
   |                                                                     |
   |  LOGS (100% IORA OS compatible)                                     |
-  |    All services      ssh root@127.0.0.1 -p $SshPort 'journalctl -u iora-* -f'
-  |    Specific service  ssh root@127.0.0.1 -p $SshPort 'journalctl -u iora-home -f'
-  |    Last 100 lines    ssh root@127.0.0.1 -p $SshPort './iora-dev-logs.sh'
-  |    Follow all logs   ssh root@127.0.0.1 -p $SshPort './iora-dev-logs.sh -f'
+  |    All services      ssh root@$VM_HOST -p $VM_SSH_PORT 'journalctl -u iora-* -f'
+  |    Specific service  ssh root@$VM_HOST -p $VM_SSH_PORT 'journalctl -u iora-home -f'
+  |    Last 100 lines    ssh root@$VM_HOST -p $VM_SSH_PORT './iora-dev-logs.sh'
+  |    Follow all logs   ssh root@$VM_HOST -p $VM_SSH_PORT './iora-dev-logs.sh -f'
   |                                                                     |
   |  GLOBAL CONFIG                                                      |
   |    Get setting       ssh root@127.0.0.1 -p $SshPort 'iora-get-config ha.url'

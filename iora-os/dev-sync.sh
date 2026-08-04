@@ -86,8 +86,13 @@ if $IS_WSL; then
 fi
 
 # ── SSH + rsync (ControlMaster: one TCP connection reused across syncs) ─────
-SSH_SOCK_DIR="$CACHE/ssh-socks"
+# Socket dir MUST be short (Unix sockets max ~108 chars) - never under the
+# repo/.cache, which sits on /mnt/c/... inside WSL2 and exceeds the limit
+# (ssh then aborts with "unix_listener: path too long").
+SSH_SOCK_DIR="$HOME/.cache/iora-sync-socks"
 mkdir -p "$SSH_SOCK_DIR"
+# Stale sockets from previous runs would be reused for dead connections
+find "$SSH_SOCK_DIR" -type s -name 'cm-*' -delete 2>/dev/null || true
 SSH_OPTS=(
     -o StrictHostKeyChecking=no
     -o UserKnownHostsFile=/dev/null
@@ -103,6 +108,19 @@ SSH_OPTS=(
     -i "$SYNC_KEY"
     -p "$VM_PORT"
 )
+
+# ── VM host from WSL: WSL2 NAT cannot reach the Windows-forwarded ports via
+#    127.0.0.1 (that only works in mirrored mode). Probe localhost first, then
+#    derive the Windows host from the default-route gateway (/proc/net/route,
+#    little-endian hex) so the sync works in both WSL network modes.
+VM_HOST="127.0.0.1"
+if ! ssh "${SSH_OPTS[@]}" root@127.0.0.1 true >/dev/null 2>&1; then
+    gw_hex=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route 2>/dev/null)
+    if [ -n "$gw_hex" ] && [ "${#gw_hex}" -ge 8 ]; then
+        VM_HOST=$(printf "%d.%d.%d.%d" "0x${gw_hex:6:2}" "0x${gw_hex:4:2}" "0x${gw_hex:2:2}" "0x${gw_hex:0:2}")
+        $QUIET || log "WSL NAT detected - using Windows host $VM_HOST for the VM (port $VM_PORT)"
+    fi
+fi
 
 EXCLUDES=(
     --exclude='.git/'
@@ -126,17 +144,17 @@ sync_now() {
     $QUIET || log "Syncing mirror -> VM (incremental)..."
     rsync -az "${EXCLUDES[@]}" \
         -e "ssh ${SSH_OPTS[*]}" \
-        "$REPO_ROOT/" "root@127.0.0.1:/home/iora/iora/" || rc=1
+        "$REPO_ROOT/" "root@$VM_HOST:/home/iora/iora/" || rc=1
 
     if $WITH_BINARIES && [ -d "$REPO_ROOT/.iora-dev/binaries" ]; then
         # Build-mode artifacts live INSIDE the mirror under .iora-dev/binaries
         rsync -az --delete \
             -e "ssh ${SSH_OPTS[*]}" \
-            "$REPO_ROOT/.iora-dev/binaries/" "root@127.0.0.1:/home/iora/iora/.iora-dev/binaries/" || rc=1
+            "$REPO_ROOT/.iora-dev/binaries/" "root@$VM_HOST:/home/iora/iora/.iora-dev/binaries/" || rc=1
     fi
 
     # Keep the tree owned by the iora user (cargo run / vite need write access)
-    ssh "${SSH_OPTS[@]}" root@127.0.0.1 "chown -R iora:iora /home/iora/iora 2>/dev/null || true" >/dev/null 2>&1 || true
+    ssh "${SSH_OPTS[@]}" root@$VM_HOST "chown -R iora:iora /home/iora/iora 2>/dev/null || true" >/dev/null 2>&1 || true
 
     if [ "$rc" -eq 0 ]; then
         $QUIET || ok "Mirror in sync ($(date +%H:%M:%S))"
@@ -148,8 +166,8 @@ sync_now() {
         fi
         sleep 5
         rsync -az "${EXCLUDES[@]}" -e "ssh ${SSH_OPTS[*]}" \
-            "$REPO_ROOT/" "root@127.0.0.1:/home/iora/iora/" \
-            && ssh "${SSH_OPTS[@]}" root@127.0.0.1 "chown -R iora:iora /home/iora/iora 2>/dev/null || true" >/dev/null 2>&1 || true
+            "$REPO_ROOT/" "root@$VM_HOST:/home/iora/iora/" \
+            && ssh "${SSH_OPTS[@]}" root@$VM_HOST "chown -R iora:iora /home/iora/iora 2>/dev/null || true" >/dev/null 2>&1 || true
     fi
     return 0
 }

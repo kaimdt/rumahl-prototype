@@ -1,0 +1,31 @@
+#include <tunables/global>
+#include <tunables/proc>
+# IORA OS dev VM starter profile for iora-home (native, NOT the Docker
+# container profile - see apparmor/iora-home for that one).
+# Loaded in COMPLAIN mode by the dev VM provisioning (violations are logged
+# to the kernel log, nothing is blocked). Attaches by process name, so it
+# covers both /usr/bin/iora-home (build mode) and the cargo-run binary
+# under backend/target (source mode).
+#
+# Flip to enforce to test production behaviour:
+#   sed -i 's/flags=(complain)//' /etc/apparmor.d/iora-home
+#   apparmor_parser -r /etc/apparmor.d/iora-home
+#   systemctl restart iora-home
+profile iora-home flags=(complain) {
+  #include <abstractions/base>
+  #include <abstractions/openssl>
+
+  capability net_bind_service,
+
+  network inet stream,
+  network inet6 stream,
+
+  /etc/iora/** r,
+  /opt/iora/data/iora-home/** rw,
+  /var/log/iora/** w,
+  /usr/bin/iora-home mr,
+  /usr/lib/iora/** mr,
+  /home/iora/iora/iora-os/backend/target/** mr,
+  /dev/urandom r,
+  /proc/** r,
+}

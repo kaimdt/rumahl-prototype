@@ -338,4 +338,47 @@ else
     warn "iora-service-priority.sh not found, skipping service priority configuration"
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. Boot experience - production identity on the dev VM console
+#    (same ASCII logo as the IORA OS installer, see INSTALLER_BOOT_SPLASH.md)
+# ═══════════════════════════════════════════════════════════════════════════════
+log "Installing IORA boot identity (MOTD + GRUB)..."
+
+# Login banner (SSH + serial console) with the IORA OS ASCII logo and
+# live service status - the dev VM greets you like IORA OS does.
+mkdir -p /etc/update-motd.d
+cat > /etc/update-motd.d/10-iora-status <<'MOTDEOF'
+#!/bin/bash
+# IORA OS dev VM status banner (same ASCII identity as the installer)
+printf '%s\n' \
+'          ██╗ ██████╗ ██████╗  █████╗' \
+'          ██║██╔═══██╗██╔══██╗██╔══██╗' \
+'          ██║██║   ██║██████╔╝███████║' \
+'          ██║██║   ██║██╔══██╗██╔══██║' \
+'          ██║╚██████╔╝██║  ██║██║  ██║' \
+'          ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝'
+echo '       Interface for Optimized Residential Autonomy (Dev VM)'
+echo ''
+echo '  Services:'
+for svc in iora-core iora-home iora-assist iora-secrets iora-watchdog iora-gateway; do
+    st=$(systemctl is-active "$svc" 2>/dev/null || echo inactive)
+    printf '    %-14s %s\n' "$svc" "$st"
+done
+echo ''
+echo "  Uptime: $(uptime -p | sed 's/up //')"
+echo ''
+MOTDEOF
+chmod 755 /etc/update-motd.d/10-iora-status
+[ -x /etc/update-motd.d/10-iora-status ] && log "MOTD banner installed"
+
+# GRUB: IORA identity + readable colors (menu shows "IORA OS")
+if [ -f /etc/default/grub ]; then
+    grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub && sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="IORA OS"/' /etc/default/grub || echo 'GRUB_DISTRIBUTOR="IORA OS"' >> /etc/default/grub
+    grep -q '^GRUB_COLOR_NORMAL=' /etc/default/grub && sed -i 's/^GRUB_COLOR_NORMAL=.*/GRUB_COLOR_NORMAL="cyan\/black"/' /etc/default/grub || echo 'GRUB_COLOR_NORMAL="cyan/black"' >> /etc/default/grub
+    grep -q '^GRUB_COLOR_HIGHLIGHT=' /etc/default/grub && sed -i 's/^GRUB_COLOR_HIGHLIGHT=.*/GRUB_COLOR_HIGHLIGHT="white\/black"/' /etc/default/grub || echo 'GRUB_COLOR_HIGHLIGHT="white/black"' >> /etc/default/grub
+    grep -q '^GRUB_TIMEOUT=' /etc/default/grub || echo 'GRUB_TIMEOUT=3' >> /etc/default/grub
+    update-grub 2>&1 | tail -1 || warn "update-grub failed - GRUB identity not applied"
+    log "GRUB boot identity applied (IORA OS)"
+fi
+
 log "All improvements applied!"

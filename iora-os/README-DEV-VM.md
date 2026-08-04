@@ -299,6 +299,103 @@ systemctl restart iora-db-init
 lsof -i :8126
 ```
 
+### VM bleibt in der „UEFI Interactive Shell“ hängen
+
+Symptom: Das QEMU-Fenster zeigt die UEFI-Shell (`Shell>`) statt Debian zu booten.
+
+Ursache: Die OVMF-NVRAM (`OVMF_VARS.fd`) enthält keine Boot-Reihenfolge mit der VM-Disk
+(typisch nach einem Cache-Reset, z.B. `-Clean`), und ohne explizites `bootindex` wird die
+Disk von OVMF nicht in den BootOrder aufgenommen. Das Debian-Cloud-Image bootet dann nicht.
+
+Der Dev-Server behebt das seit v2.5.0 **automatisch**:
+
+1. Die VM wird mit explizitem `bootindex` auf der Disk gestartet → OVMF bootet GRUB direkt.
+2. Falls die VM trotzdem in der UEFI-Shell landet, erkennt das Skript das im Serial-Log
+   („UEFI Interactive Shell“), startet die VM mit **SeaBIOS** neu und merkt sich das in
+   `.cache/boot-firmware` (Inhalt `seabios`) für künftige Starts.
+3. Nach einer erfolgreichen Provisionierung wird der Marker entfernt → beim nächsten Start
+   wird UEFI erneut versucht (selbstkorrigierendes System).
+
+Manuell steuern:
+
+```bash
+# UEFI/OVMF erzwingen (z.B. für EFI-fähige IORA-OS-Images)
+./dev-local.ps1 -Uefi
+
+# Marker zurücksetzen (wieder UEFI zuerst versuchen)
+rm .cache/boot-firmware
+
+# Marker löschen + Boot-Log prüfen
+cat .cache/qemu-serial.log
+```
+
+Hinweis: Das TCG-Fallback (`-SkipWhpx`) bootet immer über SeaBIOS; `-Uefi` wird dort ignoriert.
+
+### Bridge-Modus: eigene LAN-IP wie IORA OS Produktion
+
+Die VM bekommt per TAP-Treiber + Netzwerkbrücke eine eigene IP vom LAN-Router (DHCP) –
+erreichbar vom PC und allen Geräten im Netz, genau wie ein echtes IORA OS:
+
+```powershell
+# Einmalig als Administrator (TAP-Treiber + Brücke werden automatisch eingerichtet):
+# (PowerShell als Admin starten)
+.\dev-local.ps1 -Bridge
+
+# Danach reicht ein normaler Start – Brücke und Treiber bleiben bestehen:
+.\dev-local.ps1 -Bridge
+```
+
+Voraussetzungen: kabelgebundenes Ethernet (WLAN-Adapter können nicht gebrückt werden),
+Internet beim ersten Mal (TAP-Treiber-Download). Das Skript:
+
+1. installiert den TAP-Windows6-Treiber (falls fehlt),
+2. erstellt die Netzwerkbrücke (LAN-Adapter + TAP) via `netsh bridge create`,
+3. startet QEMU mit dem TAP-Adapter statt slirp – die VM holt sich eine LAN-IP per DHCP,
+4. ermittelt die IP automatisch über den QEMU-Gast-Agenten und nutzt sie für SSH,
+   Sync und Health-Checks (SSH direkt auf Port 22).
+
+Ohne `-Bridge` gilt weiterhin der slirp-Modus mit Port-Forwards (`localhost:8126` etc.).
+
+### Golden-Snapshot: Reset in Sekunden statt Neuprovisionierung
+
+Nach einer erfolgreichen Provisionierung kann der komplette VM-Zustand als Golden-Snapshot
+konserviert werden – danach sind Resets quasi kostenlos:
+
+```bash
+# Aktuellen provisionierten Zustand einfrieren (~5-10 Min, einmalig)
+./dev-local.ps1 -Freeze
+
+# Reset auf den Golden-Zustand (Sekunden, keine Neuprovisionierung!)
+./dev-local.ps1 -Clean && ./dev-local.ps1
+
+# Golden-Snapshot verwerfen (kompletter Neuaufbau)
+./dev-local.ps1 -CleanAll
+# oder
+./dev-local.ps1 -Rebuild
+```
+
+Der Golden-Snapshot (`.cache/iora-dev-golden.qcow2`) enthält auch das vorab gebaute
+`target/` – Services starten nach einem Reset sofort, ohne Rebuild-Sturm. Auch ein echter
+WHPX-Fehler setzt auf den Golden zurück statt neu zu provisionieren.
+
+## Dev-Server-Features (v2.5.0+)
+
+- **ZRAM wie Produktion**: 50% RAM als zstd-komprimierter Swap (`zramswap`).
+- **IORA-Boot-Identität**: ASCII-IORA-Logo als Login-Banner (SSH + Konsole) und GRUB-Menü als „IORA OS".
+- **AppArmor**: Starter-Profile für iora-home/-core/-watchdog in `apparmor/dev-vm/`, geladen im
+  complain-Mode (loggt, blockiert nicht) – Enforcement wie Produktion testen: `flags=(complain)`
+  entfernen und `apparmor_parser -r /etc/apparmor.d/iora-*` ausführen.
+- **Dev-Signatur**: `/usr/local/bin/iora-dev-sign` in der VM signiert Dateien mit dem Dev-Schlüssel
+  `/etc/iora/dev-signing/iora-dev.key` (iora-sign-Parität, baut das Tool beim ersten Aufruf).
+- **Firewall-Parität**: Die IORA-Firewall erlaubt DHCP + alle Host-Forward-Ports (QEMU-slirp-
+  Subnetz 10.0.2.0/24) – ohne diese Anpassung verliert die VM nach dem ersten Reboot ihre IP
+  und kein Forward-Port ist erreichbar.
+- **Schneller Sync**: rsync-Fast-Path erkennt das WSL2-Gateway automatisch (NAT-Modus),
+  tar+scp-Fallback nutzt System32-tar mit sauberen Excludes; `dev-sync.sh --watch` funktioniert
+  damit auch aus WSL.
+- **Vorab gebaute Services**: Die Provisionierung baut das komplette Workspace einmal vor
+  (cargo build --workspace) – der erste Boot nach einem Reset startet alle Services sofort.
+
 ## Unterschiede zur Produktion
 
 | Feature | Dev VM | IORA OS Produktion |
@@ -306,8 +403,9 @@ lsof -i :8126
 | Virtualisierung | QEMU/KVM | Bare Metal |
 | Storage | tmpfs (Dev) | LUKS-verschlüsselte Partition |
 | SSL | Self-signed | Let's Encrypt / Custom |
-| ZRAM | Optional | Standard (50% RAM) |
-| Binary Verification | Deaktiviert | Aktiviert (Signatur-Check) |
+| ZRAM | Standard (50% RAM, zstd) | Standard (50% RAM) |
+| Binary Verification | Dev-Signaturschlüssel (iora-dev-sign) | Aktiviert (Signatur-Check) |
+| AppArmor | Starter-Profile (complain mode) | Aktiviert |
 | Recovery Mode | Nicht verfügbar | Verfügbar (PIN-geschützt) |
 | Auto-Updates | Deaktiviert | Aktiviert |
 
