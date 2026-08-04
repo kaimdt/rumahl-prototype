@@ -1,0 +1,141 @@
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkMode {
+    Slirp,
+    Bridge,
+}
+
+impl Default for NetworkMode {
+    fn default() -> Self {
+        Self::Slirp
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RuntimeState {
+    pub version: u8,
+    pub pid: Option<u32>,
+    pub lifecycle: String,
+    pub network_mode: NetworkMode,
+    pub vm_host: String,
+    pub ssh_port: u16,
+    pub home_port: u16,
+    pub qga_port: u16,
+    pub qmp_port: u16,
+    pub firmware: Option<String>,
+    pub acceleration: Option<String>,
+    pub vm_disk: Option<PathBuf>,
+    pub golden_snapshot: Option<PathBuf>,
+    pub started_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub provisioned: bool,
+    pub watcher_status: String,
+    pub sync_status: String,
+    pub last_ready_at: Option<String>,
+    pub last_error: Option<String>,
+    pub forwarded_ports: Vec<serde_json::Value>,
+    pub cache_path: Option<PathBuf>,
+}
+
+impl Default for RuntimeState {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            pid: None,
+            lifecycle: "Stopped".into(),
+            network_mode: NetworkMode::Slirp,
+            vm_host: "127.0.0.1".into(),
+            ssh_port: 2222,
+            home_port: 8126,
+            qga_port: 8109,
+            qmp_port: 8130,
+            firmware: None,
+            acceleration: None,
+            vm_disk: None,
+            golden_snapshot: None,
+            started_at: None,
+            updated_at: None,
+            provisioned: false,
+            watcher_status: "Stopped".into(),
+            sync_status: "Stopped".into(),
+            last_ready_at: None,
+            last_error: None,
+            forwarded_ports: vec![],
+            cache_path: None,
+        }
+    }
+}
+
+impl RuntimeState {
+    pub fn load(path: &Path) -> Self {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|value| serde_json::from_str(&value).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, path: &Path) -> Result<()> {
+        let parent = path.parent().context("runtime state path has no parent")?;
+        fs::create_dir_all(parent)?;
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, serde_json::to_vec_pretty(self)?)?;
+        fs::rename(temporary, path)?;
+        Ok(())
+    }
+
+    pub fn connection(&self) -> (&str, u16, u16) {
+        match self.network_mode {
+            NetworkMode::Bridge => (&self.vm_host, 22, 8126),
+            NetworkMode::Slirp => ("127.0.0.1", self.ssh_port, self.home_port),
+        }
+    }
+
+    pub fn process_alive(&self) -> bool {
+        self.pid.is_some_and(process_alive)
+    }
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .is_ok_and(|s| s.success())
+}
+#[cfg(windows)]
+fn process_alive(pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn bridge_never_reuses_slirp_ssh_port() {
+        let state = RuntimeState {
+            network_mode: NetworkMode::Bridge,
+            vm_host: "192.168.1.5".into(),
+            ssh_port: 2222,
+            ..Default::default()
+        };
+        assert_eq!(state.connection(), ("192.168.1.5", 22, 8126));
+    }
+    #[test]
+    fn missing_state_uses_safe_stopped_defaults() {
+        assert_eq!(
+            RuntimeState::load(Path::new("/not/a/real/state.json")).lifecycle,
+            "Stopped"
+        );
+    }
+}

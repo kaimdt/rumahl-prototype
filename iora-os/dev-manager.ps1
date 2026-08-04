@@ -1,6 +1,23 @@
 [CmdletBinding()]
 param([switch]$Doctor, [switch]$Once)
 
+$managerRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$rustManager = Join-Path $managerRoot "backend\target\release\iora-dev-manager.exe"
+if (-not (Test-Path $rustManager)) { $rustManager = Join-Path $managerRoot "backend\target\debug\iora-dev-manager.exe" }
+if (-not $Once -and -not $env:IORA_DEV_MANAGER_LEGACY) {
+    $rustArguments = @("--root", $managerRoot)
+    if ($Doctor) { $rustArguments += "--doctor" }
+    if (Test-Path $rustManager) {
+        & $rustManager @rustArguments
+        exit $LASTEXITCODE
+    }
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        & cargo run --manifest-path (Join-Path $managerRoot "backend\Cargo.toml") -p iora-dev-manager -- @rustArguments
+        exit $LASTEXITCODE
+    }
+    Write-Warning "Rust Dev Manager is not built and Cargo is unavailable; using the compatibility PowerShell interface."
+}
+
 $ErrorActionPreference = "Continue"
 $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:Cache = Join-Path $script:Root ".cache"
