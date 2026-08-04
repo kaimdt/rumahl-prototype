@@ -1,6 +1,6 @@
 # IORA Dev Manager
 
-`dev-manager.ps1` is the central Windows entry point for the local QEMU development environment. The existing `dev-local.ps1`, QGA/QMP scripts, watcher, and sync scripts remain supported technical backends, but ordinary VM work no longer requires remembering their switches.
+`dev-manager.ps1` is the independent control plane for the local QEMU development environment: comparable to a small Proxmox VE instance dedicated to the IORA VM. The existing `dev-local.ps1` remains an internal image/provisioning backend, while lifecycle control, QMP, QGA, health, services, settings, connections, and recovery are owned by the manager.
 
 ## Start
 
@@ -20,6 +20,7 @@ dev-manager.ps1 (one user-facing TUI)
 ├── dev-manager/RuntimeState.psm1  atomic state, validation, endpoints
 ├── dev-manager/VmChannels.psm1    QMP and QGA transport / guest-exec
 ├── dev-manager/Readiness.psm1     internal + external health and diagnosis
+├── dev-manager/VmLifecycle.psm1    QEMU lifecycle and persistent VM settings
 ├── dev-local.ps1                  VM provisioning and lifecycle backend
 ├── dev-sync.sh                    incremental source transport
 └── iora-dev-watch                 builds, deploys, restarts, service TUI
@@ -40,6 +41,16 @@ An internally healthy but externally unreachable home service is reported as `De
 The manager uses the guest agent for systemd state, service logs, listening sockets, PostgreSQL readiness, IP discovery, and critical service startup. SSH remains the fastest source-transfer channel, but the watcher falls back to QGA for commands and service control if SSH fails.
 
 Useful manager actions include the Doctor, failed-unit logs, critical phased startup, QMP pause/resume, graceful QMP powerdown, hard stop, snapshot creation, SSH, browser launch, watcher, and source sync.
+
+The VM Control view also exposes the latest QEMU stderr and serial logs. This remains available when guest networking and SSH are unavailable.
+
+## Independent VM control plane
+
+The VM Control view exposes start, pause, resume, reset, graceful guest shutdown, hard process stop, full rebuild, and Golden Snapshot operations. It reads live CPU, memory, and run state from QMP rather than inferring VM state from SSH.
+
+VM resources and defaults are persisted in `.cache/dev-manager-settings.json`. Network mode, RAM, vCPU count, source/build mode, watcher, and sync behavior therefore belong to the manager and are translated into provisioning arguments only when a new VM is created.
+
+SSH is optional. The connection action opens SSH when reachable and otherwise switches to an interactive QGA rescue shell. Service listing, start, stop, restart, health, dependency inspection, and journald access use QGA directly and remain available when the guest network, firewall, or SSH daemon is broken.
 
 ## Staged services
 

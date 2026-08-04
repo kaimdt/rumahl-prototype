@@ -23,6 +23,7 @@
 #   .\dev-local.ps1 -Log            Live cloud-init / system logs
 #   .\dev-local.ps1 -Reprovision   Force re-running the in-VM setup
 #   .\dev-local.ps1 -NoWatch       Don't auto-launch dev-watch TUI
+#   .\dev-local.ps1 -NoSync        Don't auto-launch continuous source sync
 #   .\dev-local.ps1 -Watcher        Launch dev-watch TUI in new terminal (VM must be running)
 #   .\dev-local.ps1 -Foreground    Keep this window attached to QEMU
 #   .\dev-local.ps1 -Ram 8GB -CpuCount 4
@@ -40,6 +41,7 @@ param(
     [switch] $Log,
     [switch] $Reprovision,
     [switch] $NoWatch,
+    [switch] $NoSync,
     [switch] $Watcher,
     [switch] $Foreground,
     [switch] $SkipWhpx,
@@ -88,6 +90,7 @@ if ($Help) {
     Write-Host "  -Log           Live cloud-init / system logs"
     Write-Host "  -Reprovision   Force re-running the in-VM setup"
     Write-Host "  -NoWatch       Don't auto-launch dev-watch TUI"
+    Write-Host "  -NoSync        Don't auto-launch continuous source sync"
     Write-Host "  -Watcher        Launch dev-watch TUI in new terminal (VM must be running)"
     Write-Host "  -Foreground    Keep this window attached to QEMU"
     Write-Host "  -Uefi          Force UEFI (OVMF) firmware instead of SeaBIOS"
@@ -2164,16 +2167,16 @@ if (-not $NoWatch) {
             Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
         }
     }
-    if ($Mode -eq "source") {
-        Write-Info "Starting continuous source sync for Vite HMR and Rust delta builds..."
-        Start-Process -FilePath "wsl" -WorkingDirectory $SCRIPT_DIR -ArgumentList @(
-            "bash", "dev-sync.sh", "--watch", "--vm-host", "$VM_HOST",
-            "--vm-port", "$VM_SSH_PORT", "--ssh-key", "$SSH_KEY", "--quiet"
-        ) -WindowStyle Minimized | Out-Null
-        if ($script:RuntimeState) {
-            $script:RuntimeState.syncStatus = "Watching"
-            Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
-        }
+}
+if ($Mode -eq "source" -and -not $NoSync) {
+    Write-Info "Starting continuous source sync for Vite HMR and Rust delta builds..."
+    Start-Process -FilePath "wsl" -WorkingDirectory $SCRIPT_DIR -ArgumentList @(
+        "bash", "dev-sync.sh", "--watch", "--vm-host", "$VM_HOST",
+        "--vm-port", "$VM_SSH_PORT", "--ssh-key", "$SSH_KEY", "--quiet"
+    ) -WindowStyle Minimized | Out-Null
+    if ($script:RuntimeState) {
+        $script:RuntimeState.syncStatus = "Watching"
+        Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
     }
 }
 
