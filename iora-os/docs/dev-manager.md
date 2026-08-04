@@ -21,6 +21,7 @@ For automation, `cargo run -p iora-dev-manager -- --root .. --doctor` runs the s
 iora-dev-manager (one Rust TUI on Windows, macOS and Linux)
 ├── state.rs                       atomic state, validation, endpoints
 ├── channels.rs                    TCP/Unix QMP and QGA transport
+├── devloop.rs                     native sync, HMR and targeted rebuild pipeline
 ├── manager.rs                     lifecycle, health, process and host integration
 ├── main.rs                        event loop and ratatui application
 └── iora-dev-watch                 reusable build/deploy implementation
@@ -32,7 +33,7 @@ The runtime state is the shared source of truth, not a replacement for live chec
 
 The environment progresses through `Stopped`, `Starting`, `Booting`, `Provisioning`, `Waiting for network`, `Waiting for dependencies`, `Starting services`, `Degraded`, and `Ready`.
 
-`Ready` requires a live QEMU PID, QMP, QGA, operational systemd, guest networking, and successful internal and host-side `iora-home` health. SSH is reported independently and is not required for VM administration.
+`Ready` requires a live QEMU PID, QMP, QGA, operational systemd, guest networking, successful internal and host-side `iora-home` health, and the native live-development watcher. SSH is reported independently and is not required for VM administration.
 
 An internally healthy but externally unreachable home service is reported as `Degraded`, with bind-address, firewall, stale bridge address, and routing checks suggested separately.
 
@@ -52,9 +53,19 @@ QEMU configuration is cross-platform and native. `IORA_DEV_QEMU`, `IORA_DEV_QEMU
 
 SSH is optional. Press `g` to execute a root rescue command through QGA without network access. Service listing, restart, health inspection, failed-unit diagnosis, and journald access use QGA directly and remain available when the guest network, firewall, or SSH daemon is broken.
 
+## Native live development
+
+The manager watches the repository directly through Rust `notify`; `dev-sync.sh` is not started. Changes are debounced, filtered, and copied incrementally to `/home/iora/iora`. SSH/SCP is used when healthy, while files up to 1 MiB fall back to QGA transfer when SSH is broken.
+
+Frontend source changes are immediately available to the Vite server and therefore use normal HMR without a service restart. Changes to Vite, TypeScript, PostCSS, Tailwind, or package configuration restart and validate `iora-frontend-dev`.
+
+For Rust, migrations, Cargo manifests, and systemd definitions, the manager queries `cargo metadata`, finds the owning crate, follows reverse dependencies, and processes only affected IORA services. Builds run inside the VM so produced binaries match IORA OS. Services are restarted sequentially and must pass `systemctl is-active` before the pipeline reports success.
+
+New crates under `backend/services` or `backend/apps/system` are discovered from Cargo metadata automatically. If a matching unit does not yet exist, the manager installs a development systemd unit with the IORA source workspace, `iora` user, PostgreSQL ordering, restart policy, and native debug binary. Adding a service therefore requires adding it to the Rust workspace and creating its crate; no additional watcher or launcher script is required.
+
 ## Script consolidation
 
-Rust is the user-facing and cross-platform source of truth. The existing PowerShell and shell files are retained only for backward compatibility and initial legacy image creation; the manager does not invoke them. A prepared `.cache/iora-dev-vm.qcow2` can be started, controlled, diagnosed, and snapshotted entirely from the Rust process. New development-server functionality belongs in `iora-dev-manager` rather than in another platform-specific script.
+Rust is the user-facing and cross-platform source of truth. The existing PowerShell and shell files are retained only for backward compatibility and initial legacy image creation; the manager does not invoke them for VM lifecycle, source synchronization, health, or live reload. A prepared `.cache/iora-dev-vm.qcow2` can be started, controlled, developed against, diagnosed, and snapshotted entirely from the Rust process. New development-server functionality belongs in `iora-dev-manager` rather than in another platform-specific script.
 
 ## Staged services in the compatibility backend
 

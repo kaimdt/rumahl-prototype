@@ -22,6 +22,7 @@ pub struct Probe {
     pub external_home: bool,
     pub systemd: String,
     pub guest_ip: Option<String>,
+    pub dev_watcher: bool,
 }
 
 impl Probe {
@@ -36,7 +37,7 @@ impl Probe {
             "Provisioning"
         } else if self.guest_ip.is_none() {
             "Waiting for network"
-        } else if self.internal_home && self.external_home {
+        } else if self.internal_home && self.external_home && self.dev_watcher {
             "Ready"
         } else {
             "Degraded"
@@ -79,6 +80,7 @@ impl Manager {
     pub async fn probe(&mut self) -> Probe {
         let mut probe = Probe {
             process: self.state.process_alive(),
+            dev_watcher: self.state.watcher_status == "Running",
             ..Default::default()
         };
         if !probe.process {

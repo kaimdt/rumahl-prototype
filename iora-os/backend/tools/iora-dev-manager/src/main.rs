@@ -1,4 +1,5 @@
 mod channels;
+mod devloop;
 mod manager;
 mod state;
 
@@ -9,6 +10,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use devloop::DevEvent;
 use futures::StreamExt;
 use manager::{read_tail, Manager, Probe};
 use ratatui::{
@@ -79,9 +81,13 @@ struct App {
     services: Vec<String>,
     logs: VecDeque<String>,
     qga_command: Option<String>,
+    dev_events: tokio::sync::mpsc::UnboundedReceiver<DevEvent>,
 }
 impl App {
     async fn new(manager: Manager) -> Self {
+        let repository = manager.root.parent().unwrap_or(&manager.root).to_path_buf();
+        let dev_events =
+            devloop::spawn(repository, manager.root.clone(), manager.state_path.clone());
         let mut app = Self {
             manager,
             probe: Probe::default(),
@@ -91,11 +97,39 @@ impl App {
             services: vec![],
             logs: VecDeque::new(),
             qga_command: None,
+            dev_events,
         };
+        tokio::time::sleep(Duration::from_millis(50)).await;
         app.refresh().await;
         app
     }
     async fn refresh(&mut self) {
+        while let Ok(event) = self.dev_events.try_recv() {
+            match event {
+                DevEvent::Watching => {
+                    self.manager.state.watcher_status = "Running".into();
+                    self.message = "Live development watcher active".into();
+                }
+                DevEvent::Syncing(count) => {
+                    self.manager.state.sync_status = "Syncing".into();
+                    self.message = format!("Synchronizing {count} changed files");
+                }
+                DevEvent::Building(service) => {
+                    self.manager.state.watcher_status = "Building".into();
+                    self.message = format!("Building {service}");
+                }
+                DevEvent::Ready(detail) => {
+                    self.manager.state.watcher_status = "Running".into();
+                    self.manager.state.sync_status = "Watching".into();
+                    self.message = detail;
+                }
+                DevEvent::Error(error) => {
+                    self.manager.state.watcher_status = "Degraded".into();
+                    self.message = error;
+                }
+            }
+            let _ = self.manager.state.save(&self.manager.state_path);
+        }
         self.probe = self.manager.probe().await;
         if self.probe.qga {
             if let Ok(value)=self.manager.guest("systemctl list-units --type=service 'iora-*' --all --no-legend --no-pager | awk '{print $1\"  \"$3\"/\"$4}'").await { self.services=value.lines().map(str::to_owned).collect(); }
@@ -455,6 +489,7 @@ fn doctor(frame: &mut Frame, area: Rect, app: &App) {
         ("SSH", p.ssh),
         ("iora-home internal", p.internal_home),
         ("iora-home external", p.external_home),
+        ("Live development", p.dev_watcher),
     ];
     let lines = checks
         .into_iter()
