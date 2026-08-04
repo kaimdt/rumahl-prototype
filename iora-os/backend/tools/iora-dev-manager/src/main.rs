@@ -145,18 +145,12 @@ impl App {
                 self.view = View::ALL[self.tab];
             }
             KeyCode::Char('1') => {
-                self.set_message(
-                    self.manager
-                        .start(NetworkMode::Slirp)
-                        .map(|_| "Slirp VM start requested"),
-                );
+                let result = self.manager.start(NetworkMode::Slirp);
+                self.set_message(result.map(|_| "Slirp VM start requested"));
             }
             KeyCode::Char('2') => {
-                self.set_message(
-                    self.manager
-                        .start(NetworkMode::Bridge)
-                        .map(|_| "Bridge VM start requested"),
-                );
+                let result = self.manager.start(NetworkMode::Bridge);
+                self.set_message(result.map(|_| "Bridge VM start requested"));
             }
             KeyCode::Char('p') => {
                 self.set_message(self.manager.qmp_action("stop").await.map(|_| "VM paused"));
@@ -182,6 +176,10 @@ impl App {
             }
             KeyCode::Char('x') => {
                 self.set_message(self.manager.hard_stop().map(|_| "VM process terminated"));
+            }
+            KeyCode::Char('n') => {
+                let result = self.manager.create_golden_snapshot();
+                self.set_message(result.map(|_| "Golden Snapshot created"));
             }
             KeyCode::Char('o') => {
                 self.set_message(self.manager.open_url().map(|_| "Website opened"));
@@ -385,7 +383,8 @@ fn vm(frame: &mut Frame, area: Rect, app: &App) {
         Line::from("p Pause           c Continue"),
         Line::from("r Reset           s Graceful shutdown"),
         Line::from("x Hard stop       o Open website"),
-        Line::from("a Open SSH        l Home logs"),
+        Line::from("n Golden Snapshot a Open SSH"),
+        Line::from("g QGA rescue      l Home logs"),
         Line::from(""),
         line(
             "PID",
@@ -489,7 +488,7 @@ fn logs(frame: &mut Frame, area: Rect, app: &App) {
 }
 fn help(frame: &mut Frame, area: Rect) {
     frame.render_widget(Clear, area);
-    frame.render_widget(Paragraph::new("IORA Dev Manager is the cross-platform control plane for one development VM.\n\nThe Rust process owns live state reconstruction, QMP, QGA, health, services and the TUI. Existing platform scripts are transitional provisioning backends only. SSH is optional; diagnostics and service operations continue through QGA.\n\nKeys: 1/2 start, p/c pause/resume, r reset, s/x graceful/hard stop, a SSH, g QGA rescue command, o website, f diagnosis, l logs, h restart home, q quit.").wrap(Wrap{trim:false}).block(Block::default().title(" Help ").borders(Borders::ALL)),area);
+    frame.render_widget(Paragraph::new("IORA Dev Manager is the cross-platform control plane for one development VM.\n\nThe Rust process owns QEMU launch, live state reconstruction, QMP, QGA, health, services, Golden Snapshots and the TUI. SSH is optional; diagnostics and service operations continue through QGA.\n\nKeys: 1/2 start, p/c pause/resume, r reset, s/x graceful/hard stop, n Golden Snapshot, a SSH, g QGA rescue command, o website, f diagnosis, l logs, h restart home, q quit.").wrap(Wrap{trim:false}).block(Block::default().title(" Help ").borders(Borders::ALL)),area);
 }
 fn line(name: &str, value: &str, color: Color) -> Line<'static> {
     Line::from(vec![

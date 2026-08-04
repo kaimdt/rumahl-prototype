@@ -131,45 +131,181 @@ impl Manager {
         probe
     }
 
-    pub fn start(&self, mode: NetworkMode) -> Result<()> {
+    pub fn start(&mut self, mode: NetworkMode) -> Result<()> {
         if self.state.process_alive() {
             anyhow::bail!("VM is already running")
+        }
+        let cache = self.root.join(".cache");
+        std::fs::create_dir_all(&cache)?;
+        let disk = cache.join("iora-dev-vm.qcow2");
+        if !disk.exists() {
+            anyhow::bail!(
+                "VM disk is missing at {}; import or create the development image before starting",
+                disk.display()
+            )
+        }
+        for socket in [cache.join("qga.sock"), cache.join("qmp.sock")] {
+            if socket.exists() {
+                std::fs::remove_file(socket)?;
+            }
         }
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.root.join(".cache/dev-manager.log"))?;
-        #[cfg(windows)]
-        let mut command = {
-            let mut c = Command::new("powershell.exe");
-            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(self.root.join("dev-local.ps1"));
-            if mode == NetworkMode::Bridge {
-                c.arg("-Bridge");
-            }
-            c
-        };
-        #[cfg(not(windows))]
-        let mut command = {
-            if mode == NetworkMode::Bridge {
-                anyhow::bail!("Bridge provisioning is currently available on Windows; manage an already bridged Unix VM through the TUI")
-            }
-            let mut c = Command::new("bash");
-            c.arg(self.root.join("dev-local.sh"));
-            c
-        };
-        command
-            .arg(if cfg!(windows) {
-                "-NoWatch"
+        let architecture = std::env::consts::ARCH;
+        let qemu = std::env::var("IORA_DEV_QEMU").unwrap_or_else(|_| {
+            if architecture == "aarch64" {
+                "qemu-system-aarch64".into()
             } else {
-                "--no-watch"
-            })
+                "qemu-system-x86_64".into()
+            }
+        });
+        let machine = if architecture == "aarch64" {
+            "virt"
+        } else {
+            "q35"
+        };
+        let acceleration = std::env::var("IORA_DEV_ACCEL").unwrap_or_else(|_| {
+            if cfg!(windows) {
+                "whpx".into()
+            } else if cfg!(target_os = "macos") {
+                "hvf".into()
+            } else if Path::new("/dev/kvm").exists() {
+                "kvm".into()
+            } else {
+                "tcg".into()
+            }
+        });
+        let memory = std::env::var("IORA_DEV_RAM").unwrap_or_else(|_| "8G".into());
+        let cpus = std::env::var("IORA_DEV_CPUS").unwrap_or_else(|_| "4".into());
+        let network = match mode {
+            NetworkMode::Slirp => format!(
+                "user,id=n0,hostfwd=tcp::{}-:22,hostfwd=tcp::{}-:8126",
+                self.state.ssh_port, self.state.home_port
+            ),
+            NetworkMode::Bridge => format!(
+                "tap,id=n0,ifname={},script=no,downscript=no",
+                std::env::var("IORA_DEV_TAP").unwrap_or_else(|_| "iora-tap0".into())
+            ),
+        };
+        let mut arguments = vec![
+            "-name".into(),
+            "IORA-Dev".into(),
+            "-m".into(),
+            memory,
+            "-smp".into(),
+            cpus,
+            "-machine".into(),
+            format!("{machine},accel={acceleration}"),
+            "-cpu".into(),
+            if acceleration == "tcg" {
+                "max".into()
+            } else {
+                "host".into()
+            },
+            "-drive".into(),
+            format!(
+                "file={},format=qcow2,if=virtio,cache=writeback",
+                disk.display()
+            ),
+            "-netdev".into(),
+            network,
+            "-device".into(),
+            if architecture == "aarch64" {
+                "virtio-net-device,netdev=n0".into()
+            } else {
+                "virtio-net-pci,netdev=n0".into()
+            },
+            "-device".into(),
+            if architecture == "aarch64" {
+                "virtio-serial-device".into()
+            } else {
+                "virtio-serial-pci".into()
+            },
+        ];
+        let seed = cache.join("iora-dev-seed.iso");
+        if seed.exists() {
+            arguments.extend([
+                "-drive".into(),
+                format!("file={},format=raw,media=cdrom", seed.display()),
+            ]);
+        }
+        if cfg!(windows) {
+            arguments.extend([
+                "-chardev".into(),
+                format!(
+                    "socket,id=qga0,host=127.0.0.1,port={},server=on,wait=off",
+                    self.state.qga_port
+                ),
+                "-qmp".into(),
+                format!("tcp:127.0.0.1:{},server=on,wait=off", self.state.qmp_port),
+            ]);
+        } else {
+            arguments.extend([
+                "-chardev".into(),
+                format!(
+                    "socket,id=qga0,path={},server=on,wait=off",
+                    cache.join("qga.sock").display()
+                ),
+                "-qmp".into(),
+                format!(
+                    "unix:{},server=on,wait=off",
+                    cache.join("qmp.sock").display()
+                ),
+            ]);
+        }
+        arguments.extend([
+            "-device".into(),
+            "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0".into(),
+            "-serial".into(),
+            format!("file:{}", cache.join("qemu-serial.log").display()),
+            "-display".into(),
+            "none".into(),
+        ]);
+        let mut command = Command::new(&qemu);
+        command
+            .args(&arguments)
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log))
+            .stderr(Stdio::from(log));
+        let child = command
             .spawn()
-            .context("failed to launch VM provisioning backend")?;
+            .with_context(|| format!("failed to launch {qemu}"))?;
+        self.state.pid = Some(child.id());
+        self.state.lifecycle = "Starting".into();
+        self.state.network_mode = mode;
+        self.state.vm_host = if self.state.network_mode == NetworkMode::Slirp {
+            "127.0.0.1".into()
+        } else {
+            String::new()
+        };
+        self.state.vm_disk = Some(disk);
+        self.state.acceleration = Some(acceleration);
+        self.state.save(&self.state_path)?;
+        std::fs::write(cache.join("qemu.pid"), child.id().to_string())?;
         Ok(())
+    }
+
+    pub fn create_golden_snapshot(&mut self) -> Result<()> {
+        if self.state.process_alive() {
+            anyhow::bail!("stop the VM before creating a Golden Snapshot")
+        }
+        let disk = self.root.join(".cache/iora-dev-vm.qcow2");
+        let golden = self.root.join(".cache/iora-dev-golden.qcow2");
+        let temporary = golden.with_extension("qcow2.tmp");
+        let status =
+            Command::new(std::env::var("IORA_DEV_QEMU_IMG").unwrap_or_else(|_| "qemu-img".into()))
+                .args(["convert", "-O", "qcow2", "-c"])
+                .arg(&disk)
+                .arg(&temporary)
+                .status()?;
+        if !status.success() {
+            anyhow::bail!("qemu-img failed to create the Golden Snapshot")
+        }
+        std::fs::rename(temporary, &golden)?;
+        self.state.golden_snapshot = Some(golden);
+        self.state.save(&self.state_path)
     }
 
     pub async fn qmp_action(&self, action: &str) -> Result<()> {
@@ -272,4 +408,22 @@ pub fn read_tail(path: &Path, lines: usize) -> String {
                 .join("\n")
         })
         .unwrap_or_else(|| "No log available".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_start_refuses_missing_disk_without_invoking_a_script() {
+        let root = std::env::temp_dir().join(format!("iora-dev-manager-{}", std::process::id()));
+        let mut manager = Manager {
+            state_path: root.join(".cache/runtime-state.json"),
+            root: root.clone(),
+            state: RuntimeState::default(),
+        };
+        let error = manager.start(NetworkMode::Slirp).unwrap_err();
+        assert!(error.to_string().contains("VM disk is missing"));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
