@@ -26,13 +26,18 @@ param(
     [string]$Arg1 = "",
     [Parameter(Position = 2)]
     [string]$Arg2 = "",
-    [int]$QgaPort = 8109
+    [int]$QgaPort = 0
 )
 
 $ErrorActionPreference = "Stop"
 
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $CACHE = Join-Path $SCRIPT_DIR ".cache"
+$statePath = Join-Path $CACHE "runtime-state.json"
+if ($QgaPort -eq 0 -and (Test-Path $statePath)) {
+    try { $QgaPort = [int](Get-Content $statePath -Raw | ConvertFrom-Json).qgaPort } catch { }
+}
+if ($QgaPort -eq 0) { $QgaPort = 8109 }
 
 # -- Low-level: send one JSON line, read one JSON line back -----------------
 function Invoke-QgaJson {

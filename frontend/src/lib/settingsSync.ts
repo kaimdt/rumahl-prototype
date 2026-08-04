@@ -34,6 +34,7 @@ const SYNCED_KEYS = [
   'iora-os-launcher',
   'iora-os-custom-launchers',
   'iora-os-launcher-widgets',
+  'iora-os-launcher-folders',
 ]
 
 let syncUserId: string | null = null

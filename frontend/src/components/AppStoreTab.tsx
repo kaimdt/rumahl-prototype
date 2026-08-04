@@ -4,7 +4,9 @@ import {
   Cube, Lightning, Plus, Play, Pause, TrashSimple, ShieldCheck,
   DownloadSimple, Upload, MagnifyingGlass, Gear, Check, X,
   ShieldWarning, Package, ArrowClockwise, Info, Warning,
-  Stack, CubeFocus
+  Stack, CubeFocus, Sparkle, PuzzlePiece, MusicNotes, ChartBar,
+  VideoCamera, Broom, Lightbulb, CalendarBlank, SpeakerHigh, Plant,
+  Bell, Star, ArrowRight
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
@@ -816,36 +818,43 @@ function AppStoreView({
   searchQuery: string
   setSearchQuery: (q: string) => void
 }) {
-  const [activeCategory, setActiveCategory] = useState('Alle')
+  const { t } = useTranslation()
+  const [activeCategory, setActiveCategory] = useState('all')
 
   const categories = [
-    { id: 'Alle', label: 'Für dich', icon: '✨' },
-    { id: 'Widgets', label: 'Widgets', icon: '🧩' },
-    { id: 'Automation', label: 'Automation', icon: '⚡' },
-    { id: 'Media', label: 'Media', icon: '🎵' },
-    { id: 'Security', label: 'Security', icon: '🛡️' },
-    { id: 'Energy', label: 'Energy', icon: '⚡' },
-    { id: 'Monitoring', label: 'Monitoring', icon: '📊' },
+    { id: 'all', label: t('apps.appStore.forYou'), icon: Sparkle },
+    { id: 'widgets', label: t('apps.appStore.widgets'), icon: PuzzlePiece },
+    { id: 'automation', label: t('apps.appStore.automation'), icon: Lightning },
+    { id: 'media', label: t('apps.appStore.media'), icon: MusicNotes },
+    { id: 'security', label: t('apps.appStore.security'), icon: ShieldCheck },
+    { id: 'energy', label: t('apps.appStore.energy'), icon: Lightning },
+    { id: 'monitoring', label: t('apps.appStore.monitoring'), icon: ChartBar },
   ]
 
   // Featured apps (hardcoded for now, will come from store API)
   const featuredApps = [
-    { id: 'weather', name: 'Wetter Pro', dev: 'IORA Labs', rating: 4.8, icon: '🌤️', color: 'from-blue-500/20 to-cyan-500/10' },
-    { id: 'energy', name: 'Energy Monitor', dev: 'IORA Labs', rating: 4.6, icon: '⚡', color: 'from-amber-500/20 to-yellow-500/10' },
-    { id: 'security', name: 'Security Cam', dev: 'IORA Labs', rating: 4.9, icon: '📹', color: 'from-red-500/20 to-rose-500/10' },
+    { id: 'weather', name: t('apps.appStore.catalog.weather'), dev: 'IORA Labs', rating: 4.8, icon: Sparkle, color: 'from-blue-500/20 to-cyan-500/5' },
+    { id: 'energy', name: 'Energy Monitor', dev: 'IORA Labs', rating: 4.6, icon: Lightning, color: 'from-amber-500/20 to-yellow-500/5' },
+    { id: 'security', name: 'Security Cam', dev: 'IORA Labs', rating: 4.9, icon: VideoCamera, color: 'from-red-500/20 to-rose-500/5' },
   ]
 
   const popularApps = [
-    { id: 'vacuum', name: 'Vacuum Control', dev: 'Community', rating: 4.5, downloads: '2.3k', icon: '🧹' },
-    { id: 'lights', name: 'Light Scenes', dev: 'IORA', rating: 4.7, downloads: '5.1k', icon: '💡' },
-    { id: 'calendar', name: 'Family Calendar', dev: 'Community', rating: 4.3, downloads: '1.8k', icon: '📅' },
-    { id: 'music', name: 'Multiroom Audio', dev: 'IORA', rating: 4.4, downloads: '3.2k', icon: '🔊' },
-    { id: 'garden', name: 'Garden Planner', dev: 'Community', rating: 4.2, downloads: '980', icon: '🌱' },
-    { id: 'notify', name: 'Notify Me', dev: 'IORA Labs', rating: 4.6, downloads: '4.1k', icon: '🔔' },
+    { id: 'vacuum', name: 'Vacuum Control', dev: 'Community', rating: 4.5, downloads: '2.3k', icon: Broom },
+    { id: 'lights', name: 'Light Scenes', dev: 'IORA', rating: 4.7, downloads: '5.1k', icon: Lightbulb },
+    { id: 'calendar', name: 'Family Calendar', dev: 'Community', rating: 4.3, downloads: '1.8k', icon: CalendarBlank },
+    { id: 'music', name: 'Multiroom Audio', dev: 'IORA', rating: 4.4, downloads: '3.2k', icon: SpeakerHigh },
+    { id: 'garden', name: 'Garden Planner', dev: 'Community', rating: 4.2, downloads: '980', icon: Plant },
+    { id: 'notify', name: 'Notify Me', dev: 'IORA Labs', rating: 4.6, downloads: '4.1k', icon: Bell },
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7 rounded-[2rem] bg-background/85 p-4 shadow-2xl ring-1 ring-foreground/8 backdrop-blur-2xl sm:p-6">
+      <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-accent/20 via-background to-background p-5 sm:p-7">
+        <div className="flex max-w-3xl items-start gap-4">
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent text-white shadow-lg shadow-accent/25"><Cube size={28} weight="duotone" /></span>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h2 className="mt-1 text-2xl font-semibold">{t('apps.appStore.title')}</h2><p className="mt-2 text-sm leading-relaxed text-foreground/55">{t('apps.appStore.subtitle')}</p></div>
+        </div>
+      </div>
       {/* ─── Search Bar ──────────────────────────────────── */}
       <div className="relative">
         <MagnifyingGlass size={16} weight="bold" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground/30" />
@@ -853,53 +862,53 @@ function AppStoreView({
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Nach Apps, Widgets & Plugins suchen..."
-          className="w-full pl-10 pr-4 py-3 rounded-xl glass-card text-sm text-foreground placeholder:text-foreground/25 focus:outline-none focus:ring-2 focus:ring-accent/30 transition-all"
+          placeholder={t('apps.appStore.search')}
+          className="w-full rounded-2xl border border-foreground/10 bg-foreground/[0.045] py-3.5 pl-10 pr-4 text-sm text-foreground outline-none transition-all placeholder:text-foreground/30 focus:border-accent/40 focus:ring-2 focus:ring-accent/20"
         />
       </div>
 
       {/* ─── Category Pills ──────────────────────────────── */}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-        {categories.map(cat => (
+        {categories.map(cat => { const CategoryIcon = cat.icon; return (
           <button
             key={cat.id}
             onClick={() => setActiveCategory(cat.id)}
             className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium transition-all ${
               activeCategory === cat.id
                 ? 'bg-accent text-white shadow-lg shadow-accent/25'
-                : 'glass-card text-foreground/60 hover:text-foreground hover:border-foreground/15'
+                : 'border border-foreground/10 bg-foreground/[0.04] text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground'
             }`}
           >
-            <span className="text-sm">{cat.icon}</span>
+            <CategoryIcon size={15} weight={activeCategory === cat.id ? 'fill' : 'regular'} />
             {cat.label}
           </button>
-        ))}
+        )})}
       </div>
 
       {/* ─── Featured Banner ─────────────────────────────── */}
       <div>
         <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
           <span className="w-1 h-4 rounded-full bg-accent" />
-          Empfohlen
+          {t('apps.appStore.featured')}
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {featuredApps.map(app => (
+          {featuredApps.map(app => { const FeaturedIcon = app.icon; return (
             <div
               key={app.id}
-              className={`relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br ${app.color} border border-foreground/5 hover:border-accent/30 transition-all cursor-pointer group`}
+              className={`group relative cursor-pointer overflow-hidden rounded-2xl border border-foreground/8 bg-gradient-to-br p-5 ${app.color} shadow-lg transition-all hover:-translate-y-0.5 hover:border-accent/30`}
               style={{ backdropFilter: 'blur(20px)' }}
             >
-              <div className="text-3xl mb-3">{app.icon}</div>
+              <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-background/75 shadow-lg"><FeaturedIcon size={27} weight="duotone" className="text-accent" /></div>
               <h4 className="text-sm font-bold text-foreground">{app.name}</h4>
               <p className="text-[10px] text-foreground/50 mt-0.5">{app.dev}</p>
               <div className="flex items-center gap-1 mt-3">
-                <span className="text-[10px] text-amber-400">★</span>
+                <Star size={12} weight="fill" className="text-amber-400" />
                 <span className="text-[10px] font-medium text-foreground/70">{app.rating}</span>
               </div>
               {/* Glass shimmer on hover */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
-          ))}
+          )})}
         </div>
       </div>
 
@@ -908,44 +917,44 @@ function AppStoreView({
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
             <span className="w-1 h-4 rounded-full bg-accent" />
-            Beliebt
+            {t('apps.appStore.popular')}
           </h3>
           <button className="text-[10px] font-medium text-accent hover:text-accent/80 transition-colors">
-            Alle anzeigen →
+            <span className="inline-flex items-center gap-1">{t('apps.appStore.showAll')}<ArrowRight size={12} /></span>
           </button>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-          {popularApps.map(app => (
+          {popularApps.map(app => { const PopularIcon = app.icon; return (
             <div
               key={app.id}
-              className="glass-card rounded-2xl p-4 hover:scale-[1.02] transition-all cursor-pointer group text-center"
+              className="group cursor-pointer rounded-2xl border border-foreground/8 bg-foreground/[0.035] p-4 text-center transition-all hover:-translate-y-0.5 hover:bg-foreground/[0.07]"
             >
               <div className="text-3xl mb-2.5 mx-auto w-14 h-14 rounded-2xl bg-foreground/[0.04] flex items-center justify-center group-hover:bg-foreground/[0.08] transition-colors">
-                {app.icon}
+                <PopularIcon size={25} weight="duotone" className="text-accent" />
               </div>
               <h4 className="text-xs font-semibold text-foreground truncate">{app.name}</h4>
               <p className="text-[10px] text-foreground/40 mt-0.5">{app.dev}</p>
               <div className="flex items-center justify-center gap-2 mt-2">
-                <span className="text-[10px] text-amber-400">★ {app.rating}</span>
+                <span className="flex items-center gap-1 text-[10px] text-amber-400"><Star size={10} weight="fill" />{app.rating}</span>
                 <span className="text-[9px] text-foreground/25">{app.downloads}</span>
               </div>
             </div>
-          ))}
+          )})}
         </div>
       </div>
 
       {/* ─── Coming Soon Banner ──────────────────────────── */}
-      <div className="glass-card rounded-2xl p-5 flex items-center gap-4">
+      <div className="flex items-center gap-4 rounded-2xl border border-foreground/8 bg-foreground/[0.035] p-5">
         <div className="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center shrink-0">
           <Cube size={24} className="text-accent" weight="fill" />
         </div>
         <div className="flex-1">
-          <h4 className="text-xs font-semibold text-foreground">Vollständiger App Store kommt bald</h4>
+          <h4 className="text-xs font-semibold text-foreground">{t('apps.appStore.comingTitle')}</h4>
           <p className="text-[10px] text-foreground/40 mt-0.5">
-            Integration mit appstore.kaimdt.com – tausende Apps, Widgets & Plugins direkt installierbar.
+            {t('apps.appStore.comingDescription')}
           </p>
         </div>
-        <span className="text-[10px] px-2 py-1 rounded-full bg-accent/10 text-accent font-medium">Coming Soon</span>
+        <span className="rounded-full bg-accent/10 px-2 py-1 text-[10px] font-medium text-accent">{t('apps.appStore.comingSoon')}</span>
       </div>
     </div>
   )

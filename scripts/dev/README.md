@@ -49,6 +49,9 @@ npm run dev:start
 # Start with hot reload enabled
 npm run dev:watch
 
+# Validate paths, tools, service discovery, and PostgreSQL first
+npm run dev:doctor
+
 # List available services
 npm run dev:list
 ```
@@ -156,7 +159,18 @@ node start-full.mjs --port=3002   # Custom backend port
 **Auto-discovery:**
 - Scans `iora-os/backend/services/` for Rust services
 - Detects `frontend/package.json` for Vite
-- Identifies other services automatically
+- Lists system apps and development-image services without automatically starting them
+
+**Reliable local lifecycle:**
+- Uses the monorepo root and the nested Cargo workspace instead of the legacy backend path
+- Starts the existing PostgreSQL Compose service when port 5432 is unavailable
+- Supplies service-specific development ports and initialized database URLs
+- Keeps a service in `START` until its TCP port is reachable and reports `WAIT` when a running process loses health
+- Stops the complete Cargo process group so restarts do not leave orphaned binaries behind
+- Uses native per-directory watchers on Linux, macOS, and Windows; Vite remains responsible for frontend HMR
+- Debounces Rust changes before rebuilding and restarting only the affected running service
+
+`start all` starts the frontend and long-running services. Desktop, system-app, dev-bridge, and NGINX processes remain available for explicit starts but are not included automatically because they require a graphical session, an OS-dev image, or privileged host integration.
 
 **Features:**
 - ✨ TUI with mouse support

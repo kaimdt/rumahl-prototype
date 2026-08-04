@@ -24,17 +24,31 @@
 //   t           Open terminal in service directory
 //   B           Build all backend   q  Quit
 
-import { spawn, execSync } from "node:child_process";
+import { spawn, execFileSync, execSync } from "node:child_process";
 import { watch, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { platform } from "node:os";
+import { Socket } from "node:net";
+import { pathToFileURL } from "node:url";
 
 // ── Constants ───────────────────────────────────────────────────────
 
 const IS_WIN = platform() === "win32";
-const ROOT = resolve(import.meta.dirname, "..");
-const BACKEND = join(ROOT, "backend");
-const LOG_DIR = join(ROOT, "dev", ".logs");
+export const ROOT = resolve(import.meta.dirname, "../..");
+export const BACKEND = join(ROOT, "iora-os", "backend");
+const FRONTEND = join(ROOT, "frontend");
+const LOG_DIR = join(import.meta.dirname, ".logs");
+const COMPOSE_FILE = join(ROOT, "deploy", "docker-compose.yml");
+
+const SERVICE_PORTS = {
+  "iora-home": 3001, "iora-core": 8090, "iora-control": 8091,
+  "iora-assist": 8092, "iora-secrets": 8093, "iora-watchdog": 8094,
+  "iora-security": 8095, "iora-gateway": 8096, "iora-supervisor": 8097,
+  "iora-appstore": 8098, "iora-intelligence": 8099, "iora-files": 8100,
+  "iora-api": 8101, "iora-connector": 8102, "iora-network-monitor": 8103,
+  "iora-domain-validator": 8104, "iora-resource-manager": 8105,
+  "iora-updater": 8106, "iora-backup": 8107, "iora-nginx": 8108,
+};
 
 if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
 
@@ -91,70 +105,76 @@ function hline(w, ch = "─") { return w > 0 ? ch.repeat(w) : ""; }
 
 // ── Auto-Discovery ──────────────────────────────────────────────────
 
-function discoverServices() {
+export function discoverServices(root = ROOT, backend = BACKEND) {
   const services = [];
 
-  // 1. Frontend (Vite) — root package.json with "dev" script
-  if (existsSync(join(ROOT, "package.json"))) {
+  // 1. Frontend (Vite)
+  const frontendDir = join(root, "frontend");
+  if (existsSync(join(frontendDir, "package.json"))) {
     try {
-      const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+      const pkg = JSON.parse(readFileSync(join(frontendDir, "package.json"), "utf8"));
       if (pkg.scripts?.dev) {
         services.push({
           id: "frontend",
           name: "Frontend (Vite)",
           port: extractPortFromScript(pkg.scripts.dev) || 5173,
-          cwd: ROOT,
-          cmd: IS_WIN ? "npx.cmd" : "npx",
-          args: ["vite", "--host"],
+          cwd: frontendDir,
+          cmd: IS_WIN ? "npm.cmd" : "npm",
+          args: ["run", "dev", "--", "--host"],
           group: "frontend",
           type: "node",
+          srcDir: join(frontendDir, "src"),
+          autostart: true,
         });
       }
     } catch {}
   }
 
   // 2. Desktop frontend (Tauri v2)
-  const desktopPkg = join(ROOT, "desktop", "package.json");
+  const desktopPkg = join(root, "desktop", "package.json");
   if (existsSync(desktopPkg)) {
     try {
       const pkg = JSON.parse(readFileSync(desktopPkg, "utf8"));
-      const hasTauri = existsSync(join(ROOT, "desktop", "src-tauri", "tauri.conf.json"));
+      const hasTauri = existsSync(join(root, "desktop", "src-tauri", "tauri.conf.json"));
       if (hasTauri && (pkg.scripts?.tauri || pkg.devDependencies?.["@tauri-apps/cli"])) {
         services.push({
           id: "desktop",
           name: "Desktop (Tauri v2)",
           port: extractPortFromScript(pkg.scripts?.dev) || 1420,
-          cwd: join(ROOT, "desktop"),
+          cwd: join(root, "desktop"),
           cmd: IS_WIN ? "npx.cmd" : "npx",
           args: ["tauri", "dev"],
           group: "frontend",
           type: "tauri",
-          srcDir: join(ROOT, "desktop", "src"),
+          srcDir: join(root, "desktop", "src"),
+          autostart: false,
         });
       } else if (pkg.scripts?.dev) {
         services.push({
           id: "desktop",
           name: "Desktop (Vite)",
           port: extractPortFromScript(pkg.scripts.dev) || 1420,
-          cwd: join(ROOT, "desktop"),
+          cwd: join(root, "desktop"),
           cmd: IS_WIN ? "npx.cmd" : "npx",
           args: ["vite", "--port", "1420", "--host"],
           group: "frontend",
           type: "node",
+          autostart: false,
         });
       }
     } catch {}
   }
 
-  // 3. Rust backend crates — scan backend/iora-*/Cargo.toml
-  if (existsSync(BACKEND)) {
-    const entries = readdirSync(BACKEND, { withFileTypes: true });
+  // 3. Long-running Rust crates are grouped below services/, apps/system/, and dev/.
+  const crateRoots = [join(backend, "services"), join(backend, "apps", "system"), join(backend, "dev")];
+  for (const crateRoot of crateRoots) {
+    if (!existsSync(crateRoot)) continue;
+    const entries = readdirSync(crateRoot, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      if (entry.name === "target" || entry.name === "src" || entry.name === "data" || entry.name === "migrations") continue;
-
-      const cargoPath = join(BACKEND, entry.name, "Cargo.toml");
-      const mainPath = join(BACKEND, entry.name, "src", "main.rs");
+      const crateDir = join(crateRoot, entry.name);
+      const cargoPath = join(crateDir, "Cargo.toml");
+      const mainPath = join(crateDir, "src", "main.rs");
       if (!existsSync(cargoPath)) continue;
       if (!existsSync(mainPath)) continue;
 
@@ -165,7 +185,7 @@ function discoverServices() {
         const pkgName = nameMatch ? nameMatch[1] : entry.name;
 
         const mainSrc = readFileSync(mainPath, "utf8");
-        const port = detectPort(mainSrc, pkgName);
+        const port = SERVICE_PORTS[pkgName] || detectPort(mainSrc, pkgName);
 
         if (port === 0 && !mainSrc.includes("listener") && !mainSrc.includes("axum::serve") && !mainSrc.includes("bind")) continue;
 
@@ -176,12 +196,14 @@ function discoverServices() {
           id: pkgName,
           name: formatCrateName(pkgName),
           port,
-          cwd: BACKEND,
+          cwd: backend,
           cmd: "cargo",
           args: ["run", "-p", pkgName],
           group,
           type: "rust",
-          srcDir: join(BACKEND, entry.name, "src"),
+          srcDir: join(crateDir, "src"),
+          manifestPath: cargoPath,
+          autostart: crateRoot === join(backend, "services") && pkgName !== "iora-nginx",
         });
       } catch {}
     }
@@ -249,6 +271,7 @@ let cursor = 0;
 let hotReload = false;
 let watchers = [];
 let shuttingDown = false;
+let cliMode = false;
 
 // View stack: "main" | "logs" | "info"
 let viewMode = "main";
@@ -266,10 +289,87 @@ for (const svc of SERVICES) {
     logs: [],
     startTime: null,
     restartCount: 0,
+    expectedStop: false,
+    healthTimer: null,
   });
 }
 
 // ── Process Management ──────────────────────────────────────────────
+
+export function databaseUrlFor(serviceId, env = process.env) {
+  if (env.DATABASE_URL) return env.DATABASE_URL;
+  const specificKey = `${serviceId.toUpperCase().replaceAll("-", "_")}_DB_URL`;
+  if (env[specificKey]) return env[specificKey];
+  const dedicatedDatabases = {
+    "iora-core": "iora_core", "iora-security": "iora_security",
+    "iora-secrets": "iora_secrets", "iora-appstore": "iora_appstore",
+  };
+  const database = dedicatedDatabases[serviceId] || "iora_home";
+  const user = env.POSTGRES_USER || "iora";
+  const password = env.POSTGRES_PASSWORD || "changeme";
+  const port = env.POSTGRES_PORT || "5432";
+  return `postgres://${user}:${password}@127.0.0.1:${port}/${database}`;
+}
+
+function serviceEnv(svc) {
+  const env = { ...process.env, FORCE_COLOR: "1", RUST_LOG: process.env.RUST_LOG || "info" };
+  if (svc.type !== "rust") return env;
+  env.DATABASE_URL = databaseUrlFor(svc.id, env);
+  if (svc.port) env.PORT ||= String(svc.port);
+  env.POSTGRES_ADMIN_URL ||= databaseUrlFor("postgres", { ...env, DATABASE_URL: "" }).replace(/\/iora_postgres$/, "/postgres");
+  env.IORA_FRONTEND_DEV_URL ||= `http://localhost:${process.env.VITE_PORT || 5173}`;
+  env.IORA_DEV_MODE ||= "true";
+  return env;
+}
+
+function probePort(port, timeoutMs = 500) {
+  if (!port) return Promise.resolve(false);
+  return new Promise((resolveProbe) => {
+    const socket = new Socket();
+    const finish = (result) => { socket.destroy(); resolveProbe(result); };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.connect(port, "127.0.0.1");
+  });
+}
+
+async function ensureDevDependencies() {
+  const postgresPort = Number(process.env.POSTGRES_PORT || 5432);
+  if (await probePort(postgresPort, 700)) return true;
+  if (!existsSync(COMPOSE_FILE)) return false;
+  try {
+    console.log(`${A.yellow}PostgreSQL is not reachable; starting the existing development container...${A.reset}`);
+    execFileSync("docker", ["compose", "-f", COMPOSE_FILE, "up", "-d", "postgres"], { cwd: ROOT, stdio: "inherit" });
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (await probePort(postgresPort, 700)) return true;
+      await delay(1000);
+    }
+  } catch (error) {
+    console.error(`${A.red}Could not start PostgreSQL:${A.reset} ${error.message}`);
+    console.error(`${A.yellow}Start PostgreSQL manually or set DATABASE_URL before starting database-backed services.${A.reset}`);
+  }
+  return false;
+}
+
+function monitorServiceHealth(svc, st) {
+  if (st.healthTimer) clearInterval(st.healthTimer);
+  if (!svc.port) return;
+  let failedChecks = 0;
+  st.healthTimer = setInterval(async () => {
+    if (!st.proc || shuttingDown) return;
+    const healthy = await probePort(svc.port);
+    if (healthy) {
+      failedChecks = 0;
+      if (st.status === "starting" || st.status === "unhealthy") st.status = "running";
+    } else if (st.status === "running" && ++failedChecks >= 3) {
+      st.status = "unhealthy";
+      st.logs.push(`${ts()} [health] Port ${svc.port} stopped responding`);
+    }
+    draw();
+  }, 2000);
+}
 
 function startService(id) {
   const svc = SERVICES.find(s => s.id === id);
@@ -280,14 +380,16 @@ function startService(id) {
   st.status = "starting";
   st.logs = [];
   st.startTime = Date.now();
+  st.expectedStop = false;
 
   let proc;
   try {
     proc = spawn(svc.cmd, svc.args, {
       cwd: svc.cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, FORCE_COLOR: "1", RUST_LOG: process.env.RUST_LOG || "info" },
+      env: serviceEnv(svc),
       shell: IS_WIN,
+      detached: !IS_WIN,
       windowsHide: true,
     });
   } catch (err) {
@@ -299,12 +401,14 @@ function startService(id) {
 
   st.proc = proc;
   st.pid = proc.pid;
+  monitorServiceHealth(svc, st);
 
   const appendLog = (data) => {
     const lines = data.toString().split("\n");
     for (const line of lines) {
       if (line.trim() === "") continue;
       st.logs.push(`${ts()} ${line}`);
+      if (cliMode) console.log(`${A.dim}${ts()}${A.reset} ${A.cyan}[${svc.id}]${A.reset} ${line}`);
       if (st.logs.length > 500) st.logs.shift();
     }
     const text = data.toString().toLowerCase();
@@ -328,7 +432,9 @@ function startService(id) {
   });
 
   proc.on("exit", (code, signal) => {
-    if (code === 0 || code === null) {
+    if (st.healthTimer) clearInterval(st.healthTimer);
+    st.healthTimer = null;
+    if (st.expectedStop || code === 0 || code === null) {
       st.status = "stopped";
     } else {
       const recentLogs = st.logs.slice(-20).join("\n").toLowerCase();
@@ -341,13 +447,6 @@ function startService(id) {
     if (!shuttingDown) draw();
   });
 
-  setTimeout(() => {
-    if (st.status === "starting") {
-      st.status = "running";
-      if (!shuttingDown) draw();
-    }
-  }, 10000);
-
   draw();
 }
 
@@ -356,6 +455,7 @@ function stopService(id) {
   if (!st || !st.proc) return;
 
   const proc = st.proc;
+  st.expectedStop = true;
   st.status = "stopped";
   st.proc = null;
   const pid = st.pid;
@@ -365,7 +465,8 @@ function stopService(id) {
     if (IS_WIN && pid) {
       spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, shell: false });
     } else {
-      proc.kill("SIGTERM");
+      if (pid) process.kill(-pid, "SIGTERM");
+      else proc.kill("SIGTERM");
     }
   } catch {}
 
@@ -380,10 +481,17 @@ async function restartService(id) {
   startService(id);
 }
 
-function startAll() {
+async function startAll() {
+  const dependenciesReady = await ensureDevDependencies();
   let i = 0;
-  for (const svc of SERVICES) {
+  for (const svc of SERVICES.filter(service => service.autostart !== false)) {
     const st = state.get(svc.id);
+    if (svc.type === "rust" && !dependenciesReady) {
+      st.status = "error";
+      st.logs.push(`${ts()} [dependency] PostgreSQL is unavailable; service was not started`);
+      if (cliMode) console.error(`${A.yellow}[${svc.id}] skipped: PostgreSQL is unavailable${A.reset}`);
+      continue;
+    }
     if (!st.proc) {
       setTimeout(() => startService(svc.id), i * 500);
       i++;
@@ -398,7 +506,7 @@ function stopAll() {
 async function restartAll() {
   stopAll();
   await delay(2000);
-  startAll();
+  await startAll();
 }
 
 // ── Hot Reload ──────────────────────────────────────────────────────
@@ -411,35 +519,41 @@ function enableHotReload() {
     const srcDir = svc.srcDir || (svc.type === "node" ? join(svc.cwd, "src") : null);
     if (!srcDir || !existsSync(srcDir)) continue;
 
-    const extensions = svc.type === "rust" ? [".rs"] : [".ts", ".tsx", ".css"];
+    // Vite already owns frontend HMR. A second watcher only creates duplicate work.
+    if ((svc.type === "node" || svc.type === "tauri") && svc.group === "frontend") {
+      const st = state.get(svc.id);
+      if (st) st.logs.push(`${ts()} [hot-reload] Vite HMR active`);
+      continue;
+    }
+
+    const extensions = svc.type === "rust" ? [".rs", ".toml"] : [".ts", ".tsx", ".css", ".json"];
     let debounce = null;
-
-    try {
-      const watcher = watch(srcDir, { recursive: true }, (_ev, filename) => {
-        if (!filename || !extensions.some(ext => filename.endsWith(ext))) return;
-
-        // Frontend (Vite) services handle .ts/.tsx/.css via HMR – only log changes, don't restart
-        if ((svc.type === "node" || svc.type === "tauri") && svc.group === "frontend") {
-          const st = state.get(svc.id);
-          if (st) {
-            st.logs.push(`${ts()} [hmr] ${filename} changed — Vite HMR`);
-            if (sel === svc.id) draw();
-          }
-          // Restart only for config changes (vite.config, tailwind.config, postcss, package.json, tsconfig)
-          const base = filename.split(/[\\/]/).pop() || "";
-          const configFiles = ["vite.config.ts", "tailwind.config.js", "postcss.config.js", "package.json", "tsconfig.json"];
-          if (!configFiles.includes(base)) return;
-          // Fall through to restart for config file changes
+    const watchedPaths = new Set([srcDir, dirname(svc.manifestPath || srcDir)]);
+    const directories = [];
+    for (const watchedPath of watchedPaths) {
+      if (!existsSync(watchedPath)) continue;
+      const pending = [watchedPath];
+      while (pending.length) {
+        const directory = pending.pop();
+        directories.push(directory);
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          if (entry.isDirectory() && !["target", "node_modules", ".git"].includes(entry.name)) pending.push(join(directory, entry.name));
         }
+      }
+    }
+
+    for (const directory of new Set(directories)) try {
+      const watcher = watch(directory, (_ev, filename) => {
+        if (!filename || !extensions.some(ext => filename.endsWith(ext))) return;
 
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(() => {
           const st = state.get(svc.id);
           if (st?.proc) {
-            st.logs.push(`${ts()} [hot-reload] ${filename} changed — restarting`);
-            restartService(svc.id);
+            st.logs.push(`${ts()} [hot-reload] ${join(directory, filename)} changed — rebuilding`);
+            void restartService(svc.id);
           }
-        }, 1000);
+        }, 650);
       });
       watchers.push(watcher);
     } catch {}
@@ -580,6 +694,7 @@ function fmtStatus(status) {
   switch (status) {
     case "running":  return `${A.bgGreen}${A.white}${A.bold} RUN ${A.reset}`;
     case "starting": return `${A.bgYellow}${A.white}${A.bold} START ${A.reset}`;
+    case "unhealthy":return `${A.bgYellow}${A.white}${A.bold} WAIT ${A.reset}`;
     case "error":    return `${A.bgRed}${A.white}${A.bold} ERR ${A.reset}`;
     case "stopped":  return `${A.dim} STOP ${A.reset}`;
     default:         return `${A.dim} ??? ${A.reset}`;
@@ -588,7 +703,7 @@ function fmtStatus(status) {
 
 function fmtStatusPlain(status) {
   switch (status) {
-    case "running": return "RUN"; case "starting": return "START";
+    case "running": return "RUN"; case "starting": return "START"; case "unhealthy": return "WAIT";
     case "error": return "ERR"; case "stopped": return "STOP"; default: return "???";
   }
 }
@@ -656,7 +771,7 @@ function buildAll() {
 
 /** Central draw dispatcher — call this whenever state changes */
 function draw() {
-  if (shuttingDown) return;
+  if (shuttingDown || cliMode) return;
   switch (viewMode) {
     case "main":  drawMain();  break;
     case "logs":  drawLogs();  break;
@@ -1115,7 +1230,7 @@ async function handleKey(key) {
 
   switch (key) {
     case "q": shutdown(); return;
-    case "a": startAll(); return;
+    case "a": await startAll(); return;
     case "s": stopAll(); draw(); return;
     case "r": await restartService(SERVICES[cursor].id); return;
     case "R": await restartAll(); return;
@@ -1245,9 +1360,11 @@ function clickToServiceIndex(y) {
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  disableMouse();
-  showCursor();
-  disableAltScreen();
+  if (!cliMode) {
+    disableMouse();
+    showCursor();
+    disableAltScreen();
+  }
   write(`\n${A.yellow}Stopping all services...${A.reset}\n`);
   disableHotReload();
   stopAll();
@@ -1258,7 +1375,7 @@ function shutdown() {
 }
 
 process.on("exit", () => {
-  try { disableMouse(); showCursor(); disableAltScreen(); } catch {}
+  if (process.stdout.isTTY && !cliMode) try { disableMouse(); showCursor(); disableAltScreen(); } catch {}
 });
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
@@ -1286,6 +1403,28 @@ function parseCLI() {
   return { cmd: args[0], target: args[1] || "all", flags: args.slice(2) };
 }
 
+async function runDoctor() {
+  const checks = [
+    ["Repository", existsSync(join(ROOT, "AGENTS.md")), ROOT],
+    ["Frontend", existsSync(join(FRONTEND, "package.json")), FRONTEND],
+    ["Rust workspace", existsSync(join(BACKEND, "Cargo.toml")), BACKEND],
+  ];
+  for (const [label, ok, detail] of checks) console.log(`${ok ? A.green : A.red}${ok ? "PASS" : "FAIL"}${A.reset} ${label}: ${detail}`);
+  for (const command of ["node", "npm", "cargo", "docker"]) {
+    try {
+      const version = execSync(`${command} --version`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      console.log(`${A.green}PASS${A.reset} ${command}: ${version}`);
+    } catch {
+      console.log(`${command === "docker" ? A.yellow : A.red}${command === "docker" ? "WARN" : "FAIL"}${A.reset} ${command}: not available`);
+    }
+  }
+  const postgresPort = Number(process.env.POSTGRES_PORT || 5432);
+  const postgresReady = await probePort(postgresPort, 700);
+  console.log(`${postgresReady ? A.green : A.yellow}${postgresReady ? "PASS" : "WARN"}${A.reset} PostgreSQL: ${postgresReady ? "ready" : "not reachable"} on 127.0.0.1:${postgresPort}`);
+  console.log(`${A.cyan}INFO${A.reset} Discovered ${SERVICES.length} runnable services.`);
+  return checks.every(([, ok]) => ok);
+}
+
 // ── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1298,17 +1437,25 @@ async function main() {
   const cli = parseCLI();
 
   if (cli) {
+    cliMode = true;
     switch (cli.cmd) {
       case "start":
         if (cli.target === "all") {
-          startAll();
+          await startAll();
         } else {
           const svc = SERVICES.find(s =>
             s.id === cli.target ||
             s.id === `iora-${cli.target}` ||
             s.name.toLowerCase().includes(cli.target.toLowerCase())
           );
-          if (svc) startService(svc.id);
+          if (svc) {
+            if (svc.type === "rust" && !await ensureDevDependencies()) {
+              console.error(`PostgreSQL is unavailable; ${svc.id} was not started.`);
+              process.exitCode = 1;
+              return;
+            }
+            startService(svc.id);
+          }
           else { console.error(`Unknown service: ${cli.target}`); process.exit(1); }
         }
         if (process.argv.includes("--watch")) enableHotReload();
@@ -1318,9 +1465,12 @@ async function main() {
         buildAll();
         return;
       case "list":
-        process.exit(0);
+        return;
+      case "doctor":
+        process.exitCode = await runDoctor() ? 0 : 1;
+        return;
       default:
-        console.log(`Usage: node dev/iora-dev.mjs [start|build|list] [service|all] [--watch]`);
+        console.log(`Usage: node scripts/dev/iora-dev.mjs [start|build|list|doctor] [service|all] [--watch]`);
         process.exit(0);
     }
   }
@@ -1339,4 +1489,8 @@ async function main() {
   }, 2000);
 }
 
-main().catch(console.error);
+const entryPoint = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (import.meta.url === entryPoint) main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

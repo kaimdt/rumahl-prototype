@@ -13,6 +13,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'motion/react'
+import { buildLauncherItems, LauncherAppGrid, type LauncherFolder } from '@/components/LauncherAppGrid'
 import { useAuth } from '@/contexts/AuthContext'
 import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
@@ -34,6 +35,7 @@ interface LauncherManifest {
 const LAUNCHER_KEY = 'iora-os-launcher'
 const CUSTOM_LAUNCHERS_KEY = 'iora-os-custom-launchers'
 const LAUNCHER_WIDGETS_KEY = 'iora-os-launcher-widgets'
+const LAUNCHER_FOLDERS_KEY = 'iora-os-launcher-folders'
 
 function useClock() {
   const [now, setNow] = useState(() => new Date())
@@ -69,6 +71,8 @@ export function OsHomeScreen() {
   const [customLaunchers, setCustomLaunchers] = useLocalStorage<LauncherManifest[]>(CUSTOM_LAUNCHERS_KEY, [])
   const [launcherId, setLauncherId] = useLocalStorage<string>(LAUNCHER_KEY, localStorage.getItem(LAUNCHER_KEY)?.replace(/^"|"$/g, '') || 'default')
   const [widgetIds, setWidgetIds] = useLocalStorage<string[]>(LAUNCHER_WIDGETS_KEY, ['home', 'clock'])
+  const [folders, setFolders] = useLocalStorage<LauncherFolder[]>(LAUNCHER_FOLDERS_KEY, [])
+  const [editMode, setEditMode] = useState(false)
   const [storeLaunchers, setStoreLaunchers] = useState<StoreLauncherPackage[]>([])
   const [storeWidgets, setStoreWidgets] = useState<StoreWidgetPackage[]>([])
   const [storeReachable, setStoreReachable] = useState<boolean | null>(null)
@@ -94,12 +98,13 @@ export function OsHomeScreen() {
   }, [apps, query, t])
 
   const homeApp = apps.find((app) => app.id === 'iora-home')
+  const launcherItems = useMemo(() => buildLauncherItems(visibleApps, query ? [] : folders), [folders, query, visibleApps])
   const pageSize = 12
   const appPages = useMemo(() => {
-    const result: OsAppDefinition[][] = []
-    for (let index = 0; index < visibleApps.length; index += pageSize) result.push(visibleApps.slice(index, index + pageSize))
+    const result: ReturnType<typeof buildLauncherItems>[] = []
+    for (let index = 0; index < launcherItems.length; index += pageSize) result.push(launcherItems.slice(index, index + pageSize))
     return result.length ? result : [[]]
-  }, [visibleApps])
+  }, [launcherItems])
   const activePage = Math.min(page, appPages.length - 1)
 
   useEffect(() => setPage(0), [query, launcherId])
@@ -112,6 +117,8 @@ export function OsHomeScreen() {
         if (Array.isArray(syncedLaunchers)) setCustomLaunchers(syncedLaunchers)
         const syncedWidgets = JSON.parse(localStorage.getItem(LAUNCHER_WIDGETS_KEY) || '[]')
         if (Array.isArray(syncedWidgets)) setWidgetIds(syncedWidgets)
+        const syncedFolders = JSON.parse(localStorage.getItem(LAUNCHER_FOLDERS_KEY) || '[]')
+        if (Array.isArray(syncedFolders)) setFolders(syncedFolders)
       } catch {
         // Keep the last valid local launcher configuration.
       }
@@ -126,7 +133,7 @@ export function OsHomeScreen() {
       window.removeEventListener('focus', refresh)
       window.clearInterval(timer)
     }
-  }, [setCustomLaunchers, setLauncherId, setWidgetIds])
+  }, [setCustomLaunchers, setFolders, setLauncherId, setWidgetIds])
   useEffect(() => {
     let cancelled = false
     const refreshPackages = () => {
@@ -196,24 +203,7 @@ export function OsHomeScreen() {
     },
   }
 
-  const appGrid = (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={`${launcherId}-${activePage}-${query}`}
-        initial={{ opacity: 0, x: 24 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -24 }}
-        className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6"
-      >
-        {appPages[activePage].map((app) => (
-          <button key={app.id} type="button" onClick={() => openApp(app)} className="group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring">
-            <AppIcon app={app} size="large" />
-            <span className="mt-2.5 w-full truncate text-xs font-medium text-foreground/90 sm:text-sm">{getName(app)}</span>
-          </button>
-        ))}
-      </motion.div>
-    </AnimatePresence>
-  )
+  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onOpenApp={openApp} getAppName={getName} />
 
   return (
     <section

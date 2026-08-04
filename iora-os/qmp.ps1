@@ -26,13 +26,18 @@ param(
     [string]$Arg1 = "",
     [Parameter(Position = 2)]
     [string]$Arg2 = "",
-    [int]$QmpPort = 8130
+    [int]$QmpPort = 0
 )
 
 $ErrorActionPreference = "Stop"
 
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $CACHE = Join-Path $SCRIPT_DIR ".cache"
+$statePath = Join-Path $CACHE "runtime-state.json"
+if ($QmpPort -eq 0 -and (Test-Path $statePath)) {
+    try { $QmpPort = [int](Get-Content $statePath -Raw | ConvertFrom-Json).qmpPort } catch { }
+}
+if ($QmpPort -eq 0) { $QmpPort = 8130 }
 
 # -- Low-level: QMP command with capabilities handshake ---------------------
 function Invoke-QmpJson {

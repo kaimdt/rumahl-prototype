@@ -14,6 +14,7 @@
 # Usage:
 #   ./dev-sync.sh --once           Full mirror now, then exit
 #   ./dev-sync.sh --watch          Full mirror + keep watching (default)
+#   ./dev-sync.sh --vm-host HOST   Explicit VM host from runtime-state.json
 #   ./dev-sync.sh --vm-port 2222   SSH port (default 2222)
 #   ./dev-sync.sh --ssh-key PATH   SSH key (default: ./.cache/iora-dev-key)
 #   ./dev-sync.sh --with-binaries  Also mirror .iora-dev/binaries (build mode)
@@ -45,6 +46,7 @@ die()  { err "$*"; exit 1; }
 WATCH=false
 ONCE=false
 VM_PORT=2222
+VM_HOST=""
 SSH_KEY=""
 WITH_BINARIES=false
 NO_DELETE=false
@@ -57,6 +59,7 @@ while [ $# -gt 0 ]; do
         --watch)          WATCH=true; shift ;;
         --once)           ONCE=true; shift ;;
         --vm-port)        VM_PORT="$2"; shift 2 ;;
+        --vm-host)        VM_HOST="$2"; shift 2 ;;
         --ssh-key)        SSH_KEY="$2"; shift 2 ;;
         --with-binaries)  WITH_BINARIES=true; shift ;;
         --no-delete)      NO_DELETE=true; shift ;;
@@ -113,8 +116,8 @@ SSH_OPTS=(
 #    127.0.0.1 (that only works in mirrored mode). Probe localhost first, then
 #    derive the Windows host from the default-route gateway (/proc/net/route,
 #    little-endian hex) so the sync works in both WSL network modes.
-VM_HOST="127.0.0.1"
-if ! ssh "${SSH_OPTS[@]}" root@127.0.0.1 true >/dev/null 2>&1; then
+if [ -z "$VM_HOST" ]; then VM_HOST="127.0.0.1"; fi
+if [ "$VM_HOST" = "127.0.0.1" ] && ! ssh "${SSH_OPTS[@]}" root@127.0.0.1 true >/dev/null 2>&1; then
     gw_hex=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route 2>/dev/null)
     if [ -n "$gw_hex" ] && [ "${#gw_hex}" -ge 8 ]; then
         VM_HOST=$(printf "%d.%d.%d.%d" "0x${gw_hex:6:2}" "0x${gw_hex:4:2}" "0x${gw_hex:2:2}" "0x${gw_hex:0:2}")
