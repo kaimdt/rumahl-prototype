@@ -84,7 +84,11 @@ impl Manager {
             ..Default::default()
         };
         if !probe.process {
+            let watcher_status = self.state.watcher_status.clone();
+            let sync_status = self.state.sync_status.clone();
             self.state = RuntimeState::default();
+            self.state.watcher_status = watcher_status;
+            self.state.sync_status = sync_status;
             let _ = self.state.save(&self.state_path);
             return probe;
         }
@@ -226,6 +230,13 @@ impl Manager {
                 "virtio-serial-pci".into()
             },
         ];
+        if architecture == "aarch64" {
+            let firmware = find_aarch64_firmware().context(
+                "AArch64 QEMU firmware was not found; set IORA_DEV_FIRMWARE to its path",
+            )?;
+            arguments.extend(["-bios".into(), firmware.display().to_string()]);
+            self.state.firmware = Some(firmware.display().to_string());
+        }
         let seed = cache.join("iora-dev-seed.iso");
         if seed.exists() {
             arguments.extend([
@@ -305,7 +316,22 @@ impl Manager {
         if !status.success() {
             anyhow::bail!("qemu-img failed to create the Golden Snapshot")
         }
-        std::fs::rename(temporary, &golden)?;
+        let previous = golden.with_extension("qcow2.previous");
+        if golden.exists() {
+            if previous.exists() {
+                std::fs::remove_file(&previous)?;
+            }
+            std::fs::rename(&golden, &previous)?;
+        }
+        if let Err(error) = std::fs::rename(&temporary, &golden) {
+            if previous.exists() {
+                let _ = std::fs::rename(&previous, &golden);
+            }
+            return Err(error.into());
+        }
+        if previous.exists() {
+            std::fs::remove_file(previous)?;
+        }
         self.state.golden_snapshot = Some(golden);
         self.state.save(&self.state_path)
     }
@@ -359,6 +385,21 @@ impl Manager {
         let (host, _, port) = self.state.connection();
         open(&format!("http://{host}:{port}"))
     }
+}
+
+fn find_aarch64_firmware() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("IORA_DEV_FIRMWARE").map(PathBuf::from) {
+        return path.exists().then_some(path);
+    }
+    [
+        "/opt/homebrew/share/qemu/edk2-aarch64-code.fd",
+        "/usr/share/qemu-efi-aarch64/QEMU_EFI.fd",
+        "/usr/share/qemu/edk2-aarch64-code.fd",
+        "/usr/share/AAVMF/AAVMF_CODE.fd",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .find(|path| path.exists())
 }
 
 async fn tcp(host: &str, port: u16) -> bool {
@@ -415,6 +456,23 @@ pub fn read_tail(path: &Path, lines: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readiness_requires_the_live_development_watcher() {
+        let mut probe = Probe {
+            process: true,
+            qmp: true,
+            qga: true,
+            internal_home: true,
+            external_home: true,
+            systemd: "running".into(),
+            guest_ip: Some("192.0.2.10".into()),
+            ..Default::default()
+        };
+        assert_eq!(probe.lifecycle(), "Degraded");
+        probe.dev_watcher = true;
+        assert_eq!(probe.lifecycle(), "Ready");
+    }
 
     #[test]
     fn native_start_refuses_missing_disk_without_invoking_a_script() {

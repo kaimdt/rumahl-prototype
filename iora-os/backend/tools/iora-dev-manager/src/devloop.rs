@@ -204,7 +204,7 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
         channels::guest_exec(
             state.qga_port,
             &os_root.join(".cache/qga.sock"),
-            &format!("rm -f {}", shell_quote(&remote.display().to_string())),
+            &format!("rm -rf -- {}", shell_quote(&remote.display().to_string())),
         )
         .await?;
     }

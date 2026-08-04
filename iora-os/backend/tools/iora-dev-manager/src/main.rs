@@ -124,7 +124,8 @@ impl App {
                     self.message = detail;
                 }
                 DevEvent::Error(error) => {
-                    self.manager.state.watcher_status = "Degraded".into();
+                    self.manager.state.watcher_status = "Running".into();
+                    self.manager.state.sync_status = "Degraded".into();
                     self.message = error;
                 }
             }
