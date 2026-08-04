@@ -1,6 +1,6 @@
 use crate::{
     channels,
-    state::{NetworkMode, RuntimeState},
+    state::{NetworkMode, PortMapping, RuntimeState},
 };
 use anyhow::{Context, Result};
 use std::{
@@ -12,7 +12,7 @@ use tokio::{
     time::{timeout, Duration},
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Probe {
     pub process: bool,
     pub qmp: bool,
@@ -53,16 +53,12 @@ pub struct Manager {
 
 impl Manager {
     pub fn discover(explicit: Option<PathBuf>) -> Result<Self> {
-        let root = explicit
+        let start = explicit
             .or_else(|| std::env::var_os("IORA_OS_ROOT").map(PathBuf::from))
             .unwrap_or(std::env::current_dir()?);
-        let root = if root.join("dev-local.sh").exists() || root.join("dev-local.ps1").exists() {
-            root
-        } else if root.join("iora-os/dev-local.sh").exists() {
-            root.join("iora-os")
-        } else {
-            anyhow::bail!("run from the repository root/iora-os or set IORA_OS_ROOT")
-        };
+        let root = find_iora_root(&start).context(
+            "no iora-os root found; run from the repository root/iora-os or set IORA_OS_ROOT",
+        )?;
         let state_path = root.join(".cache/runtime-state.json");
         let mut state = RuntimeState::load(&state_path);
         if state.pid.is_none() {
@@ -120,26 +116,43 @@ impl Manager {
                 }
             }
             probe.internal_home = self
-                .guest("curl -fsS --max-time 3 http://127.0.0.1:8126/api/health >/dev/null")
+                .guest("curl -fsS --max-time 3 http://127.0.0.1:8126/health >/dev/null || curl -fsS --max-time 3 http://127.0.0.1:8126/api/health >/dev/null")
                 .await
                 .is_ok();
         }
         let (host, ssh, home) = self.state.connection();
         probe.ssh = tcp(host, ssh).await;
-        probe.external_home = reqwest::Client::new()
-            .get(format!("http://{host}:{home}/api/health"))
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await
-            .is_ok_and(|response| response.status().is_success());
+        let client = reqwest::Client::new();
+        let mut external_home = false;
+        for path in ["/health", "/api/health"] {
+            if client
+                .get(format!("http://{host}:{home}{path}"))
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await
+                .is_ok_and(|response| response.status().is_success())
+            {
+                external_home = true;
+                break;
+            }
+        }
+        probe.external_home = external_home;
         self.state.lifecycle = probe.lifecycle().into();
         let _ = self.state.save(&self.state_path);
         probe
     }
 
-    pub fn start(&mut self, mode: NetworkMode) -> Result<()> {
+    pub fn start(&mut self, mode: NetworkMode, mappings: &[PortMapping]) -> Result<()> {
         if self.state.process_alive() {
             anyhow::bail!("VM is already running")
+        }
+        if mode == NetworkMode::Bridge {
+            let tap = std::env::var("IORA_DEV_TAP").unwrap_or_else(|_| "iora-tap0".into());
+            if !tap_available(&tap) {
+                anyhow::bail!(
+                    "bridge mode requires a pre-created TAP adapter named '{tap}' (create it with the dev-local scripts); use slirp mode instead"
+                );
+            }
         }
         let cache = self.root.join(".cache");
         std::fs::create_dir_all(&cache)?;
@@ -160,13 +173,7 @@ impl Manager {
             .append(true)
             .open(self.root.join(".cache/dev-manager.log"))?;
         let architecture = std::env::consts::ARCH;
-        let qemu = std::env::var("IORA_DEV_QEMU").unwrap_or_else(|_| {
-            if architecture == "aarch64" {
-                "qemu-system-aarch64".into()
-            } else {
-                "qemu-system-x86_64".into()
-            }
-        });
+        let qemu = resolve_qemu();
         let machine = if architecture == "aarch64" {
             "virt"
         } else {
@@ -186,10 +193,23 @@ impl Manager {
         let memory = std::env::var("IORA_DEV_RAM").unwrap_or_else(|_| "8G".into());
         let cpus = std::env::var("IORA_DEV_CPUS").unwrap_or_else(|_| "4".into());
         let network = match mode {
-            NetworkMode::Slirp => format!(
-                "user,id=n0,hostfwd=tcp::{}-:22,hostfwd=tcp::{}-:8126",
-                self.state.ssh_port, self.state.home_port
-            ),
+            NetworkMode::Slirp => {
+                // Bind every rule to loopback: Windows Firewall silently drops
+                // inbound connections on new ports, while loopback is never
+                // filtered. This also keeps the VM ports off the LAN.
+                let mut rules = vec![format!("hostfwd=tcp:127.0.0.1:{}-:22", self.state.ssh_port)];
+                for port in extra_ports() {
+                    rules.push(format!("hostfwd=tcp:127.0.0.1:{port}-:{port}"));
+                }
+                for mapping in mappings {
+                    rules.push(format!(
+                        "hostfwd=tcp:127.0.0.1:{}-:{}",
+                        mapping.host, mapping.guest
+                    ));
+                }
+                rules.push(format!("hostfwd=tcp:127.0.0.1:{}-:8126", self.state.home_port));
+                format!("user,id=n0,{}", rules.join(","))
+            }
             NetworkMode::Bridge => format!(
                 "tap,id=n0,ifname={},script=no,downscript=no",
                 std::env::var("IORA_DEV_TAP").unwrap_or_else(|_| "iora-tap0".into())
@@ -205,11 +225,7 @@ impl Manager {
             "-machine".into(),
             format!("{machine},accel={acceleration}"),
             "-cpu".into(),
-            if acceleration == "tcg" {
-                "max".into()
-            } else {
-                "host".into()
-            },
+            cpu_model(&acceleration),
             "-drive".into(),
             format!(
                 "file={},format=qcow2,if=virtio,cache=writeback",
@@ -273,6 +289,12 @@ impl Manager {
             "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0".into(),
             "-serial".into(),
             format!("file:{}", cache.join("qemu-serial.log").display()),
+            "-vnc".into(),
+            format!(
+                "127.0.0.1:{},websocket={}",
+                display_number(),
+                5700 + display_number()
+            ),
             "-display".into(),
             "none".into(),
         ]);
@@ -295,6 +317,23 @@ impl Manager {
         };
         self.state.vm_disk = Some(disk);
         self.state.acceleration = Some(acceleration);
+        self.state.vnc_port = Some(5900 + display_number());
+        self.state.vnc_ws_port = Some(5700 + display_number());
+        self.state.forwarded_ports = extra_ports()
+            .into_iter()
+            .map(|port| serde_json::json!({ "host": port, "guest": port }))
+            .chain(
+                mappings
+                    .iter()
+                    .map(|mapping| {
+                        serde_json::json!({
+                            "host": mapping.host,
+                            "guest": mapping.guest,
+                            "label": mapping.label,
+                        })
+                    }),
+            )
+            .collect();
         self.state.save(&self.state_path)?;
         std::fs::write(cache.join("qemu.pid"), child.id().to_string())?;
         Ok(())
@@ -308,7 +347,7 @@ impl Manager {
         let golden = self.root.join(".cache/iora-dev-golden.qcow2");
         let temporary = golden.with_extension("qcow2.tmp");
         let status =
-            Command::new(std::env::var("IORA_DEV_QEMU_IMG").unwrap_or_else(|_| "qemu-img".into()))
+            Command::new(resolve_qemu_img())
                 .args(["convert", "-O", "qcow2", "-c"])
                 .arg(&disk)
                 .arg(&temporary)
@@ -387,6 +426,118 @@ impl Manager {
     }
 }
 
+fn display_number() -> u16 {
+    std::env::var("IORA_DEV_VNC")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1)
+}
+
+/// Additional Slirp host ports forwarded to the same guest port.
+/// Defaults to 5173 so the Vite dev server is reachable from the host.
+pub fn extra_ports() -> Vec<u16> {
+    std::env::var("IORA_DEV_FORWARD")
+        .unwrap_or_else(|_| "5173".into())
+        .split(',')
+        .filter_map(|value| value.trim().parse().ok())
+        .collect()
+}
+
+fn find_iora_root(start: &Path) -> Option<PathBuf> {
+    let mut candidates = vec![start.to_path_buf(), start.join("iora-os")];
+    let mut current = start.parent();
+    for _ in 0..8 {
+        if let Some(parent) = current {
+            candidates.push(parent.to_path_buf());
+            candidates.push(parent.join("iora-os"));
+            current = parent.parent();
+        } else {
+            break;
+        }
+    }
+    candidates.into_iter().find(|candidate| {
+        candidate.join("dev-local.sh").exists() || candidate.join("dev-local.ps1").exists()
+    })
+}
+
+fn resolve_qemu() -> String {
+    if let Ok(explicit) = std::env::var("IORA_DEV_QEMU") {
+        return explicit;
+    }
+    let name = if std::env::consts::ARCH == "aarch64" {
+        "qemu-system-aarch64"
+    } else {
+        "qemu-system-x86_64"
+    };
+    let executable = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    windows_qemu_dir(&executable).unwrap_or(executable)
+}
+
+fn resolve_qemu_img() -> String {
+    if let Ok(explicit) = std::env::var("IORA_DEV_QEMU_IMG") {
+        return explicit;
+    }
+    let executable = if cfg!(windows) {
+        "qemu-img.exe".to_owned()
+    } else {
+        "qemu-img".to_owned()
+    };
+    windows_qemu_dir(&executable).unwrap_or(executable)
+}
+
+/// Windows QEMU installers place the binaries in Program Files without
+/// registering them on PATH; fall back to those locations.
+fn windows_qemu_dir(executable: &str) -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    ["C:\\Program Files\\qemu", "C:\\Program Files (x86)\\qemu"]
+        .into_iter()
+        .map(PathBuf::from)
+        .map(|dir| dir.join(executable))
+        .find(|path| path.exists())
+        .map(|path| path.display().to_string())
+}
+
+#[cfg(windows)]
+fn tap_available(tap: &str) -> bool {
+    // netsh exits 0 even when the interface is missing; the name only
+    // appears in the output when the adapter exists.
+    Command::new("netsh")
+        .args(["interface", "show", "interface", tap])
+        .output()
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains(tap))
+}
+#[cfg(all(unix, not(target_os = "macos")))]
+fn tap_available(tap: &str) -> bool {
+    Command::new("ip")
+        .args(["link", "show", tap])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+#[cfg(target_os = "macos")]
+fn tap_available(_tap: &str) -> bool {
+    true // macOS: QEMU manages the network backend itself
+}
+
+/// WHPX rejects `host`/`max` CPU models on some QEMU builds
+/// ("WHPX: Unexpected VP exit code 4"); qemu64 is the reliable default there.
+fn cpu_model(acceleration: &str) -> String {
+    std::env::var("IORA_DEV_CPU").unwrap_or_else(|_| {
+        if acceleration == "tcg" {
+            "max".into()
+        } else if acceleration == "whpx" {
+            "qemu64".into()
+        } else {
+            "host".into()
+        }
+    })
+}
+
 fn find_aarch64_firmware() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("IORA_DEV_FIRMWARE").map(PathBuf::from) {
         return path.exists().then_some(path);
@@ -425,7 +576,7 @@ fn kill(pid: u32) -> Result<()> {
         .then_some(())
         .context("taskkill failed")
 }
-fn open(url: &str) -> Result<()> {
+pub fn open(url: &str) -> Result<()> {
     let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "windows") {
         ("cmd", vec!["/C", "start", "", url])
     } else if cfg!(target_os = "macos") {
@@ -482,7 +633,7 @@ mod tests {
             root: root.clone(),
             state: RuntimeState::default(),
         };
-        let error = manager.start(NetworkMode::Slirp).unwrap_err();
+        let error = manager.start(NetworkMode::Slirp, &[]).unwrap_err();
         assert!(error.to_string().contains("VM disk is missing"));
         let _ = std::fs::remove_dir_all(root);
     }

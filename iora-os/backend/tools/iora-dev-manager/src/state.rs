@@ -18,6 +18,24 @@ impl Default for NetworkMode {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PortMapping {
+    pub host: u16,
+    pub guest: u16,
+    pub label: Option<String>,
+}
+
+impl Default for PortMapping {
+    fn default() -> Self {
+        Self {
+            host: 0,
+            guest: 0,
+            label: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RuntimeState {
@@ -30,6 +48,8 @@ pub struct RuntimeState {
     pub home_port: u16,
     pub qga_port: u16,
     pub qmp_port: u16,
+    pub vnc_port: Option<u16>,
+    pub vnc_ws_port: Option<u16>,
     pub firmware: Option<String>,
     pub acceleration: Option<String>,
     pub vm_disk: Option<PathBuf>,
@@ -57,6 +77,8 @@ impl Default for RuntimeState {
             home_port: 8126,
             qga_port: 8109,
             qmp_port: 8130,
+            vnc_port: None,
+            vnc_ws_port: None,
             firmware: None,
             acceleration: None,
             vm_disk: None,
@@ -104,14 +126,14 @@ impl RuntimeState {
 }
 
 #[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
+pub fn process_alive(pid: u32) -> bool {
     std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .status()
         .is_ok_and(|s| s.success())
 }
 #[cfg(windows)]
-fn process_alive(pid: u32) -> bool {
+pub fn process_alive(pid: u32) -> bool {
     std::process::Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/NH"])
         .output()

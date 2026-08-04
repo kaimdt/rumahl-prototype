@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IORA Dev Manager</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171e26; --border: #26303b; --text: #d7dee7;
+    --muted: #8b98a6; --green: #3fb96b; --red: #e25555; --yellow: #d9a13b;
+    --blue: #4aa3df;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+    border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
+  #badge { padding: 3px 12px; border-radius: 12px; font-weight: 600; font-size: 13px;
+    background: var(--border); }
+  #badge.ready { background: #1c3a2a; color: var(--green); }
+  #badge.starting { background: #3a341c; color: var(--yellow); }
+  #badge.stopped { background: #3a1c1c; color: var(--red); }
+  #message { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; }
+  #error-banner { display: none; margin: 10px 20px 0; padding: 10px 14px;
+    background: #3a1c1c; border: 1px solid #b82a2a; border-radius: 8px;
+    color: #ff9b9b; font-family: Consolas, monospace; font-size: 13px; }
+  #error-banner button { float: right; padding: 2px 10px; }
+  nav { display: flex; gap: 6px; padding: 10px 20px 0; }
+  nav button { background: var(--panel); border: 1px solid var(--border);
+    border-bottom: none; border-radius: 8px 8px 0 0; padding: 8px 18px;
+    color: var(--muted); cursor: pointer; font-size: 13px; }
+  nav button.active { color: var(--text); background: #1d2630; border-color: #32404d; }
+  main { display: grid; grid-template-columns: 420px 1fr; gap: 14px; padding: 14px 20px;
+    align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 14px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin: 0 0 10px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .field { padding: 6px 8px; background: var(--bg); border-radius: 6px; }
+  .field .k { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+  .field .v { font-family: Consolas, monospace; font-size: 13px; word-break: break-all; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .warn { color: var(--yellow); }
+  button { background: var(--border); color: var(--text); border: 1px solid #32404d;
+    border-radius: 6px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+  button:hover { background: #2c3a48; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: #1c5d8f; border-color: #2a7ab8; }
+  button.primary:hover { background: #226ea8; }
+  button.danger { background: #5d1c1c; border-color: #b82a2a; }
+  button.danger:hover { background: #6e2222; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+  .controls button { flex: 1; min-width: 120px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 3px 6px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  td:first-child { color: var(--muted); width: 45%; }
+  td.f { font-family: Consolas, monospace; }
+  .channels td:first-child { width: 34%; }
+  .channels .actions { text-align: right; white-space: nowrap; }
+  .channels .actions button { margin-left: 6px; }
+  #services { width: 100%; border-collapse: collapse; }
+  #services th { text-align: left; color: var(--muted); font-size: 11px;
+    text-transform: uppercase; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  #services td { padding: 5px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #services .unit { font-family: Consolas, monospace; }
+  #services .desc { color: var(--muted); font-size: 12px; }
+  #services .row-active { cursor: pointer; }
+  #services .row-active:hover { background: #1d2630; }
+  #services .actions { white-space: nowrap; text-align: right; }
+  #mappings { width: 100%; border-collapse: collapse; }
+  #mappings th { text-align: left; color: var(--muted); font-size: 11px;
+    text-transform: uppercase; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  #mappings td { padding: 5px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #mappings .m { font-family: Consolas, monospace; }
+  #mappings .actions { text-align: right; white-space: nowrap; }
+  #mappings .st-active { color: var(--green); }
+  #mappings .st-tunnel { color: var(--blue); }
+  #mappings .st-pending { color: var(--yellow); }
+  #mappings .st-bad { color: var(--red); }
+  .map-form { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .map-form input { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-family: Consolas, monospace; width: 90px; }
+  .map-form input.label { width: 140px; }
+  #guest-ports { margin-top: 8px; }
+  #guest-ports .gp { display: inline-flex; align-items: center; gap: 6px; margin: 3px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
+    font-size: 12px; font-family: Consolas, monospace; }
+  #guest-ports .gp button { padding: 1px 8px; font-size: 12px; }
+  #journal { margin-top: 10px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px; font-family: Consolas, monospace; font-size: 12px;
+    white-space: pre-wrap; max-height: 300px; overflow-y: auto; display: none; }
+  #guest-input { width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+    font-family: Consolas, monospace; }
+  #logs { height: 68vh; overflow-y: auto; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px; font-family: Consolas, monospace; font-size: 12px;
+    white-space: pre-wrap; }
+  #logs .t { color: #55626f; margin-right: 8px; }
+  #logs .err { color: var(--red); }
+  a { color: var(--blue); }
+  .foot { margin-top: 10px; color: var(--muted); font-size: 12px; }
+  #terminal-wrap { background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px; }
+  #terminal { height: 60vh; }
+  #vnc-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    z-index: 50; }
+  #vnc-modal .box { position: absolute; inset: 24px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  #vnc-screen { width: 100%; height: calc(100% - 60px); background: #000; }
+  .tab-page { display: none; }
+  .tab-page.active { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IORA Dev Manager</h1>
+  <span id="badge">-</span>
+  <span id="message">Connecting...</span>
+</header>
+<div id="error-banner"><button onclick="dismissError()">Dismiss</button><span id="error-text"></span></div>
+<nav>
+  <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
+  <button id="tab-terminal" onclick="switchTab('terminal')">Terminal</button>
+  <button id="tab-services" onclick="switchTab('services')">Services</button>
+  <button id="tab-logs" onclick="switchTab('logs')">Logs</button>
+</nav>
+
+<div id="page-dashboard" class="tab-page active">
+<main>
+  <div>
+    <div class="panel">
+      <h2>Controls</h2>
+      <div class="controls">
+        <button class="primary" onclick="act('/api/start', {mode:'slirp'})">Start (Slirp)</button>
+        <button class="primary" onclick="act('/api/start', {mode:'bridge'})">Start (Bridge)</button>
+        <button onclick="act('/api/pause')">Pause</button>
+        <button onclick="act('/api/resume')">Resume</button>
+        <button onclick="act('/api/reset')">Reset</button>
+        <button onclick="act('/api/stop', {hard:false})">Graceful stop</button>
+        <button class="danger" onclick="act('/api/kill')">Hard stop</button>
+        <button onclick="act('/api/snapshot')">Golden Snapshot</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Communication channels</h2>
+      <table class="channels" id="channels"></table>
+    </div>
+
+    <div class="panel">
+      <h2>Port Mappings <button class="small" style="float:right" onclick="loadMappings()">Refresh</button></h2>
+      <table id="mappings">
+        <thead><tr><th>Label</th><th>Host</th><th>Guest</th><th>Status</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="map-form">
+        <input id="map-host" type="number" min="1" max="65535" placeholder="host port">
+        <input id="map-guest" type="number" min="1" max="65535" placeholder="guest port">
+        <input id="map-label" class="label" placeholder="label (optional)">
+        <button class="primary" onclick="addMapping()">Add mapping</button>
+      </div>
+      <div id="guest-ports"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Environment</h2>
+      <div class="grid" id="env"></div>
+    </div>
+
+    <div class="panel">
+      <h2>VM Stats</h2>
+      <div class="grid" id="stats"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Doctor</h2>
+      <table id="doctor"></table>
+    </div>
+
+    <div class="panel">
+      <h2>Guest command (QGA)</h2>
+      <input id="guest-input" placeholder="e.g. systemctl status iora-home --no-pager" autocomplete="off">
+      <div style="height:8px"></div>
+      <button onclick="runGuest()">Run in guest</button>
+    </div>
+  </div>
+</main>
+</div>
+
+<div id="page-terminal" class="tab-page">
+<main style="grid-template-columns:1fr">
+  <div class="panel">
+    <h2>SSH Terminal (root@guest via WebSocket)</h2>
+    <div id="terminal-wrap"><div id="terminal"></div></div>
+    <div class="foot" id="terminal-hint">
+      Interactive shell over SSH using <span class="f">.cache/iora-dev-key</span>.
+      Type <b>exit</b> or close the tab to end the session. Requires a running VM.
+    </div>
+  </div>
+  <div class="panel">
+    <h2>VNC Console (graphical, Proxmox-style)</h2>
+    <div class="controls">
+      <button class="primary" onclick="openVnc()">Open VNC console</button>
+      <button onclick="act('/api/reset')">Reset VM</button>
+    </div>
+    <div class="foot">QEMU VNC listens on <span id="vnc-info">127.0.0.1 (display 1)</span>.
+      If the in-browser viewer cannot load, connect any VNC client to that address.</div>
+  </div>
+</main>
+</div>
+
+<div id="page-services" class="tab-page">
+<main style="grid-template-columns:1fr">
+  <div class="panel">
+    <h2>IORA services (systemd) <button class="small" style="float:right" onclick="loadServices()">Refresh</button></h2>
+    <table id="services">
+      <thead><tr><th>Unit</th><th>State</th><th>Description</th><th>Actions</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="journal"></div>
+  </div>
+</main>
+</div>
+
+<div id="page-logs" class="tab-page">
+<main style="grid-template-columns:1fr">
+  <div class="panel">
+    <h2>Live logs (QEMU serial + daemon events)</h2>
+    <div id="logs"></div>
+  </div>
+</main>
+</div>
+
+<div id="vnc-modal">
+  <div class="box">
+    <h2 style="float:left; margin:0 16px 0 0">VNC Console</h2>
+    <button onclick="closeVnc()">Close</button>
+    <div id="vnc-screen"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+  const badge = document.getElementById('badge');
+  const message = document.getElementById('message');
+  const logBox = document.getElementById('logs');
+  const banner = document.getElementById('error-banner');
+  const errorText = document.getElementById('error-text');
+  let data = null;
+  let stats = {};
+  let busy = false;
+  let term = null;
+  let termSocket = null;
+  let rfb = null;
+
+  function badgeClass(lifecycle) {
+    const value = String(lifecycle || '').toLowerCase();
+    if (value === 'ready') return 'ready';
+    if (value === 'stopped') return 'stopped';
+    return 'starting';
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch('/api/status');
+      data = await response.json();
+      render();
+    } catch (error) {
+      badge.className = 'stopped';
+      badge.textContent = 'offline';
+      message.textContent = 'Dashboard cannot reach the daemon: ' + error;
+    }
+  }
+
+  async function refreshStats() {
+    try {
+      const response = await fetch('/api/stats');
+      stats = await response.json();
+      renderStats();
+    } catch (error) { /* stats are optional */ }
+  }
+
+  function render() {
+    const lifecycle = data.lifecycle || 'unknown';
+    badge.className = badgeClass(lifecycle);
+    badge.textContent = lifecycle;
+    message.textContent = data.message || '';
+
+    const state = data.state || {};
+    const conn = data.connection || {};
+    const probe = data.probe || {};
+    const env = [
+      ['Network', state.networkMode || '-'],
+      ['VM host', conn.host || '-'],
+      ['Guest IP', probe.guest_ip || '-'],
+      ['SSH', conn.host + ':' + conn.ssh + ' (' + (probe.ssh ? 'OK' : 'down') + ')'],
+      ['IORA home', 'http://' + conn.host + ':' + conn.home + ' (' + (probe.external_home ? 'OK' : 'down') + ')'],
+      ['QMP / QGA', (probe.qmp ? 'OK' : 'down') + ' / ' + (probe.qga ? 'OK' : 'down')],
+      ['Hot reload', state.watcherStatus || '-'],
+      ['Source sync', state.syncStatus || '-'],
+      ['Acceleration', state.acceleration || '-'],
+      ['PID', state.pid || '-'],
+      ['Golden snapshot', state.goldenSnapshot ? 'yes' : 'no'],
+      ['Forwarded ports', (state.forwardedPorts || []).map(function (p) { return p.host; }).join(', ') || '-'],
+      ['Disk', state.vmDisk ? state.vmDisk.split(/[\\/]/).pop() : '-'],
+      ['Desired', data.desired && data.desired.running ? 'running (retries ' + (data.desired.retries || 0) + ')' : 'stopped'],
+    ];
+    document.getElementById('env').innerHTML = env.map(function (entry) {
+      return '<div class="field"><div class="k">' + entry[0] + '</div><div class="v">' + entry[1] + '</div></div>';
+    }).join('');
+
+    const homeUp = probe.external_home;
+    const natNote = state.networkMode === 'bridge'
+      ? '' : ' (NAT: host access via 127.0.0.1 ports) ';
+    const channels = [
+      ['SSH', conn.host + ':' + conn.ssh, probe.ssh, function () { switchTab('terminal'); }],
+      ['Guest IP', (probe.guest_ip || '-') + natNote, !!probe.guest_ip, null],
+      ['QMP control', '127.0.0.1:' + state.qmpPort, probe.qmp, null],
+      ['QGA rescue', '127.0.0.1:' + state.qgaPort, probe.qga, null],
+      ['IORA home', 'http://' + conn.host + ':' + conn.home, homeUp, function () { window.open('http://' + conn.host + ':' + conn.home); }],
+      ['VNC console', (stats.vncPort ? '127.0.0.1:' + stats.vncPort : 'off'), !!stats.vncPort, openVnc],
+      ['Hot reload', state.watcherStatus || '-', state.watcherStatus === 'Running', function () { switchTab('logs'); }],
+    ];
+    document.getElementById('channels').innerHTML = channels.map(function (ch) {
+      const action = ch[3] ? '<button class="small" onclick="' + ch[3].name + '()">Open</button>' : '';
+      return '<tr><td>' + ch[0] + '</td><td class="f">' + ch[1] +
+        ' <span class="' + (ch[2] ? 'ok' : 'bad') + '">' + (ch[2] ? 'OK' : 'down') + '</span></td>' +
+        '<td class="actions">' + action + '</td></tr>';
+    }).join('');
+
+    const checks = [
+      ['QEMU process', probe.process],
+      ['QMP control', probe.qmp],
+      ['QGA rescue', probe.qga],
+      ['systemd operational', probe.systemd === 'running' || probe.systemd === 'degraded'],
+      ['Guest network', !!probe.guest_ip],
+      ['SSH', probe.ssh],
+      ['iora-home internal', probe.internal_home],
+      ['iora-home external', probe.external_home],
+      ['Live development', probe.dev_watcher],
+    ];
+    document.getElementById('doctor').innerHTML = checks.map(function (check) {
+      return '<tr><td>' + check[0] + '</td><td class="f ' + (check[1] ? 'ok' : 'bad') + '">' +
+        (check[1] ? 'OK' : 'Unavailable') + '</td></tr>';
+    }).join('');
+
+    if (state.lastError) {
+      errorText.textContent = state.lastError;
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  function renderStats() {
+    const guest = stats.guest || {};
+    const host = stats.host || {};
+    const size = host.diskSize || 0;
+    const rows = [
+      ['Guest uptime', guest.uptime || '-'],
+      ['Load average', guest.load || '-'],
+      ['Memory (used/total)', (guest.memUsedMb || '-') + ' / ' + (guest.memTotalMb || '-') + ' MB'],
+      ['Guest disk (size/used)', guest.disk || '-'],
+      ['Disk image size', size ? (size / 1073741824).toFixed(1) + ' GiB' : '-'],
+      ['VNC port', stats.vncPort ? '127.0.0.1:' + stats.vncPort : '-'],
+    ];
+    document.getElementById('stats').innerHTML = rows.map(function (entry) {
+      return '<div class="field"><div class="k">' + entry[0] + '</div><div class="v">' + entry[1] + '</div></div>';
+    }).join('');
+    if (stats.vncPort) {
+      document.getElementById('vnc-info').textContent = '127.0.0.1:' + stats.vncPort;
+    }
+  }
+
+  async function act(path, body) {
+    if (busy) return;
+    busy = true;
+    document.querySelectorAll('.controls button').forEach(function (button) {
+      button.disabled = true;
+    });
+    const options = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+    if (body) options.body = JSON.stringify(body);
+    try {
+      const response = await fetch(path, options);
+      const result = await response.json();
+      message.textContent = result.message || (result.ok ? 'ok' : 'failed');
+      if (!result.ok && result.message) {
+        errorText.textContent = result.message;
+        banner.style.display = 'block';
+      }
+    } catch (error) {
+      message.textContent = 'Request failed: ' + error;
+    }
+    busy = false;
+    document.querySelectorAll('.controls button').forEach(function (button) {
+      button.disabled = false;
+    });
+    refresh();
+  }
+
+  function dismissError() {
+    banner.style.display = 'none';
+  }
+
+  async function loadMappings() {
+    try {
+      const response = await fetch('/api/mappings');
+      const result = await response.json();
+      const body = document.querySelector('#mappings tbody');
+      const rows = (result.mappings || []).map(function (m) {
+        const statusText = m.active ? 'active (slirp)' : (m.status === 'tunnel' ? 'SSH tunnel' : 'pending');
+        const statusClass = m.active ? 'st-active' : (m.status === 'tunnel' ? 'st-tunnel' : 'st-pending');
+        const guest = m.guestListening ? '' : ' <span class="bad">guest closed</span>';
+        return '<tr><td>' + (m.label || '-') + '</td>' +
+          '<td class="m">127.0.0.1:' + m.host + '</td>' +
+          '<td class="m">guest:' + m.guest + guest + '</td>' +
+          '<td class="' + statusClass + '">' + statusText + '</td>' +
+          '<td class="actions"><button class="small" onclick="removeMapping(' + m.host + ')">Remove</button></td></tr>';
+      }).join('');
+      body.innerHTML = rows || '<tr><td colspan="5">No custom mappings yet</td></tr>';
+      const known = new Set((result.mappings || []).map(function (m) { return m.guest; }));
+      const ports = (result.guestPorts || []).filter(function (p) { return !known.has(p.port); })
+        .map(function (p) {
+          const label = p.label ? ' (' + p.label + ')' : '';
+          return '<span class="gp">guest:' + p.port + label +
+            ' <button class="small" onclick="quickMap(' + p.port + ')">+</button></span>';
+        }).join('');
+      document.getElementById('guest-ports').innerHTML = ports
+        ? '<div style="margin-bottom:6px;color:var(--muted);font-size:12px">Detected guest ports:</div>' + ports
+        : '';
+    } catch (error) {
+      document.querySelector('#mappings tbody').innerHTML =
+        '<tr><td colspan="5">failed: ' + error + '</td></tr>';
+    }
+  }
+
+  async function addMapping() {
+    const host = parseInt(document.getElementById('map-host').value, 10);
+    const guest = parseInt(document.getElementById('map-guest').value, 10);
+    const label = document.getElementById('map-label').value.trim();
+    if (!host || !guest) { message.textContent = 'host and guest port are required'; return; }
+    try {
+      const response = await fetch('/api/mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: host, guest: guest, label: label || undefined }),
+      });
+      const result = await response.json();
+      message.textContent = result.message || 'mapping added';
+      if (!result.ok) { errorText.textContent = result.message; banner.style.display = 'block'; }
+      document.getElementById('map-host').value = '';
+      document.getElementById('map-guest').value = '';
+      document.getElementById('map-label').value = '';
+      loadMappings();
+    } catch (error) {
+      message.textContent = 'add mapping failed: ' + error;
+    }
+  }
+
+  async function removeMapping(host) {
+    try {
+      const response = await fetch('/api/mappings?host=' + host, { method: 'DELETE' });
+      const result = await response.json();
+      message.textContent = result.message || 'mapping removed';
+      loadMappings();
+    } catch (error) {
+      message.textContent = 'remove mapping failed: ' + error;
+    }
+  }
+
+  function quickMap(guest) {
+    document.getElementById('map-host').value = guest;
+    document.getElementById('map-guest').value = guest;
+    document.getElementById('map-label').value = '';
+    message.textContent = 'Fill in or confirm the host port for guest port ' + guest;
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab-page').forEach(function (page) {
+      page.classList.remove('active');
+    });
+    document.querySelectorAll('nav button').forEach(function (tab) {
+      tab.classList.remove('active');
+    });
+    document.getElementById('page-' + name).classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+    if (name === 'terminal') ensureTerminal();
+    if (name === 'services') loadServices();
+  }
+
+  function ensureTerminal() {
+    if (term) return;
+    term = new Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      scrollback: 2000,
+      theme: { background: '#0f1419', foreground: '#d7dee7' },
+    });
+    const fit = new FitAddon.FitAddon();
+    term.loadAddon(fit);
+    term.open(document.getElementById('terminal'));
+    fit.fit();
+    window.addEventListener('resize', function () { fit.fit(); });
+    term.onData(function (chunk) {
+      if (termSocket && termSocket.readyState === WebSocket.OPEN) {
+        termSocket.send(new TextEncoder().encode(chunk));
+      }
+    });
+    connectTerminal();
+  }
+
+  function connectTerminal() {
+    if (termSocket) { termSocket.close(); }
+    termSocket = new WebSocket('ws://' + location.host + '/ws/ssh');
+    termSocket.binaryType = 'arraybuffer';
+    termSocket.onopen = function () {
+      term.writeln('\x1b[36m[connected to guest via SSH]\x1b[0m');
+    };
+    termSocket.onmessage = function (event) {
+      if (event.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(event.data));
+      } else {
+        term.write(event.data);
+      }
+    };
+    termSocket.onclose = function (event) {
+      term.writeln('\x1b[31m[connection closed]\x1b[0m');
+      termSocket = null;
+    };
+    termSocket.onerror = function () {
+      term.writeln('\x1b[31m[SSH error]\x1b[0m');
+    };
+  }
+
+  async function loadServices() {
+    try {
+      const response = await fetch('/api/services');
+      const result = await response.json();
+      const services = result.services || [];
+      const body = document.querySelector('#services tbody');
+      body.innerHTML = services.map(function (service) {
+        const state = service.failed ? '<span class="bad">failed</span>'
+          : service.active + '/' + service.sub;
+        const color = service.failed ? 'bad' : (service.sub === 'running' ? 'ok' : 'warn');
+        return '<tr>' +
+          '<td class="unit">' + service.unit + '</td>' +
+          '<td class="' + color + '">' + state + '</td>' +
+          '<td class="desc">' + (service.description || '') + '</td>' +
+          '<td class="actions">' +
+            '<button class="small" onclick="serviceAction(\'' + service.unit + '\',\'restart\')">Restart</button> ' +
+            '<button class="small" onclick="serviceAction(\'' + service.unit + '\',\'start\')">Start</button> ' +
+            '<button class="small" onclick="serviceAction(\'' + service.unit + '\',\'stop\')">Stop</button> ' +
+            '<button class="small" onclick="serviceLogs(\'' + service.unit + '\')">Logs</button>' +
+          '</td></tr>';
+      }).join('');
+    } catch (error) {
+      document.querySelector('#services tbody').innerHTML =
+        '<tr><td colspan="4">failed: ' + error + '</td></tr>';
+    }
+  }
+
+  async function serviceAction(unit, action) {
+    try {
+      const response = await fetch('/api/service/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unit: unit, action: action }),
+      });
+      const result = await response.json();
+      message.textContent = action + ' ' + unit + ': ' + (result.output || result.message || 'done');
+      loadServices();
+    } catch (error) {
+      message.textContent = 'service action failed: ' + error;
+    }
+  }
+
+  async function serviceLogs(unit) {
+    const journal = document.getElementById('journal');
+    try {
+      const response = await fetch('/api/service/logs?unit=' + encodeURIComponent(unit) + '&tail=120');
+      const result = await response.json();
+      journal.style.display = 'block';
+      journal.textContent = (result.output || result.message || 'no logs');
+      journal.scrollTop = journal.scrollHeight;
+    } catch (error) {
+      journal.style.display = 'block';
+      journal.textContent = 'failed: ' + error;
+    }
+  }
+
+  async function runGuest() {
+    const input = document.getElementById('guest-input');
+    const command = input.value.trim();
+    if (!command) return;
+    try {
+      const response = await fetch('/api/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: command }),
+      });
+      const result = await response.json();
+      appendLog('$ ' + command);
+      if (result.output) appendLog(result.output);
+      else message.textContent = result.message || 'no output';
+    } catch (error) {
+      appendLog('guest command failed: ' + error);
+    }
+  }
+
+  function appendLog(line) {
+    const time = new Date().toTimeString().slice(0, 8);
+    const div = document.createElement('div');
+    const span = document.createElement('span');
+    span.className = 't';
+    span.textContent = time;
+    div.appendChild(span);
+    div.appendChild(document.createTextNode(line));
+    logBox.appendChild(div);
+    while (logBox.childNodes.length > 2000) logBox.removeChild(logBox.firstChild);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function openVnc() {
+    const port = stats.vncWsPort || 5701;
+    document.getElementById('vnc-modal').style.display = 'block';
+    const screen = document.getElementById('vnc-screen');
+    screen.innerHTML = '';
+    const frame = document.createElement('iframe');
+    frame.src = '/novnc/vnc-viewer.html?host=127.0.0.1&port=' + port;
+    frame.style.cssText = 'width:100%;height:100%;border:0;background:#000';
+    screen.appendChild(frame);
+  }
+
+  function closeVnc() {
+    document.getElementById('vnc-modal').style.display = 'none';
+    if (rfb) { rfb.disconnect(); rfb = null; }
+  }
+
+  const source = new EventSource('/api/logs/stream');
+  source.addEventListener('log', function (event) { appendLog(event.data); });
+  source.addEventListener('lifecycle', function (event) { appendLog(event.data); });
+  source.addEventListener('status', function (event) { appendLog(event.data); });
+  source.addEventListener('error', function (event) { if (event.data) appendLog(event.data); });
+  source.onerror = function () { /* EventSource reconnects automatically */ };
+
+  document.getElementById('guest-input').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') runGuest();
+  });
+
+  refresh();
+  setInterval(refresh, 2000);
+  loadMappings();
+  refreshStats();
+  setInterval(refreshStats, 10000);
+</script>
+</body>
+</html>

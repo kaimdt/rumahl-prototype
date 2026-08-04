@@ -1,34 +1,15 @@
 mod channels;
+mod daemon;
 mod devloop;
 mod manager;
 mod state;
+mod web;
 
-use anyhow::Result;
-use clap::Parser;
-use crossterm::{
-    event::{Event, EventStream, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use devloop::DevEvent;
-use futures::StreamExt;
-use manager::{read_tail, Manager, Probe};
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Tabs, Wrap},
-    Frame, Terminal,
-};
-use state::NetworkMode;
-use std::{
-    collections::VecDeque,
-    io::{stdout, Stdout},
-    path::PathBuf,
-    time::Duration,
-};
-use tokio::time::interval;
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use manager::Manager;
+use serde_json::{json, Value};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -36,516 +17,364 @@ use tokio::time::interval;
     about = "Cross-platform IORA development VM control plane"
 )]
 struct Args {
-    #[arg(long)]
-    root: Option<PathBuf>,
-    #[arg(long)]
-    doctor: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum View {
-    Dashboard,
-    Vm,
-    Services,
-    Doctor,
-    Logs,
-    Help,
-}
-impl View {
-    const ALL: [Self; 6] = [
-        Self::Dashboard,
-        Self::Vm,
-        Self::Services,
-        Self::Doctor,
-        Self::Logs,
-        Self::Help,
-    ];
-    fn title(self) -> &'static str {
-        match self {
-            Self::Dashboard => "Dashboard",
-            Self::Vm => "VM",
-            Self::Services => "Services",
-            Self::Doctor => "Doctor",
-            Self::Logs => "Logs",
-            Self::Help => "Help",
-        }
-    }
-}
-
-struct App {
-    manager: Manager,
-    probe: Probe,
-    view: View,
-    tab: usize,
-    message: String,
-    services: Vec<String>,
-    logs: VecDeque<String>,
-    qga_command: Option<String>,
-    dev_events: tokio::sync::mpsc::UnboundedReceiver<DevEvent>,
-}
-impl App {
-    async fn new(manager: Manager) -> Self {
-        let repository = manager.root.parent().unwrap_or(&manager.root).to_path_buf();
-        let dev_events =
-            devloop::spawn(repository, manager.root.clone(), manager.state_path.clone());
-        let mut app = Self {
-            manager,
-            probe: Probe::default(),
-            view: View::Dashboard,
-            tab: 0,
-            message: "Control plane initialized".into(),
-            services: vec![],
-            logs: VecDeque::new(),
-            qga_command: None,
-            dev_events,
-        };
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        app.refresh().await;
-        app
-    }
-    async fn refresh(&mut self) {
-        while let Ok(event) = self.dev_events.try_recv() {
-            match event {
-                DevEvent::Watching => {
-                    self.manager.state.watcher_status = "Running".into();
-                    self.message = "Live development watcher active".into();
-                }
-                DevEvent::Syncing(count) => {
-                    self.manager.state.sync_status = "Syncing".into();
-                    self.message = format!("Synchronizing {count} changed files");
-                }
-                DevEvent::Building(service) => {
-                    self.manager.state.watcher_status = "Building".into();
-                    self.message = format!("Building {service}");
-                }
-                DevEvent::Ready(detail) => {
-                    self.manager.state.watcher_status = "Running".into();
-                    self.manager.state.sync_status = "Watching".into();
-                    self.message = detail;
-                }
-                DevEvent::Error(error) => {
-                    self.manager.state.watcher_status = "Running".into();
-                    self.manager.state.sync_status = "Degraded".into();
-                    self.message = error;
-                }
-            }
-            let _ = self.manager.state.save(&self.manager.state_path);
-        }
-        self.probe = self.manager.probe().await;
-        if self.probe.qga {
-            if let Ok(value)=self.manager.guest("systemctl list-units --type=service 'iora-*' --all --no-legend --no-pager | awk '{print $1\"  \"$3\"/\"$4}'").await { self.services=value.lines().map(str::to_owned).collect(); }
-        }
-    }
-    fn set_message(&mut self, result: Result<impl Into<String>>) {
-        self.message = match result {
-            Ok(value) => value.into(),
-            Err(error) => format!("Error: {error:#}"),
-        };
-    }
-    async fn key(&mut self, code: KeyCode) -> bool {
-        if let Some(mut command) = self.qga_command.take() {
-            match code {
-                KeyCode::Esc => self.message = "QGA command cancelled".into(),
-                KeyCode::Backspace => {
-                    command.pop();
-                    self.qga_command = Some(command);
-                }
-                KeyCode::Char(character) => {
-                    command.push(character);
-                    self.qga_command = Some(command);
-                }
-                KeyCode::Enter => {
-                    let result = self.manager.guest(&command).await;
-                    match result {
-                        Ok(output) => {
-                            self.logs = output.lines().map(str::to_owned).collect();
-                            self.view = View::Logs;
-                            self.message = format!("QGA command completed: {command}");
-                        }
-                        Err(error) => self.message = format!("QGA command failed: {error:#}"),
-                    }
-                }
-                _ => self.qga_command = Some(command),
-            }
-            return false;
-        }
-        match code {
-            KeyCode::Char('q') => return true,
-            KeyCode::Tab | KeyCode::Right => {
-                self.tab = (self.tab + 1) % View::ALL.len();
-                self.view = View::ALL[self.tab];
-            }
-            KeyCode::BackTab | KeyCode::Left => {
-                self.tab = (self.tab + View::ALL.len() - 1) % View::ALL.len();
-                self.view = View::ALL[self.tab];
-            }
-            KeyCode::Char('1') => {
-                let result = self.manager.start(NetworkMode::Slirp);
-                self.set_message(result.map(|_| "Slirp VM start requested"));
-            }
-            KeyCode::Char('2') => {
-                let result = self.manager.start(NetworkMode::Bridge);
-                self.set_message(result.map(|_| "Bridge VM start requested"));
-            }
-            KeyCode::Char('p') => {
-                self.set_message(self.manager.qmp_action("stop").await.map(|_| "VM paused"));
-            }
-            KeyCode::Char('c') => {
-                self.set_message(self.manager.qmp_action("cont").await.map(|_| "VM resumed"));
-            }
-            KeyCode::Char('r') => {
-                self.set_message(
-                    self.manager
-                        .qmp_action("system_reset")
-                        .await
-                        .map(|_| "VM reset requested"),
-                );
-            }
-            KeyCode::Char('s') => {
-                self.set_message(
-                    self.manager
-                        .graceful_stop()
-                        .await
-                        .map(|_| "Graceful shutdown requested"),
-                );
-            }
-            KeyCode::Char('x') => {
-                self.set_message(self.manager.hard_stop().map(|_| "VM process terminated"));
-            }
-            KeyCode::Char('n') => {
-                let result = self.manager.create_golden_snapshot();
-                self.set_message(result.map(|_| "Golden Snapshot created"));
-            }
-            KeyCode::Char('o') => {
-                self.set_message(self.manager.open_url().map(|_| "Website opened"));
-            }
-            KeyCode::Char('a') => {
-                disable_raw_mode().ok();
-                execute!(stdout(), LeaveAlternateScreen).ok();
-                let result = self.manager.open_ssh();
-                execute!(stdout(), EnterAlternateScreen).ok();
-                enable_raw_mode().ok();
-                self.set_message(result.map(|_| "SSH session closed"));
-            }
-            KeyCode::Char('g') => {
-                if self.probe.qga {
-                    self.qga_command = Some(String::new());
-                    self.message = "Enter a guest command; Escape cancels".into();
-                } else {
-                    self.message = "QGA is unavailable".into();
-                }
-            }
-            KeyCode::Char('f') => {
-                match self.manager.guest("systemctl --failed --no-pager").await {
-                    Ok(value) => {
-                        self.logs.extend(value.lines().map(str::to_owned));
-                        self.message = "Failed-unit diagnosis completed".into();
-                    }
-                    Err(error) => self.message = format!("Error: {error:#}"),
-                };
-                self.view = View::Logs;
-            }
-            KeyCode::Char('h') => {
-                self.set_message(
-                    self.manager
-                        .guest("systemctl restart iora-home && systemctl is-active iora-home")
-                        .await
-                        .map(|_| "iora-home restarted and validated"),
-                );
-            }
-            KeyCode::Char('l') => {
-                let value = self
-                    .manager
-                    .guest("journalctl -u iora-home -n 150 --no-pager")
-                    .await
-                    .unwrap_or_else(|_| {
-                        read_tail(&self.manager.root.join(".cache/dev-manager.log"), 150)
-                    });
-                self.logs = value.lines().map(str::to_owned).collect();
-                self.view = View::Logs;
-            }
-            KeyCode::Char('?') => self.view = View::Help,
-            _ => {}
-        }
-        self.refresh().await;
-        false
-    }
+#[derive(Subcommand)]
+enum Command {
+    /// Run the background daemon and its web dashboard
+    Serve {
+        /// Dashboard port
+        #[arg(long, default_value_t = 8127)]
+        port: u16,
+        /// iora-os root (default: discovered from the working directory)
+        #[arg(long)]
+        root: Option<PathBuf>,
+        /// Open the dashboard in the default browser
+        #[arg(long)]
+        open: bool,
+    },
+    /// Start the development VM (Slirp unless --bridge)
+    Start {
+        #[arg(long)]
+        bridge: bool,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Request a graceful guest shutdown
+    Stop {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Force-kill the QEMU process
+    Kill {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Print environment status as JSON
+    Status {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Print recent QEMU and guest logs
+    Logs {
+        #[arg(long, default_value_t = 100)]
+        tail: usize,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Run environment diagnostics; exits 0 when Ready
+    Doctor {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Exit 0 when the environment is Ready, 1 otherwise
+    Health {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Create the Golden Snapshot of the VM disk
+    Snapshot {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// List iora-* services in the guest via QGA
+    Services {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Run a command in the guest via QGA
+    Guest {
+        command: String,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Open an SSH session to the guest
+    Ssh {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Open the IORA home website in the browser
+    Website {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let manager = Manager::discover(args.root)?;
-    let mut app = App::new(manager).await;
-    if args.doctor {
-        print_doctor(&app);
-        std::process::exit(if app.probe.lifecycle() == "Ready" {
-            0
-        } else {
-            1
-        });
-    }
-    enable_raw_mode()?;
-    let mut out = stdout();
-    execute!(out, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(out);
-    let mut terminal = Terminal::new(backend)?;
-    let result = run(&mut terminal, &mut app).await;
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    result
-}
-
-async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
-    let mut events = EventStream::new();
-    let mut tick = interval(Duration::from_secs(3));
-    loop {
-        terminal.draw(|frame| draw(frame, app))?;
-        tokio::select! { _=tick.tick()=>app.refresh().await, event=events.next()=>if let Some(Ok(Event::Key(key)))=event { if key.kind==KeyEventKind::Press && app.key(key.code).await { return Ok(()); } } }
-    }
-}
-
-fn draw(frame: &mut Frame, app: &App) {
-    let area = frame.area();
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(10),
-            Constraint::Length(3),
-        ])
-        .split(area);
-    let titles = View::ALL
-        .iter()
-        .map(|v| Line::from(v.title()))
-        .collect::<Vec<_>>();
-    frame.render_widget(
-        Tabs::new(titles)
-            .select(app.tab)
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .block(
-                Block::default()
-                    .title(" IORA Dev Manager ")
-                    .borders(Borders::ALL),
-            ),
-        chunks[0],
-    );
-    match app.view {
-        View::Dashboard => dashboard(frame, chunks[1], app),
-        View::Vm => vm(frame, chunks[1], app),
-        View::Services => services(frame, chunks[1], app),
-        View::Doctor => doctor(frame, chunks[1], app),
-        View::Logs => logs(frame, chunks[1], app),
-        View::Help => help(frame, chunks[1]),
-    }
-    let footer = if let Some(command) = &app.qga_command {
-        Line::from(vec![
-            Span::styled(" QGA root command: ", Style::default().fg(Color::Cyan)),
-            Span::raw(command),
-            Span::styled("_", Style::default().fg(Color::White)),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled(" Status: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(&app.message),
-            Span::styled(
-                "   Tab/Shift-Tab navigate   q quit ",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ])
-    };
-    frame.render_widget(
-        Paragraph::new(footer).block(Block::default().borders(Borders::ALL)),
-        chunks[2],
-    );
-}
-
-fn dashboard(frame: &mut Frame, area: Rect, app: &App) {
-    let (host, ssh, home) = app.manager.state.connection();
-    let rows = vec![
-        line(
-            "Lifecycle",
-            app.probe.lifecycle(),
-            status_color(app.probe.lifecycle() == "Ready"),
-        ),
-        line(
-            "Network",
-            &format!("{:?}", app.manager.state.network_mode),
-            Color::Cyan,
-        ),
-        line("VM endpoint", host, Color::White),
-        line(
-            "SSH",
-            &format!("{host}:{ssh} ({})", yes(app.probe.ssh)),
-            status_color(app.probe.ssh),
-        ),
-        line(
-            "Website",
-            &format!("http://{host}:{home} ({})", yes(app.probe.external_home)),
-            status_color(app.probe.external_home),
-        ),
-        line(
-            "QMP / QGA",
-            &format!("{} / {}", yes(app.probe.qmp), yes(app.probe.qga)),
-            status_color(app.probe.qmp && app.probe.qga),
-        ),
-        line(
-            "Hot reload",
-            &app.manager.state.watcher_status,
-            Color::Yellow,
-        ),
-        line("Source sync", &app.manager.state.sync_status, Color::Yellow),
-    ];
-    frame.render_widget(
-        Paragraph::new(rows).block(
-            Block::default()
-                .title(" Environment ")
-                .borders(Borders::ALL),
-        ),
-        area,
-    );
-}
-fn vm(frame: &mut Frame, area: Rect, app: &App) {
-    let text = vec![
-        Line::from("VM lifecycle is controlled directly through QMP and QGA."),
-        Line::from(""),
-        Line::from("1 Start Slirp     2 Start Bridge"),
-        Line::from("p Pause           c Continue"),
-        Line::from("r Reset           s Graceful shutdown"),
-        Line::from("x Hard stop       o Open website"),
-        Line::from("n Golden Snapshot a Open SSH"),
-        Line::from("g QGA rescue      l Home logs"),
-        Line::from(""),
-        line(
-            "PID",
-            &app.manager
-                .state
-                .pid
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "-".into()),
-            Color::White,
-        ),
-        line(
-            "Disk",
-            &app.manager
-                .state
-                .vm_disk
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "-".into()),
-            Color::White,
-        ),
-        line(
-            "Firmware",
-            app.manager.state.firmware.as_deref().unwrap_or("-"),
-            Color::White,
-        ),
-    ];
-    frame.render_widget(
-        Paragraph::new(text).block(
-            Block::default()
-                .title(" Virtual Machine ")
-                .borders(Borders::ALL),
-        ),
-        area,
-    );
-}
-fn services(frame: &mut Frame, area: Rect, app: &App) {
-    let items = app
-        .services
-        .iter()
-        .map(|s| {
-            ListItem::new(s.as_str()).style(if s.contains("failed") {
-                Style::default().fg(Color::Red)
+    match args.command {
+        // Bare `cargo run` opens the dashboard, matching the old TUI flow.
+        None => serve(8127, None, true).await,
+        Some(Command::Serve { port, root, open }) => serve(port, root, open).await,
+        Some(Command::Start { bridge, root }) => {
+            let mode = if bridge { "bridge" } else { "slirp" };
+            if let Some((_, port)) = daemon_info(root.clone()) {
+                print_result(delegate(
+                    port,
+                    "POST",
+                    "/api/start",
+                    Some(json!({"mode": mode})),
+                )
+                .await?)?;
             } else {
-                Style::default().fg(Color::Green)
+                let mut manager = Manager::discover(root)?;
+                let mode = if bridge {
+                    state::NetworkMode::Bridge
+                } else {
+                    state::NetworkMode::Slirp
+                };
+                manager.start(mode, &[])?;
+                println!("VM start requested (no daemon running; watchdog unavailable)");
+            }
+            Ok(())
+        }
+        Some(Command::Stop { root }) => {
+            run_with_daemon(root.clone(), "POST", "/api/stop", Some(json!({})), |root| async {
+                let manager = Manager::discover(root)?;
+                manager.graceful_stop().await?;
+                println!("Graceful shutdown requested");
+                Ok(())
             })
-        })
-        .collect::<Vec<_>>();
-    frame.render_widget(
-        List::new(items).block(
-            Block::default()
-                .title(" Services via QGA   h restart iora-home   f failed units ")
-                .borders(Borders::ALL),
-        ),
-        area,
-    );
+            .await
+        }
+        Some(Command::Kill { root }) => {
+            run_with_daemon(root.clone(), "POST", "/api/kill", None, |root| async {
+                let manager = Manager::discover(root)?;
+                manager.hard_stop()?;
+                println!("VM process terminated");
+                Ok(())
+            })
+            .await
+        }
+        Some(Command::Status { root }) => {
+            if let Some((_, port)) = daemon_info(root.clone()) {
+                let value = delegate(port, "GET", "/api/status", None).await?;
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                let mut manager = Manager::discover(root)?;
+                let probe = manager.probe().await;
+                let (host, ssh, home) = manager.state.connection();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "state": manager.state,
+                        "probe": probe,
+                        "lifecycle": probe.lifecycle(),
+                        "connection": { "host": host, "ssh": ssh, "home": home },
+                    }))?
+                );
+            }
+            Ok(())
+        }
+        Some(Command::Logs { tail, root }) => {
+            if let Some((_, port)) = daemon_info(root.clone()) {
+                let value =
+                    delegate(port, "GET", &format!("/api/logs?tail={tail}"), None).await?;
+                for line in value["lines"].as_array().into_iter().flatten() {
+                    println!("{}", line.as_str().unwrap_or_default());
+                }
+            } else {
+                let manager = Manager::discover(root)?;
+                println!(
+                    "{}",
+                    manager::read_tail(&manager.root.join(".cache/qemu-serial.log"), tail)
+                );
+                println!(
+                    "\n--- dev-manager.log ---\n{}",
+                    manager::read_tail(&manager.root.join(".cache/dev-manager.log"), tail)
+                );
+            }
+            Ok(())
+        }
+        Some(Command::Doctor { root }) => {
+            let mut manager = Manager::discover(root)?;
+            let probe = manager.probe().await;
+            println!("IORA Dev Doctor\nStatus: {}\nQEMU: {}\nQMP: {}\nQGA: {}\nSSH: {}\nHome internal: {}\nHome external: {}",probe.lifecycle(),yes(probe.process),yes(probe.qmp),yes(probe.qga),yes(probe.ssh),yes(probe.internal_home),yes(probe.external_home));
+            std::process::exit(if probe.lifecycle() == "Ready" { 0 } else { 1 });
+        }
+        Some(Command::Health { root }) => {
+            let ready = if let Some((_, port)) = daemon_info(root.clone()) {
+                let value = delegate(port, "GET", "/api/status", None).await?;
+                value["lifecycle"].as_str() == Some("Ready")
+            } else {
+                let mut manager = Manager::discover(root)?;
+                manager.probe().await.lifecycle() == "Ready"
+            };
+            println!("{}", if ready { "Ready" } else { "Not ready" });
+            std::process::exit(if ready { 0 } else { 1 });
+        }
+        Some(Command::Snapshot { root }) => {
+            run_with_daemon(root.clone(), "POST", "/api/snapshot", None, |root| async {
+                let mut manager = Manager::discover(root)?;
+                manager.create_golden_snapshot()?;
+                println!("Golden Snapshot created");
+                Ok(())
+            })
+            .await
+        }
+        Some(Command::Services { root }) => {
+            if let Some((_, port)) = daemon_info(root.clone()) {
+                let value = delegate(port, "GET", "/api/services", None).await?;
+                if let Some(services) = value["services"].as_array() {
+                    for service in services {
+                        println!(
+                            "{}  {}/{}",
+                            service["unit"].as_str().unwrap_or_default(),
+                            service["active"].as_str().unwrap_or_default(),
+                            service["sub"].as_str().unwrap_or_default()
+                        );
+                    }
+                } else {
+                    print_result(value)?;
+                }
+            } else {
+                let manager = Manager::discover(root)?;
+                let output = manager
+                    .guest("systemctl list-units --type=service --all --no-legend --no-pager --plain 'iora-*'")
+                    .await?;
+                print!("{output}");
+            }
+            Ok(())
+        }
+        Some(Command::Guest { command, root }) => {
+            if let Some((_, port)) = daemon_info(root.clone()) {
+                let value = delegate(port, "POST", "/api/guest", Some(json!({"command": command})))
+                    .await?;
+                if let Some(output) = value["output"].as_str() {
+                    print!("{output}");
+                } else {
+                    print_result(value)?;
+                }
+            } else {
+                let manager = Manager::discover(root)?;
+                let output = manager.guest(&command).await?;
+                print!("{output}");
+            }
+            Ok(())
+        }
+        Some(Command::Ssh { root }) => {
+            let manager = Manager::discover(root)?;
+            manager.open_ssh()?;
+            println!("SSH session closed");
+            Ok(())
+        }
+        Some(Command::Website { root }) => {
+            let manager = Manager::discover(root)?;
+            manager.open_url()?;
+            println!("Website opened");
+            Ok(())
+        }
+    }
 }
-fn doctor(frame: &mut Frame, area: Rect, app: &App) {
-    let p = &app.probe;
-    let checks = [
-        ("QEMU process", p.process),
-        ("QMP control", p.qmp),
-        ("QGA rescue", p.qga),
-        (
-            "systemd operational",
-            p.systemd == "running" || p.systemd == "degraded",
-        ),
-        ("Guest network", p.guest_ip.is_some()),
-        ("SSH", p.ssh),
-        ("iora-home internal", p.internal_home),
-        ("iora-home external", p.external_home),
-        ("Live development", p.dev_watcher),
-    ];
-    let lines = checks
-        .into_iter()
-        .map(|(name, ok)| line(name, yes(ok), status_color(ok)))
-        .collect::<Vec<_>>();
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .title(" Live Doctor ")
-                .borders(Borders::ALL),
-        ),
-        area,
-    );
+
+async fn serve(port: u16, root: Option<PathBuf>, open: bool) -> Result<()> {
+    let manager = Manager::discover(root)?;
+    let cache = manager.root.join(".cache");
+    std::fs::create_dir_all(&cache)?;
+    let daemon_file = cache.join("daemon.json");
+    if let Ok(existing) = std::fs::read_to_string(&daemon_file) {
+        if let Ok(value) = serde_json::from_str::<Value>(&existing) {
+            if let (Some(pid), Some(port)) = (value["pid"].as_u64(), value["port"].as_u64()) {
+                if state::process_alive(pid as u32) {
+                    anyhow::bail!(
+                        "a daemon is already running on port {port}; stop it or use a different --port"
+                    );
+                }
+            }
+        }
+    }
+    let url = format!("http://127.0.0.1:{port}");
+    if open {
+        manager::open(&url)?;
+    }
+    std::fs::write(
+        &daemon_file,
+        serde_json::to_string_pretty(&json!({"pid": std::process::id(), "port": port}))?,
+    )?;
+    let daemon = daemon::Daemon::new(manager);
+    daemon::spawn(daemon.clone());
+    // SO_REUSEADDR lets the daemon rebind quickly after a forced kill,
+    // where Windows can otherwise keep the listen socket lingering.
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    socket.set_reuseaddr(true)?;
+    socket.bind(std::net::SocketAddr::from(([127, 0, 0, 1], port)))?;
+    let listener = socket
+        .listen(1024)
+        .with_context(|| format!("cannot bind dashboard port {port}"))?;
+    println!("IORA Dev Manager dashboard: {url}   (Ctrl+C stops the daemon)");
+    let result = axum::serve(listener, web::router(daemon)).await;
+    let _ = std::fs::remove_file(&daemon_file);
+    result?;
+    Ok(())
 }
-fn logs(frame: &mut Frame, area: Rect, app: &App) {
-    frame.render_widget(
-        Paragraph::new(
-            app.logs
-                .iter()
-                .map(|s| Line::from(s.as_str()))
-                .collect::<Vec<_>>(),
-        )
-        .wrap(Wrap { trim: false })
-        .block(
-            Block::default()
-                .title(" Guest / QEMU Logs ")
-                .borders(Borders::ALL),
-        ),
-        area,
-    );
+
+/// Run an action through the daemon when one is alive, otherwise one-shot locally.
+async fn run_with_daemon<F, Fut>(
+    root: Option<PathBuf>,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+    local: F,
+) -> Result<()>
+where
+    F: Fn(Option<PathBuf>) -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    if let Some((_, port)) = daemon_info(root.clone()) {
+        print_result(delegate(port, method, path, body).await?)?;
+    } else {
+        local(root).await?;
+    }
+    Ok(())
 }
-fn help(frame: &mut Frame, area: Rect) {
-    frame.render_widget(Clear, area);
-    frame.render_widget(Paragraph::new("IORA Dev Manager is the cross-platform control plane for one development VM.\n\nThe Rust process owns QEMU launch, live state reconstruction, QMP, QGA, health, services, Golden Snapshots and the TUI. SSH is optional; diagnostics and service operations continue through QGA.\n\nKeys: 1/2 start, p/c pause/resume, r reset, s/x graceful/hard stop, n Golden Snapshot, a SSH, g QGA rescue command, o website, f diagnosis, l logs, h restart home, q quit.").wrap(Wrap{trim:false}).block(Block::default().title(" Help ").borders(Borders::ALL)),area);
+
+/// Locate a live daemon via .cache/daemon.json and return its (pid, port).
+fn daemon_info(root: Option<PathBuf>) -> Option<(u32, u16)> {
+    let manager = Manager::discover(root).ok()?;
+    let path = manager.root.join(".cache/daemon.json");
+    let value: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let pid = value["pid"].as_u64()? as u32;
+    let port = value["port"].as_u64()? as u16;
+    state::process_alive(pid).then_some((pid, port))
 }
-fn line(name: &str, value: &str, color: Color) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{name:<22}"), Style::default().fg(Color::DarkGray)),
-        Span::styled(value.to_owned(), Style::default().fg(color)),
-    ])
+
+async fn delegate(port: u16, method: &str, path: &str, body: Option<Value>) -> Result<Value> {
+    let url = format!("http://127.0.0.1:{port}{path}");
+    let client = reqwest::Client::new();
+    let request = match method {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        _ => anyhow::bail!("unsupported method {method}"),
+    };
+    let request = if let Some(body) = body {
+        request
+            .header("content-type", "application/json")
+            .body(body.to_string())
+    } else {
+        request
+    };
+    let response = request.send().await?;
+    let text = response.text().await?;
+    Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
 }
-fn yes(v: bool) -> &'static str {
-    if v {
+
+fn print_result(value: Value) -> Result<()> {
+    let message = value["message"].as_str().unwrap_or("ok").to_string();
+    if value["ok"].as_bool().unwrap_or(false) {
+        println!("{message}");
+        Ok(())
+    } else {
+        anyhow::bail!("{message}")
+    }
+}
+
+fn yes(value: bool) -> &'static str {
+    if value {
         "OK"
     } else {
         "Unavailable"
     }
-}
-fn status_color(v: bool) -> Color {
-    if v {
-        Color::Green
-    } else {
-        Color::Red
-    }
-}
-fn print_doctor(app: &App) {
-    println!("IORA Dev Doctor\nStatus: {}\nQEMU: {}\nQMP: {}\nQGA: {}\nSSH: {}\nHome internal: {}\nHome external: {}",app.probe.lifecycle(),yes(app.probe.process),yes(app.probe.qmp),yes(app.probe.qga),yes(app.probe.ssh),yes(app.probe.internal_home),yes(app.probe.external_home));
 }

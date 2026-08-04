@@ -38,10 +38,10 @@ where
     Ok(response)
 }
 
-async fn request(port: u16, socket: &Path, messages: &[Value], qmp: bool) -> Result<Value> {
+async fn request(port: u16, _socket: &Path, messages: &[Value], qmp: bool) -> Result<Value> {
     #[cfg(unix)]
-    if socket.exists() {
-        let stream = timeout(Duration::from_secs(3), UnixStream::connect(socket))
+    if _socket.exists() {
+        let stream = timeout(Duration::from_secs(3), UnixStream::connect(_socket))
             .await
             .context("Unix channel connection timeout")??;
         return exchange(stream, messages, qmp).await;
@@ -57,6 +57,20 @@ async fn request(port: u16, socket: &Path, messages: &[Value], qmp: bool) -> Res
 
 pub async fn qmp(port: u16, socket: &Path, command: &str) -> Result<Value> {
     request(port, socket, &[json!({"execute": command})], true).await
+}
+pub async fn qmp_command(
+    port: u16,
+    socket: &Path,
+    execute: &str,
+    arguments: Value,
+) -> Result<Value> {
+    request(
+        port,
+        socket,
+        &[json!({"execute": execute, "arguments": arguments})],
+        true,
+    )
+    .await
 }
 pub async fn qga(port: u16, socket: &Path, value: Value) -> Result<Value> {
     request(port, socket, &[value], false).await

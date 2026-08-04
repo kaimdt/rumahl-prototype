@@ -3373,14 +3373,13 @@ dependencies = [
 
 [[package]]
 name = "iora-dev-manager"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "axum 0.7.9",
  "clap",
- "crossterm",
  "futures",
  "notify",
- "ratatui",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
