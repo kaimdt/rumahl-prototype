@@ -39,6 +39,7 @@ export const BACKEND = join(ROOT, "iora-os", "backend");
 const FRONTEND = join(ROOT, "frontend");
 const LOG_DIR = join(import.meta.dirname, ".logs");
 const COMPOSE_FILE = join(ROOT, "deploy", "docker-compose.yml");
+const DEV_LOCAL_STATE = join(ROOT, "iora-os", ".cache", "runtime-state.json");
 const DEV_ADMIN_USER = process.env.IORA_BOOTSTRAP_ADMIN_USER || "admin";
 const DEV_ADMIN_PASSWORD = process.env.IORA_BOOTSTRAP_ADMIN_PASSWORD || "iora-dev-admin";
 const DEV_OS_USER = process.env.IORA_DEV_OS_USER || process.env.USER || "iora";
@@ -169,7 +170,25 @@ export function discoverServices(root = ROOT, backend = BACKEND) {
     } catch {}
   }
 
-  // 3. Long-running Rust crates are grouped below services/, apps/system/, and dev/.
+  // 3. IORA OS development VM (PowerShell dev-local.ps1). It is explicit-only
+  // because it starts QEMU and may download/create the VM image on first use.
+  if (existsSync(join(root, "iora-os", "dev-local.ps1"))) {
+    services.push({
+      id: "iora-dev-vm",
+      name: "IORA Dev VM",
+      port: 2222,
+      cwd: join(root, "iora-os"),
+      cmd: IS_WIN ? "powershell.exe" : "pwsh",
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(root, "iora-os", "dev-local.ps1"), "-NoWatch"],
+      reinstallArgs: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(root, "iora-os", "dev-local.ps1"), "-Rebuild", "-NoWatch"],
+      group: "core",
+      type: "dev-vm",
+      srcDir: join(root, "iora-os"),
+      autostart: false,
+    });
+  }
+
+  // 4. Long-running Rust crates are grouped below services/, apps/system/, and dev/.
   const crateRoots = [join(backend, "services"), join(backend, "apps", "system"), join(backend, "dev")];
   for (const crateRoot of crateRoots) {
     if (!existsSync(crateRoot)) continue;
@@ -266,6 +285,29 @@ function categorize(name, desc) {
 // ── Service Discovery ───────────────────────────────────────────────
 
 const SERVICES = discoverServices();
+
+function readDevVmState() {
+  try {
+    if (!existsSync(DEV_LOCAL_STATE)) return null;
+    return JSON.parse(readFileSync(DEV_LOCAL_STATE, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function summarizeDevVmState() {
+  const vm = readDevVmState();
+  if (!vm) return "VM state: not initialized";
+  const parts = [
+    `VM ${vm.lifecycle || "unknown"}`,
+    `sync ${vm.syncStatus || "unknown"}`,
+    `watcher ${vm.watcherStatus || "unknown"}`,
+  ];
+  if (vm.lastReadyAt) parts.push(`ready ${vm.lastReadyAt}`);
+  if (vm.lastSyncAt) parts.push(`last sync ${vm.lastSyncAt}`);
+  if (vm.lastError) parts.push(`error ${vm.lastError}`);
+  return parts.join("  |  ");
+}
 
 // ── State ───────────────────────────────────────────────────────────
 
@@ -487,10 +529,18 @@ function stopService(id) {
 
 async function restartService(id) {
   const st = state.get(id);
+  const svc = SERVICES.find(s => s.id === id);
   if (st) st.restartCount++;
   stopService(id);
   await delay(1500);
-  startService(id);
+  if (svc?.type === "dev-vm" && Array.isArray(svc.reinstallArgs)) {
+    const originalArgs = svc.args;
+    svc.args = svc.reinstallArgs;
+    startService(id);
+    svc.args = originalArgs;
+  } else {
+    startService(id);
+  }
 }
 
 async function startAll() {
@@ -586,20 +636,35 @@ function disableHotReload() {
 /** Open Explorer/Finder/file manager in the service's source directory */
 function openExplorer(serviceId) {
   const svc = SERVICES.find(s => s.id === serviceId);
+  const st = state.get(serviceId);
   if (!svc) return;
   const dir = svc.srcDir || svc.cwd;
-  try {
-    const cmd = IS_WIN ? "explorer" : (platform() === "darwin" ? "open" : "xdg-open");
-    const p = spawn(cmd, [dir], { stdio: "ignore", detached: true, shell: IS_WIN, windowsHide: true });
-    p.unref();
-  } catch {}
+  if (!existsSync(dir)) { st?.logs.push(`${ts()} [dev-runner] Cannot open missing path: ${dir}`); draw(); return; }
+  const commands = IS_WIN
+    ? [["explorer.exe", [dir], false], ["cmd.exe", ["/c", "start", "", dir], false]]
+    : platform() === "darwin"
+      ? [["open", [dir], false]]
+      : [["xdg-open", [dir], false], ["gio", ["open", dir], false]];
+  for (const [cmd, args, shell] of commands) {
+    try {
+      const p = spawn(cmd, args, { stdio: "ignore", detached: true, shell, windowsHide: true });
+      p.on("error", err => st?.logs.push(`${ts()} [dev-runner] ${cmd} failed: ${err.message}`));
+      p.unref();
+      st?.logs.push(`${ts()} [dev-runner] Opened ${dir}`);
+      draw();
+      return;
+    } catch (err) { st?.logs.push(`${ts()} [dev-runner] ${cmd} failed: ${err.message}`); }
+  }
+  draw();
 }
 
 /** Open a new terminal window in the service's working directory */
 function openTerminal(serviceId) {
   const svc = SERVICES.find(s => s.id === serviceId);
+  const st = state.get(serviceId);
   if (!svc) return;
   const dir = svc.srcDir || svc.cwd;
+  if (!existsSync(dir)) { st?.logs.push(`${ts()} [dev-runner] Cannot open terminal for missing path: ${dir}`); draw(); return; }
   try {
     if (IS_WIN) {
       // Try Windows Terminal first, fall back to cmd
@@ -832,6 +897,7 @@ function drawMain() {
     + (errorCount > 0 ? `  ${A.red}${errorCount}${A.reset} err` : "")
     + `  ${A.dim}/${SERVICES.length}${A.reset}`
     + `  │  Hot-Reload ${watchIcon}`
+    + `  │  Watchers ${A.cyan}${watchers.length}${A.reset}`
     + `  │  ${A.dim}${ts()}${A.reset}`;
   write(fit(statusLine, W));
   row++;
@@ -842,6 +908,9 @@ function drawMain() {
     row++;
     moveTo(row, 1);
     write(fit(` ${A.bold}Credentials:${A.reset} IORA ${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}  OS ${DEV_OS_USER} / ${DEV_OS_PASSWORD}`, W));
+    row++;
+    moveTo(row, 1);
+    write(fit(` ${A.bold}Dev VM:${A.reset} ${summarizeDevVmState()}`, W));
     row++;
   }
 
@@ -946,7 +1015,7 @@ function drawMain() {
     moveTo(footerRow + 1, 1);
     write(fit(` ${A.cyan}↑↓${A.reset} Navigate  ${A.cyan}Space${A.reset} Toggle  ${A.cyan}Enter${A.reset} Info  ${A.cyan}l${A.reset} Logs  ${A.cyan}→${A.reset} Start  ${A.cyan}←${A.reset} Stop`, W));
     moveTo(footerRow + 2, 1);
-    write(fit(` ${A.cyan}a${A.reset} Start all  ${A.cyan}s${A.reset} Stop all  ${A.cyan}r${A.reset} Restart  ${A.cyan}R${A.reset} Restart all  ${A.cyan}w${A.reset} Hot-reload  ${A.cyan}B${A.reset} Build`, W));
+    write(fit(` ${A.cyan}a${A.reset} Start all  ${A.cyan}s${A.reset} Stop all  ${A.cyan}r${A.reset} Restart/Reinstall  ${A.cyan}R${A.reset} Restart all  ${A.cyan}w${A.reset} Hot-reload  ${A.cyan}B${A.reset} Build`, W));
     moveTo(footerRow + 3, 1);
     write(fit(` ${A.cyan}f${A.reset} Explorer   ${A.cyan}t${A.reset} Terminal  ${A.cyan}e${A.reset} Logs→Editor  ${A.cyan}q${A.reset}/Ctrl+C Quit  ${A.dim}Mouse: click to select/toggle${A.reset}`, W));
   } else if (footerLines >= 2) {
@@ -1046,6 +1115,17 @@ function drawInfo() {
     ["Command", `${svc.cmd} ${svc.args.join(" ")}`],
     ["CWD", svc.cwd],
   ];
+  if (svc.type === "dev-vm") {
+    const vm = readDevVmState();
+    fields.push(["Install", "Right arrow / Space starts dev-local.ps1 safely"]);
+    fields.push(["Reinstall", "r runs dev-local.ps1 -Rebuild -NoWatch"]);
+    fields.push(["VM Life", vm?.lifecycle || "not initialized"]);
+    fields.push(["Sync", vm?.syncStatus || "unknown"]);
+    fields.push(["Watcher", vm?.watcherStatus || "unknown"]);
+    fields.push(["Last Ready", vm?.lastReadyAt || "—"]);
+    fields.push(["Last Sync", vm?.lastSyncAt || "—"]);
+    fields.push(["Last Error", vm?.lastError || "—"]);
+  }
   if (svc.id === "iora-home") {
     fields.push(["IORA Login", `${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}`]);
     fields.push(["OS Login", `${DEV_OS_USER} / ${DEV_OS_PASSWORD}`]);

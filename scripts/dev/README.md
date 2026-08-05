@@ -163,13 +163,14 @@ node start-full.mjs --port=3002   # Custom backend port
 **Auto-discovery:**
 - Scans `iora-os/backend/services/` for Rust services
 - Detects `frontend/package.json` for Vite
-- Lists system apps and development-image services without automatically starting them
+- Lists system apps, the IORA Dev VM, and development-image services without automatically starting them
 
 **Reliable local lifecycle:**
 - Uses the monorepo root and the nested Cargo workspace instead of the legacy backend path
 - Starts the existing PostgreSQL Compose service when port 5432 is unavailable
 - Supplies service-specific development ports, initialized database URLs, and iora-home bootstrap credentials
-- Displays frontend/backend URLs plus IORA and OS development credentials in the manager and iora-home info view
+- Displays frontend/backend URLs, IORA/OS development credentials, Dev VM lifecycle, last sync time, and watcher status in the manager and info views
+- The IORA Dev VM entry starts `dev-local.ps1 -NoWatch` via Start/Space and runs a safe reinstall with `dev-local.ps1 -Rebuild -NoWatch` via Restart/Reinstall (`r`)
 - Keeps a service in `START` until its TCP port is reachable and reports `WAIT` when a running process loses health
 - Stops the complete Cargo process group so restarts do not leave orphaned binaries behind
 - Uses native per-directory watchers on Linux, macOS, and Windows; Vite remains responsible for frontend HMR

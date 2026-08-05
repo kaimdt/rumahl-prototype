@@ -158,8 +158,13 @@ impl Manager {
         std::fs::create_dir_all(&cache)?;
         let disk = cache.join("iora-dev-vm.qcow2");
         if !disk.exists() {
+            self.bootstrap_with_dev_local()?;
+            self.state = RuntimeState::load(&self.state_path);
+            if self.state.process_alive() || disk.exists() {
+                return Ok(());
+            }
             anyhow::bail!(
-                "VM disk is missing at {}; import or create the development image before starting",
+                "dev-local.ps1 completed but VM disk is still missing at {}",
                 disk.display()
             )
         }
@@ -336,6 +341,28 @@ impl Manager {
             .collect();
         self.state.save(&self.state_path)?;
         std::fs::write(cache.join("qemu.pid"), child.id().to_string())?;
+        Ok(())
+    }
+
+    fn bootstrap_with_dev_local(&self) -> Result<()> {
+        let script = self.root.join("dev-local.ps1");
+        if !script.exists() {
+            anyhow::bail!(
+                "VM disk is missing at {} and dev-local.ps1 was not found to create it",
+                self.root.join(".cache/iora-dev-vm.qcow2").display()
+            );
+        }
+        let shell = if cfg!(windows) { "powershell.exe" } else { "pwsh" };
+        let status = Command::new(shell)
+            .current_dir(&self.root)
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&script)
+            .arg("-NoWatch")
+            .status()
+            .with_context(|| format!("failed to launch {} for VM bootstrap", script.display()))?;
+        if !status.success() {
+            anyhow::bail!("dev-local.ps1 failed while creating or starting the development VM")
+        }
         Ok(())
     }
 
@@ -626,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn native_start_refuses_missing_disk_without_invoking_a_script() {
+    fn native_start_reports_missing_disk_when_bootstrap_script_is_unavailable() {
         let root = std::env::temp_dir().join(format!("iora-dev-manager-{}", std::process::id()));
         let mut manager = Manager {
             state_path: root.join(".cache/runtime-state.json"),
@@ -634,7 +661,7 @@ mod tests {
             state: RuntimeState::default(),
         };
         let error = manager.start(NetworkMode::Slirp, &[]).unwrap_err();
-        assert!(error.to_string().contains("VM disk is missing"));
+        assert!(error.to_string().contains("dev-local.ps1 was not found"));
         let _ = std::fs::remove_dir_all(root);
     }
 }
