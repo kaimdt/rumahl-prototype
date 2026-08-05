@@ -30,6 +30,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/start", post(start))
         .route("/api/stop", post(stop))
         .route("/api/kill", post(kill))
+        .route("/api/reinstall", post(reinstall))
         .route("/api/pause", post(pause))
         .route("/api/resume", post(resume))
         .route("/api/reset", post(reset))
@@ -87,6 +88,13 @@ async fn stop(State(daemon): State<Arc<Daemon>>, Json(body): Json<StopBody>) -> 
 async fn kill(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
     match daemon.stop(true).await {
         Ok(()) => Json(json!({"ok": true, "message": "VM process terminated"})),
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+async fn reinstall(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    match daemon.reinstall().await {
+        Ok(()) => Json(json!({"ok": true, "message": "VM reinstall requested"})),
         Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
     }
 }

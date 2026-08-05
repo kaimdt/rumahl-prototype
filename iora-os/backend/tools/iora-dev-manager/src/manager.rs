@@ -73,7 +73,15 @@ impl Manager {
         })
     }
 
+    fn refresh_state_from_disk(&mut self) {
+        let disk_state = RuntimeState::load(&self.state_path);
+        if disk_state.updated_at.is_some() || disk_state.pid.is_some() || disk_state.lifecycle != "Stopped" {
+            self.state = disk_state;
+        }
+    }
+
     pub async fn probe(&mut self) -> Probe {
+        self.refresh_state_from_disk();
         let mut probe = Probe {
             process: self.state.process_alive(),
             dev_watcher: self.state.watcher_status == "Running",
@@ -143,6 +151,7 @@ impl Manager {
     }
 
     pub fn start(&mut self, mode: NetworkMode, mappings: &[PortMapping]) -> Result<()> {
+        self.refresh_state_from_disk();
         if self.state.process_alive() {
             anyhow::bail!("VM is already running")
         }
@@ -158,7 +167,7 @@ impl Manager {
         std::fs::create_dir_all(&cache)?;
         let disk = cache.join("iora-dev-vm.qcow2");
         if !disk.exists() {
-            self.spawn_dev_local_bootstrap()?;
+            self.spawn_dev_local_bootstrap(false)?;
             self.state.lifecycle = "Installing".into();
             self.state.vm_disk = Some(disk);
             self.state.last_error = None;
@@ -341,7 +350,7 @@ impl Manager {
         Ok(())
     }
 
-    fn spawn_dev_local_bootstrap(&self) -> Result<()> {
+    fn spawn_dev_local_bootstrap(&self, rebuild: bool) -> Result<()> {
         let script = self.root.join("dev-local.ps1");
         if !script.exists() {
             anyhow::bail!(
@@ -358,13 +367,27 @@ impl Manager {
             .current_dir(&self.root)
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&script)
-            .arg("-NoWatch")
+            .args(if rebuild { vec!["-Rebuild", "-NoWatch"] } else { vec!["-NoWatch"] })
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
             .spawn()
             .with_context(|| format!("failed to launch {} for VM bootstrap", script.display()))?;
         std::fs::write(self.root.join(".cache/dev-local-bootstrap.pid"), child.id().to_string())?;
+        Ok(())
+    }
+
+    pub fn reinstall(&mut self) -> Result<()> {
+        self.refresh_state_from_disk();
+        if self.state.process_alive() {
+            self.hard_stop()?;
+        }
+        self.spawn_dev_local_bootstrap(true)?;
+        self.state.lifecycle = "Reinstalling".into();
+        self.state.pid = None;
+        self.state.provisioned = false;
+        self.state.last_error = None;
+        self.state.save(&self.state_path)?;
         Ok(())
     }
 
@@ -434,9 +457,33 @@ impl Manager {
         }
         self.qmp_action("system_powerdown").await
     }
-    pub fn hard_stop(&self) -> Result<()> {
-        let pid = self.state.pid.context("VM PID is unknown")?;
-        kill(pid)
+    pub fn hard_stop(&mut self) -> Result<()> {
+        self.refresh_state_from_disk();
+        let mut killed_any = false;
+        if let Some(pid) = self.state.pid {
+            if kill(pid).is_ok() {
+                killed_any = true;
+            }
+        }
+        for pid_file in ["qemu.pid", "dev-local-bootstrap.pid"] {
+            let path = self.root.join(".cache").join(pid_file);
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                if let Ok(pid) = raw.trim().parse::<u32>() {
+                    if kill(pid).is_ok() {
+                        killed_any = true;
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(path);
+        }
+        self.state.pid = None;
+        self.state.lifecycle = "Stopped".into();
+        self.state.save(&self.state_path)?;
+        if killed_any || !self.state.process_alive() {
+            Ok(())
+        } else {
+            anyhow::bail!("No QEMU or bootstrap process could be terminated")
+        }
     }
     pub fn open_ssh(&self) -> Result<()> {
         let (host, port, _) = self.state.connection();
@@ -599,7 +646,7 @@ fn kill(pid: u32) -> Result<()> {
 #[cfg(windows)]
 fn kill(pid: u32) -> Result<()> {
     Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
         .status()?
         .success()
         .then_some(())

@@ -143,6 +143,7 @@
         <button onclick="act('/api/reset')">Reset</button>
         <button onclick="act('/api/stop', {hard:false})">Graceful stop</button>
         <button class="danger" onclick="act('/api/kill')">Hard stop</button>
+        <button class="danger" onclick="act('/api/reinstall')">Reinstall VM</button>
         <button onclick="act('/api/snapshot')">Golden Snapshot</button>
       </div>
     </div>
@@ -305,7 +306,7 @@
       ['IORA home', 'http://' + conn.host + ':' + conn.home + ' (' + (probe.external_home ? 'OK' : 'down') + ')'],
       ['QMP / QGA', (probe.qmp ? 'OK' : 'down') + ' / ' + (probe.qga ? 'OK' : 'down')],
       ['Hot reload', state.watcherStatus || '-'],
-      ['Source sync', state.syncStatus || '-'],
+      ['Source sync', (state.syncStatus || '-') + (state.lastSyncAt ? ' @ ' + state.lastSyncAt : '')],
       ['Acceleration', state.acceleration || '-'],
       ['PID', state.pid || '-'],
       ['Golden snapshot', state.goldenSnapshot ? 'yes' : 'no'],
