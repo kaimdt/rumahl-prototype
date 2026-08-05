@@ -39,6 +39,10 @@ export const BACKEND = join(ROOT, "iora-os", "backend");
 const FRONTEND = join(ROOT, "frontend");
 const LOG_DIR = join(import.meta.dirname, ".logs");
 const COMPOSE_FILE = join(ROOT, "deploy", "docker-compose.yml");
+const DEV_ADMIN_USER = process.env.IORA_BOOTSTRAP_ADMIN_USER || "admin";
+const DEV_ADMIN_PASSWORD = process.env.IORA_BOOTSTRAP_ADMIN_PASSWORD || "iora-dev-admin";
+const DEV_OS_USER = process.env.IORA_DEV_OS_USER || process.env.USER || "iora";
+const DEV_OS_PASSWORD = process.env.IORA_DEV_OS_PASSWORD || "iora-dev-os";
 
 const SERVICE_PORTS = {
   "iora-home": 3001, "iora-core": 8090, "iora-control": 8091,
@@ -313,12 +317,20 @@ export function databaseUrlFor(serviceId, env = process.env) {
 
 function serviceEnv(svc) {
   const env = { ...process.env, FORCE_COLOR: "1", RUST_LOG: process.env.RUST_LOG || "info" };
-  if (svc.type !== "rust") return env;
+  if (svc.type !== "rust") {
+    env.VITE_IORA_BACKEND_URL ||= `http://localhost:${process.env.BACKEND_PORT || SERVICE_PORTS["iora-home"]}`;
+    return env;
+  }
   env.DATABASE_URL = databaseUrlFor(svc.id, env);
   if (svc.port) env.PORT ||= String(svc.port);
   env.POSTGRES_ADMIN_URL ||= databaseUrlFor("postgres", { ...env, DATABASE_URL: "" }).replace(/\/iora_postgres$/, "/postgres");
   env.IORA_FRONTEND_DEV_URL ||= `http://localhost:${process.env.VITE_PORT || 5173}`;
   env.IORA_DEV_MODE ||= "true";
+  env.IORA_BOOTSTRAP_ADMIN_USER ||= DEV_ADMIN_USER;
+  env.IORA_BOOTSTRAP_ADMIN_PASSWORD ||= DEV_ADMIN_PASSWORD;
+  env.IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME ||= "IORA Dev Admin";
+  env.IORA_DEV_OS_USER ||= DEV_OS_USER;
+  env.IORA_DEV_OS_PASSWORD ||= DEV_OS_PASSWORD;
   return env;
 }
 
@@ -824,6 +836,15 @@ function drawMain() {
   write(fit(statusLine, W));
   row++;
 
+  if (H >= 16) {
+    moveTo(row, 1);
+    write(fit(` ${A.bold}Access:${A.reset} Frontend http://127.0.0.1:${process.env.VITE_PORT || 5173}  Backend http://127.0.0.1:${process.env.BACKEND_PORT || SERVICE_PORTS["iora-home"]}`, W));
+    row++;
+    moveTo(row, 1);
+    write(fit(` ${A.bold}Credentials:${A.reset} IORA ${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}  OS ${DEV_OS_USER} / ${DEV_OS_PASSWORD}`, W));
+    row++;
+  }
+
   // ── Service list ────────────────────────────────────────
   const footerLines = H >= 14 ? 4 : (H >= 10 ? 2 : 1);
   const availRows = Math.max(1, H - row - footerLines);
@@ -1025,6 +1046,11 @@ function drawInfo() {
     ["Command", `${svc.cmd} ${svc.args.join(" ")}`],
     ["CWD", svc.cwd],
   ];
+  if (svc.id === "iora-home") {
+    fields.push(["IORA Login", `${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}`]);
+    fields.push(["OS Login", `${DEV_OS_USER} / ${DEV_OS_PASSWORD}`]);
+    fields.push(["Frontend", `http://127.0.0.1:${process.env.VITE_PORT || 5173}`]);
+  }
   if (svc.srcDir) fields.push(["Source", svc.srcDir]);
   if (st.startTime && (st.status === "running" || st.status === "starting")) {
     fields.push(["Uptime", fmtUptime(Date.now() - st.startTime)]);
