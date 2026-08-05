@@ -67,7 +67,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.6.1"
+$DEV_LOCAL_VERSION = "2.6.2"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -1583,8 +1583,7 @@ if ($mainSyncOk -and $Mode -eq "build") {
     wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@${wslHost}:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
 }
 if ($mainSyncOk -and $script:RuntimeState) {
-    $script:RuntimeState.syncStatus = "Synced"
-    $script:RuntimeState.lastSyncAt = (Get-Date).ToUniversalTime().ToString("o")
+    $script:RuntimeState = Update-IoraRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Synced"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
     Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
 }
 if (-not $mainSyncOk) {
@@ -2180,8 +2179,7 @@ if ($Mode -eq "source" -and -not $NoSync) {
         "--vm-port", "$VM_SSH_PORT", "--ssh-key", "$SSH_KEY", "--quiet"
     ) -WindowStyle Minimized | Out-Null
     if ($script:RuntimeState) {
-        $script:RuntimeState.syncStatus = "Watching"
-        $script:RuntimeState.lastSyncAt = (Get-Date).ToUniversalTime().ToString("o")
+        $script:RuntimeState = Update-IoraRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Watching"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
         Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
     }
 }

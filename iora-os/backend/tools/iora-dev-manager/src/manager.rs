@@ -158,15 +158,12 @@ impl Manager {
         std::fs::create_dir_all(&cache)?;
         let disk = cache.join("iora-dev-vm.qcow2");
         if !disk.exists() {
-            self.bootstrap_with_dev_local()?;
-            self.state = RuntimeState::load(&self.state_path);
-            if self.state.process_alive() || disk.exists() {
-                return Ok(());
-            }
-            anyhow::bail!(
-                "dev-local.ps1 completed but VM disk is still missing at {}",
-                disk.display()
-            )
+            self.spawn_dev_local_bootstrap()?;
+            self.state.lifecycle = "Installing".into();
+            self.state.vm_disk = Some(disk);
+            self.state.last_error = None;
+            self.state.save(&self.state_path)?;
+            return Ok(());
         }
         for socket in [cache.join("qga.sock"), cache.join("qmp.sock")] {
             if socket.exists() {
@@ -344,7 +341,7 @@ impl Manager {
         Ok(())
     }
 
-    fn bootstrap_with_dev_local(&self) -> Result<()> {
+    fn spawn_dev_local_bootstrap(&self) -> Result<()> {
         let script = self.root.join("dev-local.ps1");
         if !script.exists() {
             anyhow::bail!(
@@ -353,16 +350,21 @@ impl Manager {
             );
         }
         let shell = if cfg!(windows) { "powershell.exe" } else { "pwsh" };
-        let status = Command::new(shell)
+        let log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.root.join(".cache/dev-manager.log"))?;
+        let child = Command::new(shell)
             .current_dir(&self.root)
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&script)
             .arg("-NoWatch")
-            .status()
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log.try_clone()?))
+            .stderr(Stdio::from(log))
+            .spawn()
             .with_context(|| format!("failed to launch {} for VM bootstrap", script.display()))?;
-        if !status.success() {
-            anyhow::bail!("dev-local.ps1 failed while creating or starting the development VM")
-        }
+        std::fs::write(self.root.join(".cache/dev-local-bootstrap.pid"), child.id().to_string())?;
         Ok(())
     }
 

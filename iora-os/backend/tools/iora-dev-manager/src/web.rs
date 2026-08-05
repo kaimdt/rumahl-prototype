@@ -361,20 +361,24 @@ async fn logs(State(daemon): State<Arc<Daemon>>, Query(query): Query<LogsQuery>)
     }))
 }
 
+fn sanitize_sse_data(data: impl AsRef<str>) -> String {
+    data.as_ref().replace(['\r', '\n'], " ")
+}
+
 async fn log_stream(
     State(daemon): State<Arc<Daemon>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // Backlog first, then live events from the broadcast channel.
     let backlog = daemon.logs_snapshot(500);
     let initial = stream::iter(backlog.into_iter().map(|line| {
-        Ok::<Event, Infallible>(Event::default().event("log").data(line))
+        Ok::<Event, Infallible>(Event::default().event("log").data(sanitize_sse_data(line)))
     }));
     let receiver = daemon.events.subscribe();
     let live = stream::unfold(receiver, |mut receiver| async move {
         match receiver.recv().await {
             Ok(event) => {
                 // Sanitize defensively: SSE payloads must not contain newlines.
-                let data = event.message.replace(['\r', '\n'], " ");
+                let data = sanitize_sse_data(event.message);
                 Some((
                     Ok::<Event, Infallible>(Event::default().event(&event.kind).data(data)),
                     receiver,
