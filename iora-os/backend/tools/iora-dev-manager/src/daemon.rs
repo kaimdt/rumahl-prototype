@@ -8,7 +8,7 @@ use anyhow::Result;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -46,7 +46,7 @@ pub struct Daemon {
     pub desired: Mutex<Desired>,
     pub last_probe: Mutex<Probe>,
     pub last_message: Mutex<String>,
-    pub serial_offset: Mutex<u64>,
+    pub log_offsets: Mutex<HashMap<PathBuf, u64>>,
     pub status_cache: Mutex<Value>,
     pub stats_cache: Mutex<Value>,
     pub ports_opened: Mutex<bool>,
@@ -76,7 +76,7 @@ impl Daemon {
             }),
             last_probe: Mutex::new(Probe::default()),
             last_message: Mutex::new("Daemon started".into()),
-            serial_offset: Mutex::new(0),
+            log_offsets: Mutex::new(HashMap::new()),
             status_cache: Mutex::new(json!({"lifecycle": "Starting"})),
             stats_cache: Mutex::new(json!({})),
             ports_opened: Mutex::new(false),
@@ -183,7 +183,7 @@ impl Daemon {
 
     pub async fn stop(&self, hard: bool) -> Result<()> {
         self.desired.lock().unwrap().running = false;
-        let manager = self.manager.lock().await;
+        let mut manager = self.manager.lock().await;
         if hard {
             manager.hard_stop()?;
             self.emit("status", "VM process terminated");
@@ -212,6 +212,17 @@ impl Daemon {
         drop(manager);
         result?;
         self.emit("status", "Golden Snapshot created");
+        self.refresh_status_cache();
+        Ok(())
+    }
+
+    pub async fn reinstall(&self) -> Result<()> {
+        self.desired.lock().unwrap().running = true;
+        let mut manager = self.manager.lock().await;
+        manager.reinstall()?;
+        drop(manager);
+        *self.ports_opened.lock().unwrap() = false;
+        self.emit("status", "VM reinstall requested");
         self.refresh_status_cache();
         Ok(())
     }
@@ -301,8 +312,10 @@ impl Daemon {
     }
 
     async fn watchdog_tick(&self, last_lifecycle: &mut String) {
-        let serial_path = self.manager.lock().await.root.join(".cache/qemu-serial.log");
-        self.append_serial_log(&serial_path);
+        let root = self.manager.lock().await.root.clone();
+        self.append_serial_log(&root.join(".cache/qemu-serial.log"));
+        self.append_named_log("dev-local", &root.join(".cache/dev-local.log"));
+        self.append_named_log("dev-manager", &root.join(".cache/dev-manager.log"));
 
         let probe = {
             let mut manager = self.manager.lock().await;
@@ -330,6 +343,7 @@ impl Daemon {
             None,
             GiveUp,
             Restart(NetworkMode),
+            Reinstall,
         }
         let restart = {
             let mut desired = self.desired.lock().unwrap();
@@ -343,6 +357,14 @@ impl Daemon {
                 desired.retries = 0;
                 desired.message = "Ready".into();
                 RestartAction::None
+            } else if lifecycle == "Degraded" && probe.qga && !probe.internal_home && !desired.ever_ready {
+                desired.retries += 1;
+                if desired.retries >= 20 {
+                    desired.message = "Installation did not become healthy; reinstalling VM".into();
+                    RestartAction::Reinstall
+                } else {
+                    RestartAction::None
+                }
             } else if lifecycle != "Stopped" {
                 RestartAction::None
             } else if !desired.ever_ready {
@@ -373,6 +395,15 @@ impl Daemon {
                 let message = self.desired.lock().unwrap().message.clone();
                 self.record_error(&message).await;
                 self.emit("error", message);
+            }
+            RestartAction::Reinstall => {
+                self.emit("status", "Installation health check failed; reinstalling VM");
+                if let Err(error) = self.reinstall().await {
+                    let message = format!("auto-reinstall failed: {error:#}");
+                    self.desired.lock().unwrap().message = message.clone();
+                    self.record_error(&message).await;
+                    self.emit("error", message);
+                }
             }
             RestartAction::Restart(mode) => {
                 self.emit("status", "VM stopped unexpectedly; restarting");
@@ -626,12 +657,21 @@ impl Daemon {
         self.sync_live_forwarding().await;
     }
 
+    fn append_named_log(&self, label: &str, path: &Path) {
+        self.append_log_with_prefix(label, path);
+    }
+
     fn append_serial_log(&self, path: &Path) {
+        self.append_log_with_prefix("serial", path);
+    }
+
+    fn append_log_with_prefix(&self, label: &str, path: &Path) {
         let Ok(text) = std::fs::read_to_string(path) else {
             return;
         };
         let bytes = text.len() as u64;
-        let mut offset = self.serial_offset.lock().unwrap();
+        let mut offsets = self.log_offsets.lock().unwrap();
+        let offset = offsets.entry(path.to_path_buf()).or_insert(0);
         if bytes < *offset {
             *offset = 0; // the log was truncated; start over
         }
@@ -640,7 +680,7 @@ impl Daemon {
                 for line in added.lines().filter(|line| !line.trim().is_empty()) {
                     // Serial console lines end with \r on Windows; SSE
                     // payloads must not contain carriage returns or newlines.
-                    self.emit("log", format!("[serial] {}", line.trim_end_matches('\r')));
+                    self.emit("log", format!("[{label}] {}", line.trim_end_matches('\r')));
                 }
             }
             *offset = bytes;

@@ -142,7 +142,7 @@ async fn main() -> Result<()> {
         }
         Some(Command::Kill { root }) => {
             run_with_daemon(root.clone(), "POST", "/api/kill", None, |root| async {
-                let manager = Manager::discover(root)?;
+                let mut manager = Manager::discover(root)?;
                 manager.hard_stop()?;
                 println!("VM process terminated");
                 Ok(())

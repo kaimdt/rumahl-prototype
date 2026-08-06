@@ -73,7 +73,15 @@ impl Manager {
         })
     }
 
+    fn refresh_state_from_disk(&mut self) {
+        let disk_state = RuntimeState::load(&self.state_path);
+        if disk_state.updated_at.is_some() || disk_state.pid.is_some() || disk_state.lifecycle != "Stopped" {
+            self.state = disk_state;
+        }
+    }
+
     pub async fn probe(&mut self) -> Probe {
+        self.refresh_state_from_disk();
         let mut probe = Probe {
             process: self.state.process_alive(),
             dev_watcher: self.state.watcher_status == "Running",
@@ -143,6 +151,7 @@ impl Manager {
     }
 
     pub fn start(&mut self, mode: NetworkMode, mappings: &[PortMapping]) -> Result<()> {
+        self.refresh_state_from_disk();
         if self.state.process_alive() {
             anyhow::bail!("VM is already running")
         }
@@ -158,10 +167,12 @@ impl Manager {
         std::fs::create_dir_all(&cache)?;
         let disk = cache.join("iora-dev-vm.qcow2");
         if !disk.exists() {
-            anyhow::bail!(
-                "VM disk is missing at {}; import or create the development image before starting",
-                disk.display()
-            )
+            self.spawn_dev_local_bootstrap(false)?;
+            self.state.lifecycle = "Installing".into();
+            self.state.vm_disk = Some(disk);
+            self.state.last_error = None;
+            self.state.save(&self.state_path)?;
+            return Ok(());
         }
         for socket in [cache.join("qga.sock"), cache.join("qmp.sock")] {
             if socket.exists() {
@@ -339,6 +350,47 @@ impl Manager {
         Ok(())
     }
 
+    fn spawn_dev_local_bootstrap(&self, rebuild: bool) -> Result<()> {
+        let script = self.root.join("dev-local.ps1");
+        if !script.exists() {
+            anyhow::bail!(
+                "VM disk is missing at {} and dev-local.ps1 was not found to create it",
+                self.root.join(".cache/iora-dev-vm.qcow2").display()
+            );
+        }
+        let shell = if cfg!(windows) { "powershell.exe" } else { "pwsh" };
+        let log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.root.join(".cache/dev-manager.log"))?;
+        let child = Command::new(shell)
+            .current_dir(&self.root)
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&script)
+            .args(if rebuild { vec!["-Rebuild", "-NoWatch"] } else { vec!["-NoWatch"] })
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log.try_clone()?))
+            .stderr(Stdio::from(log))
+            .spawn()
+            .with_context(|| format!("failed to launch {} for VM bootstrap", script.display()))?;
+        std::fs::write(self.root.join(".cache/dev-local-bootstrap.pid"), child.id().to_string())?;
+        Ok(())
+    }
+
+    pub fn reinstall(&mut self) -> Result<()> {
+        self.refresh_state_from_disk();
+        if self.state.process_alive() {
+            self.hard_stop()?;
+        }
+        self.spawn_dev_local_bootstrap(true)?;
+        self.state.lifecycle = "Reinstalling".into();
+        self.state.pid = None;
+        self.state.provisioned = false;
+        self.state.last_error = None;
+        self.state.save(&self.state_path)?;
+        Ok(())
+    }
+
     pub fn create_golden_snapshot(&mut self) -> Result<()> {
         if self.state.process_alive() {
             anyhow::bail!("stop the VM before creating a Golden Snapshot")
@@ -405,9 +457,33 @@ impl Manager {
         }
         self.qmp_action("system_powerdown").await
     }
-    pub fn hard_stop(&self) -> Result<()> {
-        let pid = self.state.pid.context("VM PID is unknown")?;
-        kill(pid)
+    pub fn hard_stop(&mut self) -> Result<()> {
+        self.refresh_state_from_disk();
+        let mut killed_any = false;
+        if let Some(pid) = self.state.pid {
+            if kill(pid).is_ok() {
+                killed_any = true;
+            }
+        }
+        for pid_file in ["qemu.pid", "dev-local-bootstrap.pid"] {
+            let path = self.root.join(".cache").join(pid_file);
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                if let Ok(pid) = raw.trim().parse::<u32>() {
+                    if kill(pid).is_ok() {
+                        killed_any = true;
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(path);
+        }
+        self.state.pid = None;
+        self.state.lifecycle = "Stopped".into();
+        self.state.save(&self.state_path)?;
+        if killed_any || !self.state.process_alive() {
+            Ok(())
+        } else {
+            anyhow::bail!("No QEMU or bootstrap process could be terminated")
+        }
     }
     pub fn open_ssh(&self) -> Result<()> {
         let (host, port, _) = self.state.connection();
@@ -570,7 +646,7 @@ fn kill(pid: u32) -> Result<()> {
 #[cfg(windows)]
 fn kill(pid: u32) -> Result<()> {
     Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
         .status()?
         .success()
         .then_some(())
@@ -626,7 +702,7 @@ mod tests {
     }
 
     #[test]
-    fn native_start_refuses_missing_disk_without_invoking_a_script() {
+    fn native_start_reports_missing_disk_when_bootstrap_script_is_unavailable() {
         let root = std::env::temp_dir().join(format!("iora-dev-manager-{}", std::process::id()));
         let mut manager = Manager {
             state_path: root.join(".cache/runtime-state.json"),
@@ -634,7 +710,7 @@ mod tests {
             state: RuntimeState::default(),
         };
         let error = manager.start(NetworkMode::Slirp, &[]).unwrap_err();
-        assert!(error.to_string().contains("VM disk is missing"));
+        assert!(error.to_string().contains("dev-local.ps1 was not found"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

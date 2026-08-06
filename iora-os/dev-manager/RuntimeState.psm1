@@ -25,6 +25,7 @@ function New-IoraRuntimeState {
         watcherStatus = "Stopped"
         syncStatus = "Stopped"
         lastReadyAt = $null
+        lastSyncAt = $null
         lastError = $null
         cachePath = $CachePath
     }

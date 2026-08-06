@@ -6,12 +6,15 @@ test("discovers the monorepo frontend and nested Rust services", () => {
   const services = discoverServices();
   const frontend = services.find(service => service.id === "frontend");
   const home = services.find(service => service.id === "iora-home");
+  const devVm = services.find(service => service.id === "iora-dev-vm");
 
   assert.ok(services.length > 20);
   assert.equal(frontend?.cwd, `${ROOT}/frontend`);
   assert.equal(home?.cwd, BACKEND);
   assert.equal(home?.port, 3001);
   assert.equal(home?.autostart, true);
+  assert.equal(devVm?.autostart, false);
+  assert.equal(devVm?.type, "dev-vm");
 });
 
 test("does not autostart development-image applications with system services", () => {

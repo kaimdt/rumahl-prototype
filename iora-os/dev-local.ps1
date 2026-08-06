@@ -67,7 +67,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.6.0"
+$DEV_LOCAL_VERSION = "2.6.2"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -1156,7 +1156,7 @@ if ($existingProc) {
                 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { return $true }
             }
             # 2) netstat (always available, catches everything)
-            if (netstat -ano 2>$null | Select-String -Pattern "LISTENING" | Select-String -Pattern "[:.]${Port}\s") { return $true }
+            if (netstat -ano 2>$null | Select-String -Pattern "LISTENING" | Select-String -Pattern "(?::|\.)${Port}(?:\s|$)") { return $true }
             # 3) Definitive: try to BIND the port ourselves - exactly what QEMU
             #    will do. If the bind fails, QEMU would crash on this port too.
             try {
@@ -1168,7 +1168,7 @@ if ($existingProc) {
                 return $true
             }
         }
-        $skippedPorts = @()
+        $script:skippedPorts = @()
         function Add-PortIfFree {
             param([int]$Port, [string]$GuestPort)
             if (Test-PortListening -Port $Port) {
@@ -1186,8 +1186,8 @@ if ($existingProc) {
             Add-PortIfFree -Port $VM_HOME -GuestPort 8126
             Add-PortIfFree -Port $VM_BRIDGE -GuestPort 8101
             foreach ($p in $FWD_PORTS) { Add-PortIfFree -Port $p -GuestPort $p }
-            if ($skippedPorts.Count -gt 0) {
-                Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
+            if ($script:skippedPorts.Count -gt 0) {
+                Write-Warn "Skipped forwarded ports: $($script:skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
             }
         }
         $fwd = "user,id=n0" + $script:forwardRules
@@ -1341,7 +1341,11 @@ if ($existingProc) {
                 # always treated as acceleration failures.
                 $argError = $stderrText -notmatch 'whpx|WHPX|hypervisor' -and $stderrText -match 'exe: -[a-zA-Z]|does not support the option|invalid option|unrecognized'
                 if ($argError) {
-                    Stop-WithError "QEMU rejected the command line (configuration error, see stderr above). The VM disk was NOT modified. Fix the QEMU arguments (or update QEMU), then re-run; use -SkipWhpx to boot via TCG/SeaBIOS in the meantime."
+                    if ($stderrText -match "host forwarding rule 'tcp::(\d+)-") {
+                        Write-Warn "QEMU rejected host forwarding for port $($Matches[1]); continuing to TCG without modifying the VM disk. Free the port or use -Bridge if you need that forwarding."
+                    } else {
+                        Stop-WithError "QEMU rejected the command line (configuration error, see stderr above). The VM disk was NOT modified. Fix the QEMU arguments (or update QEMU), then re-run; use -SkipWhpx to boot via TCG/SeaBIOS in the meantime."
+                    }
                 }
                 # Real WHPX failure: WHPX can corrupt the overlay; recreate it
                 # (from the golden snapshot when one exists - instant, no
@@ -1579,7 +1583,7 @@ if ($mainSyncOk -and $Mode -eq "build") {
     wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@${wslHost}:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
 }
 if ($mainSyncOk -and $script:RuntimeState) {
-    $script:RuntimeState.syncStatus = "Synced"
+    $script:RuntimeState = Update-IoraRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Synced"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
     Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
 }
 if (-not $mainSyncOk) {
@@ -2175,7 +2179,7 @@ if ($Mode -eq "source" -and -not $NoSync) {
         "--vm-port", "$VM_SSH_PORT", "--ssh-key", "$SSH_KEY", "--quiet"
     ) -WindowStyle Minimized | Out-Null
     if ($script:RuntimeState) {
-        $script:RuntimeState.syncStatus = "Watching"
+        $script:RuntimeState = Update-IoraRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Watching"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
         Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
     }
 }
