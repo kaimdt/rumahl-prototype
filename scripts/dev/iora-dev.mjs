@@ -170,17 +170,34 @@ export function discoverServices(root = ROOT, backend = BACKEND) {
     } catch {}
   }
 
-  // 3. IORA OS development VM (PowerShell dev-local.ps1). It is explicit-only
-  // because it starts QEMU and may download/create the VM image on first use.
-  if (existsSync(join(root, "iora-os", "dev-local.ps1"))) {
+  // 3. IORA OS development VM
+  // Dynamically uses dev-local.ps1 for Windows and dev-local.sh for macOS/Linux.
+  // It is explicit-only because it starts QEMU and may download/create the VM image on first use.
+  const vmScriptPath = IS_WIN ? join(root, "iora-os", "dev-local.ps1") : join(root, "iora-os", "dev-local.sh");
+  if (existsSync(vmScriptPath)) {
+    const cmd = IS_WIN ? "powershell.exe" : "bash";
+    const baseArgs = IS_WIN
+      ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", vmScriptPath]
+      : [vmScriptPath];
+
+    // Map of advanced control commands
+    const controlArgs = {
+      default: [...baseArgs, IS_WIN ? "-NoWatch" : "--no-watch"],
+      rebuild: [...baseArgs, IS_WIN ? "-Rebuild" : "--rebuild", IS_WIN ? "-NoWatch" : "--no-watch"],
+      clean: [...baseArgs, IS_WIN ? "-Clean" : "--clean"],
+      stop: [...baseArgs, IS_WIN ? "-Stop" : "--stop"],
+      reprovision: [...baseArgs, IS_WIN ? "-Reprovision" : "--reprovision"],
+    };
+
     services.push({
       id: "iora-dev-vm",
       name: "IORA Dev VM",
       port: 2222,
       cwd: join(root, "iora-os"),
-      cmd: IS_WIN ? "powershell.exe" : "pwsh",
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(root, "iora-os", "dev-local.ps1"), "-NoWatch"],
-      reinstallArgs: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(root, "iora-os", "dev-local.ps1"), "-Rebuild", "-NoWatch"],
+      cmd,
+      args: controlArgs.default,
+      reinstallArgs: controlArgs.rebuild,
+      controlArgs,
       group: "core",
       type: "dev-vm",
       srcDir: join(root, "iora-os"),
@@ -319,6 +336,11 @@ let watchers = [];
 let shuttingDown = false;
 let cliMode = false;
 
+// Alert System
+let alerts = [];              // Array of { id, title, text, options: [{label, action}] }
+let activeAlertModal = null;  // id of the currently shown alert
+let alertCursor = 0;
+
 // View stack: "main" | "logs" | "info"
 let viewMode = "main";
 let viewServiceId = null;     // for logs/info view
@@ -416,13 +438,82 @@ function monitorServiceHealth(svc, st) {
     const healthy = await probePort(svc.port);
     if (healthy) {
       failedChecks = 0;
-      if (st.status === "starting" || st.status === "unhealthy") st.status = "running";
+      if (st.status === "starting" || st.status === "unhealthy") {
+        st.status = "running";
+        if (svc.type === "dev-vm") {
+          startDeepVmHealthChecks(svc, st);
+        }
+      }
     } else if (st.status === "running" && ++failedChecks >= 3) {
       st.status = "unhealthy";
       st.logs.push(`${ts()} [health] Port ${svc.port} stopped responding`);
+      if (svc.type === "dev-vm") {
+        if (st.deepHealthTimer) {
+          clearInterval(st.deepHealthTimer);
+          st.deepHealthTimer = null;
+        }
+        addAlert("vm-port-offline", "Dev VM Offline", "VM port 2222 is unresponsive.", [
+          { label: "Restart VM", action: () => controlVm(svc, "rebuild") },
+          { label: "Ignore", action: () => {} }
+        ]);
+      }
     }
     draw();
   }, 2000);
+}
+
+function startDeepVmHealthChecks(svc, st) {
+  if (st.deepHealthTimer) clearInterval(st.deepHealthTimer);
+  st.deepHealthTimer = setInterval(() => {
+    if (st.status !== "running" || shuttingDown) return;
+
+    // SSH check to see if key services are running
+    try {
+      const sshCmd = IS_WIN ? "ssh.exe" : "ssh";
+      const keyArgs = ["-p", "2222", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-i", join(ROOT, "iora-os", ".cache", "insecure_dev_key"), "root@127.0.0.1"];
+
+      const checkCmd = "systemctl is-active postgresql docker nginx iora-home || true";
+      const sshProc = spawn(sshCmd, [...keyArgs, checkCmd], { windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+
+      let out = "";
+      sshProc.stdout.on("data", d => out += d.toString());
+
+      sshProc.on("close", () => {
+        const lines = out.split("\n").filter(Boolean);
+        // Expecting 4 lines of output (active or inactive/failed)
+        if (lines.length >= 4) {
+          const statuses = {
+            postgresql: lines[0].trim(),
+            docker: lines[1].trim(),
+            nginx: lines[2].trim(),
+            "iora-home": lines[3].trim()
+          };
+
+          for (const [name, state] of Object.entries(statuses)) {
+            if (state !== "active") {
+              const alertId = `vm-svc-${name}-failed`;
+              addAlert(
+                alertId,
+                `VM Service Failed: ${name}`,
+                `The internal VM service '${name}' is ${state}.`,
+                [
+                  { label: `Restart ${name}`, action: () => {
+                      spawn(sshCmd, [...keyArgs, `systemctl restart ${name}`], { windowsHide: true, stdio: "ignore" });
+                      resolveAlert(alertId);
+                  }},
+                  { label: "Reprovision VM", action: () => {
+                      controlVm(svc, "reprovision");
+                      resolveAlert(alertId);
+                  }},
+                  { label: "Ignore", action: () => {} }
+                ]
+              );
+            }
+          }
+        }
+      });
+    } catch {}
+  }, 15000); // check every 15 seconds
 }
 
 function startService(id) {
@@ -491,9 +582,44 @@ function startService(id) {
     if (st.expectedStop || code === 0 || code === null) {
       st.status = "stopped";
     } else {
-      const recentLogs = st.logs.slice(-20).join("\n").toLowerCase();
+      const recentLogsStr = st.logs.slice(-20).join("\n");
+      const recentLogs = recentLogsStr.toLowerCase();
       const hasError = /\b(error|panic|fatal|failed|exception|cannot|thread .+ panicked)\b/.test(recentLogs);
       st.status = hasError ? "error" : "stopped";
+
+      // Smart Error Parsing & Suggestions
+      if (hasError) {
+        let alertTitle = `${svc.name} Failed`;
+        let alertText = `Process exited with code ${code}. Check logs for details.`;
+        let options = [{ label: "Restart Service", action: () => restartService(svc.id) }];
+
+        if (svc.type === "rust") {
+          if (recentLogsStr.includes("error[E")) { // Rust compiler error
+            alertTitle = `${svc.name} Compilation Error`;
+            alertText = "Rust compiler found syntax or type errors.";
+            options.push({ label: "Rebuild Backend (B)", action: () => buildAll() });
+          } else if (recentLogsStr.includes("No space left on device") || recentLogsStr.includes("failed to write")) {
+            alertTitle = `${svc.name} Disk Space Error`;
+            alertText = "Cargo failed due to disk space issues.";
+            options.push({ label: "Run Cargo Clean", action: () => spawn("cargo", ["clean"], {cwd: svc.cwd, stdio: "ignore"}) });
+          } else if (recentLogsStr.includes("address already in use") || recentLogsStr.includes("EADDRINUSE")) {
+            alertTitle = `${svc.name} Port Collision`;
+            alertText = `Port ${svc.port || '?'} is already in use by another process.`;
+          }
+        } else if (svc.type === "frontend") {
+          if (recentLogsStr.includes("ERR_MODULE_NOT_FOUND") || recentLogsStr.includes("cannot find module")) {
+            alertTitle = `${svc.name} Missing Dependency`;
+            alertText = "Node.js failed to find a required module.";
+            options.push({ label: "Run npm install", action: () => spawn("npm", ["install"], {cwd: svc.cwd, stdio: "ignore", shell: IS_WIN}) });
+          } else if (recentLogsStr.includes("EADDRINUSE")) {
+            alertTitle = `${svc.name} Port Collision`;
+            alertText = `Port ${svc.port || '?'} is already in use.`;
+          }
+        }
+
+        options.push({ label: "Ignore", action: () => {} });
+        addAlert(`${svc.id}-exit-${Date.now()}`, alertTitle, alertText, options);
+      }
     }
     st.logs.push(`${ts()} Exited (code=${code}, signal=${signal})`);
     st.proc = null;
@@ -507,6 +633,11 @@ function startService(id) {
 function stopService(id) {
   const st = state.get(id);
   if (!st || !st.proc) return;
+
+  if (st.deepHealthTimer) {
+    clearInterval(st.deepHealthTimer);
+    st.deepHealthTimer = null;
+  }
 
   const proc = st.proc;
   st.expectedStop = true;
@@ -540,6 +671,26 @@ async function restartService(id) {
     svc.args = originalArgs;
   } else {
     startService(id);
+  }
+}
+
+function controlVm(svc, action) {
+  const st = state.get(svc.id);
+  if (st?.proc) {
+    stopService(svc.id);
+  }
+
+  if (action === "stop") {
+    // Already stopped by the above
+    return;
+  }
+
+  // Swap args and start
+  if (svc.controlArgs && svc.controlArgs[action]) {
+    const originalArgs = svc.args;
+    svc.args = svc.controlArgs[action];
+    startService(svc.id);
+    svc.args = originalArgs;
   }
 }
 
@@ -855,6 +1006,58 @@ function draw() {
     case "info":  drawInfo();  break;
     case "build": break; // build draws itself
   }
+
+  if (activeAlertModal) {
+    drawAlertModal();
+  }
+}
+
+function drawAlertModal() {
+  const alert = alerts.find(a => a.id === activeAlertModal);
+  if (!alert) return;
+
+  const W = termCols();
+  const H = termRows();
+
+  const modalW = Math.min(W - 4, 80);
+  const modalH = 8 + (alert.options ? alert.options.length : 0);
+
+  const startX = Math.floor((W - modalW) / 2);
+  const startY = Math.floor((H - modalH) / 2);
+
+  // Draw backdrop border
+  moveTo(startY, startX);
+  write(`${A.bold}${A.red}╔${hline(modalW - 2, "═")}╗${A.reset}`);
+  for (let i = 1; i < modalH - 1; i++) {
+    moveTo(startY + i, startX);
+    write(`${A.bold}${A.red}║${A.reset}${fit(" ", modalW - 2)}${A.bold}${A.red}║${A.reset}`);
+  }
+  moveTo(startY + modalH - 1, startX);
+  write(`${A.bold}${A.red}╚${hline(modalW - 2, "═")}╝${A.reset}`);
+
+  // Draw content
+  let row = startY + 1;
+  moveTo(row, startX + 2);
+  write(`${A.bgRed}${A.white}${A.bold} ALERT: ${alert.title} ${A.reset}`);
+  row += 2;
+
+  // Draw text (word wrapped manually or fit)
+  moveTo(row, startX + 2);
+  write(fit(alert.text, modalW - 4));
+  row += 2;
+
+  // Draw options
+  if (alert.options && alert.options.length > 0) {
+    for (let i = 0; i < alert.options.length; i++) {
+      moveTo(row + i, startX + 2);
+      const prefix = i === alertCursor ? `${A.bold}${A.cyan}> [${i + 1}]` : `  [${i + 1}]`;
+      const suffix = i === alertCursor ? `${A.reset}` : "";
+      write(`${prefix} ${alert.options[i].label}${suffix}`);
+    }
+  }
+
+  moveTo(startY + modalH - 2, startX + 2);
+  write(`${A.dim}Use UP/DOWN to select, ENTER to act, ESC to dismiss (turns into button)${A.reset}`);
 }
 
 // ── Main View ───────────────────────────────────────────────────────
@@ -890,6 +1093,7 @@ function drawMain() {
   const starting = [...state.values()].filter(s => s.status === "starting").length;
   const errorCount = [...state.values()].filter(s => s.status === "error").length;
   const watchIcon = hotReload ? `${A.green}●${A.reset}` : `${A.dim}○${A.reset}`;
+  const alertsBadge = alerts.length > 0 ? `  │  ${A.bgRed}${A.white} [!] ${alerts.length} Alert(s) (Press 'A') ${A.reset}` : "";
 
   moveTo(row, 1);
   const statusLine = ` ${A.green}${running}${A.reset} run`
@@ -898,6 +1102,7 @@ function drawMain() {
     + `  ${A.dim}/${SERVICES.length}${A.reset}`
     + `  │  Hot-Reload ${watchIcon}`
     + `  │  Watchers ${A.cyan}${watchers.length}${A.reset}`
+    + alertsBadge
     + `  │  ${A.dim}${ts()}${A.reset}`;
   write(fit(statusLine, W));
   row++;
@@ -1117,8 +1322,9 @@ function drawInfo() {
   ];
   if (svc.type === "dev-vm") {
     const vm = readDevVmState();
-    fields.push(["Install", "Right arrow / Space starts dev-local.ps1 safely"]);
-    fields.push(["Reinstall", "r runs dev-local.ps1 -Rebuild -NoWatch"]);
+    fields.push(["Controls", "[p] Reprovision  [c] Clean  [s] Stop  [S] SSH/Terminal"]);
+    fields.push(["Install", "Right arrow / Space starts VM normally"]);
+    fields.push(["Reinstall", "[r] Rebuilds VM fresh"]);
     fields.push(["VM Life", vm?.lifecycle || "not initialized"]);
     fields.push(["Sync", vm?.syncStatus || "unknown"]);
     fields.push(["Watcher", vm?.watcherStatus || "unknown"]);
@@ -1245,6 +1451,20 @@ function splitInput(data) {
   return result;
 }
 
+function resolveAlert(id) {
+  alerts = alerts.filter(a => a.id !== id);
+  if (activeAlertModal === id) activeAlertModal = null;
+  draw();
+}
+
+function addAlert(id, title, text, options) {
+  if (alerts.find(a => a.id === id)) return;
+  alerts.push({ id, title, text, options });
+  activeAlertModal = id;
+  alertCursor = 0;
+  draw();
+}
+
 async function handleKey(key) {
   // Ctrl+C
   if (key === "\x03") { shutdown(); return; }
@@ -1254,6 +1474,50 @@ async function handleKey(key) {
   if (mouse) {
     handleMouse(mouse);
     return;
+  }
+
+  // ── Alert Modal View ─────────────────────────────────────
+  if (activeAlertModal) {
+    const alert = alerts.find(a => a.id === activeAlertModal);
+    if (!alert) { activeAlertModal = null; draw(); return; }
+
+    if (key === ESC || key === "q" || key === "\x7f" || key === "\b") {
+      activeAlertModal = null; // dismiss without resolving
+      draw();
+      return;
+    }
+
+    if (key === SEQ_UP) {
+      alertCursor = Math.max(0, alertCursor - 1);
+      draw();
+      return;
+    }
+
+    if (key === SEQ_DOWN) {
+      alertCursor = Math.min((alert.options?.length || 1) - 1, alertCursor + 1);
+      draw();
+      return;
+    }
+
+    // Support number keys 1-9
+    if (/[1-9]/.test(key)) {
+      const idx = parseInt(key, 10) - 1;
+      if (alert.options && idx < alert.options.length) {
+        alert.options[idx].action();
+        resolveAlert(alert.id);
+      }
+      return;
+    }
+
+    if (key === "\r" || key === "\n" || key === " ") {
+      if (alert.options && alert.options.length > 0) {
+        alert.options[alertCursor].action();
+      }
+      resolveAlert(alert.id);
+      return;
+    }
+
+    return; // block other inputs while modal is active
   }
 
   // ── Info View ────────────────────────────────────────────
@@ -1267,6 +1531,33 @@ async function handleKey(key) {
     if (key === "f") { openExplorer(viewServiceId); return; }
     if (key === "t") { openTerminal(viewServiceId); return; }
     if (key === "l") { viewMode = "logs"; logScrollOffset = 0; draw(); return; }
+
+    const svc = SERVICES.find(s => s.id === viewServiceId);
+    if (svc?.type === "dev-vm") {
+      if (key === "p") {
+        controlVm(svc, "reprovision");
+        return;
+      }
+      if (key === "c") {
+        controlVm(svc, "clean");
+        return;
+      }
+      if (key === "s") {
+        controlVm(svc, "stop");
+        return;
+      }
+      if (key === "r") {
+        controlVm(svc, "rebuild");
+        return;
+      }
+      if (key === "S") {
+        spawn(svc.cmd, [...svc.args.filter(a => a !== (IS_WIN ? "-NoWatch" : "--no-watch")), IS_WIN ? "-SSH" : "--ssh"], {
+          cwd: svc.cwd, stdio: "inherit", shell: IS_WIN
+        });
+        return;
+      }
+    }
+
     if (key === " ") {
       const st = state.get(viewServiceId);
       if (st?.proc) stopService(viewServiceId);
@@ -1335,6 +1626,13 @@ async function handleKey(key) {
   }
 
   switch (key) {
+    case "A":
+      if (alerts.length > 0) {
+        activeAlertModal = alerts[0].id;
+        alertCursor = 0;
+        draw();
+      }
+      return;
     case "q": shutdown(); return;
     case "a": await startAll(); return;
     case "s": stopAll(); draw(); return;
