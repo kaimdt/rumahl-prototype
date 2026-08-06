@@ -3,7 +3,10 @@ use crate::{
     state::{NetworkMode, PortMapping, RuntimeState},
 };
 use anyhow::{Context, Result};
+use serde_json::Value;
 use std::{
+    collections::HashSet,
+    net::TcpListener,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -56,9 +59,14 @@ impl Manager {
         let start = explicit
             .or_else(|| std::env::var_os("IORA_OS_ROOT").map(PathBuf::from))
             .unwrap_or(std::env::current_dir()?);
-        let root = find_iora_root(&start).context(
+        let mut root = find_iora_root(&start).context(
             "no iora-os root found; run from the repository root/iora-os or set IORA_OS_ROOT",
         )?;
+        // Make paths absolute so derived paths (SSH key, state, logs) are
+        // valid no matter where the daemon was launched from.
+        if root.is_relative() {
+            root = std::path::absolute(&root).unwrap_or(root);
+        }
         let state_path = root.join(".cache/runtime-state.json");
         let mut state = RuntimeState::load(&state_path);
         if state.pid.is_none() {
@@ -208,23 +216,38 @@ impl Manager {
                 // Bind every rule to loopback: Windows Firewall silently drops
                 // inbound connections on new ports, while loopback is never
                 // filtered. This also keeps the VM ports off the LAN.
-                let mut rules = vec![format!("hostfwd=tcp:127.0.0.1:{}-:22", self.state.ssh_port)];
-                for port in extra_ports() {
-                    rules.push(format!("hostfwd=tcp:127.0.0.1:{port}-:{port}"));
+                let plan = forwarding_plan(
+                    self.state.ssh_port,
+                    self.state.home_port,
+                    extra_ports(),
+                    mappings,
+                );
+                for port in &plan.skipped {
+                    eprintln!(
+                        "[dev-manager] warning: host port {port} is busy or requested twice - not forwarding it (the service stays reachable inside the VM)"
+                    );
                 }
-                for mapping in mappings {
-                    rules.push(format!(
-                        "hostfwd=tcp:127.0.0.1:{}-:{}",
-                        mapping.host, mapping.guest
-                    ));
-                }
-                rules.push(format!("hostfwd=tcp:127.0.0.1:{}-:8126", self.state.home_port));
-                format!("user,id=n0,{}", rules.join(","))
+                self.state.forwarded_ports = plan
+                    .forwarded
+                    .iter()
+                    .map(|(host, guest, label)| {
+                        serde_json::json!({ "host": host, "guest": guest, "label": label })
+                    })
+                    .collect();
+                self.state.skipped_ports =
+                    plan.skipped.iter().map(|port| serde_json::json!(port)).collect();
+                format!("user,id=n0,{}", plan.rules.join(","))
             }
-            NetworkMode::Bridge => format!(
-                "tap,id=n0,ifname={},script=no,downscript=no",
-                std::env::var("IORA_DEV_TAP").unwrap_or_else(|_| "iora-tap0".into())
-            ),
+            NetworkMode::Bridge => {
+                // Bridge mode has no host forwarding at all - the VM is
+                // reachable directly via its LAN IP.
+                self.state.forwarded_ports = vec![];
+                self.state.skipped_ports = vec![];
+                format!(
+                    "tap,id=n0,ifname={},script=no,downscript=no",
+                    std::env::var("IORA_DEV_TAP").unwrap_or_else(|_| "iora-tap0".into())
+                )
+            }
         };
         let mut arguments = vec![
             "-name".into(),
@@ -330,21 +353,8 @@ impl Manager {
         self.state.acceleration = Some(acceleration);
         self.state.vnc_port = Some(5900 + display_number());
         self.state.vnc_ws_port = Some(5700 + display_number());
-        self.state.forwarded_ports = extra_ports()
-            .into_iter()
-            .map(|port| serde_json::json!({ "host": port, "guest": port }))
-            .chain(
-                mappings
-                    .iter()
-                    .map(|mapping| {
-                        serde_json::json!({
-                            "host": mapping.host,
-                            "guest": mapping.guest,
-                            "label": mapping.label,
-                        })
-                    }),
-            )
-            .collect();
+        // forwarded_ports / skipped_ports were already recorded by the Slirp
+        // branch above; in bridge mode there is no host forwarding at all.
         self.state.save(&self.state_path)?;
         std::fs::write(cache.join("qemu.pid"), child.id().to_string())?;
         Ok(())
@@ -461,7 +471,7 @@ impl Manager {
         self.refresh_state_from_disk();
         let mut killed_any = false;
         if let Some(pid) = self.state.pid {
-            if kill(pid).is_ok() {
+            if kill_process(pid).is_ok() {
                 killed_any = true;
             }
         }
@@ -469,7 +479,7 @@ impl Manager {
             let path = self.root.join(".cache").join(pid_file);
             if let Ok(raw) = std::fs::read_to_string(&path) {
                 if let Ok(pid) = raw.trim().parse::<u32>() {
-                    if kill(pid).is_ok() {
+                    if kill_process(pid).is_ok() {
                         killed_any = true;
                     }
                 }
@@ -485,6 +495,59 @@ impl Manager {
             anyhow::bail!("No QEMU or bootstrap process could be terminated")
         }
     }
+    /// Adopt a running foreign QEMU process (e.g. one started by
+    /// dev-local.ps1) as the managed VM: takes over its PID, ports and
+    /// network mode so the watchdog, probes and self-healing apply to it.
+    pub fn adopt(&mut self, info: &QemuProcessInfo) -> Result<()> {
+        self.refresh_state_from_disk();
+        if let Some(managed) = self.state.pid {
+            if managed != info.pid && self.state.process_alive() {
+                anyhow::bail!(
+                    "already managing QEMU PID {managed}; stop it before attaching to PID {}",
+                    info.pid
+                );
+            }
+        }
+        self.state.pid = Some(info.pid);
+        self.state.lifecycle = "Booting".into();
+        self.state.last_error = None;
+        if let Some(mode) = info.network_mode.clone() {
+            self.state.network_mode = mode;
+        }
+        self.state.vm_host = if self.state.network_mode == NetworkMode::Slirp {
+            "127.0.0.1".into()
+        } else {
+            String::new()
+        };
+        if let Some(port) = info.qmp_port {
+            self.state.qmp_port = port;
+        }
+        if let Some(port) = info.qga_port {
+            self.state.qga_port = port;
+        }
+        if let Some(port) = info.ssh_port {
+            self.state.ssh_port = port;
+        }
+        if let Some(port) = info.home_port {
+            self.state.home_port = port;
+        }
+        if let Some(display) = info.vnc_display {
+            self.state.vnc_port = Some(5900 + display);
+            self.state.vnc_ws_port = Some(5700 + display);
+        }
+        if let Some(disk) = &info.disk {
+            self.state.vm_disk = Some(PathBuf::from(disk));
+        }
+        self.state.forwarded_ports = info
+            .forwarded
+            .iter()
+            .map(|(host, guest)| serde_json::json!({ "host": host, "guest": guest }))
+            .collect();
+        self.state.skipped_ports = vec![];
+        self.state.save(&self.state_path)?;
+        Ok(())
+    }
+
     pub fn open_ssh(&self) -> Result<()> {
         let (host, port, _) = self.state.connection();
         let mut command = Command::new("ssh");
@@ -517,6 +580,289 @@ pub fn extra_ports() -> Vec<u16> {
         .split(',')
         .filter_map(|value| value.trim().parse().ok())
         .collect()
+}
+
+/// A running QEMU process found on the host, with everything the dev
+/// manager needs to attach to it or shut it down cleanly.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QemuProcessInfo {
+    pub pid: u32,
+    pub is_iora_dev: bool,
+    pub disk: Option<String>,
+    pub network_mode: Option<NetworkMode>,
+    pub qmp_port: Option<u16>,
+    pub qga_port: Option<u16>,
+    pub ssh_port: Option<u16>,
+    pub home_port: Option<u16>,
+    pub forwarded: Vec<(u16, u16)>,
+    pub vnc_display: Option<u16>,
+    pub command_line: String,
+}
+
+/// Scan the host for running QEMU processes (any architecture) and parse
+/// their command lines. Used to find IORA Dev VMs started outside this
+/// daemon (e.g. by dev-local.ps1) so they can be adopted or stopped.
+pub fn discover_qemu_processes() -> Vec<QemuProcessInfo> {
+    qemu_process_entries()
+        .into_iter()
+        .filter_map(|(pid, command_line)| parse_qemu_process(pid, command_line))
+        .collect()
+}
+
+/// Parse one (pid, command line) pair into process info.
+fn parse_qemu_process(pid: u32, command_line: String) -> Option<QemuProcessInfo> {
+    let command_line = command_line.trim().to_string();
+    if command_line.is_empty() {
+        return None;
+    }
+    let is_iora_dev = command_line.contains("iora-dev-vm")
+        || command_line.contains("-name IORA-Dev")
+        || command_line.contains("iora-dev");
+    let forwarded = scan_hostfwd(&command_line);
+    let network_mode = if command_line.contains("netdev tap,") {
+        Some(NetworkMode::Bridge)
+    } else if command_line.contains("netdev user,") {
+        Some(NetworkMode::Slirp)
+    } else {
+        None
+    };
+    let disk = disk_after(&command_line).map(|value| value.replace('\\', "/"));
+    Some(QemuProcessInfo {
+        pid,
+        is_iora_dev,
+        disk,
+        network_mode,
+        qmp_port: scan_numbers(&command_line, "-qmp tcp:127.0.0.1:")
+            .first()
+            .map(|value| *value as u16),
+        qga_port: scan_numbers(&command_line, "id=qga0,host=127.0.0.1,port=")
+            .first()
+            .map(|value| *value as u16),
+        ssh_port: forwarded
+            .iter()
+            .find(|(_, guest)| *guest == 22)
+            .map(|(host, _)| *host),
+        home_port: forwarded
+            .iter()
+            .find(|(_, guest)| *guest == 8126)
+            .map(|(host, _)| *host),
+        forwarded,
+        vnc_display: scan_numbers(&command_line, "-vnc 127.0.0.1:")
+            .first()
+            .map(|value| *value as u16),
+        command_line,
+    })
+}
+
+/// Raw (pid, command line) pairs of running qemu-system-* processes.
+#[cfg(windows)]
+fn qemu_process_entries() -> Vec<(u32, String)> {
+    // WMIC is deprecated/optional on recent Windows builds; PowerShell CIM
+    // is always present. CommandLine can be huge - CIM returns it whole.
+    let script = "Get-CimInstance Win32_Process -Filter \"Name like 'qemu-system%'\" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default();
+    let value: Value = serde_json::from_str(output.trim()).unwrap_or(Value::Null);
+    let entries = match value {
+        Value::Array(items) => items,
+        Value::Object(_) => vec![value],
+        _ => return Vec::new(),
+    };
+    entries
+        .into_iter()
+        .filter_map(|item| {
+            let pid = item.get("ProcessId")?.as_u64()? as u32;
+            let command_line = item.get("CommandLine")?.as_str()?.to_string();
+            Some((pid, command_line))
+        })
+        .collect()
+}
+
+/// Raw (pid, command line) pairs of running qemu-system-* processes.
+#[cfg(not(windows))]
+fn qemu_process_entries() -> Vec<(u32, String)> {
+    let output = Command::new("pgrep")
+        .args(["-af", "qemu-system"])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default();
+    output
+        .lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.split_once(' ')?;
+            let pid = pid.parse::<u32>().ok()?;
+            Some((pid, rest.to_string()))
+        })
+        .collect()
+}
+
+/// Whether a dev-local bootstrap/reinstall process is currently running
+/// (started by the daemon via `dev-local.ps1 -Rebuild -NoWatch`).
+pub fn bootstrap_alive(root: &Path) -> bool {
+    let pid = std::fs::read_to_string(root.join(".cache/dev-local-bootstrap.pid"))
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok());
+    pid.is_some_and(crate::state::process_alive)
+}
+
+/// Find the VM disk path: start at the first `iora-dev-vm` occurrence and
+/// expand to the whole token (bounded by space/quote/comma).
+fn disk_after(input: &str) -> Option<String> {
+    let relative = input.find("iora-dev-vm")?;
+    let start = input[..relative]
+        .rfind(|c| c == ' ' || c == '"' || c == '=')
+        .map(|position| position + 1)
+        .unwrap_or(0);
+    let rest = &input[start..];
+    let end = rest
+        .find(|c| c == ',' || c == '"' || c == ' ')
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
+/// All decimal numbers directly following `needle` in `input`.
+fn scan_numbers(input: &str, needle: &str) -> Vec<u64> {
+    let mut out = Vec::new();
+    let mut search = 0;
+    while let Some(relative) = input[search..].find(needle) {
+        let pos = search + relative + needle.len();
+        let rest = &input[pos..];
+        let mut end = 0;
+        while end < rest.len() && rest.as_bytes()[end].is_ascii_digit() {
+            end += 1;
+        }
+        if end > 0 {
+            if let Ok(value) = rest[..end].parse::<u64>() {
+                out.push(value);
+            }
+            search = pos + end;
+        } else {
+            search = pos + 1;
+        }
+    }
+    out
+}
+
+/// All `hostfwd=tcp:[127.0.0.1:]HOST-:GUEST` rules as (host, guest) pairs.
+fn scan_hostfwd(input: &str) -> Vec<(u16, u16)> {
+    let mut out = Vec::new();
+    let mut search = 0;
+    while let Some(relative) = input[search..].find("hostfwd=tcp:") {
+        let mut pos = search + relative + "hostfwd=tcp:".len();
+        if input[pos..].starts_with("127.0.0.1:") {
+            pos += "127.0.0.1:".len();
+        } else if input[pos..].starts_with(':') {
+            // dev-local style: `hostfwd=tcp::2222-:22` (empty host = all
+            // interfaces) - skip the empty host part before the port.
+            pos += 1;
+        }
+        let rest = &input[pos..];
+        let mut end = 0;
+        while end < rest.len() && rest.as_bytes()[end].is_ascii_digit() {
+            end += 1;
+        }
+        if end == 0 {
+            search = pos + 1;
+            continue;
+        }
+        let host = rest[..end].parse::<u16>().ok();
+        let after = pos + end;
+        if !input[after..].starts_with("-:") {
+            search = after;
+            continue;
+        }
+        let rest = &input[after + 2..];
+        let mut end2 = 0;
+        while end2 < rest.len() && rest.as_bytes()[end2].is_ascii_digit() {
+            end2 += 1;
+        }
+        if end2 == 0 {
+            search = after + 2;
+            continue;
+        }
+        if let (Some(host), Ok(guest)) = (host, rest[..end2].parse::<u16>()) {
+            out.push((host, guest));
+        }
+        search = after + 2 + end2;
+    }
+    out
+}
+
+/// One Slirp `hostfwd` rule set: the rules string for QEMU plus the host
+/// ports actually forwarded / skipped.
+struct ForwardingPlan {
+    rules: Vec<String>,
+    forwarded: Vec<(u16, u16, Option<String>)>,
+    skipped: Vec<u16>,
+}
+
+/// Build the Slirp `hostfwd` rule set for the QEMU user-net backend.
+///
+/// QEMU fails the *whole* netdev when a single forwarding rule cannot be set
+/// up (busy host port or a duplicate rule) - the VM would then boot with NO
+/// network at all, which shows up as a cloud-init / "never became ready"
+/// timeout. The extra-port list (default 5173) and the persisted custom
+/// mappings are independent sources and frequently overlap, so rules are
+/// deduplicated by host port and busy host ports are skipped with a warning,
+/// exactly like dev-local.ps1's Add-PortIfFree does.
+fn forwarding_plan(
+    ssh_port: u16,
+    home_port: u16,
+    extra: Vec<u16>,
+    mappings: &[PortMapping],
+) -> ForwardingPlan {
+    forwarding_plan_with(ssh_port, home_port, extra, mappings, host_port_in_use)
+}
+
+/// Testable core of `forwarding_plan` with an injectable busy-port probe.
+fn forwarding_plan_with(
+    ssh_port: u16,
+    home_port: u16,
+    extra: Vec<u16>,
+    mappings: &[PortMapping],
+    port_in_use: impl Fn(u16) -> bool,
+) -> ForwardingPlan {
+    let mut candidates: Vec<(u16, u16, Option<String>)> = vec![(ssh_port, 22, None)];
+    candidates.extend(extra.into_iter().map(|port| (port, port, None)));
+    candidates.extend(
+        mappings
+            .iter()
+            .map(|mapping| (mapping.host, mapping.guest, mapping.label.clone())),
+    );
+    candidates.push((home_port, 8126, None));
+    let mut plan = ForwardingPlan {
+        rules: Vec::new(),
+        forwarded: Vec::new(),
+        skipped: Vec::new(),
+    };
+    let mut seen = HashSet::new();
+    for (host, guest, label) in candidates {
+        if !seen.insert(host) {
+            // A second rule for the same host port (e.g. 5173 from both the
+            // default forward list and a custom mapping) would make QEMU
+            // reject the whole user-net - keep the first, drop the rest.
+            plan.skipped.push(host);
+            continue;
+        }
+        if port_in_use(host) {
+            plan.skipped.push(host);
+            continue;
+        }
+        plan.rules
+            .push(format!("hostfwd=tcp:127.0.0.1:{host}-:{guest}"));
+        plan.forwarded.push((host, guest, label));
+    }
+    plan
+}
+
+/// Probe whether a host port is already bound by binding it ourselves - the
+/// same check QEMU's user-net performs when it sets up the forwarding rule.
+pub(crate) fn host_port_in_use(port: u16) -> bool {
+    TcpListener::bind(("127.0.0.1", port)).is_err()
 }
 
 fn find_iora_root(start: &Path) -> Option<PathBuf> {
@@ -635,18 +981,28 @@ async fn tcp(host: &str, port: u16) -> bool {
         .is_ok_and(|r| r.is_ok())
 }
 #[cfg(unix)]
-fn kill(pid: u32) -> Result<()> {
+pub(crate) fn kill_process(pid: u32) -> Result<()> {
+    if !crate::state::process_alive(pid) {
+        return Ok(()); // already gone - not an error
+    }
     Command::new("kill")
         .args(["-9", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()?
         .success()
         .then_some(())
         .context("kill failed")
 }
 #[cfg(windows)]
-fn kill(pid: u32) -> Result<()> {
+pub(crate) fn kill_process(pid: u32) -> Result<()> {
+    if !crate::state::process_alive(pid) {
+        return Ok(()); // already gone - not an error
+    }
     Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()?
         .success()
         .then_some(())
@@ -712,5 +1068,77 @@ mod tests {
         let error = manager.start(NetworkMode::Slirp, &[]).unwrap_err();
         assert!(error.to_string().contains("dev-local.ps1 was not found"));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn forwarding_plan_deduplicates_overlapping_host_ports() {
+        // 5173 comes from both the default extra-port list AND a custom
+        // mapping - exactly the duplicate that killed the user-net in the
+        // field. The first rule wins, the duplicate is reported as skipped.
+        let plan = forwarding_plan_with(
+            2222,
+            8126,
+            vec![5173, 5432],
+            &[PortMapping {
+                host: 5173,
+                guest: 5174,
+                label: Some("duplicate".into()),
+            }],
+            |_| false, // deterministic: nothing is busy on the host
+        );
+        assert_eq!(
+            plan.rules,
+            vec![
+                "hostfwd=tcp:127.0.0.1:2222-:22",
+                "hostfwd=tcp:127.0.0.1:5173-:5173",
+                "hostfwd=tcp:127.0.0.1:5432-:5432",
+                "hostfwd=tcp:127.0.0.1:8126-:8126",
+            ]
+        );
+        assert_eq!(plan.skipped, vec![5173]);
+        assert_eq!(plan.forwarded.len(), 4);
+    }
+
+    #[test]
+    fn forwarding_plan_skips_busy_host_ports() {
+        // Occupy a port, then make sure the plan skips it instead of letting
+        // QEMU fail the whole user-net.
+        let busy = 5173;
+        let plan = forwarding_plan_with(2222, 8126, vec![busy], &[], |port| port == busy);
+        assert!(plan.rules.iter().all(|rule| !rule.contains(&busy.to_string())));
+        assert_eq!(plan.skipped, vec![busy]);
+        assert!(!plan.forwarded.iter().any(|(host, _, _)| *host == busy));
+    }
+
+    #[test]
+    fn qemu_cmdline_parsing_finds_iora_dev_vm() {
+        // A real dev-local.ps1 command line (as seen in the field).
+        let command_line = r#"C:\Program Files\qemu\qemu-system-x86_64.exe -name IORA-Dev -m 16G -smp 16 -machine q35,accel=whpx -drive file=C:\tmp\home-assistant-dashb\iora-os\.cache\iora-dev-vm.qcow2,format=qcow2,if=none,id=iora-disk -device virtio-blk-pci,drive=iora-disk,bootindex=1 -drive file=C:\tmp\home-assistant-dashb\iora-os\.cache\iora-dev-seed.iso,format=raw,media=cdrom,if=none,id=iora-seed -device ide-cd,drive=iora-seed,bootindex=2 -netdev user,id=n0,hostfwd=tcp::2222-:22,hostfwd=tcp::8126-:8126,hostfwd=tcp::5173-:5173 -device virtio-net-pci,netdev=n0 -chardev socket,id=qga0,host=127.0.0.1,port=8109,server=on,wait=off -device virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0 -qmp tcp:127.0.0.1:8130,server=on,wait=off -vnc 127.0.0.1:1"#;
+        let info = parse_qemu_process(4242, command_line.into()).unwrap();
+        assert!(info.is_iora_dev);
+        assert_eq!(info.network_mode, Some(NetworkMode::Slirp));
+        assert_eq!(info.qmp_port, Some(8130));
+        assert_eq!(info.qga_port, Some(8109));
+        assert_eq!(info.ssh_port, Some(2222));
+        assert_eq!(info.home_port, Some(8126));
+        assert_eq!(info.vnc_display, Some(1));
+        assert_eq!(info.forwarded, vec![(2222, 22), (8126, 8126), (5173, 5173)]);
+        assert!(info
+            .disk
+            .as_deref()
+            .unwrap()
+            .contains("iora-dev-vm.qcow2"));
+    }
+
+    #[test]
+    fn qemu_cmdline_parsing_marks_foreign_vms() {
+        let info = parse_qemu_process(
+            7,
+            "/usr/bin/qemu-system-x86_64 -m 2G -netdev user,id=n0 -vnc 127.0.0.1:4".into(),
+        )
+        .unwrap();
+        assert!(!info.is_iora_dev);
+        assert_eq!(info.qmp_port, None);
+        assert_eq!(info.vnc_display, Some(4));
     }
 }

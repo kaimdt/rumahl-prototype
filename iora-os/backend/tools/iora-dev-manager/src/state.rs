@@ -63,6 +63,13 @@ pub struct RuntimeState {
     pub last_sync_at: Option<String>,
     pub last_error: Option<String>,
     pub forwarded_ports: Vec<serde_json::Value>,
+    /// Host ports that were requested for Slirp forwarding but skipped
+    /// (busy on the host or requested twice) - the VM still boots, the
+    /// services stay reachable inside the VM.
+    pub skipped_ports: Vec<serde_json::Value>,
+    /// Whether the idempotent guest self-heal fixes (guard patch, SSH
+    /// hardening, net watchdog) were applied for the current VM start.
+    pub guest_fixes_applied: bool,
     pub cache_path: Option<PathBuf>,
 }
 
@@ -93,6 +100,8 @@ impl Default for RuntimeState {
             last_sync_at: None,
             last_error: None,
             forwarded_ports: vec![],
+            skipped_ports: vec![],
+            guest_fixes_applied: false,
             cache_path: None,
         }
     }

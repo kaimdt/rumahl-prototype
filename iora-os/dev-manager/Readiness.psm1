@@ -30,9 +30,16 @@ function Get-IoraLifecycle {
 function Test-IoraHostHealth {
     param([Parameter(Mandatory)]$Connection)
     $url = "http://$($Connection.Host):$($Connection.HomePort)/api/health"
+    # .NET HttpWebRequest: PS 5.1 writes Invoke-WebRequest failures into the
+    # transcript as "TerminatingError(...)" even when caught - raw .NET
+    # exceptions bypass the PowerShell error pipeline and stay silent.
     try {
-        $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 4 -ErrorAction Stop
-        return [pscustomobject]@{ Healthy = $response.StatusCode -eq 200; Url = $url; Error = $null }
+        $req = [System.Net.HttpWebRequest]::Create($url)
+        $req.Timeout = 4000
+        $response = $req.GetResponse()
+        $code = [int]$response.StatusCode
+        $response.Close()
+        return [pscustomobject]@{ Healthy = $code -eq 200; Url = $url; Error = $null }
     } catch {
         return [pscustomobject]@{ Healthy = $false; Url = $url; Error = $_.Exception.Message }
     }

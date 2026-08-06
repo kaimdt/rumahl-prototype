@@ -6,12 +6,14 @@
 # the VM has NO network/IP - the primary control channel for the dev loop:
 #
 #   .\qga.ps1 ping                          # is the agent reachable?
+#   .\qga.ps1 status                         # ping + agent version
 #   .\qga.ps1 exec "systemctl status iora-home"
 #   .\qga.ps1 exec "journalctl -u iora-home -n 30"
 #   .\qga.ps1 read C:\...\.cache  -> prints /etc/iora/iora-home.env
 #   .\qga.ps1 read /etc/iora/iora-home.env
 #   .\qga.ps1 write /tmp/test.txt "hello"
 #   .\qga.ps1 reboot / shutdown
+#   .\qga.ps1 help
 #
 # Socket: localhost:<QgaPort> (default 8109, auto-picked when busy).
 # Protocol: JSON lines, base64 for file/output data.
@@ -20,13 +22,14 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("ping", "exec", "read", "write", "reboot", "shutdown")]
+    [ValidateSet("ping", "status", "exec", "read", "write", "reboot", "shutdown", "help")]
     [string]$Action = "ping",
     [Parameter(Position = 1)]
     [string]$Arg1 = "",
     [Parameter(Position = 2)]
     [string]$Arg2 = "",
-    [int]$QgaPort = 0
+    [int]$QgaPort = 0,
+    [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,9 +90,36 @@ function Get-QgaJsonField {
 }
 
 # -- Commands ---------------------------------------------------------------
+function Show-QgaUsage {
+    Write-Host "Usage: .\qga.ps1 <action> [args]" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  ping                      is the guest agent reachable?"
+    Write-Host "  status                    ping + agent version"
+    Write-Host "  exec ""<command>""           run a shell command in the VM"
+    Write-Host "  read <path>               print a file from the VM"
+    Write-Host "  write <path> <content>    write a file in the VM"
+    Write-Host "  reboot | shutdown         guest OS reboot / ACPI shutdown"
+    Write-Host "  help                      this overview"
+    Write-Host ""
+    Write-Host "Socket: 127.0.0.1:$QgaPort (auto-picked when busy, stored in .cache/runtime-state.json)"
+}
+
+if ($Help) { Show-QgaUsage; exit 0 }
+
 function Invoke-QgaPing {
     $resp = Invoke-QgaJson '{"execute":"guest-ping"}'
-    if ($resp -match '"return"') { Write-Host "OK" } else { Write-Host "[X] no reply" -ForegroundColor Red; exit 1 }
+    if ($resp -match '"return"') { Write-Host "OK" } else { Write-Host "[X] no reply - is the VM running? (qga chardev on 127.0.0.1:$QgaPort)" -ForegroundColor Red; exit 1 }
+}
+
+function Invoke-QgaStatus {
+    $resp = Invoke-QgaJson '{"execute":"guest-ping"}'
+    if ($resp -notmatch '"return"') { Write-Host "[X] no reply - is the VM running? (qga chardev on 127.0.0.1:$QgaPort)" -ForegroundColor Red; exit 1 }
+    $info = Invoke-QgaJson '{"execute":"guest-info"}'
+    $version = Get-QgaJsonField -Json $info -Key "return.version"
+    # QGA uses underscore keys (supported_commands) - the hyphen form would
+    # silently return null and report "0 commands".
+    $supports = @(($info | ConvertFrom-Json).return.supported_commands).Count
+    Write-Host "OK - QEMU Guest Agent $version ($supports commands)"
 }
 
 function Invoke-QgaExec {
@@ -145,9 +175,11 @@ function Write-QgaFile {
 
 switch ($Action) {
     "ping"     { Invoke-QgaPing }
+    "status"   { Invoke-QgaStatus }
     "exec"     { Invoke-QgaExec -Command $Arg1 }
     "read"     { Read-QgaFile -Path $Arg1 }
     "write"    { Write-QgaFile -Path $Arg1 -Content $Arg2 }
     "reboot"   { Invoke-QgaJson '{"execute":"guest-reboot"}' | Out-Null; Write-Host "reboot sent" }
     "shutdown" { Invoke-QgaJson '{"execute":"guest-shutdown"}' | Out-Null; Write-Host "shutdown sent" }
+    "help"     { Show-QgaUsage }
 }

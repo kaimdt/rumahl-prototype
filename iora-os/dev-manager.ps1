@@ -1,12 +1,27 @@
 [CmdletBinding()]
-param([switch]$Doctor, [switch]$Once)
+param(
+    [switch]$Doctor,
+    [switch]$Once,
+    # Subcommand passthrough: .\dev-manager.ps1 vms | attach <pid> | stop-vm <pid> | ...
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Remaining
+)
 
 $managerRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rustManager = Join-Path $managerRoot "backend\target\release\iora-dev-manager.exe"
 if (-not (Test-Path $rustManager)) { $rustManager = Join-Path $managerRoot "backend\target\debug\iora-dev-manager.exe" }
 if (-not $Once -and -not $env:IORA_DEV_MANAGER_LEGACY) {
-    $rustArguments = @("--root", $managerRoot)
-    if ($Doctor) { $rustArguments += "--doctor" }
+    # clap requires subcommand options AFTER the subcommand name.
+    $rustArguments = @()
+    if ($Doctor) {
+        $rustArguments += "doctor"
+    } elseif ($Remaining.Count -eq 0) {
+        # Bare .\dev-manager.ps1 opens the dashboard (same as the binary).
+        $rustArguments += @("serve", "--port", "8127")
+    } else {
+        $rustArguments += $Remaining
+    }
+    $rustArguments += @("--root", $managerRoot)
     if (Test-Path $rustManager) {
         & $rustManager @rustArguments
         exit $LASTEXITCODE

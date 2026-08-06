@@ -40,6 +40,10 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/service/logs", get(service_logs))
         .route("/api/stats", get(stats))
         .route("/api/mappings", get(mappings_get).post(mappings_add).delete(mappings_remove))
+        .route("/api/vms", get(vms))
+        .route("/api/vms/attach", post(vms_attach))
+        .route("/api/vms/stop", post(vms_stop))
+        .route("/api/network/reset", post(network_reset))
         .route("/api/guest", post(guest))
         .route("/api/ssh", post(ssh_open))
         .route("/api/logs", get(logs))
@@ -88,6 +92,40 @@ async fn stop(State(daemon): State<Arc<Daemon>>, Json(body): Json<StopBody>) -> 
 async fn kill(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
     match daemon.stop(true).await {
         Ok(()) => Json(json!({"ok": true, "message": "VM process terminated"})),
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+#[derive(Deserialize)]
+struct VmPidBody {
+    pid: u32,
+}
+
+/// List all running QEMU processes; IORA Dev VMs can be attached or
+/// stopped from the dashboard even when they were started by dev-local.
+async fn vms(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    Json(daemon.qemu_vms().await)
+}
+
+async fn vms_attach(State(daemon): State<Arc<Daemon>>, Json(body): Json<VmPidBody>) -> Json<Value> {
+    match daemon.adopt_foreign(body.pid).await {
+        Ok(()) => Json(json!({"ok": true, "message": format!("Attached to QEMU PID {}", body.pid)})),
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+/// Slirp NIC reset: rebuilds the QEMU user-net backend without restarting
+/// the VM - fixes stuck sessions / broken hostfwd rules.
+async fn network_reset(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    match daemon.reset_network().await {
+        Ok(message) => Json(json!({"ok": true, "message": message})),
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+async fn vms_stop(State(daemon): State<Arc<Daemon>>, Json(body): Json<VmPidBody>) -> Json<Value> {
+    match daemon.stop_foreign(body.pid).await {
+        Ok(message) => Json(json!({"ok": true, "message": message})),
         Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
     }
 }

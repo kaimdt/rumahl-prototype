@@ -100,6 +100,28 @@ enum Command {
         #[arg(long)]
         root: Option<PathBuf>,
     },
+    /// List all running QEMU processes found on the host
+    Vms {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Attach to a running QEMU process (adopt it as the managed VM)
+    Attach {
+        pid: u32,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Stop a foreign QEMU process (one this daemon does not manage)
+    StopVm {
+        pid: u32,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Rebuild the slirp user-net backend (NIC reset without VM restart)
+    NetReset {
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -265,6 +287,75 @@ async fn main() -> Result<()> {
             let manager = Manager::discover(root)?;
             manager.open_url()?;
             println!("Website opened");
+            Ok(())
+        }
+        Some(Command::NetReset { root }) => {
+            run_with_daemon(
+                root.clone(),
+                "POST",
+                "/api/network/reset",
+                None,
+                |_root| async {
+                    anyhow::bail!("no daemon running - reset the network via the dashboard or start the daemon")
+                },
+            )
+            .await
+        }
+        Some(Command::Vms { .. }) => {
+            let vms = manager::discover_qemu_processes();
+            if vms.is_empty() {
+                println!("No running QEMU processes found.");
+                return Ok(());
+            }
+            println!("{:<8} {:<12} {:<44} {}", "PID", "Type", "Disk", "QMP/QGA");
+            for vm in &vms {
+                let vm_type = if vm.is_iora_dev { "IORA Dev VM" } else { "foreign" };
+                let disk = vm
+                    .disk
+                    .as_deref()
+                    .unwrap_or("-")
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or("-");
+                let channels = match (vm.qmp_port, vm.qga_port) {
+                    (Some(qmp), Some(qga)) => format!("{qmp}/{qga}"),
+                    (Some(qmp), None) => format!("{qmp}/-"),
+                    _ => "-/- ".into(),
+                };
+                println!("{:<8} {:<12} {:<44} {}", vm.pid, vm_type, disk, channels);
+            }
+            println!("\nAttach:   iora-dev-manager attach <pid>");
+            println!("Stop:     iora-dev-manager stop-vm <pid>");
+            Ok(())
+        }
+        Some(Command::Attach { pid, root }) => {
+            if let Some((_, port)) = daemon_info(root.clone()) {
+                print_result(
+                    delegate(port, "POST", "/api/vms/attach", Some(json!({"pid": pid})))
+                        .await?,
+                )?;
+            } else {
+                let processes = manager::discover_qemu_processes();
+                let info = processes
+                    .iter()
+                    .find(|process| process.pid == pid)
+                    .context("no running QEMU process with that PID")?;
+                if !info.is_iora_dev {
+                    anyhow::bail!("PID {pid} does not look like an IORA Dev VM");
+                }
+                Manager::discover(root)?.adopt(info)?;
+                println!("Attached to QEMU PID {pid} (no daemon running)");
+            }
+            Ok(())
+        }
+        Some(Command::StopVm { pid, root }) => {
+            if let Some((_, port)) = daemon_info(root.clone()) {
+                print_result(
+                    delegate(port, "POST", "/api/vms/stop", Some(json!({"pid": pid}))).await?,
+                )?;
+            } else {
+                anyhow::bail!("no daemon running - stop the VM with dev-local.ps1 -Stop or taskkill");
+            }
             Ok(())
         }
     }

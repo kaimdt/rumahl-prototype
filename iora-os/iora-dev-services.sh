@@ -85,6 +85,11 @@ Environment=CARGO_HOME=/home/iora/.cargo"
 [Unit]
 Description=IORA ${name} Service (source mode - cargo run)
 Documentation=https://iora-os.dev/services/${name}
+# Cold-start gate: without it all cargo run units would serialize on the
+# cargo build lock for hours. systemd starts iora-build-all.service first
+# (single parallel build), then every service starts instantly.
+After=iora-build-all.service
+Wants=iora-build-all.service
 ${after:+After=${after}}
 ${after:+Wants=${after}}
 ConditionPathExists=/home/iora/iora/iora-os/backend/Cargo.toml
@@ -97,7 +102,12 @@ Type=simple
 User=${run_user}
 Group=${run_group}
 WorkingDirectory=/home/iora/iora/iora-os/backend
-ExecStart=/home/iora/.cargo/bin/cargo run -p ${name}
+# Cold-start fix: `cargo run -p X` recompiles the dependency graph per
+# service (Cargo artifacts are feature-exact) and serializes every service
+# on the shared build lock - a cold start can take hours. The binaries are
+# built once by iora-build-all.service (After/Wants above); the hot-reload
+# daemon rebuilds them on source changes (see iora-dev-hot-reload.sh).
+ExecStart=/home/iora/iora/iora-os/backend/target/debug/${name}
 Restart=always
 RestartSec=15
 # Keep rustc parallelity within the VM's RAM (see cargo_jobs above)
@@ -760,6 +770,46 @@ for svc in "${!IORA_PORTS[@]}"; do
     _iora_service "$svc" "${IORA_PORTS[$svc]}" "${IORA_AFTER[$svc]:-}" "${IORA_MEM[$svc]:-}"
     success "  ${svc}.service (port ${IORA_PORTS[$svc]})"
 done
+
+# ── Build-once gate (source mode) ─────────────────────────────────────────
+# All source-mode services run `cargo run -p <svc>`; without a pre-build
+# they serialize on the cargo build lock and a cold start can take hours
+# (every service recompiles its dependency graph). Build all binaries once
+# in a single parallel cargo invocation, then let the services start
+# instantly behind it (After/Wants above). The build is incremental, so a
+# warm boot only costs the up-to-date check (< 1s).
+if [ "$RUN_MODE" = "source" ]; then
+    build_mem_mb=$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 8192)
+    build_jobs=$(( build_mem_mb / 4096 ))
+    [ "$build_jobs" -lt 2 ] && build_jobs=2
+    [ "$build_jobs" -gt 8 ] && build_jobs=8
+    BUILD_ALL_CRATES=$(printf -- '-p %s ' "${!IORA_PORTS[@]}")
+    cat > "${SVC_DIR}/iora-build-all.service" <<EOF
+[Unit]
+Description=IORA build-once gate (compiles all service binaries)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=iora
+Group=iora
+WorkingDirectory=/home/iora/iora/iora-os/backend
+Environment=HOME=/home/iora
+Environment=RUSTUP_HOME=/home/iora/.rustup
+Environment=CARGO_HOME=/home/iora/.cargo
+Environment=CARGO_BUILD_JOBS=${build_jobs}
+ExecStart=/home/iora/.cargo/bin/cargo build ${BUILD_ALL_CRATES}
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    ln -sf "${SVC_DIR}/iora-build-all.service" "${SVC_DIR}/multi-user.target.wants/iora-build-all.service" 2>/dev/null || true
+    success "iora-build-all.service (parallel pre-build; services start instantly after)"
+fi
 
 # Create /opt/iora/data structure for each service
 for svc in "${!IORA_PORTS[@]}"; do

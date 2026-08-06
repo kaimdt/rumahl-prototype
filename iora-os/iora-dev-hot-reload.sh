@@ -54,6 +54,13 @@ all_iora_services() {
 
 restart_service() {
     local svc="$1"
+    # Source mode runs the prebuilt binaries directly (see
+    # iora-dev-services.sh) - rebuild the affected crate before the restart
+    # so source changes are picked up. Incremental, so this is fast.
+    if [ "$RUN_MODE" = "source" ]; then
+        su - iora -c "cd $BACKEND && /home/iora/.cargo/bin/cargo build -p ${svc#iora-} -q" \
+            >/dev/null 2>&1 || warn "build failed for $svc"
+    fi
     systemctl reset-failed "$svc" 2>/dev/null
     systemctl restart "$svc" 2>/dev/null \
         || systemctl start "$svc" 2>/dev/null \

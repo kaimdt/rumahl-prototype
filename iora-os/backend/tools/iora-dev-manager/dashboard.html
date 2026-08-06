@@ -21,6 +21,8 @@
     background: var(--border); }
   #badge.ready { background: #1c3a2a; color: var(--green); }
   #badge.starting { background: #3a341c; color: var(--yellow); }
+  #badge.reinstalling { background: #3a341c; color: var(--yellow); }
+  #badge.degraded { background: #3a2d1c; color: var(--yellow); }
   #badge.stopped { background: #3a1c1c; color: var(--red); }
   #message { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; }
@@ -134,6 +136,13 @@
 <main>
   <div>
     <div class="panel">
+      <h2>Activity <button class="small" style="float:right" onclick="refresh()">Refresh</button></h2>
+      <div id="activity">
+        <div class="field"><div class="k">Current step</div><div class="v">-</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
       <h2>Controls</h2>
       <div class="controls">
         <button class="primary" onclick="act('/api/start', {mode:'slirp'})">Start (Slirp)</button>
@@ -145,7 +154,22 @@
         <button class="danger" onclick="act('/api/kill')">Hard stop</button>
         <button class="danger" onclick="act('/api/reinstall')">Reinstall VM</button>
         <button onclick="act('/api/snapshot')">Golden Snapshot</button>
+        <button onclick="if (confirm('Rebuild the slirp network? (fixes stuck port forwards, no VM restart)')) act('/api/network/reset')">NIC reset</button>
       </div>
+    </div>
+
+    <div class="panel">
+      <h2>Running QEMU sessions <button class="small" style="float:right" onclick="loadVms()">Refresh</button></h2>
+      <div id="vms-hint" style="margin-bottom:6px"></div>
+      <table id="vms">
+        <thead><tr><th>PID</th><th>Type</th><th>Disk</th><th>Network</th><th>QMP/QGA</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Access &amp; Credentials</h2>
+      <div id="access"><div class="field"><div class="k">SSH</div><div class="v">-</div></div></div>
     </div>
 
     <div class="panel">
@@ -266,6 +290,8 @@
     const value = String(lifecycle || '').toLowerCase();
     if (value === 'ready') return 'ready';
     if (value === 'stopped') return 'stopped';
+    if (value === 'reinstalling') return 'reinstalling';
+    if (value === 'degraded') return 'degraded';
     return 'starting';
   }
 
@@ -289,11 +315,70 @@
     } catch (error) { /* stats are optional */ }
   }
 
+  function copyFrom(button) {
+    const source = button.parentElement.querySelector('.copyable');
+    const text = source ? (source.getAttribute('data-copy') || source.textContent) : '';
+    navigator.clipboard.writeText(text).then(function () {
+      const before = button.textContent;
+      button.textContent = 'copied';
+      setTimeout(function () { button.textContent = before; }, 1200);
+    });
+  }
+
+  function renderAccess() {
+    const acc = data.access || {};
+    const container = document.getElementById('access');
+    if (!acc.ssh) return;
+    function row(key, value) {
+      return '<div class="field"><div class="k">' + key + '</div>' +
+        '<div class="v"><button class="small" style="float:right" onclick="copyFrom(this)">Copy</button>' +
+        '<span class="copyable" data-copy="' + value.replace(/"/g, '&quot;') + '">' + value + '</span></div></div>';
+    }
+    container.innerHTML =
+      row('SSH', acc.ssh) +
+      row('Web portal', acc.webUrl + '  (' + acc.webUser + ' / ' + acc.webPassword + ', PIN ' + acc.webPin + ')') +
+      row('SSH key', acc.keyPath);
+  }
+
+  function renderActivity() {
+    const container = document.getElementById('activity');
+    const activity = data.activity || {};
+    const bootstrap = data.bootstrap || {};
+    const phase = activity.phase || null;
+    const seed = activity.seed || null;
+    let html = '';
+    if (phase) {
+      html += '<div class="field"><div class="k">Current step</div><div class="v">' + phase + '</div></div>';
+    } else {
+      html += '<div class="field"><div class="k">Current step</div><div class="v">-</div></div>';
+    }
+    if (bootstrap.alive) {
+      html += '<div class="field"><div class="k">Reinstall</div><div class="v">dev-local -Rebuild is running</div></div>';
+    }
+    if (seed) {
+      const pct = seed.percent || 0;
+      const eta = seed.etaSecs === 0
+        ? 'done'
+        : (seed.etaSecs != null
+          ? Math.round(seed.etaSecs / 60) + ' min remaining'
+          : 'measuring rate...');
+      html +=
+        '<div class="field"><div class="k">Registry seed</div>' +
+        '<div class="v">' + seed.currentMb + ' / ' + seed.totalMb + ' MB (' + pct + '%, ~' +
+        seed.rateMbPerS + ' MB/s, ' + eta + ')</div></div>' +
+        '<div style="background:#2a2f3a;border-radius:4px;height:10px;margin-top:6px">' +
+        '<div style="background:#4caf50;height:10px;border-radius:4px;width:' + pct + '%"></div></div>';
+    }
+    container.innerHTML = html;
+  }
+
   function render() {
     const lifecycle = data.lifecycle || 'unknown';
     badge.className = badgeClass(lifecycle);
     badge.textContent = lifecycle;
     message.textContent = data.message || '';
+    renderActivity();
+    renderAccess();
 
     const state = data.state || {};
     const conn = data.connection || {};
@@ -411,14 +496,68 @@
     banner.style.display = 'none';
   }
 
+  async function loadVms() {
+    const tbody = document.querySelector('#vms tbody');
+    const hint = document.getElementById('vms-hint');
+    try {
+      const response = await fetch('/api/vms');
+      const data = await response.json();
+      const vms = data.vms || [];
+      hint.textContent = vms.length
+        ? vms.length + ' QEMU process(es) found - Attach adopts a VM started outside this daemon (e.g. dev-local.ps1).'
+        : 'No running QEMU processes found.';
+      tbody.innerHTML = '';
+      vms.forEach(function (vm) {
+        const row = document.createElement('tr');
+        const managed = vm.isManaged ? ' (managed)' : '';
+        const type = vm.isIoraDev ? 'IORA Dev VM' : 'foreign';
+        const disk = vm.disk ? vm.disk.split(/[\\\/]/).pop() : '-';
+        const network = vm.networkMode || '-';
+        const channels = (vm.qmpPort || '-') + '/' + (vm.qgaPort || '-');
+        [vm.pid, type + managed, disk, network, channels].forEach(function (value) {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.appendChild(cell);
+        });
+        const actions = document.createElement('td');
+        if (!vm.isManaged) {
+          const attach = document.createElement('button');
+          attach.className = 'small primary';
+          attach.textContent = 'Attach';
+          attach.onclick = function () { act('/api/vms/attach', {pid: vm.pid}); setTimeout(loadVms, 800); };
+          actions.appendChild(attach);
+          const stop = document.createElement('button');
+          stop.className = 'small danger';
+          stop.textContent = 'Stop';
+          stop.onclick = function () {
+            if (confirm('Stop foreign QEMU PID ' + vm.pid + '? (guest shutdown first)')) {
+              act('/api/vms/stop', {pid: vm.pid});
+              setTimeout(loadVms, 3000);
+            }
+          };
+          actions.appendChild(stop);
+        } else {
+          const badge = document.createElement('span');
+          badge.textContent = 'connected';
+          badge.style.color = '#4caf50';
+          actions.appendChild(badge);
+        }
+        row.appendChild(actions);
+        tbody.appendChild(row);
+      });
+    } catch (error) {
+      hint.textContent = 'VM scan failed: ' + error;
+    }
+  }
+
   async function loadMappings() {
     try {
       const response = await fetch('/api/mappings');
       const result = await response.json();
       const body = document.querySelector('#mappings tbody');
       const rows = (result.mappings || []).map(function (m) {
-        const statusText = m.active ? 'active (slirp)' : (m.status === 'tunnel' ? 'SSH tunnel' : 'pending');
-        const statusClass = m.active ? 'st-active' : (m.status === 'tunnel' ? 'st-tunnel' : 'st-pending');
+        const statusText = m.active ? 'active' : (m.status === 'down' ? 'no service' : 'pending');
+        const statusClass = m.active ? 'st-active' : 'st-pending';
         const guest = m.guestListening ? '' : ' <span class="bad">guest closed</span>';
         return '<tr><td>' + (m.label || '-') + '</td>' +
           '<td class="m">127.0.0.1:' + m.host + '</td>' +
@@ -661,6 +800,8 @@
   loadMappings();
   refreshStats();
   setInterval(refreshStats, 10000);
+  loadVms();
+  setInterval(loadVms, 10000);
 </script>
 </body>
 </html>
