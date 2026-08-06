@@ -1,9 +1,8 @@
 use crate::{
     channels,
-    state::{NetworkMode, PortMapping, RuntimeState},
+    state::{process_alive, NetworkMode, PortMapping, RuntimeState},
 };
 use anyhow::{Context, Result};
-use serde_json::Value;
 use std::{
     collections::HashSet,
     net::TcpListener,
@@ -26,6 +25,13 @@ pub struct Probe {
     pub systemd: String,
     pub guest_ip: Option<String>,
     pub dev_watcher: bool,
+    /// A dev-local.ps1/dev-local.sh bootstrap is still running (first
+    /// install or reinstall). The VM process itself may not exist yet.
+    pub installing: bool,
+    /// The in-guest provisioning marker `/etc/iora/dev-vm-provisioned`
+    /// exists: provisioning has completed and the stack can be expected to
+    /// be healthy from here on.
+    pub provisioned: bool,
 }
 
 impl Probe {
@@ -33,7 +39,14 @@ impl Probe {
         if !self.process {
             "Stopped"
         } else if !self.qmp {
-            "Starting"
+            // A running bootstrap that has not started QEMU yet is an
+            // installation in progress, not a failure: first installs
+            // download a ~400MB image and can take several minutes.
+            if self.installing {
+                "Installing"
+            } else {
+                "Starting"
+            }
         } else if !self.qga {
             "Booting"
         } else if self.systemd != "running" && self.systemd != "degraded" {
@@ -90,8 +103,20 @@ impl Manager {
 
     pub async fn probe(&mut self) -> Probe {
         self.refresh_state_from_disk();
+        let cache = self.root.join(".cache");
+        // The VM may have been started by dev-local.ps1 (first install /
+        // reinstall) instead of the manager itself. Trust the pid files both
+        // sides write, so a 10-minute bootstrap is never mistaken for a
+        // stopped VM.
+        if self.state.pid.is_none() {
+            self.state.pid = read_pid_file(&cache.join("qemu.pid"));
+        }
+        let qemu_alive = self.state.pid.is_some_and(process_alive);
+        let bootstrap_pid = read_pid_file(&cache.join("dev-local-bootstrap.pid"));
+        let bootstrap_alive = bootstrap_pid.is_some_and(process_alive);
         let mut probe = Probe {
-            process: self.state.process_alive(),
+            process: qemu_alive || bootstrap_alive,
+            installing: bootstrap_alive && !qemu_alive,
             dev_watcher: self.state.watcher_status == "Running",
             ..Default::default()
         };
@@ -135,6 +160,10 @@ impl Manager {
                 .guest("curl -fsS --max-time 3 http://127.0.0.1:8126/health >/dev/null || curl -fsS --max-time 3 http://127.0.0.1:8126/api/health >/dev/null")
                 .await
                 .is_ok();
+            probe.provisioned = self
+                .guest("test -f /etc/iora/dev-vm-provisioned && echo OK")
+                .await
+                .is_ok_and(|out| out.trim() == "OK");
         }
         let (host, ssh, home) = self.state.connection();
         probe.ssh = tcp(host, ssh).await;
@@ -163,6 +192,14 @@ impl Manager {
         if self.state.process_alive() {
             anyhow::bail!("VM is already running")
         }
+        // A bootstrap (first install / reinstall via dev-local.ps1) may be in
+        // progress even though no QEMU pid is recorded yet; starting again
+        // would spawn a second provisioning script fighting over the disk.
+        let cache = self.root.join(".cache");
+        std::fs::create_dir_all(&cache)?;
+        if read_pid_file(&cache.join("dev-local-bootstrap.pid")).is_some_and(process_alive) {
+            anyhow::bail!("VM is already being provisioned (bootstrap in progress)")
+        }
         if mode == NetworkMode::Bridge {
             let tap = std::env::var("IORA_DEV_TAP").unwrap_or_else(|_| "iora-tap0".into());
             if !tap_available(&tap) {
@@ -171,8 +208,6 @@ impl Manager {
                 );
             }
         }
-        let cache = self.root.join(".cache");
-        std::fs::create_dir_all(&cache)?;
         let disk = cache.join("iora-dev-vm.qcow2");
         if !disk.exists() {
             self.spawn_dev_local_bootstrap(false)?;
@@ -448,6 +483,16 @@ impl Manager {
     }
     pub async fn guest(&self, command: &str) -> Result<String> {
         channels::guest_exec(
+            self.state.qga_port,
+            &self.root.join(".cache/qga.sock"),
+            command,
+        )
+        .await
+    }
+    /// Raw-byte variant used by the log stream so byte offsets never
+    /// drift because of lossy UTF-8 decoding.
+    pub async fn guest_raw(&self, command: &str) -> Result<Vec<u8>> {
+        channels::guest_exec_raw(
             self.state.qga_port,
             &self.root.join(".cache/qga.sock"),
             command,
@@ -865,6 +910,12 @@ pub(crate) fn host_port_in_use(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_err()
 }
 
+fn read_pid_file(path: &Path) -> Option<u32> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+}
+
 fn find_iora_root(start: &Path) -> Option<PathBuf> {
     let mut candidates = vec![start.to_path_buf(), start.join("iora-os")];
     let mut current = start.parent();
@@ -1055,6 +1106,49 @@ mod tests {
         assert_eq!(probe.lifecycle(), "Degraded");
         probe.dev_watcher = true;
         assert_eq!(probe.lifecycle(), "Ready");
+    }
+
+    #[test]
+    fn bootstrap_without_qemu_is_installing_not_stopped() {
+        let probe = Probe {
+            process: true,
+            installing: true,
+            ..Default::default()
+        };
+        assert_eq!(probe.lifecycle(), "Installing");
+        let probe = Probe {
+            process: true,
+            installing: false,
+            ..Default::default()
+        };
+        assert_eq!(probe.lifecycle(), "Starting");
+    }
+
+    #[test]
+    fn start_rejects_an_alive_bootstrap() {
+        let root = std::env::temp_dir().join(format!(
+            "iora-dev-manager-bootstrap-{}",
+            std::process::id()
+        ));
+        let cache = root.join(".cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        // The current test process is alive; pretend it is the bootstrap.
+        std::fs::write(
+            cache.join("dev-local-bootstrap.pid"),
+            std::process::id().to_string(),
+        )
+        .unwrap();
+        let mut manager = Manager {
+            state_path: root.join(".cache/runtime-state.json"),
+            root: root.clone(),
+            state: RuntimeState::default(),
+        };
+        let error = manager.start(NetworkMode::Slirp, &[]).unwrap_err();
+        assert!(
+            error.to_string().contains("bootstrap in progress"),
+            "{error}"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

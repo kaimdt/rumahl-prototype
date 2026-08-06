@@ -23,6 +23,11 @@ use tokio::{
 pub const LOG_CAPACITY: usize = 2000;
 const WATCHDOG_SECS: u64 = 3;
 const MAX_RESTART_ATTEMPTS: u32 = 3;
+/// Consecutive "Stopped" probes before the watchdog gives up on a VM that
+/// never became ready. First installs run a long bootstrap (image download +
+/// provisioning) that legitimately takes minutes, so a single probe must not
+/// kill a start request.
+const GIVE_UP_AFTER_STOPPED_TICKS: u32 = 10;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EventMsg {
@@ -206,6 +211,11 @@ impl Daemon {
     pub async fn start(&self, mode: NetworkMode) -> Result<()> {
         {
             let mut desired = self.desired.lock().unwrap();
+            if desired.running {
+                return Err(anyhow::anyhow!(
+                    "VM is already running or a start is in progress"
+                ));
+            }
             desired.running = true;
             desired.retries = 0;
             desired.mode = mode.clone();
@@ -664,6 +674,12 @@ impl Daemon {
         Ok(format!("VM stopped: {}", steps.join(", ")))
     }
 
+    /// Raw-byte guest execution used by streaming log tails.
+    pub async fn guest_raw(&self, command: String) -> Result<Vec<u8>> {
+        let manager = self.manager.lock().await;
+        manager.guest_raw(&command).await
+    }
+
     pub async fn stats(&self) -> Value {
         self.stats_cache.lock().unwrap().clone()
     }
@@ -713,7 +729,7 @@ impl Daemon {
         });
     }
 
-    async fn watchdog_tick(&self, last_lifecycle: &mut String) {
+    async fn watchdog_tick(&self, last_lifecycle: &mut String, stopped_ticks: &mut u32) {
         let root = self.manager.lock().await.root.clone();
         self.append_serial_log(&root.join(".cache/qemu-serial.log"));
         self.append_named_log("dev-local", &root.join(".cache/dev-local.log"));
@@ -725,10 +741,16 @@ impl Daemon {
         };
         *self.last_probe.lock().unwrap() = probe.clone();
         let lifecycle = probe.lifecycle().to_string();
-        // Open forwarded ports only once the guest is fully up: the IORA
-        // firewall service rebuilds the chains during boot and would flush
-        // rules inserted too early.
-        if probe.qga && lifecycle == "Ready" && !*self.ports_opened.lock().unwrap() {
+        if lifecycle != "Stopped" {
+            *stopped_ticks = 0;
+        }
+        // Open forwarded ports once the guest firewall has been rebuilt by
+        // systemd: rules inserted while the firewall script is still running
+        // would be flushed during boot. The operations are idempotent, so
+        // they are re-applied on every lifecycle transition to cover
+        // firewall reloads.
+        let firewall_ready = probe.qga && (probe.systemd == "running" || probe.systemd == "degraded");
+        if firewall_ready && (!*self.ports_opened.lock().unwrap() || lifecycle != *last_lifecycle) {
             self.open_guest_ports().await;
             self.sync_live_forwarding().await;
             *self.ports_opened.lock().unwrap() = true;
@@ -850,14 +872,21 @@ impl Daemon {
             } else if lifecycle != "Stopped" {
                 RestartAction::None
             } else if !desired.ever_ready {
-                // The VM never became ready after a user start; retrying
-                // would only repeat the same configuration failure. Attach
-                // the last QEMU output so the reason is visible in the
-                // dashboard instead of a bare "never became ready".
-                desired.running = false;
-                desired.message =
-                    "VM failed to start and never became ready; no auto-restart".into();
-                RestartAction::GiveUp
+                // The VM never became ready after a user start. Give it a
+                // grace period before giving up: a first install legitimately
+                // spends minutes in the bootstrap, and a freshly started QEMU
+                // may report "Stopped" for a few ticks before its pid is
+                // visible. Only after the grace expires - with neither QEMU
+                // nor a bootstrap running - do we treat it as a real failure.
+                *stopped_ticks += 1;
+                if *stopped_ticks >= GIVE_UP_AFTER_STOPPED_TICKS {
+                    desired.running = false;
+                    desired.message =
+                        "VM failed to start and never became ready; no auto-restart".into();
+                    RestartAction::GiveUp
+                } else {
+                    RestartAction::None
+                }
             } else {
                 desired.retries += 1;
                 if desired.retries > MAX_RESTART_ATTEMPTS {
@@ -1686,10 +1715,11 @@ pub fn spawn(daemon: Arc<Daemon>) {
         daemon.ensure_default_mappings().await;
 
         // Watchdog: health probe, lifecycle transitions, auto-restart on crash.
+        let mut stopped_ticks: u32 = 0;
         let mut tick = interval(Duration::from_secs(WATCHDOG_SECS));
         loop {
             tick.tick().await;
-            daemon.watchdog_tick(&mut last_lifecycle).await;
+            daemon.watchdog_tick(&mut last_lifecycle, &mut stopped_ticks).await;
         }
     });
 
@@ -1726,7 +1756,7 @@ fn port_label(port: u16) -> Option<&'static str> {
     }
 }
 
-fn shell_quote(value: &str) -> String {
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 

@@ -136,7 +136,50 @@ pub async fn guest_exec(port: u16, socket: &Path, command: &str) -> Result<Strin
     bail!("guest command timed out")
 }
 
-fn decode(input: &str) -> String {
+/// Like [`guest_exec`], but returns the exact raw bytes of the guest output
+/// so byte-offset log tailing is never corrupted by lossy UTF-8 decoding.
+pub async fn guest_exec_raw(port: u16, socket: &Path, command: &str) -> Result<Vec<u8>> {
+    let started = qga(port, socket, json!({"execute":"guest-exec","arguments":{"path":"/bin/sh","arg":["-c",command],"capture-output":true}})).await?;
+    let pid = started
+        .pointer("/return/pid")
+        .and_then(Value::as_i64)
+        .context("QGA returned no guest PID")?;
+    for _ in 0..120 {
+        sleep(Duration::from_millis(250)).await;
+        let status = qga(
+            port,
+            socket,
+            json!({"execute":"guest-exec-status","arguments":{"pid":pid}}),
+        )
+        .await?;
+        let Some(code) = status.pointer("/return/exitcode").and_then(Value::as_i64) else {
+            continue;
+        };
+        let stdout = decode_raw(
+            status
+                .pointer("/return/out-data")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        );
+        let stderr = decode_raw(
+            status
+                .pointer("/return/err-data")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        );
+        if code == 0 {
+            return Ok(stdout);
+        }
+        bail!(
+            "guest command failed ({code}): {}{}",
+            String::from_utf8_lossy(&stderr),
+            String::from_utf8_lossy(&stdout)
+        );
+    }
+    bail!("guest command timed out")
+}
+
+fn decode_raw(input: &str) -> Vec<u8> {
     const MAP: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let (mut bits, mut count, mut output) = (0_u32, 0_u8, Vec::new());
     for byte in input
@@ -153,7 +196,11 @@ fn decode(input: &str) -> String {
             output.push(((bits >> count) & 0xff) as u8);
         }
     }
-    String::from_utf8_lossy(&output).into_owned()
+    output
+}
+
+fn decode(input: &str) -> String {
+    String::from_utf8_lossy(&decode_raw(input)).into_owned()
 }
 
 /// Minimal base64 encoder (mirror of the decoder above) - used to upload

@@ -31,7 +31,7 @@ The runtime state is the shared source of truth, not a replacement for live chec
 
 ## Readiness model
 
-The environment progresses through `Stopped`, `Starting`, `Booting`, `Provisioning`, `Waiting for network`, `Waiting for dependencies`, `Starting services`, `Degraded`, and `Ready`.
+The environment progresses through `Stopped`, `Installing` (first-install bootstrap running), `Starting`, `Booting`, `Provisioning`, `Waiting for network`, `Waiting for dependencies`, `Starting services`, `Degraded`, and `Ready`.
 
 `Ready` requires a live QEMU PID, QMP, QGA, operational systemd, guest networking, successful internal and host-side `iora-home` health, and the native live-development watcher. SSH is reported independently and is not required for VM administration.
 

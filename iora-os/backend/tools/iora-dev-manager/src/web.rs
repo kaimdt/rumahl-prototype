@@ -1,4 +1,7 @@
-use crate::{daemon::Daemon, state::NetworkMode};
+use crate::{
+    daemon::{shell_quote, Daemon},
+    state::NetworkMode,
+};
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -16,11 +19,20 @@ use futures::stream::{self, Stream, StreamExt};
 use futures::SinkExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{convert::Infallible, path::PathBuf, process::Stdio, sync::Arc};
+use std::{
+    convert::Infallible,
+    path::PathBuf,
+    process::Stdio,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     process::Command,
     sync::mpsc,
+    time::{interval, Duration},
 };
 
 pub fn router(daemon: Arc<Daemon>) -> Router {
@@ -38,6 +50,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/services", get(services))
         .route("/api/service/action", post(service_action))
         .route("/api/service/logs", get(service_logs))
+        .route("/api/service/logs/stream", get(service_logs_stream))
         .route("/api/stats", get(stats))
         .route("/api/mappings", get(mappings_get).post(mappings_add).delete(mappings_remove))
         .route("/api/vms", get(vms))
@@ -202,6 +215,111 @@ async fn service_logs(
         Ok(output) => Json(json!({"ok": true, "output": output})),
         Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
     }
+}
+
+#[derive(Deserialize)]
+struct ServiceLogsStreamQuery {
+    unit: String,
+}
+
+/// Stream a unit's journal live via SSE. A `journalctl -f -n 150` runs in the
+/// guest writing into a unique file; the endpoint tails that file
+/// byte-exactly and cleans up (kill + remove) when the client disconnects.
+async fn service_logs_stream(
+    State(daemon): State<Arc<Daemon>>,
+    Query(query): Query<ServiceLogsStreamQuery>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(256);
+    tokio::spawn(run_service_log_stream(daemon, query.unit, tx));
+    let stream = stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|item| (item, rx)) });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+static NEXT_SERVICE_LOG: AtomicU64 = AtomicU64::new(0);
+
+async fn run_service_log_stream(
+    daemon: Arc<Daemon>,
+    unit: String,
+    tx: mpsc::Sender<Result<Event, Infallible>>,
+) {
+    let safe = unit
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '@') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let file = format!(
+        "/tmp/iora-svc-{}-{}.log",
+        safe,
+        NEXT_SERVICE_LOG.fetch_add(1, Ordering::Relaxed)
+    );
+    // Start a bounded live journal tail in the guest; its output (last 150
+    // lines plus new ones) lands in `file`.
+    let started = daemon
+        .guest(format!(
+            "nohup timeout 600 journalctl -f -n 150 -u {} --no-pager --output=short >> {} 2>&1 & echo $!",
+            shell_quote(&unit),
+            file
+        ))
+        .await;
+    let pid = started.ok().and_then(|out| out.trim().parse::<u32>().ok());
+    let mut offset: u64 = 0;
+    let mut pending: Vec<u8> = Vec::new();
+    let mut tick = interval(Duration::from_secs(1));
+    loop {
+        tick.tick().await;
+        let raw = daemon
+            .guest_raw(format!(
+                "tail -c +{} {} 2>/dev/null || true",
+                offset + 1,
+                file
+            ))
+            .await
+            .unwrap_or_default();
+        pending.extend_from_slice(&raw);
+        if pending.is_empty() {
+            continue;
+        }
+        // Emit complete lines only (split on '\n') and keep the trailing
+        // fragment for the next poll; this way bytes never straddle a UTF-8
+        // character boundary.
+        let mut consumed = 0;
+        loop {
+            let rest = &pending[consumed..];
+            let Some(relative) = rest.iter().position(|byte| *byte == b'\n') else {
+                break;
+            };
+            let end = consumed + relative + 1; // exclusive, includes '\n'
+            let line = String::from_utf8_lossy(&pending[consumed..end - 1]).into_owned();
+            if tx
+                .send(Ok(Event::default().event("log").data(sanitize_sse_data(line))))
+                .await
+                .is_err()
+            {
+                cleanup_service_log(&daemon, pid, &file).await;
+                return;
+            }
+            consumed = end;
+        }
+        if consumed > 0 {
+            offset += consumed as u64;
+            pending.drain(..consumed);
+        }
+    }
+}
+
+async fn cleanup_service_log(daemon: &Daemon, pid: Option<u32>, file: &str) {
+    let command = match pid {
+        Some(pid) => format!(
+            "kill -9 {pid} 2>/dev/null; pkill -9 -P {pid} 2>/dev/null; rm -f {file}"
+        ),
+        None => format!("rm -f {file}"),
+    };
+    let _ = daemon.guest(command).await;
 }
 
 async fn stats(State(daemon): State<Arc<Daemon>>) -> Json<Value> {

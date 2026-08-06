@@ -93,9 +93,6 @@
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
     font-size: 12px; font-family: Consolas, monospace; }
   #guest-ports .gp button { padding: 1px 8px; font-size: 12px; }
-  #journal { margin-top: 10px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px; padding: 10px; font-family: Consolas, monospace; font-size: 12px;
-    white-space: pre-wrap; max-height: 300px; overflow-y: auto; display: none; }
   #guest-input { width: 100%; background: var(--bg); color: var(--text);
     border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
     font-family: Consolas, monospace; }
@@ -114,6 +111,17 @@
   #vnc-modal .box { position: absolute; inset: 24px; background: var(--panel);
     border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
   #vnc-screen { width: 100%; height: calc(100% - 60px); background: #000; }
+  #log-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    z-index: 60; }
+  #log-modal .box { position: absolute; inset: 24px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+    display: flex; flex-direction: column; }
+  #log-modal-body { flex: 1; overflow-y: auto; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+    margin-top: 10px; font-family: Consolas, monospace; font-size: 12px;
+    white-space: pre-wrap; }
+  #log-modal-body .t { color: #55626f; margin-right: 8px; }
+  #log-modal-body .err { color: var(--red); }
   .tab-page { display: none; }
   .tab-page.active { display: block; }
 </style>
@@ -145,8 +153,8 @@
     <div class="panel">
       <h2>Controls</h2>
       <div class="controls">
-        <button class="primary" onclick="act('/api/start', {mode:'slirp'})">Start (Slirp)</button>
-        <button class="primary" onclick="act('/api/start', {mode:'bridge'})">Start (Bridge)</button>
+        <button class="primary start-btn" onclick="act('/api/start', {mode:'slirp'})">Start (Slirp)</button>
+        <button class="primary start-btn" onclick="act('/api/start', {mode:'bridge'})">Start (Bridge)</button>
         <button onclick="act('/api/pause')">Pause</button>
         <button onclick="act('/api/resume')">Resume</button>
         <button onclick="act('/api/reset')">Reset</button>
@@ -249,7 +257,6 @@
       <thead><tr><th>Unit</th><th>State</th><th>Description</th><th>Actions</th></tr></thead>
       <tbody></tbody>
     </table>
-    <div id="journal"></div>
   </div>
 </main>
 </div>
@@ -261,6 +268,15 @@
     <div id="logs"></div>
   </div>
 </main>
+</div>
+
+<div id="log-modal">
+  <div class="box">
+    <h2 style="float:left; margin:0 16px 0 0">Live logs: <span id="log-modal-unit"></span></h2>
+    <button style="float:right" onclick="clearServiceLogs()">Clear</button>
+    <button style="float:right; margin-right:8px" onclick="closeServiceLogs()">Close</button>
+    <div id="log-modal-body"></div>
+  </div>
 </div>
 
 <div id="vnc-modal">
@@ -380,9 +396,16 @@
     renderActivity();
     renderAccess();
 
+    // Starting a second VM while one is running would corrupt the disk;
+    // the buttons stay disabled until the environment is fully stopped.
     const state = data.state || {};
     const conn = data.connection || {};
     const probe = data.probe || {};
+    const vmActive = probe.process || !!(data.desired && data.desired.running);
+    document.querySelectorAll('.start-btn').forEach(function (button) {
+      button.disabled = vmActive;
+      button.title = vmActive ? 'VM is already running or starting' : '';
+    });
     const env = [
       ['Network', state.networkMode || '-'],
       ['VM host', conn.host || '-'],
@@ -698,7 +721,7 @@
             '<button class="small" onclick="serviceAction(\'' + service.unit + '\',\'restart\')">Restart</button> ' +
             '<button class="small" onclick="serviceAction(\'' + service.unit + '\',\'start\')">Start</button> ' +
             '<button class="small" onclick="serviceAction(\'' + service.unit + '\',\'stop\')">Stop</button> ' +
-            '<button class="small" onclick="serviceLogs(\'' + service.unit + '\')">Logs</button>' +
+            '<button class="small" onclick="openServiceLogs(\'' + service.unit + '\')">Logs</button>' +
           '</td></tr>';
       }).join('');
     } catch (error) {
@@ -722,18 +745,40 @@
     }
   }
 
-  async function serviceLogs(unit) {
-    const journal = document.getElementById('journal');
-    try {
-      const response = await fetch('/api/service/logs?unit=' + encodeURIComponent(unit) + '&tail=120');
-      const result = await response.json();
-      journal.style.display = 'block';
-      journal.textContent = (result.output || result.message || 'no logs');
-      journal.scrollTop = journal.scrollHeight;
-    } catch (error) {
-      journal.style.display = 'block';
-      journal.textContent = 'failed: ' + error;
-    }
+  let serviceLogSource = null;
+
+  function openServiceLogs(unit) {
+    closeServiceLogs();
+    document.getElementById('log-modal-unit').textContent = unit;
+    document.getElementById('log-modal-body').innerHTML = '';
+    document.getElementById('log-modal').style.display = 'block';
+    serviceLogSource = new EventSource('/api/service/logs/stream?unit=' + encodeURIComponent(unit));
+    serviceLogSource.addEventListener('log', function (event) {
+      appendServiceLog(event.data);
+    });
+  }
+
+  function appendServiceLog(line) {
+    const box = document.getElementById('log-modal-body');
+    const time = new Date().toTimeString().slice(0, 8);
+    const div = document.createElement('div');
+    const span = document.createElement('span');
+    span.className = 't';
+    span.textContent = time;
+    div.appendChild(span);
+    div.appendChild(document.createTextNode(line));
+    box.appendChild(div);
+    while (box.childNodes.length > 3000) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function clearServiceLogs() {
+    document.getElementById('log-modal-body').innerHTML = '';
+  }
+
+  function closeServiceLogs() {
+    document.getElementById('log-modal').style.display = 'none';
+    if (serviceLogSource) { serviceLogSource.close(); serviceLogSource = null; }
   }
 
   async function runGuest() {
