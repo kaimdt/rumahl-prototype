@@ -644,11 +644,6 @@ server {
     listen [::]:3001;
     server_name localhost 127.0.0.1;
 
-    # Allow all origins for dev convenience
-    add_header Access-Control-Allow-Origin "*" always;
-    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS" always;
-    add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With" always;
-
     location / {
         proxy_pass http://iora_home;
         proxy_http_version 1.1;

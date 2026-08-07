@@ -1470,6 +1470,7 @@ $waited = 0
 $ready = $false
 $timeout = 900
 $lastDiag = 0
+$lastNetworkActivity = 0
 
 # -- Self-healing: UEFI shell trap detection ---------------------------------
 # The Debian cloud image has an EMPTY EFI System Partition: when OVMF finds
@@ -1532,13 +1533,22 @@ while ($waited -lt $timeout) {
 
     # Primaerer Kanal: QEMU-Guest-Agent (funktioniert OHNE IP); SSH als Alternative
     $bootReady = $false
-    $qgaOut = Invoke-QgaExec -Command 'test -f /var/lib/cloud/instance/boot-finished && echo READY' -TimeoutSec 10
+    $qgaOut = Invoke-QgaExec -Command 'if test -f /var/lib/cloud/instance/boot-finished; then echo READY; else awk ''{rx += $1} END {print "NET_RX=" rx}'' /sys/class/net/*/statistics/rx_bytes; awk ''{tx += $1} END {print "NET_TX=" tx}'' /sys/class/net/*/statistics/tx_bytes; fi' -TimeoutSec 10
     if ("$qgaOut" -match "READY") { $bootReady = $true }
     if (-not $bootReady) {
-        $result = Invoke-SSH 'test -f /var/lib/cloud/instance/boot-finished && echo READY'
+        $result = Invoke-SSH 'if test -f /var/lib/cloud/instance/boot-finished; then echo READY; else awk ''{rx += $1} END {print "NET_RX=" rx}'' /sys/class/net/*/statistics/rx_bytes; awk ''{tx += $1} END {print "NET_TX=" tx}'' /sys/class/net/*/statistics/tx_bytes; fi'
         if ("$result" -match "READY") { $bootReady = $true }
+        if (-not "$qgaOut" -and "$result" -match "NET_RX=") { $qgaOut = $result }
     }
     if ($bootReady) { $ready = $true; break }
+    $rxMatch = [regex]::Match("$qgaOut", "NET_RX=(\d+)")
+    $txMatch = [regex]::Match("$qgaOut", "NET_TX=(\d+)")
+    if (($waited - $lastNetworkActivity) -ge 10 -and $rxMatch.Success -and $txMatch.Success) {
+        $lastNetworkActivity = $waited
+        $downloaded = [Math]::Round([double]$rxMatch.Groups[1].Value / 1MB, 1)
+        $uploaded = [Math]::Round([double]$txMatch.Groups[1].Value / 1MB, 1)
+        Write-Info "Activity: downloaded ${downloaded} MB | uploaded ${uploaded} MB"
+    }
     # Every 90s without SSH progress: show what the VM console is doing so the
     # user can see whether it is still booting, stuck on login, or offline.
     if (($waited - $lastDiag) -ge 90) {

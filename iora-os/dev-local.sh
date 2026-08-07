@@ -881,6 +881,7 @@ source "$SCRIPT_DIR/qga.sh" 2>/dev/null || true
 WAITED=0
 CLOUD_TIMEOUT=900
 LAST_DIAG=0
+LAST_NETWORK_ACTIVITY=0
 while [ $WAITED -lt $CLOUD_TIMEOUT ]; do
     # Bail out if QEMU died during boot
     if [ -n "$QEMU_CHILD_PID" ] && ! kill -0 "$QEMU_CHILD_PID" 2>/dev/null; then
@@ -889,17 +890,35 @@ while [ $WAITED -lt $CLOUD_TIMEOUT ]; do
         die "VM crashed."
     fi
     BOOT_READY=false
+    NETWORK_ACTIVITY=""
     if [ -S "$CACHE/qga.sock" ] && command -v socat >/dev/null 2>&1; then
-        if qga_exec "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
+        QGA_STATUS=$(qga_exec "if test -f /var/lib/cloud/instance/boot-finished; then echo READY; else awk '{rx += \$1} END {print \"NET_RX=\" rx}' /sys/class/net/*/statistics/rx_bytes; awk '{tx += \$1} END {print \"NET_TX=\" tx}' /sys/class/net/*/statistics/tx_bytes; fi" 2>/dev/null || true)
+        NETWORK_ACTIVITY="$QGA_STATUS"
+        if printf '%s' "$QGA_STATUS" | grep -q READY; then
             BOOT_READY=true
         fi
     fi
-    if ! $BOOT_READY && ssh_vm "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
-        BOOT_READY=true
+    if ! $BOOT_READY; then
+        SSH_STATUS=$(ssh_vm "if test -f /var/lib/cloud/instance/boot-finished; then echo READY; else awk '{rx += \$1} END {print \"NET_RX=\" rx}' /sys/class/net/*/statistics/rx_bytes; awk '{tx += \$1} END {print \"NET_TX=\" tx}' /sys/class/net/*/statistics/tx_bytes; fi" 2>/dev/null || true)
+        if printf '%s' "$SSH_STATUS" | grep -q READY; then
+            BOOT_READY=true
+        elif [ -z "$NETWORK_ACTIVITY" ]; then
+            NETWORK_ACTIVITY="$SSH_STATUS"
+        fi
     fi
     if $BOOT_READY; then
         ok "Cloud-init completed"
         break
+    fi
+    if [ $((WAITED - LAST_NETWORK_ACTIVITY)) -ge 10 ]; then
+        RX_BYTES=$(printf '%s\n' "$NETWORK_ACTIVITY" | sed -n 's/^NET_RX=\([0-9][0-9]*\)$/\1/p' | tail -1)
+        TX_BYTES=$(printf '%s\n' "$NETWORK_ACTIVITY" | sed -n 's/^NET_TX=\([0-9][0-9]*\)$/\1/p' | tail -1)
+        if [ -n "$RX_BYTES" ] && [ -n "$TX_BYTES" ]; then
+            LAST_NETWORK_ACTIVITY=$WAITED
+            RX_MB=$(awk -v bytes="$RX_BYTES" 'BEGIN { printf "%.1f", bytes / 1048576 }')
+            TX_MB=$(awk -v bytes="$TX_BYTES" 'BEGIN { printf "%.1f", bytes / 1048576 }')
+            log "Activity: downloaded ${RX_MB} MB | uploaded ${TX_MB} MB"
+        fi
     fi
     # Every 90s without SSH progress: show what the VM console is doing
     if [ $((WAITED - LAST_DIAG)) -ge 90 ]; then
