@@ -146,7 +146,9 @@
       "widgetReady": "Dieses Widget ist installiert und einsatzbereit.",
       "install": "Custom Launcher installieren",
       "installHint": "Launcher und Widgets aus dem ORA App Store erscheinen hier automatisch. Manuelle Launcher können weiterhin als Manifest importiert werden.",
-      "invalidManifest": "Das Launcher-Manifest ist ungültig."
+      "invalidManifest": "Das Launcher-Manifest ist ungültig.",
+      "backendStatus": "ORA Backend",
+      "homeAssistantStatus": "Home Assistant"
     },
     "shell": {
       "openQuickSettings": "Schnelleinstellungen öffnen",
@@ -242,6 +244,10 @@
       "backups": {
         "name": "Backups",
         "description": "Systemdaten sichern und wiederherstellen"
+      },
+      "appStore": {
+        "name": "App Store",
+        "description": "ORA Apps entdecken, installieren und verwalten"
       }
     },
     "systemApps": {
@@ -327,6 +333,28 @@
       "confirmRestore": "Dieses Backup zur Wiederherstellung vorbereiten?",
       "confirmRestoreHint": "Der Backup-Dienst entpackt die Daten in einen geschützten Staging-Bereich. Bestehende Daten werden nicht automatisch überschrieben.",
       "restoreFailed": "Das Backup konnte nicht zur Wiederherstellung vorbereitet werden."
+    },
+    "files": {
+      "connectionError": "Der Files-Dienst ist nicht erreichbar ({{detail}}). Bereits geladene Dateien bleiben sichtbar.",
+      "operationError": "Die Dateioperation ist fehlgeschlagen ({{detail}}).",
+      "back": "Zurück",
+      "forward": "Vorwärts",
+      "changeView": "Ansicht wechseln",
+      "sort": "Dateien sortieren",
+      "sortName": "Name",
+      "sortUpdated": "Zuletzt geändert",
+      "sortSize": "Größe",
+      "home": "Home",
+      "storage": "Speicher",
+      "breadcrumb": "Ordnerpfad",
+      "refreshFailed": "Dateien konnten nicht aktualisiert werden",
+      "selected": "{{count}} ausgewählt",
+      "emptyHint": "Lade eine Datei hoch oder erstelle einen Ordner.",
+      "name": "Name",
+      "modified": "Geändert",
+      "size": "Größe",
+      "open": "Öffnen",
+      "select": "Auswählen"
     }
   },
   "settings": {

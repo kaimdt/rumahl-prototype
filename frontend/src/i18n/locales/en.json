@@ -146,7 +146,9 @@
       "widgetReady": "This widget is installed and ready to use.",
       "install": "Install custom launcher",
       "installHint": "Launchers and widgets from the ORA App Store appear here automatically. Manual launchers can still be imported as manifests.",
-      "invalidManifest": "The launcher manifest is invalid."
+      "invalidManifest": "The launcher manifest is invalid.",
+      "backendStatus": "ORA Backend",
+      "homeAssistantStatus": "Home Assistant"
     },
     "shell": {
       "openQuickSettings": "Open quick settings",
@@ -242,6 +244,10 @@
       "backups": {
         "name": "Backups",
         "description": "Protect and restore system data"
+      },
+      "appStore": {
+        "name": "App Store",
+        "description": "Discover, install, and manage ORA apps"
       }
     },
     "systemApps": {
@@ -327,6 +333,28 @@
       "confirmRestore": "Prepare this backup for restoration?",
       "confirmRestoreHint": "The backup service extracts the data into a protected staging area. Existing data is not overwritten automatically.",
       "restoreFailed": "The backup could not be prepared for restoration."
+    },
+    "files": {
+      "connectionError": "Could not connect to the Files service ({{detail}}). Your existing files remain visible.",
+      "operationError": "The file operation failed ({{detail}}).",
+      "back": "Back",
+      "forward": "Forward",
+      "changeView": "Change view",
+      "sort": "Sort files",
+      "sortName": "Name",
+      "sortUpdated": "Last modified",
+      "sortSize": "Size",
+      "home": "Home",
+      "storage": "Storage",
+      "breadcrumb": "Folder path",
+      "refreshFailed": "Files could not be refreshed",
+      "selected": "{{count}} selected",
+      "emptyHint": "Upload a file or create a folder to get started.",
+      "name": "Name",
+      "modified": "Modified",
+      "size": "Size",
+      "open": "Open",
+      "select": "Select"
     }
   },
   "settings": {

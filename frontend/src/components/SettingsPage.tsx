@@ -523,17 +523,17 @@ export function SettingsPage(props: SettingsPageProps) {
   const { stats, haInfo, loading: statsLoading, refresh: refreshStats } = useSystemStats(settingsTab === 'system')
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-xl font-semibold text-foreground px-1">Einstellungen</h3>
+    <section className="ora-app-frame ora-settings-app">
+      <header className="ora-settings-navbar">
+        <div className="flex items-center gap-3"><span className="ora-app-mark ora-app-mark-settings"><GearSix size={24} weight="duotone" /></span><div><p className="text-xl font-semibold text-foreground">{t('navigation.settings')}</p><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
         <div className="flex items-center gap-2 text-[11px] text-foreground/50">
           <span className="px-2.5 py-1 rounded-lg bg-foreground/5">{userName}</span>
           <span className="px-2.5 py-1 rounded-lg bg-foreground/5 capitalize">{theme}</span>
         </div>
-      </div>
+      </header>
 
-      <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as typeof settingsTab)}>
-        <TabsList className="grid grid-cols-4 w-full rounded-xl bg-foreground/5 p-1 h-auto">
+      <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as typeof settingsTab)} className="ora-settings-layout">
+        <TabsList className="ora-settings-sidebar">
           <TabsTrigger value="general" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
             <User size={15} weight="fill" />
             <span className="hidden sm:inline">{t('settings.general')}</span>
@@ -1220,6 +1220,6 @@ export function SettingsPage(props: SettingsPageProps) {
           }}
         />
       )}
-    </div>
+    </section>
   )
 }

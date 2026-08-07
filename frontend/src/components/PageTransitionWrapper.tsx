@@ -15,7 +15,7 @@
  * ```
  */
 
-import { motion, AnimatePresence, type Transition } from 'motion/react'
+import { motion, AnimatePresence, useReducedMotion, type Transition } from 'motion/react'
 import { useTheme } from '@/contexts/ThemeContext'
 import type { PageTransitionConfig, SpringConfig } from '@/contexts/ThemeContext'
 import { useMemo } from 'react'
@@ -100,6 +100,7 @@ export function PageTransitionWrapper({
   waitForExit = true,
 }: PageTransitionWrapperProps) {
   const { pageTransitionConfig } = useTheme()
+  const reduceMotion = useReducedMotion()
 
   const config = transitionOverride 
     ? { ...pageTransitionConfig, ...transitionOverride } as PageTransitionConfig
@@ -110,7 +111,7 @@ export function PageTransitionWrapper({
   const variants = useMemo(() => getVariants(transitionType), [transitionType])
 
   // If page transitions are disabled, render children directly
-  if (config && !config.enabled) {
+  if (reduceMotion || (config && !config.enabled)) {
     return <>{children}</>
   }
 

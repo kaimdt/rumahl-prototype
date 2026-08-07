@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { House } from '@phosphor-icons/react'
 import { buildLauncherItems, type LauncherFolder } from './LauncherAppGrid'
-import type { OsAppDefinition } from '@/lib/osAppRegistry'
+import { SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 
 const apps: OsAppDefinition[] = ['home', 'settings', 'files'].map((id, order) => ({
   id,
@@ -14,6 +14,11 @@ const apps: OsAppDefinition[] = ['home', 'settings', 'files'].map((id, order) =>
 }))
 
 describe('buildLauncherItems', () => {
+  test('exposes App Store but keeps Control Center in the global system layer', () => {
+    expect(SYSTEM_OS_APPS.some((app) => app.pageId === 'app-store')).toBe(true)
+    expect(SYSTEM_OS_APPS.some((app) => app.pageId === 'admin')).toBe(false)
+  })
+
   test('groups available apps and leaves ungrouped apps on the homescreen', () => {
     const folders: LauncherFolder[] = [{ id: 'system', name: 'System', appIds: ['settings', 'files'] }]
     const items = buildLauncherItems(apps, folders)

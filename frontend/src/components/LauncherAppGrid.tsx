@@ -30,10 +30,10 @@ function AppIcon({ app, compact = false }: { app: OsAppDefinition; compact?: boo
   const Icon = app.icon
   return (
     <span
-      className={`relative flex shrink-0 items-center justify-center overflow-hidden border border-white/15 text-white shadow-lg ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'}`}
+      className={`ora-app-icon relative flex shrink-0 items-center justify-center overflow-hidden border border-white/15 text-white ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'}`}
       style={{ background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
-      <span className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent" />
+      <span className="ora-app-icon-highlight absolute inset-0" />
       <Icon size={compact ? 16 : 38} weight="duotone" className="relative" />
     </span>
   )
@@ -95,8 +95,8 @@ export function LauncherAppGrid({
       </div>
       <AnimatePresence mode="wait">
         <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6">
-          {items.map((item) => item.type === 'app' ? (
-            <button
+          {items.map((item, index) => item.type === 'app' ? (
+            <motion.button
               key={item.app.id}
               type="button"
               draggable={editMode}
@@ -107,10 +107,11 @@ export function LauncherAppGrid({
               onClick={() => { if (!editMode) onOpenApp(item.app) }}
               onContextMenu={(event) => { event.preventDefault(); onEditModeChange(true) }}
               className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring ${editMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.025, 0.2), duration: 0.24 }} whileHover={editMode ? undefined : { y: -4, scale: 1.025 }} whileTap={editMode ? undefined : { scale: 0.96 }}
             >
               <AppIcon app={item.app} />
               <span className="mt-2.5 w-full truncate text-xs font-medium text-foreground/90 sm:text-sm">{getAppName(item.app)}</span>
-            </button>
+            </motion.button>
           ) : (
             <button
               key={item.folder.id}

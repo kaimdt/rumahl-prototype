@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ArrowClockwise,
   Cpu,
@@ -71,7 +71,14 @@ function AppHeader({ title, subtitle, loading, refresh }: { title: string; subti
 }
 
 export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) {
+  if (kind === 'files') return <OsFileExplorer />
+  return <OsSystemDataApp kind={kind} />
+}
+
+function OsSystemDataApp({ kind }: { kind: 'network' | 'system' }) {
   const { t } = useTranslation()
+  const tRef = useRef(t)
+  useEffect(() => { tRef.current = t }, [t])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
@@ -86,9 +93,7 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
     setLoading(true)
     setError('')
     try {
-      if (kind === 'files') {
-        return
-      } else if (kind === 'network') {
+      if (kind === 'network') {
         const response = await authFetch('/api/os/control/os/network')
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const data = await response.json()
@@ -105,11 +110,11 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
         setProcesses(processesResponse.ok ? (await processesResponse.json()).processes || [] : [])
       }
     } catch {
-      setError(t('os.systemApps.unavailable'))
+      setError(tRef.current('os.systemApps.unavailable'))
     } finally {
       setLoading(false)
     }
-  }, [kind, t])
+  }, [kind])
 
   useEffect(() => {
     load()
@@ -145,10 +150,6 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
     <section className="mx-auto min-h-[calc(100vh-11rem)] max-w-6xl pb-10">
       <AppHeader title={title} subtitle={subtitle} loading={loading} refresh={load} />
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
-
-      {kind === 'files' && (
-        <OsFileExplorer />
-      )}
 
       {kind === 'network' && (
         <>

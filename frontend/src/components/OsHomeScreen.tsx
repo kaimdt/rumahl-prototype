@@ -4,12 +4,14 @@ import {
   ArrowRight,
   Check,
   Clock,
+  Heartbeat,
   Gear,
   House,
   MagnifyingGlass,
   Plus,
   SquaresFour,
   UploadSimple,
+  WifiHigh,
   X,
 } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -21,6 +23,7 @@ import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useLocalStorage } from '@/lib/storage'
 import { loadLauncherPackages, type StoreLauncherPackage, type StoreWidgetPackage } from '@/lib/launcherPackages'
 import { loadSettingsFromBackend } from '@/lib/settingsSync'
+import { useConnection } from '@/contexts/ConnectionContext'
 
 type BuiltInLauncher = 'default' | 'deck' | 'canvas'
 
@@ -50,10 +53,10 @@ function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'norma
   const Icon = app.icon
   return (
     <span
-      className={`relative flex shrink-0 items-center justify-center overflow-hidden border border-white/15 text-white shadow-lg ${size === 'large' ? 'h-20 w-20 rounded-[1.7rem]' : 'h-14 w-14 rounded-2xl'}`}
+      className={`ora-app-icon relative flex shrink-0 items-center justify-center overflow-hidden border border-white/15 text-white ${size === 'large' ? 'h-20 w-20 rounded-[1.7rem]' : 'h-14 w-14 rounded-2xl'}`}
       style={{ background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
-      <span className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent" />
+      <span className="ora-app-icon-highlight absolute inset-0" />
       <Icon size={size === 'large' ? 38 : 27} weight="duotone" className="relative" />
     </span>
   )
@@ -64,6 +67,7 @@ export function OsHomeScreen() {
   const { user } = useAuth()
   const { pages, setCurrentPageId } = usePageNavigation()
   const { permissions } = useOsPermissions()
+  const { backend, homeAssistant } = useConnection()
   const now = useClock()
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -78,6 +82,7 @@ export function OsHomeScreen() {
   const [storeReachable, setStoreReachable] = useState<boolean | null>(null)
   const pointerStart = useRef<number | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
 
   const availableLaunchers = useMemo(() => [...customLaunchers, ...storeLaunchers], [customLaunchers, storeLaunchers])
   const launcher = availableLaunchers.find((item) => item.id === launcherId)
@@ -167,6 +172,16 @@ export function OsHomeScreen() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [appPages.length, homeApp, setCurrentPageId])
+  useEffect(() => {
+    const openCommand = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        searchInput.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', openCommand)
+    return () => window.removeEventListener('keydown', openCommand)
+  }, [])
 
   const selectLauncher = (id: string) => {
     setLauncherId(id)
@@ -226,6 +241,15 @@ export function OsHomeScreen() {
 
       {layout === 'default' && (
         <div className="mx-auto mt-5 max-w-6xl px-1">
+          <div className="ora-home-hero mb-5 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/45">ORA OS</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-5xl">{t('os.greeting', { name: user?.displayName || user?.username || t('os.defaultUser') })}</h1>
+            <p className="mx-auto mt-2 max-w-xl text-sm text-white/50">{t('os.subtitle')}</p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <span className="ora-status-chip"><Heartbeat size={15} weight="duotone" /><i className={backend === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.backendStatus')}</span>
+              <span className="ora-status-chip"><WifiHigh size={15} weight="duotone" /><i className={homeAssistant === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.homeAssistantStatus')}</span>
+            </div>
+          </div>
           {widgetIds.length > 0 && <div className="mb-5 grid gap-3 md:grid-cols-[1.4fr_0.6fr]">
             {widgetIds.includes('home') && <button type="button" onClick={() => homeApp && openApp(homeApp)} className="glass-card group flex min-h-32 touch-manipulation items-center gap-4 rounded-[2rem] p-5 text-left focus-ring sm:p-6">
               {homeApp && <AppIcon app={homeApp} size="large" />}
@@ -237,7 +261,7 @@ export function OsHomeScreen() {
             </div>}
           </div>}
           {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-[2rem] border border-white/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
-          <label className="glass-card mx-auto mb-6 flex min-h-12 max-w-xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={19} className="text-foreground/40" /><span className="sr-only">{t('os.search')}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.search')} className="w-full bg-transparent text-sm outline-none placeholder:text-foreground/35" /></label>
+          <label className="ora-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd>⌘K</kbd></label>
           {appGrid}
         </div>
       )}

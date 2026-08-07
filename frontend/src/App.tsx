@@ -44,6 +44,7 @@ const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default
 const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
 const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
 const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
+const AppStoreTab = lazy(() => import('@/components/AppStoreTab').then(m => ({ default: m.AppStoreTab })))
 import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
@@ -139,6 +140,8 @@ function DashboardContent() {
   const { entities, loading, refresh } = useEntityStore()
   const warningLevel = useWarningLevel()
   const { homeAssistant: haConnectionStatus, lastHACheck } = useConnection()
+  const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+  const isOsAppPage = standaloneAppPageIds.includes(currentPageId)
 
   // Apply global card style class on <html> so it covers portals/modals/dialogs
   useEffect(() => {
@@ -559,12 +562,13 @@ function DashboardContent() {
             background: theme === 'sleep'
               ? 'black'
               : (theme === 'day' || theme === 'light')
-              ? 'linear-gradient(to bottom, rgba(255,255,255,0.50), rgba(255,255,255,0.30), rgba(255,255,255,0.55))'
-              : 'linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.2), rgba(0,0,0,0.6))',
+              ? 'radial-gradient(circle at 70% 18%, rgba(255,255,255,0.24), transparent 36%), linear-gradient(to bottom, rgba(235,244,255,0.36), rgba(255,255,255,0.16), rgba(225,236,248,0.44))'
+              : 'radial-gradient(circle at 18% 20%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 38%), radial-gradient(circle at 82% 12%, rgba(38,82,160,0.2), transparent 34%), linear-gradient(to bottom, rgba(4,9,18,0.36), rgba(5,9,17,0.18), rgba(2,5,12,0.68))',
             opacity: theme === 'sleep' ? 0.92 : hasActiveCustomBackground ? 0.5 : 1,
             transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
           }}
         />
+        <div className="fixed inset-0 z-10 pointer-events-none ora-wallpaper-vignette" />
         {nightModeSettings.isActive && (theme === 'night' || theme === 'sleep' || nightModeSettings.applyAlways) && (
           <div
             className="fixed inset-0 z-10 pointer-events-none"
@@ -596,7 +600,7 @@ function DashboardContent() {
             transition: 'filter var(--transition-duration) ease',
           }}
         >
-          <header
+          {!isOsAppPage && <header
             className="glass-header theme-transition"
             style={{
               ...(warningLevel === 'emergency' ? { background: 'linear-gradient(to right, rgba(127,29,29,0.95), rgba(153,27,27,0.95))', borderBottom: '1px solid rgba(248,113,113,0.4)' }
@@ -621,9 +625,9 @@ function DashboardContent() {
                 <HeaderClock />
               </div>
             </div>
-          </header>
+          </header>}
 
-          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
+          <main className={`${isOsAppPage ? 'max-w-[1700px]' : 'max-w-[1500px]'} mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32`} style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
           <Suspense fallback={<DashboardSkeleton />}>
           <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {
@@ -633,7 +637,7 @@ function DashboardContent() {
             }
 
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
-            const systemPageIds = ['launcher', 'settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+            const systemPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
 
             const resolvePageType = (): 'dashboard' | 'app' | 'system' | 'custom' => {
               if (currentPage?.pageType) return currentPage.pageType
@@ -657,7 +661,7 @@ function DashboardContent() {
 
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
-            const nonHAPages = ['launcher', 'settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+            const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
             const isNonHAPage = nonHAPages.includes(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
@@ -670,6 +674,7 @@ function DashboardContent() {
                   {currentPageId === 'os-system' && <OsSystemApp kind="system" />}
                   {currentPageId === 'os-updates' && <OsMaintenanceApp kind="updates" />}
                   {currentPageId === 'os-backups' && <OsMaintenanceApp kind="backups" />}
+                  {currentPageId === 'app-store' && <section className="ora-app-frame p-4 sm:p-6"><header className="mb-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h1 className="mt-1 text-3xl font-semibold">{t('os.apps.appStore.name')}</h1><p className="mt-1 text-sm text-foreground/45">{t('os.apps.appStore.description')}</p></header><AppStoreTab token={token || ''} /></section>}
                   {currentPageId === 'settings' && (
                     <SettingsPage
                       user={user}
@@ -974,7 +979,7 @@ function DashboardContent() {
           )
         })()}
       </AnimatePresence>
-      <NavigationMenu hidden={showPageDesigner || currentPageId === 'launcher'} />
+      <NavigationMenu hidden={showPageDesigner || standaloneAppPageIds.includes(currentPageId)} />
       {!showPageDesigner && <OsAppCloseButton />}
       {!showPageDesigner && <OsSystemShell />}
       <OsSessionLock />
