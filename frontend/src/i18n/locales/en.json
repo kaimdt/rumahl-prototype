@@ -109,46 +109,46 @@
     "openLauncher": "Open homescreen",
     "systemApp": "System",
     "installedApp": "App",
-  "customApp": "Custom",
-  "noApps": "No matching apps found.",
-  "launcher": {
-    "label": "ORA OS homescreen",
-    "nativeHome": "Native to ORA OS",
-    "openHome": "ORA Home",
-    "openApp": "Open app",
-    "open": "Open",
-    "closeApp": "Close app",
-    "customize": "Customize launcher",
-    "choose": "Choose launcher",
-    "defaultName": "ORA Homescreen",
-    "deckName": "Intelligent Deck",
-    "canvasName": "Living Canvas",
-    "intelligent": "Intelligent access",
-    "whatToDo": "What would you like to do?",
-    "commandPlaceholder": "Search for an app, device, or action",
-    "pages": "Homescreen pages",
-    "page": "Page {{page}}",
-    "edit": "Edit homescreen",
-    "finishEditing": "Done",
-    "newFolder": "New folder",
-    "folderName": "Folder name",
-    "deleteFolder": "Delete folder",
-    "removeFromFolder": "Remove {{app}} from folder",
-    "widgets": "Widgets",
-    "homeWidget": "ORA Home",
-    "clockWidget": "Clock and date",
-    "storeLaunchers": "From the App Store",
-    "storeWidgets": "Installed widgets",
-    "sync": "Device synchronization",
-    "synced": "Synchronized",
-    "syncing": "Synchronizing…",
-    "offline": "Offline – stored locally",
-    "widgetReady": "This widget is installed and ready to use.",
-    "install": "Install custom launcher",
-    "installHint": "Launchers and widgets from the ORA App Store appear here automatically. Manual launchers can still be imported as manifests.",
-    "invalidManifest": "The launcher manifest is invalid."
-  },
-  "shell": {
+    "customApp": "Custom",
+    "noApps": "No matching apps found.",
+    "launcher": {
+      "label": "ORA OS homescreen",
+      "nativeHome": "Native to ORA OS",
+      "openHome": "ORA Home",
+      "openApp": "Open app",
+      "open": "Open",
+      "closeApp": "Close app",
+      "customize": "Customize launcher",
+      "choose": "Choose launcher",
+      "defaultName": "ORA Homescreen",
+      "deckName": "Intelligent Deck",
+      "canvasName": "Living Canvas",
+      "intelligent": "Intelligent access",
+      "whatToDo": "What would you like to do?",
+      "commandPlaceholder": "Search for an app, device, or action",
+      "pages": "Homescreen pages",
+      "page": "Page {{page}}",
+      "edit": "Edit homescreen",
+      "finishEditing": "Done",
+      "newFolder": "New folder",
+      "folderName": "Folder name",
+      "deleteFolder": "Delete folder",
+      "removeFromFolder": "Remove {{app}} from folder",
+      "widgets": "Widgets",
+      "homeWidget": "ORA Home",
+      "clockWidget": "Clock and date",
+      "storeLaunchers": "From the App Store",
+      "storeWidgets": "Installed widgets",
+      "sync": "Device synchronization",
+      "synced": "Synchronized",
+      "syncing": "Synchronizing…",
+      "offline": "Offline – stored locally",
+      "widgetReady": "This widget is installed and ready to use.",
+      "install": "Install custom launcher",
+      "installHint": "Launchers and widgets from the ORA App Store appear here automatically. Manual launchers can still be imported as manifests.",
+      "invalidManifest": "The launcher manifest is invalid."
+    },
+    "shell": {
       "openQuickSettings": "Open quick settings",
       "quickSettings": "Quick settings",
       "systemReady": "Native system services available",
@@ -195,60 +195,108 @@
       }
     },
     "apps": {
-      "home": { "name": "Home", "description": "Smart home dashboard and automations" },
-      "admin": { "name": "Control Center", "description": "Administration and system management" },
-      "settings": { "name": "Settings", "description": "Personalize ORA OS" },
-      "agent": { "name": "Agent", "description": "AI assistant and development agent" },
-      "streaming": { "name": "Streaming", "description": "Share media with displays" },
-      "share": { "name": "Share", "description": "Share apps and content" },
-      "docs": { "name": "Documentation", "description": "Guides and system documentation" }
-      ,"files": { "name": "Files", "description": "Personal files and storage" }
-      ,"network": { "name": "Network", "description": "Interfaces and network activity" }
-      ,"system": { "name": "System Monitor", "description": "Resources, disks, and processes" }
-      ,"updates": { "name": "Updates", "description": "Keep ORA OS secure and current" }
-      ,"backups": { "name": "Backups", "description": "Protect and restore system data" }
+      "home": {
+        "name": "Home",
+        "description": "Smart home dashboard and automations"
+      },
+      "admin": {
+        "name": "Control Center",
+        "description": "Administration and system management"
+      },
+      "settings": {
+        "name": "Settings",
+        "description": "Personalize ORA OS"
+      },
+      "agent": {
+        "name": "Agent",
+        "description": "AI assistant and development agent"
+      },
+      "streaming": {
+        "name": "Streaming",
+        "description": "Share media with displays"
+      },
+      "share": {
+        "name": "Share",
+        "description": "Share apps and content"
+      },
+      "docs": {
+        "name": "Documentation",
+        "description": "Guides and system documentation"
+      },
+      "files": {
+        "name": "Files",
+        "description": "Personal files and storage"
+      },
+      "network": {
+        "name": "Network",
+        "description": "Interfaces and network activity"
+      },
+      "system": {
+        "name": "System Monitor",
+        "description": "Resources, disks, and processes"
+      },
+      "updates": {
+        "name": "Updates",
+        "description": "Keep ORA OS secure and current"
+      },
+      "backups": {
+        "name": "Backups",
+        "description": "Protect and restore system data"
+      }
     },
     "systemApps": {
-      "unavailable": "The system service is currently unavailable.",
-      "usedStorage": "Used storage",
-      "files": "Files",
-      "quota": "Storage limit",
-      "noFiles": "No files available.",
+      "active": "Active",
+      "addFiles": "Add files",
+      "confirmDhcp": "Switch IPv4 and IPv6 to DHCP? The current connection may be interrupted.",
+      "copy": "Copy",
+      "copyFailed": "The file could not be copied.",
+      "copyHere": "Copy here",
+      "copyTo": "Copy to…",
+      "createFolder": "Create folder",
+      "deleteFailed": "The file could not be deleted.",
+      "dhcpHint": "Automatic addressing can interrupt the current connection.",
+      "download": "Download",
       "downloadFailed": "The file could not be downloaded.",
-      "uploadFailed": "The file could not be uploaded.",
+      "dropFiles": "Drop files here or select them through Add files",
+      "enableDhcp": "Enable DHCP",
+      "file": "File",
+      "files": "Files",
+      "folder": "Folder",
       "folderFailed": "The folder could not be created.",
       "folderName": "New folder name",
-      "createFolder": "Create folder",
-      "upload": "Upload",
-    "folder": "Folder",
-    "file": "File",
-    "myCloud": "My ORA Cloud",
-    "searchFiles": "Search files and folders",
-    "newFolder": "New folder",
-    "addFiles": "Add files",
-    "fromCloud": "Browse locally",
-    "fromCloudHint": "Navigate your personal ORA Cloud",
-    "fromDevice": "Browse device",
-    "fromDeviceHint": "Select files using the system file picker",
-    "kioskUnavailable": "Unavailable on kiosk devices",
-    "parentFolder": "Parent folder",
-    "dropFiles": "Drop files here or select them through Add files",
-    "download": "Download",
-    "rename": "Rename",
-    "renameFailed": "The file could not be renamed.",
-    "deleteFailed": "The file could not be deleted.",
-    "processing": "File operation in progress…",
-    "active": "Active",
-      "noAddress": "No hardware address",
-      "received": "Received",
-      "sent": "Sent",
-      "noInterfaces": "No network interfaces found.",
-      "dhcpHint": "Automatic addressing can interrupt the current connection.",
-      "enableDhcp": "Enable DHCP",
-      "confirmDhcp": "Switch IPv4 and IPv6 to DHCP? The current connection may be interrupted.",
+      "fromCloud": "Browse locally",
+      "fromCloudHint": "Navigate your personal ORA Cloud",
+      "fromDevice": "Browse device",
+      "fromDeviceHint": "Select files using the system file picker",
+      "kioskUnavailable": "Unavailable on kiosk devices",
+      "moreActions": "More actions",
+      "move": "Move",
+      "moveFailed": "The file could not be moved.",
+      "moveHere": "Move here",
+      "moveTo": "Move to…",
+      "myCloud": "My ORA Cloud",
       "networkChangeFailed": "The network configuration could not be applied.",
+      "newFolder": "New folder",
+      "noAddress": "No hardware address",
+      "noFiles": "No files available.",
+      "noInterfaces": "No network interfaces found.",
+      "noSubfolders": "No subfolders available.",
+      "parentFolder": "Parent folder",
+      "processes": "Active processes",
+      "processing": "File operation in progress…",
+      "quota": "Storage limit",
+      "received": "Received",
+      "rename": "Rename",
+      "renameFailed": "The file could not be renamed.",
+      "searchFiles": "Search files and folders",
+      "sent": "Sent",
+      "sourceFolderDisabled": "Cannot move or copy into this folder",
       "storage": "Storage",
-      "processes": "Active processes"
+      "targetFolder": "Destination",
+      "unavailable": "The system service is currently unavailable.",
+      "upload": "Upload",
+      "uploadFailed": "The file could not be uploaded.",
+      "usedStorage": "Used storage"
     },
     "filePicker": {
       "openTitle": "Open file with app",
@@ -664,7 +712,9 @@
       "comingTitle": "The complete App Store is coming soon",
       "comingDescription": "Direct access to apps, widgets, and plugins from the ORA catalog.",
       "comingSoon": "Coming soon",
-      "catalog": { "weather": "Weather Pro" }
+      "catalog": {
+        "weather": "Weather Pro"
+      }
     },
     "topThemes": "Top Themes",
     "topApps": "Top Apps",

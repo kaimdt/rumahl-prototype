@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'motion/react'
@@ -97,8 +97,17 @@ import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
 import type { InstalledTheme } from '@/contexts/ThemeContext'
 
+// Lazy-loaded settings sections — split into separate chunks to keep the initial
+// SettingsPage bundle small. Each section loads on demand when its tab is opened.
+const LoginPinSection = lazy(() => import('./settings/SettingsSecurity').then((m) => ({ default: m.LoginPinSection })))
+const TwoFactorPasskeySection = lazy(() => import('./settings/SettingsSecurity').then((m) => ({ default: m.TwoFactorPasskeySection })))
+const ThemePickerSection = lazy(() => import('./settings/SettingsAppearance').then((m) => ({ default: m.ThemePickerSection })))
+const ScreensaverScheduleEditor = lazy(() => import('./settings/SettingsDashboard').then((m) => ({ default: m.ScreensaverScheduleEditor })))
+const AdditionalSettings = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.AdditionalSettings })))
+const NinaSettingsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.NinaSettingsSection })))
+
 /** Map icon name string to Phosphor icon component */
-function MapThemeIcon(iconName?: string | null): React.ElementType {
+export function MapThemeIcon(iconName?: string | null): React.ElementType {
   const iconMap: Record<string, React.ElementType> = {
     Sun, Moon, Monitor, CloudSun, SunDim, MoonStars,
     ArrowsClockwise, Palette, PaintBrush, Sparkle, Eye,
@@ -108,7 +117,7 @@ function MapThemeIcon(iconName?: string | null): React.ElementType {
 }
 
 /** Generate a preview gradient for custom themes */
-function getCustomThemePreview(theme: InstalledTheme): string {
+export function getCustomThemePreview(theme: InstalledTheme): string {
   // Try to parse CSS variables for a preview color
   if (theme.css_variables) {
     try {
@@ -125,7 +134,7 @@ function getCustomThemePreview(theme: InstalledTheme): string {
   return 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
 }
 
-const apiBase = () => getBackendUrl() || ''
+export const apiBase = () => getBackendUrl() || ''
 
 // ─── System stats types ──────────────────────────────────────────────
 interface SystemStats {
@@ -183,14 +192,14 @@ function useSystemStats(enabled: boolean) {
   return { stats, haInfo, loading, refresh }
 }
 
-function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-function formatUptime(seconds: number): string {
+export function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400)
   const h = Math.floor((seconds % 86400) / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -199,7 +208,7 @@ function formatUptime(seconds: number): string {
   return `${m}m`
 }
 
-function generateBase32Secret(length = 20) {
+export function generateBase32Secret(length = 20) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
   const bytes = typeof crypto !== 'undefined' && 'getRandomValues' in crypto
     ? crypto.getRandomValues(new Uint8Array(length))
@@ -209,13 +218,13 @@ function generateBase32Secret(length = 20) {
     .join('')
 }
 
-function formatOtpAuthUri(secret: string) {
+export function formatOtpAuthUri(secret: string) {
   const issuer = encodeURIComponent('IORA Home')
   const label = encodeURIComponent('IORA Home')
   return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`
 }
 
-function getTimeBasedCode(secret: string) {
+export function getTimeBasedCode(secret: string) {
   const timeWindow = Math.floor(Date.now() / 30000)
   let hash = 0
   for (let i = 0; i < secret.length; i += 1) {
@@ -224,11 +233,11 @@ function getTimeBasedCode(secret: string) {
   return String(1000000 + (hash % 900000)).slice(-6)
 }
 
-function createBackupCodes(count = 10) {
+export function createBackupCodes(count = 10) {
   return Array.from({ length: count }, () => Math.random().toString(36).slice(2, 10).toUpperCase())
 }
 
-function downloadBackupCodes(codes: string[]) {
+export function downloadBackupCodes(codes: string[]) {
   const blob = new Blob([codes.join('\n')], { type: 'text/plain;charset=utf-8' })
   const href = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -241,7 +250,7 @@ function downloadBackupCodes(codes: string[]) {
 }
 
 // ─── Mini progress bar ───────────────────────────────────────────────
-function ProgressBar({ value, max = 100, color = 'accent' }: { value: number; max?: number; color?: string }) {
+export function ProgressBar({ value, max = 100, color = 'accent' }: { value: number; max?: number; color?: string }) {
   const pct = Math.min((value / max) * 100, 100)
   const colorClass = pct > 85 ? 'bg-red-400' : pct > 65 ? 'bg-amber-400' : color === 'accent' ? 'bg-accent' : `bg-${color}-400`
   return (
@@ -255,7 +264,7 @@ function ProgressBar({ value, max = 100, color = 'accent' }: { value: number; ma
 }
 
 // ─── Settings section wrapper with collapsible content ───────────────────
-function SettingsSection({
+export function SettingsSection({
   icon: Icon,
   title,
   description,
@@ -312,7 +321,7 @@ function SettingsSection({
 }
 
 // ─── Styled slider row ────────────────────────────────────────────────
-function SliderRow({
+export function SliderRow({
   label,
   value,
   min,
@@ -353,7 +362,7 @@ function SliderRow({
 }
 
 // ─── Toggle row ───────────────────────────────────────────────────────
-function ToggleRow({
+export function ToggleRow({
   label,
   description,
   checked,
@@ -378,7 +387,7 @@ function ToggleRow({
 }
 
 // ─── Theme Picker Section ──────────────────────────────────────────────
-const THEME_OPTIONS: { value: string; label: string; description: string; icon: React.ElementType; preview: string }[] = [
+export const THEME_OPTIONS: { value: string; label: string; description: string; icon: React.ElementType; preview: string }[] = [
   { value: 'auto', label: 'Automatisch', description: 'Wechselt nach Tageszeit', icon: ArrowsClockwise, preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
   { value: 'light', label: 'Hell', description: 'Maximale Helligkeit', icon: Sun, preview: 'linear-gradient(135deg, #f5f5f7 0%, #e8eaf0 50%, #dde0e8 100%)' },
   { value: 'day', label: 'Tag', description: 'Helles Design', icon: CloudSun, preview: 'linear-gradient(135deg, #e0e4ec 0%, #c8cdd8 50%, #b8bfcc 100%)' },
@@ -387,408 +396,6 @@ const THEME_OPTIONS: { value: string; label: string; description: string; icon: 
   { value: 'night', label: 'Nacht', description: 'Dunkles Design', icon: MoonStars, preview: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)' },
   { value: 'sleep', label: 'Schlaf', description: 'OLED Schwarz', icon: Moon, preview: 'linear-gradient(135deg, #050508 0%, #000000 100%)' },
 ]
-
-function ThemePickerSection() {
-  const { t } = useTranslation()
-  const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes } = useTheme()
-  const [editorOpen, setEditorOpen] = useState(false)
-
-  // Combine builtin THEME_OPTIONS with custom installed themes
-  const allThemeOptions = useMemo(() => {
-    const builtin = THEME_OPTIONS
-    const custom: typeof builtin = installedThemes
-      .filter(t => t.enabled)
-      .map(t => ({
-        value: t.id,
-        label: t.name,
-        description: t.description || `v${t.version} by ${t.developer}`,
-        icon: MapThemeIcon(t.icon),
-        preview: getCustomThemePreview(t),
-      }))
-    return [...builtin, ...custom]
-  }, [installedThemes])
-
-  return (
-    <SettingsSection icon={Palette} title={t("settings.themeMode")} description={t("settings.themeModeDesc")} accentIcon>
-      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-        {allThemeOptions.map(opt => {
-          const Icon = opt.icon
-          const isSelected = selectedTheme === opt.value
-          return (
-            <button
-              key={opt.value}
-              onClick={() => setSelectedTheme(opt.value)}
-              className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all text-center ${
-                isSelected
-                  ? 'border-accent bg-accent/10 shadow-sm'
-                  : 'border-foreground/8 bg-foreground/[0.03] hover:border-foreground/18 hover:bg-foreground/[0.06]'
-              }`}
-            >
-              <div
-                className="w-10 h-10 rounded-lg border border-foreground/10 shadow-sm"
-                style={{ background: opt.preview }}
-              />
-              <Icon size={16} weight="fill" className={isSelected ? 'text-accent' : 'text-foreground/50'} />
-              <p className="text-[10px] font-medium leading-tight">{opt.label}</p>
-              <p className="text-[8px] text-foreground/40 leading-tight hidden sm:block">{opt.description}</p>
-            </button>
-          )
-        })}
-      </div>
-      <div className="flex items-center gap-2 text-[10px] text-foreground/40 mt-1">
-        <Info size={12} className="shrink-0" />
-        <span>Aktiv: <span className="font-medium text-foreground/60 capitalize">{activeTheme}</span> — Einstellung wird pro Benutzer gespeichert</span>
-      </div>
-
-      {/* Theme Editor Button */}
-      <button
-        onClick={() => setEditorOpen(true)}
-        className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 text-accent hover:bg-accent/10 transition-all"
-      >
-        <Palette size={14} weight="fill" />
-        Theme-Editor öffnen
-      </button>
-
-      <ThemeEditor open={editorOpen} onOpenChange={setEditorOpen} />
-    </SettingsSection>
-  )
-}
-
-// ─── Login PIN Section ─────────────────────────────────────────────────
-function LoginPinSection() {
-  const { t } = useTranslation()
-  const [loginPin, setLoginPin] = useState('')
-  const [loginPinConfirm, setLoginPinConfirm] = useState('')
-  const [hasLoginPin, setHasLoginPin] = useState(false)
-  const [saving, setSaving] = useState(false)
-
-  // Check if user has a login PIN by fetching user list
-  useEffect(() => {
-    let mounted = true
-    const token = localStorage.getItem('ha-auth-token')
-    if (!token) return
-    const parsed = (() => { try { return JSON.parse(token) } catch { return token } })() as string
-
-    fetch(`${apiBase()}/api/auth/verify`, { headers: { Authorization: `Bearer ${parsed}` } })
-      .then(res => res.ok ? res.json() : null)
-      .then((currentUser: { id?: string } | null) => {
-        if (!currentUser?.id) return
-        return fetch(`${apiBase()}/api/auth/users`).then(r => r.ok ? r.json() : []).then((users: { id: string; has_pin: boolean }[]) => {
-          const me = users.find(u => u.id === currentUser.id)
-          if (mounted && me) setHasLoginPin(me.has_pin)
-        })
-      })
-      .catch(() => {})
-
-    return () => { mounted = false }
-  }, [])
-
-  const saveLoginPin = async () => {
-    if (!/^\d{4,6}$/.test(loginPin)) {
-      toast.error('Login-PIN muss 4–6 Ziffern enthalten')
-      return
-    }
-    if (loginPin !== loginPinConfirm) {
-      toast.error('PIN und Bestätigung stimmen nicht überein')
-      return
-    }
-    const token = localStorage.getItem('ha-auth-token')
-    if (!token) return
-    const parsed = (() => { try { return JSON.parse(token) } catch { return token } })() as string
-
-    setSaving(true)
-    try {
-      const res = await fetch(`${apiBase()}/api/auth/pin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${parsed}` },
-        body: JSON.stringify({ pin: loginPin }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Fehler' }))
-        throw new Error(err.error || 'Fehler')
-      }
-      setHasLoginPin(true)
-      setLoginPin('')
-      setLoginPinConfirm('')
-      toast.success('Login-PIN gespeichert')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'PIN konnte nicht gespeichert werden')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const removeLoginPin = async () => {
-    const token = localStorage.getItem('ha-auth-token')
-    if (!token) return
-    const parsed = (() => { try { return JSON.parse(token) } catch { return token } })() as string
-
-    setSaving(true)
-    try {
-      const res = await fetch(`${apiBase()}/api/auth/pin`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${parsed}` },
-      })
-      if (!res.ok) throw new Error('Fehler')
-      setHasLoginPin(false)
-      toast.success('Login-PIN entfernt')
-    } catch {
-      toast.error('PIN konnte nicht entfernt werden')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <SettingsSection icon={NumberCircleOne} title={t("settings.quickLogin")} description={t("settings.quickLoginDesc")}>
-      {hasLoginPin && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-emerald-400">
-            <CheckCircle size={14} weight="fill" />
-            <span>Login-PIN ist aktiv</span>
-          </div>
-          <button
-            onClick={removeLoginPin}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/15 text-red-400 text-xs font-medium transition-colors disabled:opacity-50"
-          >
-            <Trash size={13} />
-            Entfernen
-          </button>
-        </div>
-      )}
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div>
-          <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">
-            {hasLoginPin ? 'Neue Login-PIN (4–6 Ziffern)' : 'Login-PIN (4–6 Ziffern)'}
-          </label>
-          <input
-            type="password"
-            inputMode="numeric"
-            value={loginPin}
-            onChange={(e) => setLoginPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
-            placeholder="••••"
-          />
-        </div>
-        <div>
-          <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">
-            PIN bestätigen
-          </label>
-          <input
-            type="password"
-            inputMode="numeric"
-            value={loginPinConfirm}
-            onChange={(e) => setLoginPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
-            placeholder="••••"
-          />
-        </div>
-      </div>
-      <button
-        onClick={saveLoginPin}
-        disabled={saving}
-        className="w-full px-4 py-2.5 rounded-xl bg-foreground/8 hover:bg-foreground/12 text-foreground text-sm font-medium transition-colors disabled:opacity-50"
-      >
-        {saving ? 'Wird gespeichert...' : 'Login-PIN speichern'}
-      </button>
-      <p className="text-[10px] text-foreground/40 leading-relaxed">
-        Mit einer Login-PIN können Sie sich auf gemeinsam genutzten Geräten (z.B. Wandtablets) schnell per PIN-Eingabe anmelden,
-        ohne jedes Mal Benutzername und Passwort einzugeben.
-      </p>
-    </SettingsSection>
-  )
-}
-
-function TwoFactorPasskeySection() {
-  const { t } = useTranslation()
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
-  const [passkeyEnabled, setPasskeyEnabled] = useState(false)
-  const [passkeyAs2FA, setPasskeyAs2FA] = useState(false)
-  const [passkeyRegistered, setPasskeyRegistered] = useState(false)
-  const [showSecurityModal, setShowSecurityModal] = useState(false)
-  const [setupSecret, setSetupSecret] = useState('')
-  const [otpCode, setOtpCode] = useState('')
-  const [setupVerified, setSetupVerified] = useState(false)
-  const [backupCodes, setBackupCodes] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-
-  const openSetupModal = () => {
-    setSetupSecret(generateBase32Secret())
-    setOtpCode('')
-    setSetupVerified(false)
-    setBackupCodes([])
-    setShowSecurityModal(true)
-  }
-
-  const verifyOtp = () => {
-    if (otpCode.trim() === getTimeBasedCode(setupSecret)) {
-      const codes = createBackupCodes()
-      setBackupCodes(codes)
-      setPasskeyRegistered(true)
-      setSetupVerified(true)
-      toast.success('2FA/Passkey Einrichtung abgeschlossen')
-      return
-    }
-    toast.error('Der eingegebene Code stimmt nicht')
-  }
-
-  const downloadCodes = () => {
-    if (backupCodes.length > 0) {
-      downloadBackupCodes(backupCodes)
-      toast.success('Backup-Codes als Textdatei heruntergeladen')
-    }
-  }
-
-  return (
-    <>
-      <SettingsSection icon={Key} title={t("settings.passkey")} description={t("settings.passkeyDesc")}>
-        <div className="grid gap-3">
-          <ToggleRow
-            label="2-Faktor-Authentifizierung aktivieren"
-            description={t("settings.twoFactorDesc")}
-            checked={twoFactorEnabled}
-            onCheckedChange={setTwoFactorEnabled}
-          />
-          <ToggleRow
-            label="Passkey Login aktivieren"
-            description={t("settings.passkeyLoginDesc")}
-            checked={passkeyEnabled}
-            onCheckedChange={setPasskeyEnabled}
-          />
-          <ToggleRow
-            label="Passkey als 2FA nutzen"
-            description={t("settings.passkey2FADesc")}
-            checked={passkeyAs2FA}
-            onCheckedChange={setPasskeyAs2FA}
-            disabled={!twoFactorEnabled}
-          />
-        </div>
-
-        <div className="grid sm:grid-cols-2 gap-3 mt-3">
-          <button
-            type="button"
-            onClick={openSetupModal}
-            disabled={saving}
-            className="w-full rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-accent-foreground transition hover:bg-accent/90 disabled:opacity-50"
-          >
-            {passkeyRegistered ? 'Passkey / 2FA neu einrichten' : 'Passkey / 2FA einrichten'}
-          </button>
-          {passkeyRegistered && (
-            <button
-              type="button"
-              onClick={() => {
-                setPasskeyRegistered(false)
-                setPasskeyEnabled(false)
-                setPasskeyAs2FA(false)
-                toast.success('Passkey entfernt')
-              }}
-              disabled={saving}
-              className="w-full rounded-2xl border border-foreground/10 bg-background/90 px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-foreground/5 disabled:opacity-50"
-            >
-              Passkey entfernen
-            </button>
-          )}
-        </div>
-
-        {passkeyRegistered && (
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-200">
-            Passkey & 2FA sind eingerichtet. Du kannst dich jetzt sicher anmelden und hast Backup-Codes gesichert.
-          </div>
-        )}
-
-        <p className="text-[10px] text-foreground/40 leading-relaxed">
-          Passkeys unterstützen sichere, passwortlose Anmeldungen. Wenn du sie als 2FA nutzt, bleibt dein Passwort als erster Faktor erhalten.
-        </p>
-      </SettingsSection>
-
-      <Dialog open={showSecurityModal} onOpenChange={(open) => { if (!open) setShowSecurityModal(false) }}>
-        <DialogContent className="sm:max-w-[560px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-hidden">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10">
-            <DialogTitle>Passkey & 2FA Einrichtung</DialogTitle>
-            <DialogDescription>
-              Kopiere den geheimen Schlüssel oder nutze den QR-Code. Gib danach den aktuellen Code aus deiner Authenticator-App ein.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="px-6 pb-6 space-y-5">
-            <div className="rounded-3xl bg-background/90 p-4 border border-foreground/10">
-              <p className="text-sm font-semibold text-foreground">Geheimer Schlüssel</p>
-              <p className="mt-2 text-sm text-foreground/70">Kopiere diesen Key in deine Authenticator-App oder dein Backup.</p>
-              <div className="mt-4 rounded-3xl bg-foreground/5 p-3 font-mono text-xs text-foreground/80 break-words">{setupSecret}</div>
-              <button
-                type="button"
-                onClick={() => navigator.clipboard.writeText(setupSecret).then(() => toast.success('Schlüssel kopiert')).catch(() => toast.error('Kopieren fehlgeschlagen'))}
-                className="mt-4 inline-flex items-center justify-center rounded-2xl border border-foreground/10 bg-foreground/10 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/15"
-              >
-                Schlüssel kopieren
-              </button>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
-              <div className="rounded-3xl bg-background/90 p-4 border border-foreground/10 text-sm text-foreground/70">
-                <p className="font-semibold text-foreground">QR-Code</p>
-                <div className="mt-4 flex min-h-[200px] items-center justify-center rounded-3xl border border-dashed border-foreground/20 bg-background/80 text-xs text-foreground/50">
-                  QR-Code Platzhalter für Authenticator-App
-                </div>
-                <p className="mt-4 break-all text-[11px] text-foreground/60">URI: {formatOtpAuthUri(setupSecret)}</p>
-              </div>
-
-              <div className="rounded-3xl bg-background/90 p-4 border border-foreground/10">
-                <p className="font-semibold text-foreground">Verifikation</p>
-                <p className="mt-2 text-sm text-foreground/70">Gib den aktuellen, zeitbasierten Code aus deiner App ein.</p>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={otpCode}
-                  onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="123456"
-                  className="mt-4 w-full rounded-2xl border border-foreground/10 bg-foreground/5 px-4 py-3 text-sm text-foreground outline-none transition focus:border-accent/60 focus:ring-2 focus:ring-accent/10"
-                />
-                <button
-                  type="button"
-                  onClick={verifyOtp}
-                  className="mt-4 w-full rounded-2xl border border-foreground/10 bg-foreground/10 px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-foreground/15"
-                >
-                  Code prüfen
-                </button>
-              </div>
-            </div>
-
-            {setupVerified && backupCodes.length > 0 && (
-              <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-foreground">
-                <p className="font-semibold text-foreground">Backup-Codes</p>
-                <p className="mt-2 text-foreground/70">Speichere diese Codes sicher. Sie werden nur einmal angezeigt.</p>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {backupCodes.map((code) => (
-                    <div key={code} className="rounded-2xl bg-background/90 px-3 py-2 font-mono text-xs text-foreground">{code}</div>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={downloadCodes}
-                  className="mt-4 rounded-2xl border border-foreground/10 bg-foreground/10 px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-foreground/15"
-                >
-                  Backup-Codes herunterladen
-                </button>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => setShowSecurityModal(false)}
-                className="w-full rounded-2xl border border-foreground/10 bg-background/90 px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-foreground/5 sm:w-auto"
-              >
-                Schließen
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main SettingsPage
@@ -879,152 +486,7 @@ interface SettingsPageProps {
   theme: string
 }
 
-const DAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
-
-function ScreensaverScheduleEditor({
-  schedules,
-  setSchedules,
-}: {
-  schedules: import('@/components/Screensaver').ScreensaverSchedule[]
-  setSchedules: (v: import('@/components/Screensaver').ScreensaverSchedule[]) => void
-}) {
-  const addSchedule = () => {
-    setSchedules([
-      ...schedules,
-      {
-        id: crypto.randomUUID(),
-        days: [1, 2, 3, 4, 5], // Mon-Fri
-        startTime: '22:00',
-        endTime: '06:00',
-        timeout: 300000, // 5 min
-        enabled: true,
-      },
-    ])
-  }
-
-  const updateSchedule = (id: string, patch: Partial<import('@/components/Screensaver').ScreensaverSchedule>) => {
-    setSchedules(schedules.map(s => s.id === id ? { ...s, ...patch } : s))
-  }
-
-  const removeSchedule = (id: string) => {
-    setSchedules(schedules.filter(s => s.id !== id))
-  }
-
-  const toggleDay = (scheduleId: string, day: number) => {
-    const sched = schedules.find(s => s.id === scheduleId)
-    if (!sched) return
-    const days = sched.days.includes(day)
-      ? sched.days.filter(d => d !== day)
-      : [...sched.days, day].sort()
-    updateSchedule(scheduleId, { days })
-  }
-
-  return (
-    <div className="space-y-3 pt-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <CalendarBlank size={16} weight="duotone" className="text-foreground/50" />
-          <span className="text-xs font-medium text-foreground/70">Zeitpläne</span>
-          <span className="text-[10px] text-foreground/40">(optional)</span>
-        </div>
-        <button
-          onClick={addSchedule}
-          className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-accent/15 text-accent border border-accent/20 hover:bg-accent/25 transition-colors font-medium"
-        >
-          <Plus size={12} weight="bold" />
-          Zeitplan
-        </button>
-      </div>
-
-      {schedules.length === 0 && (
-        <p className="text-[11px] text-foreground/35 pl-0.5">
-          Ohne Zeitpläne gelten die globalen Einstellungen oben.
-        </p>
-      )}
-
-      {schedules.map((sched) => (
-        <div key={sched.id} className="p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8 space-y-3">
-          {/* Header row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Switch checked={sched.enabled} onCheckedChange={(v) => updateSchedule(sched.id, { enabled: v })} />
-              <span className="text-xs font-medium text-foreground/70">
-                {sched.enabled ? 'Aktiv' : 'Inaktiv'}
-              </span>
-            </div>
-            <button
-              onClick={() => removeSchedule(sched.id)}
-              className="p-1.5 rounded-lg hover:bg-red-500/10 text-foreground/30 hover:text-red-400 transition-colors"
-            >
-              <Trash size={14} />
-            </button>
-          </div>
-
-          {/* Day selector */}
-          <div className="space-y-1.5">
-            <label className="text-[11px] text-foreground/50 font-medium">Tage</label>
-            <div className="flex gap-1">
-              {DAY_LABELS.map((label, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => toggleDay(sched.id, idx)}
-                  className={`w-9 h-8 text-[11px] rounded-lg font-medium transition-all ${
-                    sched.days.includes(idx)
-                      ? 'bg-accent/20 text-accent border border-accent/30'
-                      : 'bg-white/5 text-foreground/40 border border-white/10 hover:bg-white/10'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Time range */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-[11px] text-foreground/50 font-medium flex items-center gap-1">
-                <Clock size={12} /> Von
-              </label>
-              <input
-                type="time"
-                value={sched.startTime}
-                onChange={(e) => updateSchedule(sched.id, { startTime: e.target.value })}
-                className="w-full text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground/90 focus:outline-none focus:border-accent/40"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] text-foreground/50 font-medium flex items-center gap-1">
-                <Clock size={12} /> Bis
-              </label>
-              <input
-                type="time"
-                value={sched.endTime}
-                onChange={(e) => updateSchedule(sched.id, { endTime: e.target.value })}
-                className="w-full text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground/90 focus:outline-none focus:border-accent/40"
-              />
-            </div>
-          </div>
-
-          {/* Timeout */}
-          <div className="space-y-1.5">
-            <label className="text-[11px] text-foreground/50 font-medium">
-              Inaktivitätsdauer: {Math.round(sched.timeout / 60000)} min
-            </label>
-            <input
-              type="range"
-              min={1}
-              max={30}
-              value={Math.round(sched.timeout / 60000)}
-              onChange={(e) => updateSchedule(sched.id, { timeout: Number(e.target.value) * 60000 })}
-              className="w-full accent-[var(--accent)]"
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
+export const DAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 
 export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation()
@@ -1200,7 +662,7 @@ export function SettingsPage(props: SettingsPageProps) {
           </SettingsSection>
 
           {/* Quick Login PIN */}
-          <LoginPinSection />
+          <Suspense fallback={null}><LoginPinSection /></Suspense>
 
           {/* AI Instructions */}
           {props.aiEnabled && (
@@ -1210,7 +672,7 @@ export function SettingsPage(props: SettingsPageProps) {
           )}
 
           {/* 2FA / Passkey */}
-          <TwoFactorPasskeySection />
+          <Suspense fallback={null}><TwoFactorPasskeySection /></Suspense>
 
           {/* Logout */}
           <button
@@ -1233,7 +695,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <div className={deviceLockMode ? 'opacity-50 pointer-events-none select-none space-y-4' : 'space-y-4'}>
 
             {/* Theme Mode */}
-            <ThemePickerSection />
+            <Suspense fallback={null}><ThemePickerSection /></Suspense>
 
             {/* Language Switcher */}
             <SettingsSection icon={Globe} title="Sprache" description="Wähle deine bevorzugte Sprache für die gesamte Oberfläche" accentIcon>
@@ -1469,7 +931,7 @@ export function SettingsPage(props: SettingsPageProps) {
             </SettingsSection>
 
             {/* Haptic Feedback, Navigation, Typography, Animations */}
-            <AdditionalSettings />
+            <Suspense fallback={null}><AdditionalSettings /></Suspense>
           </div>
         </TabsContent>
 
@@ -1696,14 +1158,16 @@ export function SettingsPage(props: SettingsPageProps) {
               )}
 
               {/* Screensaver Schedules */}
-              <ScreensaverScheduleEditor
-                schedules={screensaverSettings.schedules}
-                setSchedules={screensaverSettings.setSchedules}
-              />
+              <Suspense fallback={null}>
+                <ScreensaverScheduleEditor
+                  schedules={screensaverSettings.schedules}
+                  setSchedules={screensaverSettings.setSchedules}
+                />
+              </Suspense>
             </SettingsSection>
 
             {/* NINA Warnungen */}
-            <NinaSettingsSection />
+            <Suspense fallback={null}><NinaSettingsSection /></Suspense>
 
             {/* System Info */}
             <SettingsSection icon={Info} title="System-Information" description="Gerät, Theme und Status" defaultOpen={false}>
@@ -1757,405 +1221,5 @@ export function SettingsPage(props: SettingsPageProps) {
         />
       )}
     </div>
-  )
-}
-
-// ─── Additional Settings Component ─────────────────────────────────
-function AdditionalSettings() {
-  const { t } = useTranslation()
-  const [hapticEnabled, setHapticEnabled] = useLocalStorage('ha-haptic-feedback', true)
-  const [navLabels, setNavLabels] = useLocalStorage('ha-nav-labels', true)
-  const [navStyle, setNavStyle] = useLocalStorage<'pill' | 'classic' | 'minimal'>('ha-nav-style', 'pill')
-  const [reducedAnimations, setReducedAnimations] = useLocalStorage('ha-animations-reduced', false)
-  const [fontSize, setFontSize] = useLocalStorage<'small' | 'normal' | 'large'>('ha-font-size', 'normal')
-  const [compactWidgets, setCompactWidgets] = useLocalStorage('ha-widget-compact', false)
-  const [autoContrast, setAutoContrastState] = React.useState<AutoContrastMode>(() => getAutoContrastMode())
-  React.useEffect(() => subscribeAutoContrast(setAutoContrastState), [])
-  const deviceTier = React.useMemo(() => getDeviceTier(), [])
-  const effectiveMode = getEffectiveAutoContrastMode()
-
-  return (
-    <>
-      {/* Haptic & Interactions */}
-      <SettingsSection icon={Vibrate} title="Haptik & Interaktion" description="Vibrationsrückmeldung und Touch-Feedback">
-        <ToggleRow
-          label={t("settings.hapticFeedback")}
-          description="Vibrationsrückmeldung bei Interaktionen (Touch-Geräte)"
-          checked={hapticEnabled}
-          onCheckedChange={setHapticEnabled}
-        />
-        <ToggleRow
-          label={t("settings.reduceAnimations")}
-          description={t("settings.reduceAnimationsDesc")}
-          checked={reducedAnimations}
-          onCheckedChange={setReducedAnimations}
-        />
-      </SettingsSection>
-
-      {/* Navigation */}
-      <SettingsSection icon={NavigationArrow} title={t('settings.navigation')} description={t('settings.navigationDesc')}>
-        <ToggleRow
-          label="Beschriftungen anzeigen"
-          description="Text-Labels unter den Navigations-Icons"
-          checked={navLabels}
-          onCheckedChange={setNavLabels}
-        />
-        <div className="space-y-2">
-          <p className="text-[11px] font-medium text-foreground/55">Navigations-Stil</p>
-          <div className="grid grid-cols-3 gap-2">
-            {([
-              { id: 'pill' as const, label: 'Pill', desc: 'Abgerundet' },
-              { id: 'classic' as const, label: 'Klassisch', desc: 'Eckig' },
-              { id: 'minimal' as const, label: 'Minimal', desc: 'Nur Icons' },
-            ]).map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => setNavStyle(opt.id)}
-                className={`p-2.5 rounded-xl border-2 transition-all text-center ${
-                  navStyle === opt.id
-                    ? 'border-accent bg-accent/10'
-                    : 'border-foreground/10 bg-foreground/[0.04] hover:border-foreground/20'
-                }`}
-              >
-                <p className="text-xs font-medium">{opt.label}</p>
-                <p className="text-[10px] text-foreground/40">{opt.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      </SettingsSection>
-
-      {/* Typography & Display */}
-      <SettingsSection icon={TextAa} title={t("settings.displayFont")} description={t("settings.displayFontDesc")}>
-        <div className="space-y-2">
-          <p className="text-[11px] font-medium text-foreground/55">{t("settings.fontSize")}</p>
-          <div className="grid grid-cols-3 gap-2">
-            {([
-              { id: 'small' as const, label: 'Klein', sample: 'Aa', size: 'text-xs' },
-              { id: 'normal' as const, label: 'Normal', sample: 'Aa', size: 'text-sm' },
-              { id: 'large' as const, label: 'Groß', sample: 'Aa', size: 'text-base' },
-            ]).map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => setFontSize(opt.id)}
-                className={`p-3 rounded-xl border-2 transition-all text-center ${
-                  fontSize === opt.id
-                    ? 'border-accent bg-accent/10'
-                    : 'border-foreground/10 bg-foreground/[0.04] hover:border-foreground/20'
-                }`}
-              >
-                <p className={`font-semibold ${opt.size} mb-0.5`}>{opt.sample}</p>
-                <p className="text-[10px] text-foreground/50">{opt.label}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-        <ToggleRow
-          label="Kompakte Widgets"
-          description="Weniger Innenabstand in den Widgets für mehr Inhalt"
-          checked={compactWidgets}
-          onCheckedChange={setCompactWidgets}
-        />
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-medium text-foreground/55">Automatischer Textkontrast</p>
-            <span className="text-[10px] text-foreground/55">
-              Gerät: <span className="text-foreground/85 font-mono">{deviceTier}</span>
-              {autoContrast === 'auto' && (
-                <> · aktiv: <span className="text-foreground/85 font-mono">{effectiveMode}</span></>
-              )}
-            </span>
-          </div>
-          <p className="text-[11px] text-foreground/50 -mt-1">
-            Passt Textfarben auf Glas- und Custom-Theme-Flächen automatisch an (WCAG AA). Einstellung gilt pro Nutzer.
-          </p>
-          <div className="grid grid-cols-5 gap-2">
-            {([
-              { id: 'off' as const,      label: 'Aus',       desc: 'Keine Anpassung' },
-              { id: 'light' as const,    label: 'Sparsam',   desc: 'Nur bei Theme-Wechsel' },
-              { id: 'balanced' as const, label: 'Ausgewogen',desc: 'Nur sichtbarer Bereich' },
-              { id: 'full' as const,     label: 'Vollst.',   desc: 'Komplett, reaktiv' },
-              { id: 'auto' as const,     label: 'Auto',      desc: 'Nach Geräteleistung' },
-            ]).map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => setAutoContrastMode(opt.id)}
-                className={`p-2.5 rounded-xl border-2 transition-all text-center ${
-                  autoContrast === opt.id
-                    ? 'border-accent bg-accent/10'
-                    : 'border-foreground/10 bg-foreground/[0.04] hover:border-foreground/20'
-                }`}
-              >
-                <p className="text-xs font-medium">{opt.label}</p>
-                <p className="text-[10px] text-foreground/55 leading-tight mt-0.5">{opt.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      </SettingsSection>
-    </>
-  )
-}
-
-// ─── NINA Warning Settings Component ───────────────────────────────
-interface NinaRegion {
-  ars: string
-  name: string
-  type?: string
-}
-
-function NinaSettingsSection() {
-  const [enabled, setEnabled] = useState(false)
-  const [regions, setRegions] = useState<NinaRegion[]>([])
-  const [pollInterval, setPollInterval] = useState(5)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [search, setSearch] = useState('')
-  const [showSearch, setShowSearch] = useState(false)
-  const [warningCount, setWarningCount] = useState(0)
-  const [allRegions, setAllRegions] = useState<NinaRegion[]>([])
-  const [regionsLoading, setRegionsLoading] = useState(false)
-
-  // Load settings
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await authFetch('/api/nina/settings')
-        if (res.ok) {
-          const data = await res.json()
-          setEnabled(data.enabled ?? false)
-          setRegions(data.ars_regions ?? [])
-          setPollInterval(data.poll_interval_minutes ?? 5)
-        }
-      } catch { /* ignore */ }
-      // Load warning count
-      try {
-        const res = await authFetch('/api/nina/warnings')
-        if (res.ok) {
-          const data = await res.json()
-          setWarningCount(data.warnings?.length ?? 0)
-        }
-      } catch { /* ignore */ }
-      setLoading(false)
-    })()
-  }, [])
-
-  // Fetch all ARS regions when search panel opens
-  useEffect(() => {
-    if (!showSearch || allRegions.length > 0) return
-    setRegionsLoading(true)
-    ;(async () => {
-      try {
-        const res = await authFetch('/api/nina/regions')
-        if (res.ok) {
-          const data = await res.json()
-          setAllRegions(data.regions ?? [])
-        }
-      } catch { /* ignore */ }
-      setRegionsLoading(false)
-    })()
-  }, [showSearch, allRegions.length])
-
-  const save = useCallback(async (newEnabled: boolean, newRegions: NinaRegion[], newInterval: number) => {
-    setSaving(true)
-    try {
-      const res = await authFetch('/api/nina/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: newEnabled,
-          ars_regions: newRegions,
-          poll_interval_minutes: newInterval,
-        }),
-      })
-      if (res.ok) {
-        toast.success('NINA-Einstellungen gespeichert')
-      } else {
-        toast.error('Fehler beim Speichern')
-      }
-    } catch {
-      toast.error('Fehler beim Speichern')
-    } finally {
-      setSaving(false)
-    }
-  }, [])
-
-  const toggleEnabled = useCallback((v: boolean) => {
-    setEnabled(v)
-    save(v, regions, pollInterval)
-  }, [regions, pollInterval, save])
-
-  const addRegion = useCallback((region: NinaRegion) => {
-    if (regions.some(r => r.ars === region.ars)) return
-    const next = [...regions, region]
-    setRegions(next)
-    setSearch('')
-    setShowSearch(false)
-    save(enabled, next, pollInterval)
-  }, [regions, enabled, pollInterval, save])
-
-  const removeRegion = useCallback((ars: string) => {
-    const next = regions.filter(r => r.ars !== ars)
-    setRegions(next)
-    save(enabled, next, pollInterval)
-  }, [regions, enabled, pollInterval, save])
-
-  const updateInterval = useCallback((v: number) => {
-    setPollInterval(v)
-    save(enabled, regions, v)
-  }, [enabled, regions, save])
-
-  const filtered = allRegions.filter(r =>
-    !regions.some(sel => sel.ars === r.ars) &&
-    (!search.trim() || r.name.toLowerCase().includes(search.toLowerCase()) || r.ars.includes(search.trim()) || (r.type ?? '').toLowerCase().includes(search.toLowerCase()))
-  )
-
-  if (loading) return null
-
-  return (
-    <SettingsSection
-      icon={Warning}
-      title="NINA Warnungen"
-      description={`Wetterwarnungen & Katastrophenschutz${warningCount > 0 ? ` (${warningCount} aktiv)` : ''}`}
-      defaultOpen={false}
-    >
-      <ToggleRow
-        label="NINA Warnungen aktivieren"
-        description="Empfange Warn­meldungen direkt vom Bundesamt für Bevölkerungsschutz"
-        checked={enabled}
-        onCheckedChange={toggleEnabled}
-        disabled={saving}
-      />
-
-      {enabled && (
-        <div className="space-y-3 mt-2">
-          {/* Selected regions */}
-          <div>
-            <p className="text-[11px] font-medium text-foreground/55 uppercase tracking-wider mb-2">
-              Überwachte Regionen ({regions.length})
-            </p>
-            {regions.length === 0 ? (
-              <p className="text-xs text-foreground/40 italic px-1">
-                Keine Regionen ausgewählt — füge unten Regionen hinzu
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {regions.map(r => (
-                  <div
-                    key={r.ars}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/25 text-xs font-medium text-foreground/85"
-                  >
-                    <MapPin size={12} weight="fill" className="text-accent shrink-0" />
-                    {r.name}
-                    <button
-                      onClick={() => removeRegion(r.ars)}
-                      className="ml-1 p-0.5 rounded-full hover:bg-foreground/10 transition-colors"
-                      aria-label={`${r.name} entfernen`}
-                    >
-                      <X size={10} weight="bold" className="text-foreground/50" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Region search */}
-          <div>
-            {!showSearch ? (
-              <button
-                onClick={() => setShowSearch(true)}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-xs text-foreground/60 hover:bg-foreground/[0.07] transition-colors w-full"
-              >
-                <Plus size={14} weight="bold" />
-                Region hinzufügen
-              </button>
-            ) : (
-              <div className="space-y-1.5">
-                <div className="relative">
-                  <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/40" />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Stadt, Landkreis oder Bundesland suchen…"
-                    className="w-full pl-8 pr-8 py-2 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-sm text-foreground placeholder:text-foreground/35 outline-none focus:border-accent/40 transition-colors"
-                    autoFocus
-                  />
-                  <button
-                    onClick={() => { setShowSearch(false); setSearch('') }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-foreground/10"
-                  >
-                    <X size={12} className="text-foreground/40" />
-                  </button>
-                </div>
-                {
-                  <div className="max-h-64 overflow-y-auto rounded-xl bg-foreground/[0.03] border border-foreground/8 divide-y divide-foreground/5">
-                    {regionsLoading ? (
-                      <p className="text-xs text-foreground/40 px-3 py-2.5 text-center">
-                        Regionen werden geladen…
-                      </p>
-                    ) : filtered.length === 0 ? (
-                      <p className="text-xs text-foreground/40 px-3 py-2.5 text-center">
-                        Keine Region gefunden
-                      </p>
-                    ) : (
-                      filtered.map(r => (
-                        <button
-                          key={r.ars}
-                          onClick={() => addRegion(r)}
-                          className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-foreground/[0.05] transition-colors"
-                        >
-                          <MapPin size={14} className="text-foreground/40 shrink-0" />
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-medium text-foreground/80 truncate">{r.name}</span>
-                            {r.type && <span className="text-[10px] text-foreground/30">{r.type}</span>}
-                          </div>
-                          <span className="text-[10px] text-foreground/30 ml-auto tabular-nums shrink-0">{r.ars}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                }
-                {/* Custom ARS input */}
-                <p className="text-[10px] text-foreground/35 px-1">
-                  Tipp: Du kannst auch einen eigenen 12-stelligen ARS-Code eingeben
-                </p>
-                {search.trim().length === 12 && /^\d{12}$/.test(search.trim()) && !regions.some(r => r.ars === search.trim()) && (
-                  <button
-                    onClick={() => addRegion({ ars: search.trim(), name: `Region ${search.trim()}` })}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-accent/10 border border-accent/20 text-xs text-foreground/70 hover:bg-accent/15 transition-colors w-full"
-                  >
-                    <Plus size={14} weight="bold" className="text-accent" />
-                    ARS-Code "{search.trim()}" hinzufügen
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Poll interval */}
-          <SliderRow
-            label="Abfrageintervall"
-            value={pollInterval}
-            min={1}
-            max={30}
-            unit=" min"
-            onChange={updateInterval}
-            disabled={saving}
-          />
-
-          {/* Current warnings count */}
-          {warningCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20">
-              <Warning size={16} weight="fill" className="text-orange-500 shrink-0" />
-              <span className="text-xs font-medium text-foreground/80">
-                {warningCount} aktive Warnung{warningCount !== 1 ? 'en' : ''}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-    </SettingsSection>
   )
 }

@@ -170,6 +170,11 @@ struct MoveFileRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CopyFileRequest {
+    target_folder_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct RenameFileRequest {
     new_name: String,
 }
@@ -293,6 +298,7 @@ async fn main() -> Result<()> {
                 .route("/:file_id", delete(delete_file))
                 .route("/:file_id/download", get(download_file))
                 .route("/:file_id/move", put(move_file))
+                .route("/:file_id/copy", post(copy_file))
                 .route("/:file_id/rename", put(rename_file))
                 .route("/:file_id/restore", post(restore_file))
                 .route("/:file_id/versions", get(list_versions))
@@ -721,6 +727,231 @@ async fn move_file(
     .await;
 
     Ok(Json(serde_json::json!({ "moved": true })))
+}
+
+// ─── Copy File / Folder ────────────────────────────────────────────────────
+
+async fn copy_file(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(file_id): Path<String>,
+    Json(body): Json<CopyFileRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let source = get_file_with_access(&state, &file_id, &user_id, "write").await?;
+
+    // Validate target folder exists and belongs to user
+    if let Some(ref target_id) = body.target_folder_id {
+        let folder: Option<FileRecord> = sqlx::query_as(
+            "SELECT * FROM files WHERE id = ? AND owner_id = ? AND is_folder = 1 AND deleted_at IS NULL"
+        )
+        .bind(target_id)
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if folder.is_none() {
+            return Err((StatusCode::NOT_FOUND, "Target folder not found".to_string()));
+        }
+    }
+
+    // Prevent copying a folder into itself or one of its own subfolders (cycles)
+    if source.is_folder {
+        if let Some(ref target_id) = body.target_folder_id {
+            if target_id == &source.id || is_descendant_of(&state, target_id, &source.id).await {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Cannot copy a folder into itself or its own subfolder".to_string(),
+                ));
+            }
+        }
+    }
+
+    // Pre-check quota for the whole subtree before writing anything
+    let additional_size = if source.is_folder {
+        compute_subtree_size(&state, &source.id).await?
+    } else {
+        source.size_bytes
+    };
+    ensure_quota(&state, &user_id, additional_size).await?;
+
+    let (new_id, _added) = copy_entry_recursive(&state, &source, body.target_folder_id.clone(), &user_id).await?;
+
+    // Update quota
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO storage_quotas (user_id, quota_bytes, used_bytes, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET used_bytes = used_bytes + ?, updated_at = ?"
+    )
+    .bind(&user_id)
+    .bind(state.default_quota_bytes)
+    .bind(additional_size)
+    .bind(&now)
+    .bind(additional_size)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Quota update error: {}", e)))?;
+
+    log_activity(
+        &state,
+        &source.id,
+        &user_id,
+        "copy",
+        Some(serde_json::json!({"target": body.target_folder_id, "new_id": new_id})),
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({ "copied": true, "id": new_id })))
+}
+
+/// Returns true if `folder_id` equals `ancestor_id` or is nested below it.
+async fn is_descendant_of(state: &AppState, folder_id: &str, ancestor_id: &str) -> bool {
+    let mut current: Option<String> = Some(folder_id.to_string());
+    let mut hops = 0;
+    while let Some(fid) = current {
+        if fid == ancestor_id {
+            return true;
+        }
+        hops += 1;
+        if hops > 200 {
+            break; // safety valve against corrupt parent chains
+        }
+        let row: Option<FileRecord> = sqlx::query_as("SELECT * FROM files WHERE id = ?")
+            .bind(&fid)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+        current = row.and_then(|r| r.parent_folder_id);
+    }
+    false
+}
+
+/// Total size in bytes of every file below `folder_id` (folders themselves are free).
+fn compute_subtree_size<'a>(
+    state: &'a AppState,
+    folder_id: &'a str,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<i64, (StatusCode, String)>> + Send + 'a>> {
+    Box::pin(async move {
+    let children: Vec<FileRecord> =
+        sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
+            .bind(folder_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut total = 0i64;
+    for child in children {
+        if child.is_folder {
+            total += compute_subtree_size(state, &child.id).await?;
+        } else {
+            total += child.size_bytes;
+        }
+    }
+    Ok(total)
+    })
+}
+
+/// Deep-copies `source` (file or folder tree) into `target_parent_id`.
+/// Returns the new record id and the number of file bytes added.
+fn copy_entry_recursive<'a>(
+    state: &'a AppState,
+    source: &'a FileRecord,
+    target_parent_id: Option<String>,
+    user_id: &'a str,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(String, i64), (StatusCode, String)>> + Send + 'a>> {
+    Box::pin(async move {
+    let now = Utc::now().to_rfc3339();
+    let new_id = Uuid::new_v4().to_string();
+
+    if source.is_folder {
+        let new_name = copy_display_name(&source.original_name);
+        sqlx::query(
+            "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'inode/directory', 0, '', '', ?, 1, ?, ?, ?)"
+        )
+        .bind(&new_id)
+        .bind(user_id)
+        .bind(&new_name)
+        .bind(&new_name)
+        .bind(&target_parent_id)
+        .bind(&source.description)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
+
+        // Recurse into children
+        let children: Vec<FileRecord> =
+            sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
+                .bind(&source.id)
+                .fetch_all(&state.db)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut added = 0i64;
+        for child in children {
+            let (_child_id, child_added) =
+                copy_entry_recursive(state, &child, Some(new_id.clone()), user_id).await?;
+            added += child_added;
+        }
+        Ok((new_id, added))
+    } else {
+        // Physical blob copy
+        let source_abs = state.storage_root.join(&source.storage_path);
+        let data = fs::read(&source_abs)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e)))?;
+
+        let ext = std::path::Path::new(&source.filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin");
+        let storage_filename = format!("{}.{}", new_id, ext);
+        let user_dir = state.storage_root.join(user_id);
+        fs::create_dir_all(&user_dir).await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e))
+        })?;
+        let new_abs = user_dir.join(&storage_filename);
+        iora_shared_upload::atomic_write_async(&new_abs, &data)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {}", e)))?;
+
+        let new_name = copy_display_name(&source.original_name);
+        let storage_rel = format!("{}/{}", user_id, storage_filename);
+        sqlx::query(
+            "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+        )
+        .bind(&new_id)
+        .bind(user_id)
+        .bind(&storage_filename)
+        .bind(&new_name)
+        .bind(&source.mime_type)
+        .bind(source.size_bytes)
+        .bind(&source.sha256_hash)
+        .bind(&storage_rel)
+        .bind(&target_parent_id)
+        .bind(&source.description)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
+
+        Ok((new_id, source.size_bytes))
+    }
+    })
+}
+
+/// "report.pdf" -> "report (copy).pdf", "notes (copy).md" -> "notes (copy).md"
+fn copy_display_name(name: &str) -> String {
+    let (stem, ext) = match name.rfind('.') {
+        Some(idx) if idx > 0 => name.split_at(idx),
+        _ => (name, ""),
+    };
+    let clean = stem.strip_suffix(" (copy)").unwrap_or(stem);
+    format!("{clean} (copy){ext}")
 }
 
 // ─── Rename File ────────────────────────────────────────────────────────────

@@ -91,6 +91,17 @@ export function SharePage() {
         {activeTab === 'local' && (
           <motion.div key="local" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
             <div className="glass-card rounded-2xl border border-foreground/[0.06] p-5">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 ring-1 ring-accent/10 flex items-center justify-center flex-shrink-0">
+                  <ShareNetwork size={22} weight="duotone" className="text-accent" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Lokales Netzwerk</h2>
+                  <p className="text-xs text-foreground/50 mt-1">
+                    Dateien und Text direkt zwischen Geräten im selben Netzwerk austauschen
+                  </p>
+                </div>
+              </div>
               <NativeShare />
             </div>
           </motion.div>

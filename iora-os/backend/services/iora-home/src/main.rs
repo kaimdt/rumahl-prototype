@@ -2316,6 +2316,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/files/:id", get(proxy_files).delete(proxy_files))
         .route("/api/files/:id/download", get(proxy_files))
         .route("/api/files/:id/move", put(proxy_files))
+        .route("/api/files/:id/copy", post(proxy_files))
         .route("/api/files/:id/rename", put(proxy_files))
         .route("/api/files/:id/restore", post(proxy_files))
         .route("/api/files/:id/versions", get(proxy_files))

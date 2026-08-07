@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   ArrowLeft,
+  ArrowSquareOut,
   CaretRight,
   Cloud,
+  Copy,
   DownloadSimple,
+  DotsThreeVertical,
   File,
   Folder,
   FolderOpen,
@@ -18,6 +21,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { authFetch } from '@/lib/authHelpers'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { OsFileMoveCopyDialog } from './OsFileMoveCopyDialog'
 
 interface FileEntry {
   id: string
@@ -67,6 +71,10 @@ export function OsFileExplorer() {
   const [renameEntry, setRenameEntry] = useState<FileEntry | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false)
+  const [menuEntry, setMenuEntry] = useState<FileEntry | null>(null)
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [moveCopyEntry, setMoveCopyEntry] = useState<FileEntry | null>(null)
+  const [moveCopyMode, setMoveCopyMode] = useState<'move' | 'copy' | null>(null)
   const deviceInput = useRef<HTMLInputElement>(null)
 
   // TODO(kiosk): Replace this with the future device-capability API. Kiosk devices
@@ -196,6 +204,28 @@ export function OsFileExplorer() {
     setCurrentFolderId(parent)
   }
 
+  const openRowMenu = (entry: FileEntry, event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (menuEntry?.id === entry.id) {
+      setMenuEntry(null)
+      setMenuAnchor(null)
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    setMenuAnchor({ x: rect.right, y: rect.bottom })
+    setMenuEntry(entry)
+  }
+
+  const closeRowMenu = () => {
+    setMenuEntry(null)
+    setMenuAnchor(null)
+  }
+
+  const openMoveCopy = (entry: FileEntry, mode: 'move' | 'copy') => {
+    closeRowMenu()
+    setMoveCopyEntry(entry)
+    setMoveCopyMode(mode)
+  }
+
   return (
     <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -213,14 +243,17 @@ export function OsFileExplorer() {
       <div className="glass-card overflow-hidden rounded-3xl border border-white/10">
         {currentFolderId && <button type="button" onClick={goBack} className="flex w-full items-center gap-3 border-b border-foreground/7 p-4 text-left hover:bg-foreground/5"><ArrowLeft size={21} className="text-foreground/50" /><span className="text-sm font-medium">{t('os.systemApps.parentFolder')}</span></button>}
         {!loading && files.length === 0 && <div className="flex min-h-44 flex-col items-center justify-center p-8 text-center"><FolderOpen size={36} weight="duotone" className="mb-3 text-foreground/25" /><p className="text-sm text-foreground/45">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-xs text-foreground/30">{t('os.systemApps.dropFiles')}</p></div>}
-        {files.map((entry) => <div key={entry.id} className="group flex items-center gap-3 border-b border-foreground/7 p-3 last:border-0 hover:bg-foreground/5"><button type="button" onClick={() => void download(entry)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${entry.is_folder ? 'bg-amber-500/10 text-amber-400' : 'bg-accent/10 text-accent'}`}>{entry.is_folder ? <Folder size={23} weight="duotone" /> : <File size={23} weight="duotone" />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{entry.original_name}</span><span className="block text-[11px] text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : `${entry.mime_type || t('os.systemApps.file')} · ${formatBytes(entry.size_bytes)}`}</span></span></button><div className="flex shrink-0 items-center gap-1">{!entry.is_folder && <button type="button" onClick={() => void download(entry)} className="rounded-full p-2 text-foreground/40 hover:bg-foreground/8 hover:text-foreground" aria-label={t('os.systemApps.download')}><DownloadSimple size={17} /></button>}{can('os.files.write') && <button type="button" onClick={() => { setRenameEntry(entry); setRenameValue(entry.original_name) }} className="rounded-full p-2 text-foreground/40 hover:bg-foreground/8 hover:text-foreground" aria-label={t('os.systemApps.rename')}><PencilSimple size={17} /></button>}{can('os.files.write') && <button type="button" disabled={working} onClick={() => void remove(entry)} className="rounded-full p-2 text-foreground/40 hover:bg-red-500/10 hover:text-red-300" aria-label={t('common.delete')}><Trash size={17} /></button>}</div></div>)}
+        {files.map((entry) => <div key={entry.id} className="group flex items-center gap-3 border-b border-foreground/7 p-3 last:border-0 hover:bg-foreground/5"><button type="button" onClick={() => void download(entry)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${entry.is_folder ? 'bg-amber-500/10 text-amber-400' : 'bg-accent/10 text-accent'}`}>{entry.is_folder ? <Folder size={23} weight="duotone" /> : <File size={23} weight="duotone" />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{entry.original_name}</span><span className="block text-[11px] text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : `${entry.mime_type || t('os.systemApps.file')} · ${formatBytes(entry.size_bytes)}`}</span></span></button><div className="flex shrink-0 items-center gap-1">{!entry.is_folder && <button type="button" onClick={() => void download(entry)} className="rounded-full p-2 text-foreground/40 hover:bg-foreground/8 hover:text-foreground" aria-label={t('os.systemApps.download')}><DownloadSimple size={17} /></button>}{can('os.files.write') && <button type="button" onClick={() => { setRenameEntry(entry); setRenameValue(entry.original_name) }} className="rounded-full p-2 text-foreground/40 hover:bg-foreground/8 hover:text-foreground" aria-label={t('os.systemApps.rename')}><PencilSimple size={17} /></button>}{can('os.files.write') && <button type="button" onClick={(event) => openRowMenu(entry, event)} className="rounded-full p-2 text-foreground/40 hover:bg-foreground/8 hover:text-foreground" aria-label={t('os.systemApps.moreActions')}><DotsThreeVertical size={17} /></button>}{can('os.files.write') && <button type="button" disabled={working} onClick={() => void remove(entry)} className="rounded-full p-2 text-foreground/40 hover:bg-red-500/10 hover:text-red-300" aria-label={t('common.delete')}><Trash size={17} /></button>}</div></div>)}
       </div>
+
+      {menuEntry && menuAnchor && <><div className="fixed inset-0 z-[85]" onClick={closeRowMenu} /><div className="fixed z-[86] w-44 overflow-hidden rounded-2xl border border-white/10 bg-background p-1.5 shadow-2xl" style={{ left: Math.max(8, menuAnchor.x - 176), top: menuAnchor.y + 6 }}><button type="button" onClick={() => openMoveCopy(menuEntry, 'move')} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8"><ArrowSquareOut size={17} className="text-foreground/60" />{t('os.systemApps.moveTo')}</button><button type="button" onClick={() => openMoveCopy(menuEntry, 'copy')} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8"><Copy size={17} className="text-foreground/60" />{t('os.systemApps.copyTo')}</button></div></>}
 
       {error && <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
       {working && <div className="fixed inset-x-0 bottom-4 z-[90] mx-auto w-fit rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xl">{t('os.systemApps.processing')}</div>}
 
       {newFolderOpen && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"><div className="glass-card w-full max-w-sm rounded-3xl p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{t('os.systemApps.newFolder')}</h2><button type="button" onClick={() => setNewFolderOpen(false)} className="rounded-full p-2 hover:bg-foreground/8"><X size={18} /></button></div><input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createFolder() }} placeholder={t('os.systemApps.folderName')} className="mt-5 min-h-12 w-full rounded-2xl border border-foreground/10 bg-foreground/5 px-4 text-sm outline-none" /><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setNewFolderOpen(false)} className="rounded-xl px-4 py-2 text-sm">{t('common.cancel')}</button><button type="button" disabled={!newFolderName.trim() || working} onClick={() => void createFolder()} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{t('common.create')}</button></div></div></div>}
       {renameEntry && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"><div className="glass-card w-full max-w-sm rounded-3xl p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{t('os.systemApps.rename')}</h2><button type="button" onClick={() => setRenameEntry(null)} className="rounded-full p-2 hover:bg-foreground/8"><X size={18} /></button></div><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void rename() }} className="mt-5 min-h-12 w-full rounded-2xl border border-foreground/10 bg-foreground/5 px-4 text-sm outline-none" /><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setRenameEntry(null)} className="rounded-xl px-4 py-2 text-sm">{t('common.cancel')}</button><button type="button" disabled={!renameValue.trim() || working} onClick={() => void rename()} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{t('common.save')}</button></div></div></div>}
+      {moveCopyEntry && moveCopyMode && <OsFileMoveCopyDialog entry={moveCopyEntry} mode={moveCopyMode} onCancel={() => { setMoveCopyEntry(null); setMoveCopyMode(null) }} onComplete={() => { setMoveCopyEntry(null); setMoveCopyMode(null); void load() }} />}
     </div>
   )
 }
