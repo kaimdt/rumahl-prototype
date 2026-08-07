@@ -58,13 +58,16 @@ _iora_service() {
     local mem_limit=""
     [ -n "$memory_max" ] && mem_limit="MemoryMax=${memory_max}"
 
-    # Cargo parallelism: each rustc needs ~2GB RAM. Without a limit cargo
-    # uses ALL cores (e.g. 16 x 2GB = 32GB) and the OOM killer kills the
-    # service -> systemd restart loop. Budget 4GB per job, 2..8 jobs.
+    # Cargo parallelism: each rustc needs ~2-2.5GB RAM plus a link spike.
+    # Without a limit cargo uses ALL cores (e.g. 16 x 2GB = 32GB) and the
+    # OOM killer kills the compiling service (journal: "Failed with result
+    # 'oom'") -> systemd restart loop that recompiles forever. Budget 5GB
+    # per job (leaves room for PostgreSQL + other services); the count
+    # scales with VM RAM (16G->3, 32G->6, 48G->8), clamped 1..8.
     local mem_mb cargo_jobs
     mem_mb=$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 8192)
-    cargo_jobs=$(( mem_mb / 4096 ))
-    [ "$cargo_jobs" -lt 2 ] && cargo_jobs=2
+    cargo_jobs=$(( mem_mb / 5120 ))
+    [ "$cargo_jobs" -lt 1 ] && cargo_jobs=1
     [ "$cargo_jobs" -gt 8 ] && cargo_jobs=8
 
     if [ "$RUN_MODE" = "source" ]; then

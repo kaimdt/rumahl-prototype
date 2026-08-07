@@ -142,6 +142,9 @@ port_in_use() {
 }
 
 # ── VM sizing (auto-scaled to host) ────────────────────────────────────────
+# VM RAM scales with the host (60% of host RAM, capped at 48G) so large
+# build machines get the parallelism they can handle; on small hosts at
+# least 4G but never more than host-6 so the host keeps headroom.
 if [ -n "${IORA_DEV_RAM:-}" ]; then
     VM_RAM="$IORA_DEV_RAM"
 else
@@ -150,20 +153,28 @@ else
     else
         VM_RAM_GB=$(( HOST_RAM_GB * 60 / 100 ))
     fi
+    [ $(( HOST_RAM_GB - 6 )) -lt "$VM_RAM_GB" ] && VM_RAM_GB=$(( HOST_RAM_GB - 6 ))
     [ "$VM_RAM_GB" -lt 4 ] && VM_RAM_GB=4
-    [ "$VM_RAM_GB" -gt 16 ] && VM_RAM_GB=16
+    [ "$VM_RAM_GB" -gt 48 ] && VM_RAM_GB=48
     VM_RAM="${VM_RAM_GB}G"
 fi
 
 VM_CPUS="${IORA_DEV_CPUS:-$(( HOST_CPUS / 2 ))}"
 [ "$VM_CPUS" -lt 2 ] && VM_CPUS=2
+[ "$VM_CPUS" -gt 24 ] && VM_CPUS=24
 
 if [ -n "${IORA_DEV_CARGO_JOBS:-}" ]; then
     CARGO_JOBS="$IORA_DEV_CARGO_JOBS"
 else
     VM_RAM_NUM=${VM_RAM%G}
-    CARGO_JOBS=$(( VM_RAM_NUM * 10 / 25 ))
+    # Memory-safe, fully dynamic: rustc needs ~2-2.5GB per job plus a link
+    # spike, and PostgreSQL + other services need headroom. Too many jobs ->
+    # the OOM killer kills the compiling service -> systemd recompile loop
+    # (journal: "Failed with result 'oom'"). Budget 5GB per job so the
+    # count scales with VM RAM (16G->3, 32G->6, 48G->8).
+    CARGO_JOBS=$(( VM_RAM_NUM / 5 ))
     [ "$CARGO_JOBS" -lt 1 ] && CARGO_JOBS=1
+    [ "$CARGO_JOBS" -gt 8 ] && CARGO_JOBS=8
     [ "$CARGO_JOBS" -gt "$VM_CPUS" ] && CARGO_JOBS=$VM_CPUS
 fi
 

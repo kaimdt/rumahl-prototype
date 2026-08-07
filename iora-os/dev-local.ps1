@@ -273,13 +273,16 @@ if (-not $SSH_BIN -or -not $SCP_BIN) {
 }
 
 # -- Config: VM sizing ------------------------------------------------------
-$VM_IDEAL_RAM = 16
-$VM_IDEAL_CPU = 16
+# VM size scales with the host so large build machines get the parallelism
+# they can handle. QEMU never takes more than ~60% of host RAM (or host-6
+# on small hosts) so the host OS keeps enough headroom.
+$VM_IDEAL_RAM = 48
+$VM_IDEAL_CPU = 24
 
 if ($Ram) {
     $VM_RAM = ($Ram -replace 'GB$', 'G') -replace 'G+$', 'G'
 } else {
-    $vmRamGB = [Math]::Min($VM_IDEAL_RAM, [Math]::Max(4, $hostRamGB - 6))
+    $vmRamGB = [Math]::Min($VM_IDEAL_RAM, [Math]::Max(4, [Math]::Min([Math]::Floor($hostRamGB * 0.6), $hostRamGB - 6)))
     $VM_RAM = "${vmRamGB}G"
 }
 if ($CpuCount -eq 0) {
@@ -289,11 +292,14 @@ if ($CpuCount -eq 0) {
 }
 $vmRamNum = [int]($VM_RAM -replace 'G', '')
 
-# Optimized cargo job calculation:
-# - Each job needs ~2GB RAM (conservative estimate)
-# - Leave at least 2 CPU cores for the system
-# - Cap at physical CPU count for best performance
-$cargoJobsByRam = [Math]::Floor($vmRamNum / 2)
+# Memory-safe cargo job calculation, fully dynamic:
+# rustc needs ~2-2.5GB per parallel job plus a link spike, and PostgreSQL
+# plus the other services need headroom too. Too many jobs -> the system
+# OOM killer kills the compiling service (journal: "Failed with result
+# 'oom'") and systemd restarts it in a recompile loop. Budget 5GB per job
+# so the count scales with VM RAM (16G->3, 32G->6, 48G->8); leave at
+# least 2 CPU cores for the system.
+$cargoJobsByRam = [Math]::Max(1, [Math]::Min(8, [Math]::Floor($vmRamNum / 5)))
 $cargoJobsByCpu = [Math]::Max(1, $VM_CPUS - 2)
 $CARGO_JOBS = [Math]::Min($cargoJobsByRam, $cargoJobsByCpu)
 $CARGO_JOBS = [Math]::Max(1, [Math]::Min($CARGO_JOBS, $VM_CPUS))

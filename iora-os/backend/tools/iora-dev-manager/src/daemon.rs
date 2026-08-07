@@ -43,6 +43,10 @@ pub struct Desired {
     pub mode: NetworkMode,
     pub message: String,
     pub ever_ready: bool,
+    /// Last moment the environment reached Ready (unix seconds); a VM that
+    /// stayed healthy for a while gets a fresh restart budget, while a
+    /// crash/ready/crash loop stays bounded.
+    pub last_ready_at: Option<u64>,
 }
 
 /// Bounded retry state for the guest network remediation.
@@ -104,6 +108,7 @@ impl Daemon {
                 mode: NetworkMode::Slirp,
                 message: String::new(),
                 ever_ready: false,
+                last_ready_at: None,
             }),
             last_probe: Mutex::new(Probe::default()),
             last_message: Mutex::new("Daemon started".into()),
@@ -221,6 +226,7 @@ impl Daemon {
             desired.mode = mode.clone();
             desired.message = "Starting".into();
             desired.ever_ready = false;
+            desired.last_ready_at = None;
         }
         let result = {
             let mappings = self.mappings.lock().unwrap().clone();
@@ -741,6 +747,7 @@ impl Daemon {
         };
         *self.last_probe.lock().unwrap() = probe.clone();
         let lifecycle = probe.lifecycle().to_string();
+        let diagnosis = diagnose(&probe, &lifecycle);
         if lifecycle != "Stopped" {
             *stopped_ticks = 0;
         }
@@ -845,7 +852,17 @@ impl Daemon {
                     self.emit("status", "Environment ready after restart");
                 }
                 desired.ever_ready = true;
-                desired.retries = 0;
+                // Only a VM that stayed healthy for a while gets a fresh
+                // restart budget; a crash/ready/crash loop must not restart
+                // forever.
+                let now = now_secs();
+                let fresh_budget = desired
+                    .last_ready_at
+                    .is_none_or(|previous| now.saturating_sub(previous) >= 300);
+                if fresh_budget {
+                    desired.retries = 0;
+                }
+                desired.last_ready_at = Some(now);
                 desired.message = "Ready".into();
                 RestartAction::None
             } else if lifecycle == "Degraded" && probe.qga && !probe.internal_home && !desired.ever_ready {
@@ -854,22 +871,31 @@ impl Daemon {
                 // must never be torn down by the watchdog: only reinstall
                 // when the guest finished installing AND stayed unhealthy
                 // for a long time. The provisioned marker is checked in the
-                // guest and cached (re-checked every 60s).
+                // guest and cached (re-checked every 60s). The diagnosis is
+                // attached so the reason is never lost in a recovery loop.
                 if marker != Some(true) {
-                    desired.message =
-                        "Waiting for the guest installation to complete...".into();
+                    desired.message = format!(
+                        "Waiting for the guest installation to complete ({diagnosis})..."
+                    );
                     RestartAction::None
                 } else {
                     desired.retries += 1;
                     if desired.retries >= 240 {
-                        desired.message =
-                            "Installation did not become healthy; reinstalling VM".into();
+                        desired.message = format!(
+                            "Installation did not become healthy ({diagnosis}); reinstalling VM"
+                        );
                         RestartAction::Reinstall
                     } else {
+                        desired.message = format!("Waiting for iora-home ({diagnosis})");
                         RestartAction::None
                     }
                 }
             } else if lifecycle != "Stopped" {
+                // Keep the header informed while the environment is up but
+                // not ready; no action is taken, only the reason is shown.
+                if lifecycle == "Degraded" {
+                    desired.message = format!("{lifecycle}: {diagnosis}");
+                }
                 RestartAction::None
             } else if !desired.ever_ready {
                 // The VM never became ready after a user start. Give it a
@@ -881,8 +907,9 @@ impl Daemon {
                 *stopped_ticks += 1;
                 if *stopped_ticks >= GIVE_UP_AFTER_STOPPED_TICKS {
                     desired.running = false;
-                    desired.message =
-                        "VM failed to start and never became ready; no auto-restart".into();
+                    desired.message = format!(
+                        "VM failed to start and never became ready ({diagnosis}); no auto-restart"
+                    );
                     RestartAction::GiveUp
                 } else {
                     RestartAction::None
@@ -891,12 +918,14 @@ impl Daemon {
                 desired.retries += 1;
                 if desired.retries > MAX_RESTART_ATTEMPTS {
                     desired.running = false;
-                    desired.message = "VM stayed down after 3 auto-restart attempts".into();
+                    desired.message = format!(
+                        "VM stayed down after {MAX_RESTART_ATTEMPTS} auto-restart attempts ({diagnosis})"
+                    );
                     RestartAction::GiveUp
                 } else {
                     let attempt = desired.retries;
                     desired.message = format!(
-                        "VM stopped unexpectedly; restarting ({attempt}/{MAX_RESTART_ATTEMPTS})"
+                        "VM stopped unexpectedly ({diagnosis}); restarting ({attempt}/{MAX_RESTART_ATTEMPTS})"
                     );
                     RestartAction::Restart(desired.mode.clone())
                 }
@@ -916,7 +945,8 @@ impl Daemon {
                 self.emit("error", full);
             }
             RestartAction::Reinstall => {
-                self.emit("status", "Installation health check failed; reinstalling VM");
+                let message = self.desired.lock().unwrap().message.clone();
+                self.emit("status", message);
                 if let Err(error) = self.reinstall().await {
                     let message = format!("auto-reinstall failed: {error:#}");
                     self.desired.lock().unwrap().message = message.clone();
@@ -925,7 +955,8 @@ impl Daemon {
                 }
             }
             RestartAction::Restart(mode) => {
-                self.emit("status", "VM stopped unexpectedly; restarting");
+                let message = self.desired.lock().unwrap().message.clone();
+                self.emit("status", message);
                 let result = {
                     let mappings = self.mappings.lock().unwrap().clone();
                     self.manager.lock().await.start(mode, &mappings)
@@ -1740,6 +1771,46 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Explain why the environment is not Ready, so recovery actions and the UI
+/// surface a concrete reason instead of blindly restarting. The reason is
+/// included in every status/error message and is therefore never lost.
+fn diagnose(probe: &Probe, lifecycle: &str) -> String {
+    if lifecycle == "Ready" {
+        return "environment is ready".into();
+    }
+    let mut reasons: Vec<String> = Vec::new();
+    if !probe.process {
+        reasons.push("no QEMU or bootstrap process is running".into());
+    }
+    if !probe.qmp {
+        reasons.push("QEMU monitor (QMP) is not responding".into());
+    }
+    if !probe.qga {
+        reasons.push("guest agent (QGA) is not responding".into());
+    } else {
+        if probe.systemd != "running" && probe.systemd != "degraded" {
+            reasons.push(format!("systemd is in state '{}'", probe.systemd));
+        }
+        if probe.guest_ip.is_none() {
+            reasons.push("guest has no network address yet".into());
+        }
+        if !probe.internal_home {
+            reasons.push("iora-home is not healthy inside the VM".into());
+        }
+        if !probe.external_home {
+            reasons.push("iora-home is not reachable from the host".into());
+        }
+    }
+    if !probe.dev_watcher {
+        reasons.push("live development watcher is not running".into());
+    }
+    if reasons.is_empty() {
+        format!("environment is {lifecycle}")
+    } else {
+        reasons.join("; ")
+    }
+}
+
 /// Friendly names for well-known guest ports, used by the port scanner.
 fn port_label(port: u16) -> Option<&'static str> {
     match port {
@@ -1800,5 +1871,40 @@ mod tests {
         assert_eq!(services[0]["unit"], "iora-api.service");
         assert_eq!(services[0]["description"], "IORA API");
         assert!(services[1]["failed"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn diagnose_names_the_unhealthy_component() {
+        let probe = Probe {
+            process: true,
+            qmp: true,
+            qga: true,
+            systemd: "running".into(),
+            guest_ip: Some("192.0.2.10".into()),
+            internal_home: false,
+            external_home: true,
+            ..Default::default()
+        };
+        let text = diagnose(&probe, "Degraded");
+        assert!(
+            text.contains("iora-home is not healthy inside the VM"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn diagnose_is_not_noisy_for_a_ready_probe() {
+        let probe = Probe {
+            process: true,
+            qmp: true,
+            qga: true,
+            systemd: "running".into(),
+            guest_ip: Some("192.0.2.10".into()),
+            internal_home: true,
+            external_home: true,
+            dev_watcher: true,
+            ..Default::default()
+        };
+        assert_eq!(diagnose(&probe, "Ready"), "environment is ready");
     }
 }

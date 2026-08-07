@@ -396,28 +396,59 @@ impl Manager {
     }
 
     fn spawn_dev_local_bootstrap(&self, rebuild: bool) -> Result<()> {
-        let script = self.root.join("dev-local.ps1");
-        if !script.exists() {
-            anyhow::bail!(
-                "VM disk is missing at {} and dev-local.ps1 was not found to create it",
-                self.root.join(".cache/iora-dev-vm.qcow2").display()
-            );
-        }
-        let shell = if cfg!(windows) { "powershell.exe" } else { "pwsh" };
+        // Windows uses dev-local.ps1 via PowerShell; macOS / Linux use
+        // dev-local.sh via bash. The scripts share the same CLI semantics
+        // (-NoWatch / -Rebuild vs. --no-watch / --rebuild).
+        let (script, shell, args) = if cfg!(windows) {
+            let script = self.root.join("dev-local.ps1");
+            if !script.exists() {
+                anyhow::bail!(
+                    "VM disk is missing at {} and dev-local.ps1 was not found to create it",
+                    self.root.join(".cache/iora-dev-vm.qcow2").display()
+                );
+            }
+            (
+                script.display().to_string(),
+                "powershell.exe",
+                vec!["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"],
+            )
+        } else {
+            let script = self.root.join("dev-local.sh");
+            if !script.exists() {
+                anyhow::bail!(
+                    "VM disk is missing at {} and dev-local.sh was not found to create it",
+                    self.root.join(".cache/iora-dev-vm.qcow2").display()
+                );
+            }
+            (script.display().to_string(), "bash", vec![])
+        };
+        let script_args = if rebuild {
+            if cfg!(windows) {
+                vec!["-Rebuild", "-NoWatch"]
+            } else {
+                vec!["--rebuild", "--no-watch"]
+            }
+        } else if cfg!(windows) {
+            vec!["-NoWatch"]
+        } else {
+            vec!["--no-watch"]
+        };
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.root.join(".cache/dev-manager.log"))?;
-        let child = Command::new(shell)
+        let mut command = Command::new(shell);
+        command
             .current_dir(&self.root)
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .args(&args)
             .arg(&script)
-            .args(if rebuild { vec!["-Rebuild", "-NoWatch"] } else { vec!["-NoWatch"] })
+            .args(&script_args)
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log))
+            .stderr(Stdio::from(log));
+        let child = command
             .spawn()
-            .with_context(|| format!("failed to launch {} for VM bootstrap", script.display()))?;
+            .with_context(|| format!("failed to launch {script} for VM bootstrap"))?;
         std::fs::write(self.root.join(".cache/dev-local-bootstrap.pid"), child.id().to_string())?;
         Ok(())
     }
@@ -1160,7 +1191,13 @@ mod tests {
             state: RuntimeState::default(),
         };
         let error = manager.start(NetworkMode::Slirp, &[]).unwrap_err();
-        assert!(error.to_string().contains("dev-local.ps1 was not found"));
+        // Windows bootstraps via dev-local.ps1, macOS/Linux via dev-local.sh.
+        let missing = if cfg!(windows) {
+            "dev-local.ps1 was not found"
+        } else {
+            "dev-local.sh was not found"
+        };
+        assert!(error.to_string().contains(missing), "{error}");
         let _ = std::fs::remove_dir_all(root);
     }
 
