@@ -106,7 +106,7 @@ export function OsMaintenanceApp({ kind }: { kind: 'updates' | 'backups' }) {
   }
 
   return (
-    <section className="mx-auto min-h-[calc(100vh-11rem)] max-w-5xl pb-10">
+    <section className="ora-app-frame mx-auto max-w-5xl p-4 pb-10 sm:p-6">
       <header className="mb-6 flex items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>

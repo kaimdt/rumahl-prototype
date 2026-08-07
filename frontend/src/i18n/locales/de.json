@@ -355,6 +355,28 @@
       "size": "Größe",
       "open": "Öffnen",
       "select": "Auswählen"
+    },
+    "dock": {
+      "open": "Öffnen",
+      "pin": "An Dock anheften",
+      "unpin": "Vom Dock entfernen"
+    },
+    "quickActions": {
+      "arrange": "Apps anordnen",
+      "pin": "An Dock anheften",
+      "unpin": "Vom Dock entfernen"
+    },
+    "window": {
+      "asWindow": "Als Fenster öffnen",
+      "splitLeft": "Links teilen",
+      "splitRight": "Rechts teilen",
+      "immersive": "Ohne Leiste öffnen",
+      "minimize": "Minimieren",
+      "fullscreen": "Vollbild",
+      "close": "Schließen",
+      "emptyPane": "Leerer Bereich",
+      "splitHint": "Öffne eine App im Dock, um diese Seite zu füllen.",
+      "open": "Fenster offen"
     }
   },
   "settings": {

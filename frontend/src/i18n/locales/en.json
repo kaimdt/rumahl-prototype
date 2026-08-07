@@ -355,6 +355,28 @@
       "size": "Size",
       "open": "Open",
       "select": "Select"
+    },
+    "dock": {
+      "open": "Open",
+      "pin": "Pin to Dock",
+      "unpin": "Remove from Dock"
+    },
+    "quickActions": {
+      "arrange": "Arrange apps",
+      "pin": "Pin to Dock",
+      "unpin": "Remove from Dock"
+    },
+    "window": {
+      "asWindow": "Open as window",
+      "splitLeft": "Split left",
+      "splitRight": "Split right",
+      "immersive": "Immersive mode",
+      "minimize": "Minimize",
+      "fullscreen": "Fullscreen",
+      "close": "Close",
+      "emptyPane": "Empty pane",
+      "splitHint": "Open an app from the dock to fill this side.",
+      "open": "Window open"
     }
   },
   "settings": {

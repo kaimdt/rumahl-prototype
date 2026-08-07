@@ -88,6 +88,7 @@ export function OsSystemShell() {
     setRecentIds((current) => {
       const next = [currentPageId, ...current.filter((id) => id !== currentPageId)].slice(0, MAX_RECENT_APPS)
       localStorage.setItem(RECENT_APPS_KEY, JSON.stringify(next))
+      window.dispatchEvent(new Event('iora:recents-changed'))
       return next
     })
   }, [currentPageId])

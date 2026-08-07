@@ -147,7 +147,7 @@ function OsSystemDataApp({ kind }: { kind: 'network' | 'system' }) {
   const subtitle = t(`os.apps.${kind}.description`)
 
   return (
-    <section className="mx-auto min-h-[calc(100vh-11rem)] max-w-6xl pb-10">
+    <section className="ora-app-frame mx-auto max-w-6xl p-4 pb-10 sm:p-6">
       <AppHeader title={title} subtitle={subtitle} loading={loading} refresh={load} />
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
 

@@ -20,6 +20,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { useOsWindows, type OsLaunchMode } from '@/contexts/OsWindowContext'
 import { useLocalStorage } from '@/lib/storage'
 import { loadLauncherPackages, type StoreLauncherPackage, type StoreWidgetPackage } from '@/lib/launcherPackages'
 import { loadSettingsFromBackend } from '@/lib/settingsSync'
@@ -208,6 +209,22 @@ export function OsHomeScreen() {
   const getName = (app: OsAppDefinition) => app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
   const getDescription = (app: OsAppDefinition) => app.descriptionKey ? t(app.descriptionKey) : t('os.launcher.openApp')
 
+  const { openWindow, openSplit, setImmersive } = useOsWindows()
+  const launchApp = (app: OsAppDefinition, mode: OsLaunchMode) => {
+    if (mode === 'fullscreen') {
+      setImmersive(null)
+      setCurrentPageId(app.pageId)
+    } else if (mode === 'immersive') {
+      setImmersive(app.pageId)
+      setCurrentPageId(app.pageId)
+    } else if (mode === 'window') {
+      // Already on the desktop (launcher) — open the floating window here.
+      openWindow(app.pageId)
+    } else {
+      openSplit(app.pageId, mode)
+    }
+  }
+
   const swipeHandlers = {
     onPointerDown: (event: React.PointerEvent) => { pointerStart.current = event.clientX },
     onPointerUp: (event: React.PointerEvent) => {
@@ -218,7 +235,7 @@ export function OsHomeScreen() {
     },
   }
 
-  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onOpenApp={openApp} getAppName={getName} />
+  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} />
 
   return (
     <section
@@ -241,11 +258,10 @@ export function OsHomeScreen() {
 
       {layout === 'default' && (
         <div className="mx-auto mt-5 max-w-6xl px-1">
-          <div className="ora-home-hero mb-5 text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/45">ORA OS</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-5xl">{t('os.greeting', { name: user?.displayName || user?.username || t('os.defaultUser') })}</h1>
+          <div className="ora-home-hero mb-6 text-center">
+            <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-4xl">{t('os.greeting', { name: user?.displayName || user?.username || t('os.defaultUser') })}</h1>
             <p className="mx-auto mt-2 max-w-xl text-sm text-white/50">{t('os.subtitle')}</p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
               <span className="ora-status-chip"><Heartbeat size={15} weight="duotone" /><i className={backend === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.backendStatus')}</span>
               <span className="ora-status-chip"><WifiHigh size={15} weight="duotone" /><i className={homeAssistant === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.homeAssistantStatus')}</span>
             </div>
