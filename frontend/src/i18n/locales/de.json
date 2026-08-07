@@ -109,46 +109,48 @@
     "openLauncher": "Homescreen öffnen",
     "systemApp": "System",
     "installedApp": "App",
-  "customApp": "Eigene",
-  "noApps": "Keine passenden Apps gefunden.",
-  "launcher": {
-    "label": "ORA OS Homescreen",
-    "nativeHome": "Nativ in ORA OS",
-    "openHome": "ORA Home",
-    "openApp": "App öffnen",
-    "open": "Öffnen",
-    "closeApp": "App schließen",
-    "customize": "Launcher anpassen",
-    "choose": "Launcher auswählen",
-    "defaultName": "ORA Homescreen",
-    "deckName": "Intelligent Deck",
-    "canvasName": "Living Canvas",
-    "intelligent": "Intelligenter Zugriff",
-    "whatToDo": "Was möchtest du tun?",
-    "commandPlaceholder": "App, Gerät oder Aktion suchen",
-    "pages": "Homescreen-Seiten",
-    "page": "Seite {{page}}",
-    "edit": "Homescreen bearbeiten",
-    "finishEditing": "Fertig",
-    "newFolder": "Neuer Ordner",
-    "folderName": "Ordnername",
-    "deleteFolder": "Ordner löschen",
-    "removeFromFolder": "{{app}} aus dem Ordner entfernen",
-    "widgets": "Widgets",
-    "homeWidget": "ORA Home",
-    "clockWidget": "Uhr und Datum",
-    "storeLaunchers": "Aus dem App Store",
-    "storeWidgets": "Installierte Widgets",
-    "sync": "Geräte-Synchronisierung",
-    "synced": "Synchronisiert",
-    "syncing": "Synchronisiere…",
-    "offline": "Offline – lokal gespeichert",
-    "widgetReady": "Dieses Widget ist installiert und einsatzbereit.",
-    "install": "Custom Launcher installieren",
-    "installHint": "Launcher und Widgets aus dem ORA App Store erscheinen hier automatisch. Manuelle Launcher können weiterhin als Manifest importiert werden.",
-    "invalidManifest": "Das Launcher-Manifest ist ungültig."
-  },
-  "shell": {
+    "customApp": "Eigene",
+    "noApps": "Keine passenden Apps gefunden.",
+    "launcher": {
+      "label": "ORA OS Homescreen",
+      "nativeHome": "Nativ in ORA OS",
+      "openHome": "ORA Home",
+      "openApp": "App öffnen",
+      "open": "Öffnen",
+      "closeApp": "App schließen",
+      "customize": "Launcher anpassen",
+      "choose": "Launcher auswählen",
+      "defaultName": "ORA Homescreen",
+      "deckName": "Intelligent Deck",
+      "canvasName": "Living Canvas",
+      "intelligent": "Intelligenter Zugriff",
+      "whatToDo": "Was möchtest du tun?",
+      "commandPlaceholder": "App, Gerät oder Aktion suchen",
+      "pages": "Homescreen-Seiten",
+      "page": "Seite {{page}}",
+      "edit": "Homescreen bearbeiten",
+      "finishEditing": "Fertig",
+      "newFolder": "Neuer Ordner",
+      "folderName": "Ordnername",
+      "deleteFolder": "Ordner löschen",
+      "removeFromFolder": "{{app}} aus dem Ordner entfernen",
+      "widgets": "Widgets",
+      "homeWidget": "ORA Home",
+      "clockWidget": "Uhr und Datum",
+      "storeLaunchers": "Aus dem App Store",
+      "storeWidgets": "Installierte Widgets",
+      "sync": "Geräte-Synchronisierung",
+      "synced": "Synchronisiert",
+      "syncing": "Synchronisiere…",
+      "offline": "Offline – lokal gespeichert",
+      "widgetReady": "Dieses Widget ist installiert und einsatzbereit.",
+      "install": "Custom Launcher installieren",
+      "installHint": "Launcher und Widgets aus dem ORA App Store erscheinen hier automatisch. Manuelle Launcher können weiterhin als Manifest importiert werden.",
+      "invalidManifest": "Das Launcher-Manifest ist ungültig.",
+      "backendStatus": "ORA Backend",
+      "homeAssistantStatus": "Home Assistant"
+    },
+    "shell": {
       "openQuickSettings": "Schnelleinstellungen öffnen",
       "quickSettings": "Schnelleinstellungen",
       "systemReady": "Native Systemdienste verfügbar",
@@ -195,18 +197,58 @@
       }
     },
     "apps": {
-      "home": { "name": "Home", "description": "Smart-Home-Dashboard und Automationen" },
-      "admin": { "name": "Control Center", "description": "Administration und Systemverwaltung" },
-      "settings": { "name": "Einstellungen", "description": "ORA OS personalisieren" },
-      "agent": { "name": "Agent", "description": "KI-Assistent und Entwicklungsagent" },
-      "streaming": { "name": "Streaming", "description": "Medien mit Displays teilen" },
-      "share": { "name": "Teilen", "description": "Apps und Inhalte teilen" },
-      "docs": { "name": "Dokumentation", "description": "Anleitungen und Systemdokumentation" }
-      ,"files": { "name": "Dateien", "description": "Persönliche Dateien und Speicher" }
-      ,"network": { "name": "Netzwerk", "description": "Schnittstellen und Netzwerkaktivität" }
-      ,"system": { "name": "Systemmonitor", "description": "Ressourcen, Datenträger und Prozesse" }
-      ,"updates": { "name": "Updates", "description": "ORA OS sicher und aktuell halten" }
-      ,"backups": { "name": "Backups", "description": "Systemdaten sichern und wiederherstellen" }
+      "home": {
+        "name": "Home",
+        "description": "Smart-Home-Dashboard und Automationen"
+      },
+      "admin": {
+        "name": "Control Center",
+        "description": "Administration und Systemverwaltung"
+      },
+      "settings": {
+        "name": "Einstellungen",
+        "description": "ORA OS personalisieren"
+      },
+      "agent": {
+        "name": "Agent",
+        "description": "KI-Assistent und Entwicklungsagent"
+      },
+      "streaming": {
+        "name": "Streaming",
+        "description": "Medien mit Displays teilen"
+      },
+      "share": {
+        "name": "Teilen",
+        "description": "Apps und Inhalte teilen"
+      },
+      "docs": {
+        "name": "Dokumentation",
+        "description": "Anleitungen und Systemdokumentation"
+      },
+      "files": {
+        "name": "Dateien",
+        "description": "Persönliche Dateien und Speicher"
+      },
+      "network": {
+        "name": "Netzwerk",
+        "description": "Schnittstellen und Netzwerkaktivität"
+      },
+      "system": {
+        "name": "Systemmonitor",
+        "description": "Ressourcen, Datenträger und Prozesse"
+      },
+      "updates": {
+        "name": "Updates",
+        "description": "ORA OS sicher und aktuell halten"
+      },
+      "backups": {
+        "name": "Backups",
+        "description": "Systemdaten sichern und wiederherstellen"
+      },
+      "appStore": {
+        "name": "App Store",
+        "description": "ORA Apps entdecken, installieren und verwalten"
+      }
     },
     "systemApps": {
       "unavailable": "Der Systemdienst ist derzeit nicht verfügbar.",
@@ -220,25 +262,25 @@
       "folderName": "Name des neuen Ordners",
       "createFolder": "Ordner erstellen",
       "upload": "Hochladen",
-    "folder": "Ordner",
-    "file": "Datei",
-    "myCloud": "Meine ORA Cloud",
-    "searchFiles": "Dateien und Ordner suchen",
-    "newFolder": "Neuer Ordner",
-    "addFiles": "Dateien hinzufügen",
-    "fromCloud": "Lokal abrufen",
-    "fromCloudHint": "In deiner persönlichen ORA Cloud navigieren",
-    "fromDevice": "Vom Gerät abrufen",
-    "fromDeviceHint": "Dateien über den System-Dateidialog auswählen",
-    "kioskUnavailable": "Auf Kiosk-Geräten nicht verfügbar",
-    "parentFolder": "Übergeordneter Ordner",
-    "dropFiles": "Dateien hierher ziehen oder über Hinzufügen auswählen",
-    "download": "Herunterladen",
-    "rename": "Umbenennen",
-    "renameFailed": "Die Datei konnte nicht umbenannt werden.",
-    "deleteFailed": "Die Datei konnte nicht gelöscht werden.",
-    "processing": "Dateioperation wird ausgeführt…",
-    "active": "Aktiv",
+      "folder": "Ordner",
+      "file": "Datei",
+      "myCloud": "Meine ORA Cloud",
+      "searchFiles": "Dateien und Ordner suchen",
+      "newFolder": "Neuer Ordner",
+      "addFiles": "Dateien hinzufügen",
+      "fromCloud": "Lokal abrufen",
+      "fromCloudHint": "In deiner persönlichen ORA Cloud navigieren",
+      "fromDevice": "Vom Gerät abrufen",
+      "fromDeviceHint": "Dateien über den System-Dateidialog auswählen",
+      "kioskUnavailable": "Auf Kiosk-Geräten nicht verfügbar",
+      "parentFolder": "Übergeordneter Ordner",
+      "dropFiles": "Dateien hierher ziehen oder über Hinzufügen auswählen",
+      "download": "Herunterladen",
+      "rename": "Umbenennen",
+      "renameFailed": "Die Datei konnte nicht umbenannt werden.",
+      "deleteFailed": "Die Datei konnte nicht gelöscht werden.",
+      "processing": "Dateioperation wird ausgeführt…",
+      "active": "Aktiv",
       "noAddress": "Keine Hardwareadresse",
       "received": "Empfangen",
       "sent": "Gesendet",
@@ -279,6 +321,28 @@
       "confirmRestore": "Dieses Backup zur Wiederherstellung vorbereiten?",
       "confirmRestoreHint": "Der Backup-Dienst entpackt die Daten in einen geschützten Staging-Bereich. Bestehende Daten werden nicht automatisch überschrieben.",
       "restoreFailed": "Das Backup konnte nicht zur Wiederherstellung vorbereitet werden."
+    },
+    "files": {
+      "connectionError": "Der Files-Dienst ist nicht erreichbar ({{detail}}). Bereits geladene Dateien bleiben sichtbar.",
+      "operationError": "Die Dateioperation ist fehlgeschlagen ({{detail}}).",
+      "back": "Zurück",
+      "forward": "Vorwärts",
+      "changeView": "Ansicht wechseln",
+      "sort": "Dateien sortieren",
+      "sortName": "Name",
+      "sortUpdated": "Zuletzt geändert",
+      "sortSize": "Größe",
+      "home": "Home",
+      "storage": "Speicher",
+      "breadcrumb": "Ordnerpfad",
+      "refreshFailed": "Dateien konnten nicht aktualisiert werden",
+      "selected": "{{count}} ausgewählt",
+      "emptyHint": "Lade eine Datei hoch oder erstelle einen Ordner.",
+      "name": "Name",
+      "modified": "Geändert",
+      "size": "Größe",
+      "open": "Öffnen",
+      "select": "Auswählen"
     }
   },
   "settings": {
@@ -665,7 +729,9 @@
       "comingTitle": "Der vollständige App Store kommt bald",
       "comingDescription": "Direkter Zugriff auf Apps, Widgets und Plugins aus dem ORA-Katalog.",
       "comingSoon": "Demnächst",
-      "catalog": { "weather": "Wetter Pro" }
+      "catalog": {
+        "weather": "Wetter Pro"
+      }
     },
     "topThemes": "Top Themes",
     "topApps": "Top Apps",

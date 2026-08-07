@@ -142,86 +142,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   const login = useCallback(async (username: string, password: string, rememberMe = true) => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(`${apiBase()}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password, remember_me: rememberMe }),
-      })
+    const response = await fetch(`${apiBase()}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password, remember_me: rememberMe }),
+    })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Login failed')
-      }
-
-      const data = await response.json()
-      writePersistedToken(data.token, rememberMe)
-      setToken(data.token)
-      const mapped = mapApiUser(data.user as ApiUser)
-      setUser(mapped)
-      localStorage.setItem('ha-username', mapped.username)
-      localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
-    } finally {
-      setIsLoading(false)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Login failed')
     }
+
+    const data = await response.json()
+    writePersistedToken(data.token, rememberMe)
+    setToken(data.token)
+    const mapped = mapApiUser(data.user as ApiUser)
+    setUser(mapped)
+    localStorage.setItem('ha-username', mapped.username)
+    localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
   }, [])
 
   const loginWithPin = useCallback(async (userId: string, pin: string) => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(`${apiBase()}/api/auth/pin-login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user_id: userId, pin }),
-      })
+    const response = await fetch(`${apiBase()}/api/auth/pin-login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ user_id: userId, pin }),
+    })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'PIN login failed')
-      }
-
-      const data = await response.json()
-      writePersistedToken(data.token, true)
-      setToken(data.token)
-      const mapped = mapApiUser(data.user as ApiUser)
-      setUser(mapped)
-      localStorage.setItem('ha-username', mapped.username)
-      localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
-    } finally {
-      setIsLoading(false)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'PIN login failed')
     }
+
+    const data = await response.json()
+    writePersistedToken(data.token, true)
+    setToken(data.token)
+    const mapped = mapApiUser(data.user as ApiUser)
+    setUser(mapped)
+    localStorage.setItem('ha-username', mapped.username)
+    localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
   }, [])
 
   const register = useCallback(async (username: string, password: string, displayName?: string) => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(`${apiBase()}/api/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password, display_name: displayName }),
-      })
+    const response = await fetch(`${apiBase()}/api/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password, display_name: displayName }),
+    })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Registration failed')
-      }
-
-      const data = await response.json()
-      writePersistedToken(data.token, true)
-      setToken(data.token)
-      const mapped = mapApiUser(data.user as ApiUser)
-      setUser(mapped)
-      localStorage.setItem('ha-username', mapped.username)
-    } finally {
-      setIsLoading(false)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Registration failed')
     }
+
+    const data = await response.json()
+    writePersistedToken(data.token, true)
+    setToken(data.token)
+    const mapped = mapApiUser(data.user as ApiUser)
+    setUser(mapped)
+    localStorage.setItem('ha-username', mapped.username)
   }, [])
 
   const updateProfile = useCallback(async ({ username, displayName }: { username?: string; displayName?: string }) => {

@@ -24,12 +24,13 @@ use std::{
     time::Duration,
 };
 use tower_http::{
+    classify::ServerErrorsFailureClass,
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
     services::ServeDir,
     trace::TraceLayer,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn, Span};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
@@ -2664,8 +2665,41 @@ async fn main() -> anyhow::Result<()> {
                 next.run(req).await
             },
         ))
-        // Tracing layer
-        .layer(TraceLayer::new_for_http())
+        // Structured HTTP tracing. Keeping the method, route and a local request ID
+        // on the span makes transport failures actionable instead of pointing only
+        // at tower-http's generic `on_failure.rs` callback.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+                    let request_id = HTTP_REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
+                    tracing::info_span!(
+                        "http_request",
+                        request_id,
+                        method = %request.method(),
+                        uri = %request.uri(),
+                    )
+                })
+                .on_response(
+                    |response: &axum::http::Response<axum::body::Body>, latency: Duration, _span: &Span| {
+                        debug!(status = %response.status(), latency_ms = latency.as_millis(), "HTTP response completed");
+                    },
+                )
+                .on_failure(
+                    |failure: ServerErrorsFailureClass, latency: Duration, _span: &Span| {
+                        match failure {
+                            ServerErrorsFailureClass::StatusCode(status) => {
+                                warn!(status = %status, latency_ms = latency.as_millis(), "HTTP request returned a server error");
+                            }
+                            ServerErrorsFailureClass::Error(error) => {
+                                // Body/transport errors are commonly caused by a browser closing a
+                                // streaming request during navigation. Keep them visible without
+                                // presenting an expected client disconnect as a backend failure.
+                                info!(transport_error = %error, latency_ms = latency.as_millis(), "HTTP response stream ended before completion");
+                            }
+                        }
+                    },
+                ),
+        )
         // Add state
         .with_state(state);
 
@@ -13047,6 +13081,9 @@ pub(crate) static METRICS: std::sync::LazyLock<IoraMetrics> =
         cache_hits: AtomicU64::new(0),
         cache_misses: AtomicU64::new(0),
     });
+
+/// Monotonic request identifier used by the structured HTTP trace span.
+static HTTP_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Broadcast channel for real-time metrics snapshots (pushed every 2s)
 static METRICS_BROADCAST: std::sync::LazyLock<tokio::sync::broadcast::Sender<Value>> =

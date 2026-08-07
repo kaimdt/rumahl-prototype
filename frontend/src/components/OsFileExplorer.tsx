@@ -1,16 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
+  ArrowRight,
+  CaretDown,
   CaretRight,
-  Cloud,
   DownloadSimple,
   File,
+  FileImage,
+  FileVideo,
   Folder,
   FolderOpen,
-  HardDrive,
+  GridFour,
+  House,
+  ListBullets,
   MagnifyingGlass,
   PencilSimple,
   Plus,
+  SortAscending,
   Trash,
   UploadSimple,
   X,
@@ -28,27 +34,25 @@ interface FileEntry {
   updated_at: string
 }
 
-interface Breadcrumb {
-  id: string
-  name: string
-}
-
-interface Quota {
-  quota_bytes: number
-  used_bytes: number
-  available_bytes: number
-  usage_percent: number
-}
+interface Breadcrumb { id: string; name: string }
+interface Quota { quota_bytes: number; used_bytes: number; available_bytes: number; usage_percent: number }
+type ViewMode = 'grid' | 'list'
+type SortMode = 'name' | 'updated' | 'size'
+type Location = { folderId: string | null; breadcrumbs: Breadcrumb[] }
 
 function formatBytes(value = 0) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let size = value
   let unit = 0
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024
-    unit += 1
-  }
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1 }
   return `${size.toFixed(unit ? 1 : 0)} ${units[unit]}`
+}
+
+function fileIcon(entry: FileEntry, size: number) {
+  if (entry.is_folder) return <FolderOpen size={size} weight="duotone" />
+  if (entry.mime_type?.startsWith('image/')) return <FileImage size={size} weight="duotone" />
+  if (entry.mime_type?.startsWith('video/')) return <FileVideo size={size} weight="duotone" />
+  return <File size={size} weight="duotone" />
 }
 
 export function OsFileExplorer() {
@@ -58,169 +62,213 @@ export function OsFileExplorer() {
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([])
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
   const [quota, setQuota] = useState<Quota | null>(null)
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
+  const [errorKind, setErrorKind] = useState<'refresh' | 'operation'>('refresh')
+  const [viewMode, setViewMode] = useState<ViewMode>(() => localStorage.getItem('iora-files-view') === 'list' ? 'list' : 'grid')
+  const [sortMode, setSortMode] = useState<SortMode>('name')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [history, setHistory] = useState<Location[]>([{ folderId: null, breadcrumbs: [] }])
+  const [historyIndex, setHistoryIndex] = useState(0)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [renameEntry, setRenameEntry] = useState<FileEntry | null>(null)
   const [renameValue, setRenameValue] = useState('')
-  const [sourceMenuOpen, setSourceMenuOpen] = useState(false)
+  const [contextEntry, setContextEntry] = useState<FileEntry | null>(null)
   const deviceInput = useRef<HTMLInputElement>(null)
+  const requestRef = useRef(0)
+  const hasLoadedRef = useRef(false)
 
-  // TODO(kiosk): Replace this with the future device-capability API. Kiosk devices
-  // must never expose the browser file picker.
-  const isKioskDevice = false
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 250)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (background = false) => {
+    const request = ++requestRef.current
+    if (!hasLoadedRef.current) setInitialLoading(true)
+    else if (background) setRefreshing(true)
     setError('')
     try {
       const params = new URLSearchParams()
       if (currentFolderId) params.set('folder_id', currentFolderId)
-      if (search.trim()) params.set('search', search.trim())
+      if (search) params.set('search', search)
       const [filesResponse, quotaResponse] = await Promise.all([
         authFetch(`/api/files/?${params.toString()}`),
         authFetch('/api/files/quota'),
       ])
       if (!filesResponse.ok) throw new Error(`HTTP ${filesResponse.status}`)
       const data = await filesResponse.json() as { files?: FileEntry[]; folder_path?: Breadcrumb[] }
+      if (request !== requestRef.current) return
       setFiles(data.files || [])
-      if (!search.trim()) setBreadcrumbs(data.folder_path || [])
-      setQuota(quotaResponse.ok ? await quotaResponse.json() : null)
-    } catch {
-      setError(t('os.systemApps.unavailable'))
+      if (!search) setBreadcrumbs(data.folder_path || [])
+      if (quotaResponse.ok) setQuota(await quotaResponse.json())
+      setSelected(new Set())
+      hasLoadedRef.current = true
+    } catch (loadError) {
+      if (request !== requestRef.current) return
+      setErrorKind('refresh')
+      setError(loadError instanceof Error ? loadError.message : 'Unknown service error')
     } finally {
-      setLoading(false)
+      if (request === requestRef.current) { setInitialLoading(false); setRefreshing(false) }
     }
-  }, [currentFolderId, search, t])
+  }, [currentFolderId, search])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(false) }, [load])
 
-  const uploadFiles = async (selected: FileList | File[]) => {
+  const sortedFiles = useMemo(() => [...files].sort((a, b) => {
+    if (a.is_folder !== b.is_folder) return a.is_folder ? -1 : 1
+    if (sortMode === 'updated') return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    if (sortMode === 'size') return b.size_bytes - a.size_bytes
+    return a.original_name.localeCompare(b.original_name)
+  }), [files, sortMode])
+
+  const navigate = (folderId: string | null, path: Breadcrumb[], push = true) => {
+    setCurrentFolderId(folderId)
+    setBreadcrumbs(path)
+    setSearchInput('')
+    setSearch('')
+    if (push) {
+      const next = [...history.slice(0, historyIndex + 1), { folderId, breadcrumbs: path }]
+      setHistory(next)
+      setHistoryIndex(next.length - 1)
+    }
+  }
+
+  const moveHistory = (offset: number) => {
+    const nextIndex = historyIndex + offset
+    const location = history[nextIndex]
+    if (!location) return
+    setHistoryIndex(nextIndex)
+    navigate(location.folderId, location.breadcrumbs, false)
+  }
+
+  const openEntry = (entry: FileEntry) => {
+    if (entry.is_folder) navigate(entry.id, [...breadcrumbs, { id: entry.id, name: entry.original_name }])
+    else toggleSelection(entry.id, false)
+  }
+
+  const toggleSelection = (id: string, additive: boolean) => setSelected((current) => {
+    const next = additive ? new Set(current) : new Set<string>()
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+
+  const uploadFiles = async (selectedFiles: FileList | File[]) => {
     if (!can('os.files.write')) return
-    setWorking(true)
-    setError('')
+    setWorking(true); setError('')
     try {
-      for (const file of Array.from(selected)) {
-        const body = new FormData()
-        body.append('file', file)
+      for (const file of Array.from(selectedFiles)) {
+        const body = new FormData(); body.append('file', file)
         if (currentFolderId) body.append('folder_id', currentFolderId)
         const response = await authFetch('/api/files/upload', { method: 'POST', body })
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
       }
-      await load()
-    } catch {
-      setError(t('os.systemApps.uploadFailed'))
-    } finally {
-      setWorking(false)
-      if (deviceInput.current) deviceInput.current.value = ''
-    }
+      await load(true)
+    } catch (operationError) {
+      setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '')
+    } finally { setWorking(false); if (deviceInput.current) deviceInput.current.value = '' }
   }
 
   const createFolder = async () => {
     if (!newFolderName.trim() || !can('os.files.write')) return
     setWorking(true)
     try {
-      const response = await authFetch('/api/files/folders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newFolderName.trim(), parent_folder_id: currentFolderId }),
-      })
+      const response = await authFetch('/api/files/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newFolderName.trim(), parent_folder_id: currentFolderId }) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setNewFolderName('')
-      setNewFolderOpen(false)
-      await load()
-    } catch {
-      setError(t('os.systemApps.folderFailed'))
-    } finally {
-      setWorking(false)
-    }
+      setNewFolderName(''); setNewFolderOpen(false); await load(true)
+    } catch (operationError) { setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '') }
+    finally { setWorking(false) }
   }
 
   const rename = async () => {
     if (!renameEntry || !renameValue.trim()) return
     setWorking(true)
     try {
-      const response = await authFetch(`/api/files/${renameEntry.id}/rename`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ new_name: renameValue.trim() }),
-      })
+      const response = await authFetch(`/api/files/${renameEntry.id}/rename`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_name: renameValue.trim() }) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setRenameEntry(null)
-      await load()
-    } catch {
-      setError(t('os.systemApps.renameFailed'))
-    } finally {
-      setWorking(false)
-    }
+      setRenameEntry(null); await load(true)
+    } catch (operationError) { setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '') }
+    finally { setWorking(false) }
   }
 
-  const remove = async (entry: FileEntry) => {
-    if (!can('os.files.write')) return
+  const removeEntries = async (entries: FileEntry[]) => {
+    if (!can('os.files.write') || entries.length === 0) return
     setWorking(true)
     try {
-      const response = await authFetch(`/api/files/${entry.id}`, { method: 'DELETE' })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      await load()
-    } catch {
-      setError(t('os.systemApps.deleteFailed'))
-    } finally {
-      setWorking(false)
-    }
+      for (const entry of entries) {
+        const response = await authFetch(`/api/files/${entry.id}`, { method: 'DELETE' })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      }
+      setContextEntry(null); await load(true)
+    } catch (operationError) { setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '') }
+    finally { setWorking(false) }
   }
 
   const download = async (entry: FileEntry) => {
-    if (entry.is_folder) {
-      setCurrentFolderId(entry.id)
-      return
-    }
+    if (entry.is_folder) return
     try {
       const response = await authFetch(`/api/files/${entry.id}/download`)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const url = URL.createObjectURL(await response.blob())
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = entry.original_name
-      anchor.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      setError(t('os.systemApps.downloadFailed'))
-    }
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = entry.original_name; anchor.click(); URL.revokeObjectURL(url)
+    } catch (operationError) { setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '') }
   }
 
-  const goBack = () => {
-    const parent = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2].id : null
-    setCurrentFolderId(parent)
-  }
+  const selectedEntries = files.filter((entry) => selected.has(entry.id))
 
   return (
-    <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative flex-1"><MagnifyingGlass size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('os.systemApps.searchFiles')} className="min-h-12 w-full rounded-2xl border border-foreground/10 bg-foreground/5 pl-10 pr-4 text-sm outline-none focus:border-accent/40" /></div>
-        {can('os.files.write') && <><button type="button" onClick={() => setNewFolderOpen(true)} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-foreground/8 px-4 text-sm"><Plus size={17} />{t('os.systemApps.newFolder')}</button><div className="relative"><button type="button" onClick={() => setSourceMenuOpen((value) => !value)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 text-sm font-semibold text-white"><UploadSimple size={17} />{t('os.systemApps.addFiles')}</button>{sourceMenuOpen && <div className="glass-card absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl p-2 shadow-2xl"><button type="button" onClick={() => { setSourceMenuOpen(false); setCurrentFolderId(null) }} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-foreground/8"><Cloud size={20} className="text-accent" /><span><span className="block text-sm font-semibold">{t('os.systemApps.fromCloud')}</span><span className="block text-[10px] text-foreground/40">{t('os.systemApps.fromCloudHint')}</span></span></button><button type="button" disabled={isKioskDevice} onClick={() => { setSourceMenuOpen(false); deviceInput.current?.click() }} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-foreground/8 disabled:cursor-not-allowed disabled:opacity-40"><HardDrive size={20} className="text-foreground/60" /><span><span className="block text-sm font-semibold">{t('os.systemApps.fromDevice')}</span><span className="block text-[10px] text-foreground/40">{isKioskDevice ? t('os.systemApps.kioskUnavailable') : t('os.systemApps.fromDeviceHint')}</span></span></button></div>}</div><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
+    <section className="ora-app-frame ora-files-app" onClick={() => setContextEntry(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
+      <header className="ora-app-navbar">
+        <div className="flex min-w-0 items-center gap-3"><span className="ora-app-mark ora-app-mark-files"><FolderOpen size={24} weight="duotone" /></span><div><p className="text-lg font-semibold">{t('os.apps.files.name')}</p><p className="hidden text-xs text-foreground/45 sm:block">{t('os.apps.files.description')}</p></div></div>
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={historyIndex === 0} onClick={() => moveHistory(-1)} className="ora-icon-button" aria-label={t('os.files.back')}><ArrowLeft size={18} /></button>
+          <button type="button" disabled={historyIndex >= history.length - 1} onClick={() => moveHistory(1)} className="ora-icon-button" aria-label={t('os.files.forward')}><ArrowRight size={18} /></button>
+        </div>
+        <label className="ora-toolbar-search"><MagnifyingGlass size={17} /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('os.systemApps.searchFiles')} /></label>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => { const next = viewMode === 'grid' ? 'list' : 'grid'; setViewMode(next); localStorage.setItem('iora-files-view', next) }} className="ora-icon-button" aria-label={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : <GridFour size={19} />}</button>
+          <label className="ora-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
+          {can('os.files.write') && <><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
+        </div>
+      </header>
+
+      <div className="ora-files-layout">
+        <aside className="ora-files-sidebar">
+          <p className="ora-sidebar-label">ORA</p>
+          <button type="button" className="ora-sidebar-item is-active" onClick={() => navigate(null, [])}><House size={18} weight="duotone" />{t('os.files.home')}</button>
+          <p className="ora-sidebar-label mt-7">{t('os.files.storage')}</p>
+          <div className="rounded-2xl bg-foreground/5 p-3"><div className="flex justify-between text-xs"><span>{formatBytes(quota?.used_bytes)}</span><span className="text-foreground/40">{formatBytes(quota?.quota_bytes)}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-foreground/10"><div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.min(quota?.usage_percent || 0, 100)}%` }} /></div></div>
+        </aside>
+
+        <main className="min-w-0 flex-1">
+          <nav className="ora-breadcrumb" aria-label={t('os.files.breadcrumb')}><button type="button" onClick={() => navigate(null, [])}><House size={16} weight="fill" />{t('os.files.home')}</button>{breadcrumbs.map((item, index) => <span key={item.id} className="flex items-center"><CaretRight size={14} /><button type="button" onClick={() => navigate(item.id, breadcrumbs.slice(0, index + 1))}>{item.name}</button></span>)}</nav>
+      {error && <div className="ora-inline-error" role="alert"><div><strong>{errorKind === 'refresh' ? t('os.files.refreshFailed') : t('common.error')}</strong><p>{t(errorKind === 'refresh' ? 'os.files.connectionError' : 'os.files.operationError', { detail: error })}</p></div><button type="button" onClick={() => void load(true)}>{t('common.tryAgain')}</button></div>}
+          {selected.size > 0 && <div className="ora-selection-bar"><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>}
+
+          <div className="ora-files-surface" aria-busy={refreshing}>
+            {refreshing && <div className="ora-refresh-indicator" />}
+            {initialLoading ? <div className="ora-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="ora-file-skeleton" />)}</div> : sortedFiles.length === 0 ? <div className="flex min-h-80 flex-col items-center justify-center text-center"><Folder size={64} weight="duotone" className="text-foreground/20" /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
+              <div className="ora-file-grid">{sortedFiles.map((entry) => <button key={entry.id} type="button" onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); setContextEntry(entry); toggleSelection(entry.id, false) }} className={`ora-file-tile ${selected.has(entry.id) ? 'is-selected' : ''}`}><span className={entry.is_folder ? 'ora-folder-icon' : 'ora-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span><span className="mt-3 w-full truncate text-sm font-medium">{entry.original_name}</span><span className="mt-1 text-xs text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : formatBytes(entry.size_bytes)}</span></button>)}</div>
+            ) : (
+              <div className="ora-file-list"><div className="ora-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); setContextEntry(entry); toggleSelection(entry.id, false) }} className={`ora-file-row ${selected.has(entry.id) ? 'is-selected' : ''}`}><span className="flex min-w-0 items-center gap-3"><span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span><span className="truncate">{entry.original_name}</span></span><span>{new Date(entry.updated_at).toLocaleDateString()}</span><span>{entry.is_folder ? '—' : formatBytes(entry.size_bytes)}</span></button>)}</div>
+            )}
+          </div>
+        </main>
       </div>
 
-      <div className="mb-4 flex min-h-11 items-center gap-1 overflow-x-auto rounded-2xl border border-foreground/8 bg-foreground/4 px-2">
-        <button type="button" onClick={() => setCurrentFolderId(null)} className="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-foreground/8"><Cloud size={16} className="text-accent" />{t('os.systemApps.myCloud')}</button>
-        {breadcrumbs.map((item) => <span key={item.id} className="flex shrink-0 items-center"><CaretRight size={14} className="text-foreground/25" /><button type="button" onClick={() => setCurrentFolderId(item.id)} className="rounded-xl px-3 py-2 text-xs hover:bg-foreground/8">{item.name}</button></span>)}
-      </div>
-
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3"><div className="glass-card rounded-2xl p-4"><HardDrive size={20} className="mb-2 text-accent" /><p className="text-lg font-semibold">{formatBytes(quota?.used_bytes)}</p><p className="text-xs text-foreground/40">{t('os.systemApps.usedStorage')}</p></div><div className="glass-card rounded-2xl p-4"><File size={20} className="mb-2 text-accent" /><p className="text-lg font-semibold">{files.filter((file) => !file.is_folder).length}</p><p className="text-xs text-foreground/40">{t('os.systemApps.files')}</p></div><div className="glass-card col-span-2 rounded-2xl p-4 sm:col-span-1"><Cloud size={20} className="mb-2 text-accent" /><p className="text-lg font-semibold">{formatBytes(quota?.quota_bytes)}</p><p className="text-xs text-foreground/40">{t('os.systemApps.quota')}</p></div></div>
-
-      <div className="glass-card overflow-hidden rounded-3xl border border-white/10">
-        {currentFolderId && <button type="button" onClick={goBack} className="flex w-full items-center gap-3 border-b border-foreground/7 p-4 text-left hover:bg-foreground/5"><ArrowLeft size={21} className="text-foreground/50" /><span className="text-sm font-medium">{t('os.systemApps.parentFolder')}</span></button>}
-        {!loading && files.length === 0 && <div className="flex min-h-44 flex-col items-center justify-center p-8 text-center"><FolderOpen size={36} weight="duotone" className="mb-3 text-foreground/25" /><p className="text-sm text-foreground/45">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-xs text-foreground/30">{t('os.systemApps.dropFiles')}</p></div>}
-        {files.map((entry) => <div key={entry.id} className="group flex items-center gap-3 border-b border-foreground/7 p-3 last:border-0 hover:bg-foreground/5"><button type="button" onClick={() => void download(entry)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${entry.is_folder ? 'bg-amber-500/10 text-amber-400' : 'bg-accent/10 text-accent'}`}>{entry.is_folder ? <Folder size={23} weight="duotone" /> : <File size={23} weight="duotone" />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{entry.original_name}</span><span className="block text-[11px] text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : `${entry.mime_type || t('os.systemApps.file')} · ${formatBytes(entry.size_bytes)}`}</span></span></button><div className="flex shrink-0 items-center gap-1">{!entry.is_folder && <button type="button" onClick={() => void download(entry)} className="rounded-full p-2 text-foreground/40 hover:bg-foreground/8 hover:text-foreground" aria-label={t('os.systemApps.download')}><DownloadSimple size={17} /></button>}{can('os.files.write') && <button type="button" onClick={() => { setRenameEntry(entry); setRenameValue(entry.original_name) }} className="rounded-full p-2 text-foreground/40 hover:bg-foreground/8 hover:text-foreground" aria-label={t('os.systemApps.rename')}><PencilSimple size={17} /></button>}{can('os.files.write') && <button type="button" disabled={working} onClick={() => void remove(entry)} className="rounded-full p-2 text-foreground/40 hover:bg-red-500/10 hover:text-red-300" aria-label={t('common.delete')}><Trash size={17} /></button>}</div></div>)}
-      </div>
-
-      {error && <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
-      {working && <div className="fixed inset-x-0 bottom-4 z-[90] mx-auto w-fit rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xl">{t('os.systemApps.processing')}</div>}
-
-      {newFolderOpen && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"><div className="glass-card w-full max-w-sm rounded-3xl p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{t('os.systemApps.newFolder')}</h2><button type="button" onClick={() => setNewFolderOpen(false)} className="rounded-full p-2 hover:bg-foreground/8"><X size={18} /></button></div><input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createFolder() }} placeholder={t('os.systemApps.folderName')} className="mt-5 min-h-12 w-full rounded-2xl border border-foreground/10 bg-foreground/5 px-4 text-sm outline-none" /><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setNewFolderOpen(false)} className="rounded-xl px-4 py-2 text-sm">{t('common.cancel')}</button><button type="button" disabled={!newFolderName.trim() || working} onClick={() => void createFolder()} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{t('common.create')}</button></div></div></div>}
-      {renameEntry && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"><div className="glass-card w-full max-w-sm rounded-3xl p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{t('os.systemApps.rename')}</h2><button type="button" onClick={() => setRenameEntry(null)} className="rounded-full p-2 hover:bg-foreground/8"><X size={18} /></button></div><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void rename() }} className="mt-5 min-h-12 w-full rounded-2xl border border-foreground/10 bg-foreground/5 px-4 text-sm outline-none" /><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setRenameEntry(null)} className="rounded-xl px-4 py-2 text-sm">{t('common.cancel')}</button><button type="button" disabled={!renameValue.trim() || working} onClick={() => void rename()} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{t('common.save')}</button></div></div></div>}
-    </div>
+      {contextEntry && <div className="ora-context-menu" onClick={(event) => event.stopPropagation()}><button type="button" onClick={() => openEntry(contextEntry)}><FolderOpen size={16} />{contextEntry.is_folder ? t('os.files.open') : t('os.files.select')}</button>{!contextEntry.is_folder && <button type="button" onClick={() => void download(contextEntry)}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}<button type="button" onClick={() => { setRenameEntry(contextEntry); setRenameValue(contextEntry.original_name); setContextEntry(null) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries([contextEntry])}><Trash size={16} />{t('common.delete')}</button>}</div>}
+      {working && <div className="ora-working-pill">{t('os.systemApps.processing')}</div>}
+      {newFolderOpen && <Modal title={t('os.systemApps.newFolder')} onClose={() => setNewFolderOpen(false)}><input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createFolder() }} placeholder={t('os.systemApps.folderName')} className="ora-modal-input" /><div className="ora-modal-actions"><button type="button" onClick={() => setNewFolderOpen(false)}>{t('common.cancel')}</button><button type="button" disabled={!newFolderName.trim() || working} onClick={() => void createFolder()} className="ora-primary-button">{t('common.create')}</button></div></Modal>}
+      {renameEntry && <Modal title={t('os.systemApps.rename')} onClose={() => setRenameEntry(null)}><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void rename() }} className="ora-modal-input" /><div className="ora-modal-actions"><button type="button" onClick={() => setRenameEntry(null)}>{t('common.cancel')}</button><button type="button" disabled={!renameValue.trim() || working} onClick={() => void rename()} className="ora-primary-button">{t('common.save')}</button></div></Modal>}
+    </section>
   )
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md" onClick={onClose}><div className="ora-modal-card" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{title}</h2><button type="button" onClick={onClose} className="ora-icon-button"><X size={18} /></button></div>{children}</div></div>
 }
