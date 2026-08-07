@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IORA VNC Console</title>
+<style>
+  body { margin: 0; background: #000; color: #d7dee7; font: 13px "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; }
+  #bar { padding: 6px 12px; background: #171e26; border-bottom: 1px solid #26303b;
+    display: flex; gap: 12px; align-items: center; }
+  #state { color: #8b98a6; }
+  #state.ok { color: #3fb96b; }
+  #state.err { color: #e25555; }
+  #screen { flex: 1; overflow: hidden; }
+  canvas { image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>IORA VNC Console</b>
+  <span id="state">connecting...</span>
+</div>
+<div id="screen"></div>
+<script type="module">
+  import RFB from './core/rfb.js';
+
+  const state = document.getElementById('state');
+  const screen = document.getElementById('screen');
+  const params = new URLSearchParams(location.search);
+  const host = params.get('host') || '127.0.0.1';
+  const port = params.get('port') || '5701';
+
+  let rfb = null;
+  try {
+    rfb = new RFB(screen, 'ws://' + host + ':' + port + '/', {});
+    rfb.scaleViewport = true;
+    rfb.resizeSession = false;
+    rfb.addEventListener('connect', function () {
+      state.textContent = 'connected';
+      state.className = 'ok';
+    });
+    rfb.addEventListener('disconnect', function (event) {
+      state.textContent = event.detail.clean ? 'disconnected' : 'connection lost';
+      state.className = 'err';
+    });
+    rfb.addEventListener('credentialsrequired', function () {
+      rfb.sendCredentials({ username: '', password: '', target: '' });
+    });
+    rfb.addEventListener('securityfailure', function (event) {
+      state.textContent = 'security failure: ' + event.detail.reason;
+      state.className = 'err';
+    });
+  } catch (error) {
+    state.textContent = 'failed: ' + error;
+    state.className = 'err';
+  }
+</script>
+</body>
+</html>

@@ -15,7 +15,8 @@
         "lint": "eslint .",
         "optimize": "vite optimize",
         "preview": "vite preview",
-        "test": "bun test --preload ./src/test/setup.ts"
+        "test": "bun test --preload ./src/test/setup.ts",
+        "dev:doctor": "node ../scripts/dev/iora-dev.mjs doctor"
     },
     "dependencies": {
         "@codemirror/autocomplete": "^6.20.1",

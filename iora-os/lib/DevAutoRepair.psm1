@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # DevAutoRepair.psm1 - Intelligent Auto-Detection & Auto-Repair Library
 # ============================================================================
 # Provides autonomous problem detection and repair functions for IORA dev VMs.
@@ -230,8 +230,12 @@ function Install-QemuManual {
     Write-Info "Downloading the official QEMU Windows installer (qemu.weilnetz.de)..."
     try {
         $base = "https://qemu.weilnetz.de/w64/"
-        $page = Invoke-WebRequest -Uri $base -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
-        $links = [regex]::Matches($page.Content, 'href="([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+        # WebClient: raw .NET exceptions instead of Invoke-WebRequest's
+        # terminating errors, which PS 5.1 writes into the transcript even
+        # when caught.
+        $wc = New-Object System.Net.WebClient
+        $page = $wc.DownloadString($base)
+        $links = [regex]::Matches($page, 'href="([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
 
         # 1) Newer layout: year subdirectories -> use the newest year
         $target = $base
@@ -239,8 +243,8 @@ function Install-QemuManual {
             ForEach-Object { [int]($_ -replace '/', '') } | Sort-Object -Descending
         if ($years) {
             $target = $base + $years[0] + "/"
-            $page = Invoke-WebRequest -Uri $target -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
-            $links = [regex]::Matches($page.Content, 'href="([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+            $page = $wc.DownloadString($target)
+            $links = [regex]::Matches($page, 'href="([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
         }
 
         # 2) Newest date-stamped installer in that listing
@@ -259,7 +263,7 @@ function Install-QemuManual {
         $url = $target + $latest.File
         $installer = Join-Path $env:TEMP $latest.File
         Write-Info "Downloading $url ..."
-        Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -TimeoutSec 900 -ErrorAction Stop
+        $wc.DownloadFile($url, $installer)
         Write-Info "Running the silent installer (/S, installs to Program Files\qemu)..."
         $p = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
         Remove-Item $installer -Force -ErrorAction SilentlyContinue

@@ -65,3 +65,4 @@ __pycache__/
 *.ratatui-backup
 /example-website
 /ora-website/.next
+/iora-os/backend/.cache

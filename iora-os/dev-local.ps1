@@ -23,6 +23,7 @@
 #   .\dev-local.ps1 -Log            Live cloud-init / system logs
 #   .\dev-local.ps1 -Reprovision   Force re-running the in-VM setup
 #   .\dev-local.ps1 -NoWatch       Don't auto-launch dev-watch TUI
+#   .\dev-local.ps1 -NoSync        Don't auto-launch continuous source sync
 #   .\dev-local.ps1 -Watcher        Launch dev-watch TUI in new terminal (VM must be running)
 #   .\dev-local.ps1 -Foreground    Keep this window attached to QEMU
 #   .\dev-local.ps1 -Ram 8GB -CpuCount 4
@@ -40,6 +41,7 @@ param(
     [switch] $Log,
     [switch] $Reprovision,
     [switch] $NoWatch,
+    [switch] $NoSync,
     [switch] $Watcher,
     [switch] $Foreground,
     [switch] $SkipWhpx,
@@ -65,7 +67,7 @@ $ErrorActionPreference = "Continue"
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.6.0"
+$DEV_LOCAL_VERSION = "2.6.3"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -88,6 +90,7 @@ if ($Help) {
     Write-Host "  -Log           Live cloud-init / system logs"
     Write-Host "  -Reprovision   Force re-running the in-VM setup"
     Write-Host "  -NoWatch       Don't auto-launch dev-watch TUI"
+    Write-Host "  -NoSync        Don't auto-launch continuous source sync"
     Write-Host "  -Watcher        Launch dev-watch TUI in new terminal (VM must be running)"
     Write-Host "  -Foreground    Keep this window attached to QEMU"
     Write-Host "  -Uefi          Force UEFI (OVMF) firmware instead of SeaBIOS"
@@ -216,7 +219,7 @@ if (-not $QEMU_BIN) {
         # Inline fallback when the auto-repair module is unavailable.
         # Note: the old winget id "QEMU.QEMU" was removed (Feb 2025); the
         # current id is SoftwareFreedomConservancy.QEMU.
-        winget show --id SoftwareFreedomConservancy.QEMU --accept-source-agreements 2>$null | Out-Null
+        winget show --id SoftwareFreedomConservancy.QEMU --accept-source-agreements 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             winget install --silent --accept-package-agreements --accept-source-agreements --id SoftwareFreedomConservancy.QEMU 2>&1 | Out-Null
         } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
@@ -324,6 +327,31 @@ $QEMU_STDERR = Join-Path $CACHE "qemu-stderr.log"
 # health checks talk to the VM directly on port 22.
 $script:VM_HOST = "127.0.0.1"
 $script:VM_SSH_PORT = $SshPort
+$RUNTIME_STATE_PATH = Join-Path $CACHE "runtime-state.json"
+$RUNTIME_STATE_MODULE = Join-Path $SCRIPT_DIR "dev-manager\RuntimeState.psm1"
+if (Test-Path $RUNTIME_STATE_MODULE) {
+    Import-Module $RUNTIME_STATE_MODULE -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $SCRIPT_DIR "dev-manager\VmChannels.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $SCRIPT_DIR "dev-manager\Readiness.psm1") -Force -ErrorAction SilentlyContinue
+    $script:RuntimeState = Read-IoraRuntimeState -Path $RUNTIME_STATE_PATH
+    $script:RuntimeState = Clear-IoraStaleRuntimeState -State $script:RuntimeState
+    if (Test-IoraProcess -State $script:RuntimeState) {
+        $qmpValid = Test-IoraQmp -State $script:RuntimeState
+        $qgaValid = Test-IoraQga -State $script:RuntimeState
+        if (-not $qmpValid) { $script:RuntimeState.lifecycle = "Starting" }
+        if ($qgaValid -and $script:RuntimeState.networkMode -eq "bridge") {
+            $currentIp = Get-IoraGuestIp -State $script:RuntimeState
+            if ($currentIp) { $script:RuntimeState.vmHost = $currentIp }
+        }
+        $connection = Get-IoraConnection -State $script:RuntimeState
+        $script:VM_HOST = $connection.Host
+        $script:VM_SSH_PORT = $connection.SshPort
+        $script:QgaPort = [int]$script:RuntimeState.qgaPort
+        $script:QmpPort = [int]$script:RuntimeState.qmpPort
+        if ($script:RuntimeState.networkMode -eq "bridge") { $Bridge = $true }
+    }
+    Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+}
 
 # -- Dev disk lifecycle ------------------------------------------------------
 function Reset-VmDisk {
@@ -345,12 +373,18 @@ function Reset-VmDisk {
 # -- Ports forwarded host -> VM (mirrors IORA OS systemd unit ports) --------
 $VM_HOME   = 8126
 $VM_BRIDGE = 8101
-$FWD_PORTS = @(80, 443, 3001, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098)
+# Forwarded dev ports (start arguments - runtime hostfwd_add rules can be
+# unreliable with QEMU slirp; rules in the command line always work). 5173
+# is the Vite dev server, 5355 an optional extra forward.
+$FWD_PORTS = @(80, 443, 3001, 5173, 5355, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098)
 
 # -- Helpers ----------------------------------------------------------------
 function ConvertTo-WslPath { param([string]$WinPath)
     $p = $WinPath.Replace('\', '/')
-    return (wsl wslpath -a "$p" 2>$null)
+    # PS 5.1: 2>$null does not reliably suppress native stderr. Merge and
+    # drop the ErrorRecords so a wslpath warning cannot corrupt the path.
+    $out = wsl wslpath -a "$p" 2>&1
+    return ($out | Where-Object { $_ -is [string] } | Select-Object -Last 1)
 }
 
 function Get-QemuPid {
@@ -388,6 +422,13 @@ function Stop-Vm {
         Microsoft.PowerShell.Management\Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     }
     Remove-Item $QEMU_PIDFILE -Force -ErrorAction SilentlyContinue
+    if ($script:RuntimeState) {
+        $script:RuntimeState.pid = $null
+        $script:RuntimeState.lifecycle = "Stopped"
+        $script:RuntimeState.watcherStatus = "Stopped"
+        $script:RuntimeState.syncStatus = "Stopped"
+        Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+    }
     Write-Success "VM stopped."
 }
 
@@ -404,7 +445,12 @@ $SSH_OPTS = @(
 
 function Invoke-SSH {
     param([string] $Command)
-    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST $Command 2>&1
+    $output = & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST $Command 2>&1
+    if ($LASTEXITCODE -eq 0) { return $output }
+    if (Get-Command Invoke-QgaExec -ErrorAction SilentlyContinue) {
+        return Invoke-QgaExec -Command $Command -TimeoutSec 120
+    }
+    return $output
 }
 
 function Invoke-SSHStdin {
@@ -418,8 +464,14 @@ function Invoke-SSHStdin {
         $sshArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-p", $VM_SSH_PORT, "root@$VM_HOST", "bash -s")
         $proc = Start-Process -FilePath $SSH_BIN -ArgumentList $sshArgs -RedirectStandardInput $tmp -RedirectStandardOutput $stdout -RedirectStandardError $stderr -NoNewWindow -Wait -PassThru
         $global:LASTEXITCODE = $proc.ExitCode
-        Get-Content $stdout -Raw -ErrorAction SilentlyContinue
-        Get-Content $stderr -Raw -ErrorAction SilentlyContinue
+        if ($proc.ExitCode -eq 0) {
+            Get-Content $stdout -Raw -ErrorAction SilentlyContinue
+            Get-Content $stderr -Raw -ErrorAction SilentlyContinue
+        } elseif (Get-Command Invoke-QgaExec -ErrorAction SilentlyContinue) {
+            Invoke-QgaExec -Command $normalizedScript -TimeoutSec 300
+        } else {
+            Get-Content $stderr -Raw -ErrorAction SilentlyContinue
+        }
     } finally {
         Remove-Item $tmp, $stdout, $stderr -Force -ErrorAction SilentlyContinue
     }
@@ -504,7 +556,13 @@ function Initialize-BridgeNetwork {
         $tapInstaller = Join-Path $CACHE "tap-windows-9.24.7.exe"
         if (-not (Test-Path $tapInstaller)) {
             try {
-                Invoke-WebRequest -Uri "https://build.openvpn.net/downloads/releases/tap-windows-9.24.7.exe" -OutFile $tapInstaller -UseBasicParsing -TimeoutSec 180
+                # WebClient: no PowerShell error records, so a failed download
+                # cannot spam the transcript with TerminatingError lines.
+                $wc = New-Object System.Net.WebClient
+                $wc.DownloadFile("https://build.openvpn.net/downloads/releases/tap-windows-9.24.7.exe", $tapInstaller)
+                if (-not (Test-Path $tapInstaller)) {
+                    Stop-WithError "TAP driver download failed"
+                }
             } catch {
                 Stop-WithError "TAP driver download failed: $_"
             }
@@ -551,9 +609,18 @@ function Initialize-BridgeNetwork {
 
 function Test-VmHealth {
     foreach ($p in @("http://${VM_HOST}:$VM_HOME/api/health", "http://${VM_HOST}:$VM_HOME/health")) {
+        # .NET HttpWebRequest instead of Invoke-WebRequest: Windows PowerShell
+        # 5.1 writes a "TerminatingError(Invoke-WebRequest)" line into the
+        # transcript for every caught WebException - the 12x health loop would
+        # spam dev-local.log on every failed probe. Raw .NET exceptions bypass
+        # that pipeline and stay silent.
         try {
-            $resp = Invoke-WebRequest -Uri $p -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-            if ($resp.StatusCode -eq 200) { return $true }
+            $req = [System.Net.HttpWebRequest]::Create($p)
+            $req.Timeout = 3000
+            $resp = $req.GetResponse()
+            $code = [int]$resp.StatusCode
+            $resp.Close()
+            if ($code -eq 200) { return $true }
         } catch { }
     }
     return $false
@@ -598,7 +665,10 @@ if ($Watcher) {
         Write-Info "Building updated dev-watch TUI..."
         Push-Location (Join-Path $REPO_ROOT "iora-os\backend")
         try {
-            cargo build -p iora-dev-watch 2>&1 | Select-Object -Last 5
+            # cmd /c merges stderr into stdout as plain text - PowerShell
+            # 5.1 would otherwise render every cargo stderr line as a red
+            # "cargo : ..." NativeCommandError record.
+            & $env:ComSpec /d /c "cargo build -p iora-dev-watch 2>&1" | Select-Object -Last 5
             if ($LASTEXITCODE -ne 0) {
                 Stop-WithError "Failed to build iora-dev-watch. Check: cd iora-os\backend && cargo build -p iora-dev-watch"
             }
@@ -613,7 +683,8 @@ if ($Watcher) {
     # falsch"). Direct launch makes the watcher own its console.
     $watcherArgs = @(
         '--vm-host', "$VM_HOST",
-        '--vm-port', "$SshPort",
+        '--vm-port', "$VM_SSH_PORT",
+        '--qga-port', "$($script:RuntimeState.qgaPort)",
         '--ssh-key', "$SSH_KEY"
     )
     Start-Process -FilePath $dashBin -ArgumentList $watcherArgs
@@ -682,8 +753,8 @@ if ($Rebuild) {
     Remove-Item -Path (Join-Path $CACHE "seed") -Recurse -Force -ErrorAction SilentlyContinue
     # Rebuild means a truly fresh provision: the golden snapshot is dropped too
     Remove-Item $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
-    & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
-    & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
+    & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>&1 | Out-Null
+    & ssh-keygen -R "[localhost]:$SshPort" 2>&1 | Out-Null
     Write-Info "Starting fresh provision..."
     # Fall through to normal start
 }
@@ -726,12 +797,16 @@ if ($Status) {
         exit 1
     }
     Write-Success "VM running (PID $($p.Id))"
-    Write-Info "Forwarded ports: SSH=$SshPort, dashboard=$VM_HOME, bridge=$VM_BRIDGE"
-    $sshResp = Invoke-SSH "echo SSH_OK"
-    if ("$sshResp" -match "SSH_OK") { Write-Success "SSH responsive" } else { Write-Warn "SSH not yet responsive" }
-    if (Test-VmHealth) { Write-Success "iora-home health OK (port $VM_HOME)" }
-    else { Write-Warn "iora-home not responding on port $VM_HOME yet" }
-    exit 0
+    Write-Info "Network: $($script:RuntimeState.networkMode); VM=$VM_HOST; SSH=$VM_SSH_PORT; QGA=$($script:RuntimeState.qgaPort); QMP=$($script:RuntimeState.qmpPort)"
+    $connection = Get-IoraConnection -State $script:RuntimeState
+    $report = Invoke-IoraReadiness -State $script:RuntimeState -Connection $connection
+    Write-Info "Lifecycle: $($report.Lifecycle)"
+    if ($report.Checks.Qga) { Write-Success "Guest Agent responsive" } else { Write-Warn "Guest Agent unavailable" }
+    if ($report.Checks.InternalHome) { Write-Success "iora-home internally healthy" } else { Write-Warn "iora-home internally unhealthy" }
+    if ($report.Checks.ExternalHome) { Write-Success "iora-home reachable from host" } else { Write-Warn $report.HomeDiagnosis.Summary }
+    $script:RuntimeState.lifecycle = $report.Lifecycle
+    Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+    exit $(if ($report.Lifecycle -eq "Ready") { 0 } else { 1 })
 }
 
 # -- Boot firmware selection (UEFI/OVMF vs SeaBIOS/BIOS) ---------------------
@@ -818,8 +893,8 @@ if ($Clean -or $CleanAll) {
         Remove-Item -Path $IMG_CACHE -Force -ErrorAction SilentlyContinue
         Remove-Item -Path $GOLDEN_DISK -Force -ErrorAction SilentlyContinue
     }
-    & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
-    & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
+    & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>&1 | Out-Null
+    & ssh-keygen -R "[localhost]:$SshPort" 2>&1 | Out-Null
     Write-Success "Done. Re-run without -Clean to provision."
     exit 0
 }
@@ -829,8 +904,21 @@ if (-not (Test-Path $IMG_CACHE)) {
     Write-Info "Downloading Debian cloud image (~400MB, one-time)..."
     $ProgressPreference = 'SilentlyContinue'
     try {
-        Invoke-WebRequest -Uri $IMG_URL -OutFile "$IMG_CACHE.tmp" -TimeoutSec 900 -UseBasicParsing
+        # .NET HttpWebRequest: Invoke-WebRequest errors would be written into
+        # the dev-local transcript as "TerminatingError(...)" even when caught
+        # (PS 5.1 quirk) - raw .NET exceptions stay silent.
+        $req = [System.Net.HttpWebRequest]::Create($IMG_URL)
+        $req.Timeout = 900000
+        $req.UserAgent = "iora-dev-local/2.6"
+        $dlResp = $req.GetResponse()
+        try {
+            $inStream = $dlResp.GetResponseStream()
+            $outStream = [System.IO.File]::Create("$IMG_CACHE.tmp")
+            try { $inStream.CopyTo($outStream) } finally { $outStream.Close() }
+        } finally { $dlResp.Close() }
     } catch {
+        Remove-Item "$IMG_CACHE.tmp" -Force -ErrorAction SilentlyContinue
+        $ProgressPreference = 'Continue'
         Stop-WithError "Download failed: $_"
     }
     $sz = (Get-Item "$IMG_CACHE.tmp").Length
@@ -862,18 +950,18 @@ if (-not (Test-Path $SSH_KEY)) {
     $keygenOk = $false
     $winKeygen = Get-Command ssh-keygen.exe -ErrorAction SilentlyContinue
     if ($winKeygen) {
-        "`n" | & $winKeygen.Source -t ed25519 -f $SSH_KEY -N "" -C "iora-dev-vm" 2>$null
+        "`n" | & $winKeygen.Source -t ed25519 -f $SSH_KEY -N "" -C "iora-dev-vm" 2>&1 | Out-Null
         $keygenOk = ($LASTEXITCODE -eq 0)
     }
     if (-not $keygenOk) {
         # Fallback: generate inside WSL
         $sshKeyWsl = ConvertTo-WslPath $SSH_KEY
-        wsl bash -c "ssh-keygen -t ed25519 -f '$sshKeyWsl' -N '' -C 'iora-dev-vm'" 2>$null
+        wsl bash -c "ssh-keygen -t ed25519 -f '$sshKeyWsl' -N '' -C 'iora-dev-vm'" 2>&1 | Out-Null
         $keygenOk = ($LASTEXITCODE -eq 0)
     }
     if (-not $keygenOk) { Stop-WithError "ssh-keygen failed." }
-    icacls $SSH_KEY /inheritance:r /grant:r "${env:USERNAME}:R" 2>$null | Out-Null
-    icacls "$SSH_KEY.pub" /inheritance:r /grant:r "${env:USERNAME}:R" 2>$null | Out-Null
+    icacls $SSH_KEY /inheritance:r /grant:r "${env:USERNAME}:R" 2>&1 | Out-Null
+    icacls "$SSH_KEY.pub" /inheritance:r /grant:r "${env:USERNAME}:R" 2>&1 | Out-Null
     Write-Success "SSH key: $SSH_KEY"
 }
 
@@ -1030,8 +1118,8 @@ echo "[+] ISO created: $SEED_ISO"
 if (-not (Test-Path $SEED_ISO)) { New-SeedIso }
 
 # -- Step 4: Start QEMU (only if not already running) -----------------------
-& ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
-& ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
+& ssh-keygen -R "[127.0.0.1]:$SshPort" 2>&1 | Out-Null
+& ssh-keygen -R "[localhost]:$SshPort" 2>&1 | Out-Null
 
 # Pre-flight checks: disk space and dependencies
 if (Get-Command Test-DiskSpace -ErrorAction SilentlyContinue) {
@@ -1046,6 +1134,25 @@ $skippedPorts = @()
 if ($existingProc) {
     Write-Success "QEMU already running (PID $($existingProc.Id)) - attaching to existing VM."
     $qemuProc = $existingProc
+    if ($script:RuntimeState -and $script:RuntimeState.pid -ne $existingProc.Id) {
+        $commandLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$($existingProc.Id)" -ErrorAction SilentlyContinue).CommandLine
+        $script:RuntimeState.pid = $existingProc.Id
+        $script:RuntimeState.lifecycle = "Starting"
+        if ($commandLine -match 'id=qga0,host=127\.0\.0\.1,port=(\d+)') { $script:RuntimeState.qgaPort = [int]$Matches[1] }
+        if ($commandLine -match 'tcp:127\.0\.0\.1:(\d+),server=on,wait=off') { $script:RuntimeState.qmpPort = [int]$Matches[1] }
+        if ($commandLine -match 'netdev\s+tap|tap,id=n0') {
+            $script:RuntimeState.networkMode = "bridge"; $script:RuntimeState.sshPort = 22
+        } else {
+            $script:RuntimeState.networkMode = "slirp"; $script:RuntimeState.vmHost = "127.0.0.1"; $script:RuntimeState.sshPort = $SshPort
+        }
+        Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+        $script:QgaPort = [int]$script:RuntimeState.qgaPort
+        $script:QmpPort = [int]$script:RuntimeState.qmpPort
+        if ((Test-IoraQga -State $script:RuntimeState) -and $script:RuntimeState.networkMode -eq "bridge") {
+            $discoveredIp = Get-IoraGuestIp -State $script:RuntimeState
+            if ($discoveredIp) { $script:RuntimeState.vmHost = $discoveredIp; $script:VM_HOST = $discoveredIp; $script:VM_SSH_PORT = 22 }
+        }
+    }
 } else {
     # Intelligent port conflict resolution
     if (Get-Command Test-PortConflict -ErrorAction SilentlyContinue) {
@@ -1086,7 +1193,7 @@ if ($existingProc) {
                 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { return $true }
             }
             # 2) netstat (always available, catches everything)
-            if (netstat -ano 2>$null | Select-String -Pattern "LISTENING" | Select-String -Pattern "[:.]${Port}\s") { return $true }
+            if (netstat -ano 2>&1 | Select-String -Pattern "LISTENING" | Select-String -Pattern "(?::|\.)${Port}(?:\s|$)") { return $true }
             # 3) Definitive: try to BIND the port ourselves - exactly what QEMU
             #    will do. If the bind fails, QEMU would crash on this port too.
             try {
@@ -1098,7 +1205,7 @@ if ($existingProc) {
                 return $true
             }
         }
-        $skippedPorts = @()
+        $script:skippedPorts = @()
         function Add-PortIfFree {
             param([int]$Port, [string]$GuestPort)
             if (Test-PortListening -Port $Port) {
@@ -1116,8 +1223,8 @@ if ($existingProc) {
             Add-PortIfFree -Port $VM_HOME -GuestPort 8126
             Add-PortIfFree -Port $VM_BRIDGE -GuestPort 8101
             foreach ($p in $FWD_PORTS) { Add-PortIfFree -Port $p -GuestPort $p }
-            if ($skippedPorts.Count -gt 0) {
-                Write-Warn "Skipped forwarded ports: $($skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
+            if ($script:skippedPorts.Count -gt 0) {
+                Write-Warn "Skipped forwarded ports: $($script:skippedPorts -join ', ') (busy on host - free them and re-run, or use an SSH tunnel)"
             }
         }
         $fwd = "user,id=n0" + $script:forwardRules
@@ -1217,6 +1324,29 @@ if ($existingProc) {
             if (-not $proc) { Stop-WithError "Failed to start QEMU: no process returned." }
             # Record PID for later
             Set-Content -Path $QEMU_PIDFILE -Value $proc.Id -NoNewline -Encoding ASCII
+            if ($script:RuntimeState) {
+                $script:RuntimeState.pid = $proc.Id
+                $script:RuntimeState.lifecycle = "Starting"
+                $script:RuntimeState.networkMode = $(if ($Bridge) { "bridge" } else { "slirp" })
+                $script:RuntimeState.vmHost = $(if ($Bridge) { $null } else { "127.0.0.1" })
+                $script:RuntimeState.sshPort = $(if ($Bridge) { 22 } else { $SshPort })
+                $script:RuntimeState.homePort = 8126
+                $script:RuntimeState.forwardedPorts = if ($Bridge) { @() } else {
+                    $ports = @([pscustomobject]@{ host = $SshPort; guest = 22 })
+                    foreach ($port in @($VM_HOME, $VM_BRIDGE) + $FWD_PORTS) {
+                        if ($skippedPorts -notcontains $port) { $ports += [pscustomobject]@{ host = $port; guest = $port } }
+                    }
+                    $ports
+                }
+                $script:RuntimeState.qgaPort = $QgaPort
+                $script:RuntimeState.qmpPort = $QmpPort
+                $script:RuntimeState.firmware = $(if ($useUefi) { "uefi" } else { "seabios" })
+                $script:RuntimeState.acceleration = $Accel
+                $script:RuntimeState.vmDisk = $VM_DISK
+                $script:RuntimeState.goldenSnapshot = $GOLDEN_DISK
+                $script:RuntimeState.startedAt = (Get-Date).ToUniversalTime().ToString("o")
+                Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+            }
             return $proc
         }
 
@@ -1248,7 +1378,11 @@ if ($existingProc) {
                 # always treated as acceleration failures.
                 $argError = $stderrText -notmatch 'whpx|WHPX|hypervisor' -and $stderrText -match 'exe: -[a-zA-Z]|does not support the option|invalid option|unrecognized'
                 if ($argError) {
-                    Stop-WithError "QEMU rejected the command line (configuration error, see stderr above). The VM disk was NOT modified. Fix the QEMU arguments (or update QEMU), then re-run; use -SkipWhpx to boot via TCG/SeaBIOS in the meantime."
+                    if ($stderrText -match "host forwarding rule 'tcp::(\d+)-") {
+                        Write-Warn "QEMU rejected host forwarding for port $($Matches[1]); continuing to TCG without modifying the VM disk. Free the port or use -Bridge if you need that forwarding."
+                    } else {
+                        Stop-WithError "QEMU rejected the command line (configuration error, see stderr above). The VM disk was NOT modified. Fix the QEMU arguments (or update QEMU), then re-run; use -SkipWhpx to boot via TCG/SeaBIOS in the meantime."
+                    }
                 }
                 # Real WHPX failure: WHPX can corrupt the overlay; recreate it
                 # (from the golden snapshot when one exists - instant, no
@@ -1320,6 +1454,13 @@ if ($Bridge) {
     }
     $script:VM_HOST = $vmIp
     $script:VM_SSH_PORT = 22
+    if ($script:RuntimeState) {
+        $script:RuntimeState.vmHost = $vmIp
+        $script:RuntimeState.sshPort = 22
+        $script:RuntimeState.networkMode = "bridge"
+        $script:RuntimeState.lifecycle = "Waiting for dependencies"
+        Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+    }
     Write-Success "VM LAN IP: $vmIp (SSH via port 22, services via http://${vmIp}:8126)"
 }
 
@@ -1420,7 +1561,10 @@ Write-Host ""
 if (-not $ready) {
     Stop-WithError "Cloud-init timed out. Try: ssh -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST"
 }
-Write-Success "SSH ready!"
+Write-Success "VM boot completed through the Guest Agent."
+$sshProbe = & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $VM_SSH_PORT root@$VM_HOST "echo SSH_OK" 2>&1 | Where-Object { $_ -is [string] }
+if ($LASTEXITCODE -eq 0 -and "$sshProbe" -match "SSH_OK") { Write-Success "SSH ready at ${VM_HOST}:$VM_SSH_PORT" }
+else { Write-Warn "SSH is not reachable; provisioning and diagnostics continue through QGA where possible." }
 
 # -- Step 6: Provisioning (idempotent) --------------------------------------
 $needProvision = $true
@@ -1437,9 +1581,9 @@ Write-Info "Syncing project to VM (WSL rsync, incremental)..."
 $repoWsl = ConvertTo-WslPath $REPO_ROOT
 $keyWsl = ConvertTo-WslPath $SSH_KEY
 # drvfs keys have loose permissions that ssh refuses - stage a 0600 copy in WSL
-wsl bash -c "mkdir -p ~/.ssh && install -m 600 '$keyWsl' ~/.ssh/iora_dev_key 2>/dev/null || cp '$keyWsl' ~/.ssh/iora_dev_key" 2>$null | Out-Null
+wsl bash -c "mkdir -p ~/.ssh && install -m 600 '$keyWsl' ~/.ssh/iora_dev_key 2>/dev/null || cp '$keyWsl' ~/.ssh/iora_dev_key" 2>&1 | Out-Null
 # The rsync fast path needs rsync in WSL (the VM gets it during provisioning)
-$null = wsl bash -c "command -v rsync >/dev/null 2>&1 || sudo apt-get install -y -qq rsync 2>&1 | tail -1" 2>$null
+$null = wsl bash -c "command -v rsync >/dev/null 2>&1 || sudo apt-get install -y -qq rsync 2>&1 | tail -1" 2>&1 | Out-Null
 $syncExcludes = "--exclude='.git' --exclude='target' --exclude='node_modules' --exclude='.cache' --exclude='buildroot-*' --exclude='releases' --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' --exclude='*.tar.gz' --exclude='.iora-dev'"
 $syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/iora_dev_key -p $VM_SSH_PORT"
 # WSL2 NAT mode: the VM's forwarded ports live on the Windows host, which WSL
@@ -1448,9 +1592,9 @@ $syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o Ident
 # /proc/net/route, so the rsync fast path works in both WSL network modes.
 function Get-WslSyncHost {
     if ($Bridge) { return $VM_HOST }
-    $null = wsl bash -c "ssh $syncSsh root@127.0.0.1 'true'" 2>$null
+    $null = wsl bash -c "ssh $syncSsh root@127.0.0.1 'true'" 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { return "127.0.0.1" }
-    $route = wsl bash -c "cat /proc/net/route" 2>$null
+    $route = wsl bash -c "cat /proc/net/route" 2>&1 | Where-Object { $_ -is [string] }
     foreach ($l in $route) {
         if ($l -match '^[A-Za-z0-9]+\s+00000000\s+([0-9A-Fa-f]{8})') {
             $h = $matches[1]
@@ -1474,6 +1618,10 @@ if (-not $mainSyncOk) {
 if ($mainSyncOk -and $Mode -eq "build") {
     # Build mode: also mirror the drop-box so host-built binaries reach the daemon
     wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.iora-dev/binaries/' root@${wslHost}:/home/iora/iora/.iora-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
+}
+if ($mainSyncOk -and $script:RuntimeState) {
+    $script:RuntimeState = Update-IoraRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Synced"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
+    Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
 }
 if (-not $mainSyncOk) {
     Write-Warn "WSL rsync failed - falling back to tar+scp..."
@@ -1514,10 +1662,15 @@ Write-Success "Project synced (1:1 mirror at /home/iora/iora)"
 $npmJob = $null
 if ($needProvision -and $Mode -eq "source") {
     Write-Info "Starting frontend npm install in the background (parallel to provisioning)..."
-    $npmJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
-        param($sshBin, $sshOpts, $sshKey, $port)
-        $cmd = "cd /home/iora/iora/frontend && [ -d node_modules ] || npm install --no-audit --no-fund 2>&1"
-        & $sshBin @sshOpts -i $sshKey -p $port root@$script:VM_HOST $cmd
+    $npmJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $VM_HOST, $VM_SSH_PORT -ScriptBlock {
+        param($sshBin, $sshOpts, $sshKey, $vmHost, $port)
+        # npm only exists after the node upgrade during provisioning - wait
+        # for it instead of failing with "npm: command not found" when the
+        # job races the apt/rustup setup. npm runs as root here, so hand
+        # node_modules over to the `iora` user afterwards - the Vite dev
+        # server runs as iora and needs write access for its .vite cache.
+        $cmd = 'for i in $(seq 1 90); do command -v npm >/dev/null 2>&1 && break; sleep 10; done; cd /home/iora/iora/frontend && { [ -d node_modules ] || npm install --no-audit --no-fund 2>&1; }; chown -R iora:iora node_modules 2>/dev/null || true'
+        & $sshBin @sshOpts -i $sshKey -p $port root@$vmHost $cmd
     }
 }
 
@@ -1531,10 +1684,10 @@ if ($needProvision) {
     # Parallel: the Rust toolchain installs via SSH while apt runs below
     # (independent - saves minutes on first provisioning)
     Write-Info "Starting Rust toolchain install in the background (parallel to apt)..."
-    $rustupJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $SshPort -ScriptBlock {
-        param($sshBin, $sshOpts, $sshKey, $port)
+    $rustupJob = Start-Job -ArgumentList $SSH_BIN, $SSH_OPTS, $SSH_KEY, $VM_HOST, $VM_SSH_PORT -ScriptBlock {
+        param($sshBin, $sshOpts, $sshKey, $vmHost, $port)
         $cmd = "su - iora -c 'test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1"
-        & $sshBin @sshOpts -i $sshKey -p $port root@$script:VM_HOST $cmd
+        & $sshBin @sshOpts -i $sshKey -p $port root@$vmHost $cmd
     }
 
     Write-Info "Installing system packages (slow first-run step)..."
@@ -1881,9 +2034,23 @@ case "$lan" in
         fi
         ;;
 esac
-# Restart all IORA services so the env/db fixes take effect immediately
-systemctl restart iora-home 2>/dev/null
-systemctl try-restart iora-*.service 2>/dev/null
+# Start dependency groups sequentially. `After=` orders units but does not
+# prove application readiness, therefore every phase waits for active units.
+start_phase() {
+    label="$1"; shift
+    echo "iora-db-init: starting $label"
+    for unit in "$@"; do
+        systemctl list-unit-files "$unit.service" --no-legend 2>/dev/null | grep -q "^$unit.service" || continue
+        systemctl reset-failed "$unit.service" 2>/dev/null || true
+        timeout 90 systemctl restart "$unit.service" 2>/dev/null || true
+        timeout 30 sh -c "until systemctl is-active --quiet '$unit.service'; do sleep 1; done" || echo "iora-db-init: $unit did not become active"
+    done
+}
+systemctl start postgresql redis-server docker 2>/dev/null || true
+pg_isready -q -t 30 2>/dev/null || echo "iora-db-init: PostgreSQL not ready"
+start_phase phase-2 iora-secrets iora-security iora-core iora-gateway
+start_phase phase-3 iora-home iora-api iora-files iora-connector
+start_phase phase-4 iora-intelligence iora-developer-app
 systemctl enable --now iora-hot-reload.path 2>/dev/null
 systemctl enable --now iora-health-check.timer 2>/dev/null
 '@
@@ -1940,6 +2107,13 @@ set +e
 cd /home/iora/iora/frontend || exit 0
 if [ -f package.json ]; then
     [ -d node_modules ] || npm install --no-audit --no-fund 2>&1 | tail -3
+    # npm ran as root - the Vite dev server runs as `iora` and needs write
+    # access to node_modules for its .vite dependency cache (EACCES
+    # otherwise, which surfaces as 504 "Outdated Optimize Dep").
+    chown -R iora:iora node_modules 2>/dev/null || true
+    # A stale Vite dependency cache (from a previous npm install) serves 504
+    # "Outdated Optimize Dep" and renders a white page - drop it before start.
+    rm -rf node_modules/.vite 2>/dev/null || true
     cat > /etc/systemd/system/iora-frontend-dev.service <<'UNIT'
 [Unit]
 Description=IORA Frontend Vite Dev Server (source mode)
@@ -2023,7 +2197,10 @@ if (-not $NoWatch) {
         Write-Info "Building updated dev-watch TUI..."
         Push-Location (Join-Path $REPO_ROOT "iora-os\backend")
         try {
-            cargo build -p iora-dev-watch 2>&1 | Select-Object -Last 5
+            # cmd /c merges stderr into stdout as plain text - PowerShell
+            # 5.1 would otherwise render every cargo stderr line as a red
+            # "cargo : ..." NativeCommandError record.
+            & $env:ComSpec /d /c "cargo build -p iora-dev-watch 2>&1" | Select-Object -Last 5
             if ($LASTEXITCODE -ne 0) {
                 Write-Warn "Failed to build dev-watch TUI. Run manually later."
             }
@@ -2036,10 +2213,26 @@ if (-not $NoWatch) {
         # breaks raw mode + key handling and is fragile to quote escaping.
         $watcherArgs = @(
             '--vm-host', "$VM_HOST",
-            '--vm-port', "$SshPort",
+            '--vm-port', "$VM_SSH_PORT",
+            '--qga-port', "$($script:RuntimeState.qgaPort)",
             '--ssh-key', "$SSH_KEY"
         )
         Start-Process -FilePath $dashBin -ArgumentList $watcherArgs | Out-Null
+        if ($script:RuntimeState) {
+            $script:RuntimeState.watcherStatus = "Running"
+            Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+        }
+    }
+}
+if ($Mode -eq "source" -and -not $NoSync) {
+    Write-Info "Starting continuous source sync for Vite HMR and Rust delta builds..."
+    Start-Process -FilePath "wsl" -WorkingDirectory $SCRIPT_DIR -ArgumentList @(
+        "bash", "dev-sync.sh", "--watch", "--vm-host", "$VM_HOST",
+        "--vm-port", "$VM_SSH_PORT", "--ssh-key", "$SSH_KEY", "--quiet"
+    ) -WindowStyle Minimized | Out-Null
+    if ($script:RuntimeState) {
+        $script:RuntimeState = Update-IoraRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Watching"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
+        Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
     }
 }
 
@@ -2054,11 +2247,28 @@ if (Get-Command Start-HealthMonitor -ErrorAction SilentlyContinue) {
 
 # -- Banner -----------------------------------------------------------------
 Write-Host ""
-Write-Success "IORA Dev VM ready!"
+$runtimeReport = $null
+if ($script:RuntimeState -and (Get-Command Invoke-IoraReadiness -ErrorAction SilentlyContinue)) {
+    $runtimeConnection = Get-IoraConnection -State $script:RuntimeState
+    $runtimeReport = Invoke-IoraReadiness -State $script:RuntimeState -Connection $runtimeConnection
+    $script:RuntimeState.lifecycle = $runtimeReport.Lifecycle
+    $script:RuntimeState.provisioned = Test-Path $PROVISIONED_MARKER
+    if ($runtimeReport.Lifecycle -eq "Ready") { $script:RuntimeState.lastReadyAt = (Get-Date).ToUniversalTime().ToString("o") }
+    else { $script:RuntimeState.lastError = $runtimeReport.HomeDiagnosis.Summary }
+    Save-IoraRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+}
+if ($runtimeReport -and $runtimeReport.Lifecycle -ne "Ready") {
+    Write-Warn "IORA Dev VM is $($runtimeReport.Lifecycle), not Ready."
+    Write-Warn $runtimeReport.HomeDiagnosis.Summary
+} else {
+    Write-Success "IORA Dev VM ready!"
+}
 Write-Host ""
+$bannerTitle = if ($runtimeReport -and $runtimeReport.Lifecycle -ne "Ready") { "IORA Dev VM $($runtimeReport.Lifecycle)" } else { "IORA Dev VM ready" }
+$titleLine = "  |" + $bannerTitle.PadLeft((68 + $bannerTitle.Length) / 2).PadRight(68) + "|"
 $readyBanner = @"
   +====================================================================+
-  |                    IORA Dev VM ready                                |
+$titleLine
   +====================================================================+
   |  WEB                                                                |
   |    Dashboard (nginx) https://$VM_HOST                                      |
@@ -2082,7 +2292,7 @@ $readyBanner = @"
   |    Follow all logs   ssh root@$VM_HOST -p $VM_SSH_PORT './iora-dev-logs.sh -f'
   |                                                                     |
   |  GLOBAL CONFIG                                                      |
-  |    Get setting       ssh root@127.0.0.1 -p $SshPort 'iora-get-config ha.url'
+  |    Get setting       ssh root@$VM_HOST -p $VM_SSH_PORT 'iora-get-config ha.url'
   |    Service env       /etc/iora/service.env (auto-loaded)           |
   |    Per-service env   /etc/iora/<service>.env (optional)            |
   |                                                                     |

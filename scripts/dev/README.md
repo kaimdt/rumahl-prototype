@@ -25,15 +25,19 @@ scripts\dev\start-full.bat
 **What it does:**
 1. Starts Vite dev server on port 5173
 2. Waits for Vite to be ready
-3. Starts iora-home backend on port 3001
-4. Sets `IORA_FRONTEND_DEV_URL=http://localhost:5173` automatically
-5. Aggregates logs from both processes
-6. Graceful shutdown with Ctrl+C
+3. Starts the existing PostgreSQL development container when port 5432 is not reachable
+4. Starts iora-home backend on port 3001 with dev bootstrap credentials
+5. Sets `IORA_FRONTEND_DEV_URL=http://localhost:5173` automatically
+6. Shows the IORA and OS development credentials in the console
+7. Aggregates logs from both processes
+8. Graceful shutdown with Ctrl+C
 
 **Access:**
 - Frontend (with HMR): http://localhost:5173
 - Backend API: http://localhost:3001
 - Dev Info Page: http://localhost:3001/
+- IORA dev login: `admin` / `iora-dev-admin` (override with `IORA_BOOTSTRAP_ADMIN_USER` and `IORA_BOOTSTRAP_ADMIN_PASSWORD`)
+- OS dev login display: current host user / `iora-dev-os` (override with `IORA_DEV_OS_USER` and `IORA_DEV_OS_PASSWORD`)
 
 ### `iora-dev.mjs` — Interactive Service Manager
 
@@ -48,6 +52,9 @@ npm run dev:start
 
 # Start with hot reload enabled
 npm run dev:watch
+
+# Validate paths, tools, service discovery, and PostgreSQL first
+npm run dev:doctor
 
 # List available services
 npm run dev:list
@@ -156,7 +163,20 @@ node start-full.mjs --port=3002   # Custom backend port
 **Auto-discovery:**
 - Scans `iora-os/backend/services/` for Rust services
 - Detects `frontend/package.json` for Vite
-- Identifies other services automatically
+- Lists system apps, the IORA Dev VM, and development-image services without automatically starting them
+
+**Reliable local lifecycle:**
+- Uses the monorepo root and the nested Cargo workspace instead of the legacy backend path
+- Starts the existing PostgreSQL Compose service when port 5432 is unavailable
+- Supplies service-specific development ports, initialized database URLs, and iora-home bootstrap credentials
+- Displays frontend/backend URLs, IORA/OS development credentials, Dev VM lifecycle, last sync time, and watcher status in the manager and info views
+- The IORA Dev VM entry starts `dev-local.ps1 -NoWatch` via Start/Space and runs a safe reinstall with `dev-local.ps1 -Rebuild -NoWatch` via Restart/Reinstall (`r`)
+- Keeps a service in `START` until its TCP port is reachable and reports `WAIT` when a running process loses health
+- Stops the complete Cargo process group so restarts do not leave orphaned binaries behind
+- Uses native per-directory watchers on Linux, macOS, and Windows; Vite remains responsible for frontend HMR
+- Debounces Rust changes before rebuilding and restarting only the affected running service
+
+`start all` starts the frontend and long-running services. Desktop, system-app, dev-bridge, and NGINX processes remain available for explicit starts but are not included automatically because they require a graphical session, an OS-dev image, or privileged host integration.
 
 **Features:**
 - ✨ TUI with mouse support

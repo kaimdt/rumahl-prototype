@@ -382,6 +382,20 @@ check_iface() {
     # Skip if no DHCP lease was assigned
     [ -f "/run/systemd/netif/leases/$ifindex" ] || { echo "skip_nolease" > "$result_file"; return; }
 
+    # QEMU slirp user-net (the dev VM's default network mode) answers ARP
+    # requests for guest IPs itself (gateway 10.0.2.2), so Duplicate Address
+    # Detection always reports a FALSE conflict. The guard would then flush
+    # the address and leave the VM without any network - exactly what
+    # happened on dev-VM boots (daemon stuck at "Waiting for network").
+    # DAD only makes sense on a real LAN (bridge mode / physical hardware).
+    default_gw=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
+    case "$default_gw" in
+        10.0.2.*)
+            log "Skipping $iface: QEMU slirp user-net (gateway $default_gw) - DAD not applicable"
+            echo "skip_slirp" > "$result_file"
+            return ;;
+    esac
+
     log "Checking $iface ($addr) for DHCP conflicts..."
 
     attempt=1
@@ -569,6 +583,12 @@ iptables -A INPUT -p tcp --dport 5432 -s 10.0.2.0/24 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8080 -s 10.0.2.0/24 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8088:8126 -s 10.0.2.0/24 -j ACCEPT
 iptables -A INPUT -p tcp -m multiport --dports 8090:8098 -s 10.0.2.0/24 -j ACCEPT
+# Dev VM frontend (Vite dev server) + extra forwarded dev ports - the host
+# forwards them into the VM via QEMU slirp (source 10.0.2.0/24). Without
+# these rules the firewall DROPs them and the ports stay unreachable from
+# the host even though the services listen inside the guest.
+iptables -A INPUT -p tcp --dport 5173 -s 10.0.2.0/24 -j ACCEPT
+iptables -A INPUT -p tcp --dport 5355 -s 10.0.2.0/24 -j ACCEPT
 
 # Allow ICMP (ping)
 iptables -A INPUT -p icmp -j ACCEPT
@@ -745,6 +765,23 @@ log "  Setup Wizard:     /usr/lib/iora/iora-setup-wizard"
 log "  Dev Mode:         /etc/iora/os-dev-mode"
 log "  Same glibc, systemd, Docker setup as IORA OS."
 echo ""
+
+# -- Self-healing fixes (idempotent) ----------------------------------------
+# Install the self-heal script from the repo mirror (1:1 sync) and apply it:
+#   - DHCP conflict guard: skip DAD under QEMU slirp (false conflicts used
+#     to flush the only IP and leave the VM offline)
+#   - SSH hardening: keys only (PasswordAuthentication no)
+#   - Network watchdog timer: restores a lost lease automatically
+log "Applying self-healing fixes (guard patch, SSH hardening, net watchdog)..."
+SELFHEAL_SRC="/home/iora/iora/iora-os/iora-dev-selfheal.sh"
+if [ -f "$SELFHEAL_SRC" ]; then
+    cp "$SELFHEAL_SRC" /usr/lib/iora/iora-dev-selfheal.sh
+    chmod 755 /usr/lib/iora/iora-dev-selfheal.sh
+    /usr/lib/iora/iora-dev-selfheal.sh --apply || warn "self-heal reported an error (non-fatal)"
+else
+    warn "iora-dev-selfheal.sh not found in the mirror - skipping self-heal setup"
+fi
+
 success "Compatibility layer setup complete."
 echo ""
 log "Next steps:"

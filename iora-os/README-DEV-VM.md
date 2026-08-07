@@ -1,5 +1,7 @@
 # IORA OS Dev VM
 
+> Recommended Windows entry point: run `pwsh .\dev-manager.ps1` from `iora-os`. The central manager validates QMP/QGA, restores the current Bridge or Slirp connection from persistent runtime state, exposes VM/service/diagnostic actions, and reports `Ready` only after internal and host health checks pass. See [IORA Dev Manager](docs/dev-manager.md).
+
 > Lokale Entwicklungsumgebung für IORA OS - 1:1 identisch mit Produktions-Setup
 
 ## Übersicht

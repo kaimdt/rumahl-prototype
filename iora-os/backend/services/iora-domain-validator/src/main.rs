@@ -681,7 +681,8 @@ async fn main() -> Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
+    let port = system_config::service_port("iora-domain-validator", DEFAULT_PORT);
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     info!("iora-domain-validator listening on {}", addr);
     let _hb = iora_shared_heartbeat::spawn_default(
         "iora-domain-validator",
