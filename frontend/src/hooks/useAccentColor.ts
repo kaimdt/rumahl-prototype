@@ -10,6 +10,32 @@ interface AccentColorSettings {
 
 const DEFAULT_ACCENT = '#3b82f6'
 
+/** Theme-appropriate fallback accents (used when no image is available). */
+const THEME_DEFAULT_ACCENTS: Record<string, string> = {
+  day: '#3b82f6',
+  light: '#2f7bf6',
+  'day-classic': '#4f8ff7',
+  evening: '#e0863d',
+  night: '#5b8df5',
+  sleep: '#6b8cff',
+}
+
+/** Max chroma per theme group — keeps accents rich but never neon-garish. */
+function getMaxChroma(currentTheme: string): number {
+  switch (currentTheme) {
+    case 'day':
+    case 'light':
+      return 0.24
+    case 'evening':
+    case 'night':
+    case 'sleep':
+    case 'day-classic':
+      return 0.30
+    default:
+      return 0.28
+  }
+}
+
 export function useAccentColor() {
   const { currentImageUrl } = useCurrentBackground()
   const { theme } = useTheme()
@@ -42,11 +68,12 @@ export function useAccentColor() {
       return
     }
 
-    // Auto mode — nothing to do if no image
+    // Auto mode — nothing to do if no image: fall back to a theme-appropriate accent.
     if (!currentImageUrl) {
-      setAccentColor(DEFAULT_ACCENT)
+      const fallback = THEME_DEFAULT_ACCENTS[theme] || DEFAULT_ACCENT
+      setAccentColor(fallback)
       setExtractedPalette([])
-      updateCSSVariable(DEFAULT_ACCENT, theme)
+      updateCSSVariable(fallback, theme)
       return
     }
 
@@ -85,20 +112,26 @@ export function useAccentColor() {
 
       const palette = await getPalette(img, { colorCount: 8 })
       if (!palette || palette.length === 0) {
-        setAccentColor(DEFAULT_ACCENT)
+        const fallback = THEME_DEFAULT_ACCENTS[theme] || DEFAULT_ACCENT
+        setAccentColor(fallback)
         setExtractedPalette([])
-        updateCSSVariable(DEFAULT_ACCENT, theme)
+        updateCSSVariable(fallback, theme)
         return
       }
 
-      // Score colors by vibrancy — prefer saturated, not too dark/light
+      // Score colors by vibrancy + harmony: prefer saturated, mid-lightness
+      // colors that sit comfortably within the theme's chroma budget.
+      const maxChroma = getMaxChroma(theme)
       const paletteWithScore = palette.map((color) => {
         const { r, g, b } = color.rgb()
-        const sat = calculateSaturation(r, g, b)
         const oklch = rgbToOklch(r, g, b)
-        const lightnessPenalty = oklch.l < 0.25 ? (0.25 - oklch.l) * 3 : oklch.l > 0.95 ? (oklch.l - 0.95) * 2 : 0
-        const score = sat - lightnessPenalty
-        return { hex: color.hex(), score, saturation: sat }
+        const lightnessPenalty = Math.abs(oklch.l - 0.52) * 1.6
+        const grayPenalty = oklch.c < 0.08 ? (0.08 - oklch.c) * 6 : 0
+        // Colors beyond the theme's chroma budget lose points instead of winning
+        // by pure saturation — this keeps extracted accents harmonious.
+        const chromaPenalty = oklch.c > maxChroma ? (oklch.c - maxChroma) * 3 : 0
+        const score = oklch.c * 2.4 - lightnessPenalty - grayPenalty - chromaPenalty
+        return { hex: color.hex(), score, oklch }
       })
       paletteWithScore.sort((a, b) => b.score - a.score)
 
@@ -111,9 +144,10 @@ export function useAccentColor() {
       // Discard stale errors
       if (requestId !== extractionIdRef.current) return
       console.warn('[AccentColor] Extraction failed:', error)
-      setAccentColor(DEFAULT_ACCENT)
+      const fallback = THEME_DEFAULT_ACCENTS[theme] || DEFAULT_ACCENT
+      setAccentColor(fallback)
       setExtractedPalette([])
-      updateCSSVariable(DEFAULT_ACCENT, theme)
+      updateCSSVariable(fallback, theme)
     }
   }
 
@@ -132,12 +166,12 @@ export function useAccentColor() {
         break
       case 'night':
       case 'evening':
+      case 'day-classic':
         minLightness = 0.44
         maxLightness = 0.82
         break
       case 'day':
       case 'light':
-      case 'day-classic':
         minLightness = 0.48
         maxLightness = 0.88
         break
@@ -146,12 +180,15 @@ export function useAccentColor() {
         maxLightness = 0.88
     }
 
+    const maxChroma = getMaxChroma(currentTheme)
     const l = parseFloat(Math.max(minLightness, Math.min(maxLightness, oklch.l)).toFixed(2))
-    const c = parseFloat(Math.max(0.08, oklch.c).toFixed(2))
+    const c = parseFloat(Math.max(0.10, Math.min(maxChroma, oklch.c)).toFixed(2))
     const h = parseFloat(oklch.h.toFixed(1))
 
     document.documentElement.style.setProperty('--accent', `oklch(${l} ${c} ${h})`)
     document.documentElement.style.setProperty('--ring', `oklch(${l} ${c} ${h})`)
+    // rgb triplet used by rgba(var(--accent-rgb)) consumers (widget glows, neon styles)
+    document.documentElement.style.setProperty('--accent-rgb', `${rgb.r} ${rgb.g} ${rgb.b}`)
   }
 
   const setMode = useCallback((mode: 'auto' | 'static') => {
@@ -208,13 +245,6 @@ export function useAccentColor() {
 }
 
 // --- Helpers ---
-
-function calculateSaturation(r: number, g: number, b: number): number {
-  const max = Math.max(r, g, b)
-  const min = Math.min(r, g, b)
-  const delta = max - min
-  return max === 0 ? 0 : delta / max
-}
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)

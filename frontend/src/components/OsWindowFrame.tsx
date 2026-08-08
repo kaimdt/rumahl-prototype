@@ -50,7 +50,7 @@ export function OsWindowFrame({ window, name, icon, renderContent, onMaximize }:
   return (
     <div
       className="ora-os-window"
-      style={{ zIndex: window.z }}
+      style={{ zIndex: window.z, left: window.x, top: window.y, width: window.width, height: window.height }}
       onPointerDown={() => focusWindow(window.pageId)}
     >
       <div
@@ -65,14 +65,14 @@ export function OsWindowFrame({ window, name, icon, renderContent, onMaximize }:
         </span>
         <div className="flex shrink-0 items-center gap-0.5">
           {window.layout === 'window' && (
-            <button type="button" className="ora-window-action" onClick={() => minimizeWindow(window.pageId)} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}>
+            <button type="button" className="ora-window-action" onPointerDown={(e) => e.stopPropagation()} onClick={() => minimizeWindow(window.pageId)} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}>
               <Minus size={14} />
             </button>
           )}
-          <button type="button" className="ora-window-action" onClick={onMaximize} aria-label={t('os.window.fullscreen')} title={t('os.window.fullscreen')}>
+          <button type="button" className="ora-window-action" onPointerDown={(e) => e.stopPropagation()} onClick={onMaximize} aria-label={t('os.window.fullscreen')} title={t('os.window.fullscreen')}>
             <SquaresFour size={13} />
           </button>
-          <button type="button" className="ora-window-action hover:!bg-red-500/20 hover:!text-red-400" onClick={() => closeWindow(window.pageId)} aria-label={t('os.window.close')} title={t('os.window.close')}>
+          <button type="button" className="ora-window-action hover:!bg-red-500/20 hover:!text-red-400" onPointerDown={(e) => e.stopPropagation()} onClick={() => closeWindow(window.pageId)} aria-label={t('os.window.close')} title={t('os.window.close')}>
             <X size={14} />
           </button>
         </div>

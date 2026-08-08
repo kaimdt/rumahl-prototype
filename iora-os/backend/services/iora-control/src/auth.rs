@@ -17,9 +17,13 @@ pub struct AuthState {
 pub struct Claims {
     pub sub: String, // user ID
     pub username: String,
+    // role/iat are NOT emitted by iora-home's JWT generator; make them
+    // optional so tokens issued by /api/auth/login validate here.
+    #[serde(default)]
     pub role: String,
     pub is_admin: bool,
     pub exp: usize, // expiration time
+    #[serde(default)]
     pub iat: usize, // issued at
 }
 

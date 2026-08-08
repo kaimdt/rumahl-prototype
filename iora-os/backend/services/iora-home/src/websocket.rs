@@ -280,7 +280,7 @@ pub async fn handle_socket(
     // ── Writer task: owns the SplitSink, also drives the heartbeat ───────
     let writer_authenticated = authenticated.clone();
     let writer_ws_manager = ws_manager.clone();
-    let writer_task = tokio::spawn(async move {
+    let mut writer_task = tokio::spawn(async move {
         let mut heartbeat = interval(HEARTBEAT_INTERVAL);
         heartbeat.tick().await; // discard immediate tick
 
@@ -324,7 +324,7 @@ pub async fn handle_socket(
     let reader_ws_manager = ws_manager.clone();
     let reader_ha_ws = ha_ws.clone();
     let reader_ha_client = ha_client.clone();
-    let reader_task = tokio::spawn(async move {
+    let mut reader_task = tokio::spawn(async move {
         let mut command_count: u32 = 0;
         let mut message_count: u32 = 0;
         let mut rate_window_start = Instant::now();
@@ -631,10 +631,18 @@ pub async fn handle_socket(
 
     // Wait for either side to terminate; then tear everything down.
     tokio::select! {
-        _ = reader_task => {}
-        _ = writer_task => {}
+        _ = &mut reader_task => {}
+        _ = &mut writer_task => {}
     }
 
+    // Abort the sibling task too: whichever side did NOT terminate first is
+    // still blocked on its half of the split stream (reader: `next()`, writer:
+    // `send()`), which keeps the underlying TCP socket — and thus a file
+    // descriptor — open indefinitely. Letting it run orphaned leaks one FD per
+    // dropped connection (e.g. a browser tab that goes away without a clean
+    // Close frame), eventually exhausting the process' FD limit.
+    reader_task.abort();
+    writer_task.abort();
     state_send_task.abort();
     config_send_task.abort();
     error_send_task.abort();

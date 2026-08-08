@@ -47,32 +47,36 @@ function buildTransition(config: PageTransitionConfig | null): Transition {
     }
   }
   return {
-    duration: config?.duration_secs || 0.35,
-    ease: [0.16, 1, 0.3, 1],
+    duration: config?.duration_secs || 0.45,
+    ease: [0.22, 1, 0.36, 1],
   }
 }
 
 /**
  * Get enter/exit animation variants based on transition type.
+ * Default fade is a soft macOS-style crossfade: slight blur + scale zoom
+ * so page switches feel fluid instead of snapping. The exit variant embeds
+ * its own shorter transition so the incoming page starts sooner.
  */
 function getVariants(type: string) {
+  const exitTransition: Transition = { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
   switch (type) {
     case 'slide':
       return {
-        enter: { opacity: 1, x: 0 },
-        exit: { opacity: 0, x: -20 },
-        initial: { opacity: 0, x: 20 },
+        enter: { opacity: 1, x: 0, filter: 'blur(0px)' },
+        exit: { opacity: 0, x: -24, filter: 'blur(3px)', transition: exitTransition },
+        initial: { opacity: 0, x: 28, filter: 'blur(4px)' },
       }
     case 'scale':
       return {
-        enter: { opacity: 1, scale: 1 },
-        exit: { opacity: 0, scale: 0.95 },
-        initial: { opacity: 0, scale: 0.95 },
+        enter: { opacity: 1, scale: 1, filter: 'blur(0px)' },
+        exit: { opacity: 0, scale: 0.93, filter: 'blur(4px)', transition: exitTransition },
+        initial: { opacity: 0, scale: 0.93, filter: 'blur(4px)' },
       }
     case 'flip':
       return {
         enter: { opacity: 1, rotateY: 0 },
-        exit: { opacity: 0, rotateY: -90 },
+        exit: { opacity: 0, rotateY: -90, transition: exitTransition },
         initial: { opacity: 0, rotateY: 90 },
       }
     case 'custom':
@@ -85,12 +89,14 @@ function getVariants(type: string) {
     case 'fade':
     default:
       return {
-        enter: { opacity: 1, y: 0 },
-        exit: { opacity: 0, y: 8 },
-        initial: { opacity: 0, y: 12 },
+        enter: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
+        exit: { opacity: 0, y: -10, scale: 0.992, filter: 'blur(3px)', transition: exitTransition },
+        initial: { opacity: 0, y: 16, scale: 0.984, filter: 'blur(5px)' },
       }
   }
 }
+
+/** Per-type durations: exits are shorter so the next page appears quickly. */
 
 export function PageTransitionWrapper({
   pageKey,

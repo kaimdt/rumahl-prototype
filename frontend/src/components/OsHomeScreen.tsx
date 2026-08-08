@@ -24,7 +24,9 @@ import { useOsWindows, type OsLaunchMode } from '@/contexts/OsWindowContext'
 import { useLocalStorage } from '@/lib/storage'
 import { loadLauncherPackages, type StoreLauncherPackage, type StoreWidgetPackage } from '@/lib/launcherPackages'
 import { loadSettingsFromBackend } from '@/lib/settingsSync'
+import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchModes'
 import { useConnection } from '@/contexts/ConnectionContext'
+import { useInstalledApps, appGradient } from '@/hooks/useInstalledApps'
 
 type BuiltInLauncher = 'default' | 'deck' | 'canvas'
 
@@ -52,13 +54,18 @@ function useClock() {
 
 function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'normal' | 'large' }) {
   const Icon = app.icon
+  const iconSize = size === 'large' ? 38 : 27
   return (
     <span
       className={`ora-app-icon relative flex shrink-0 items-center justify-center overflow-hidden border border-white/15 text-white ${size === 'large' ? 'h-20 w-20 rounded-[1.7rem]' : 'h-14 w-14 rounded-2xl'}`}
       style={{ background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
       <span className="ora-app-icon-highlight absolute inset-0" />
-      <Icon size={size === 'large' ? 38 : 27} weight="duotone" className="relative" />
+      {app.iconUrl ? (
+        <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-cover" />
+      ) : Icon ? (
+        <Icon size={iconSize} weight="duotone" className="relative" />
+      ) : null}
     </span>
   )
 }
@@ -69,6 +76,7 @@ export function OsHomeScreen() {
   const { pages, setCurrentPageId } = usePageNavigation()
   const { permissions } = useOsPermissions()
   const { backend, homeAssistant } = useConnection()
+  const { installedApps, activeJobs } = useInstalledApps()
   const now = useClock()
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -91,11 +99,15 @@ export function OsHomeScreen() {
 
   const apps = useMemo(() => {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
-    return [...SYSTEM_OS_APPS, ...pageApps]
+    // Installed Docker/user apps appear in the launcher once they RUN
+    // (CasaOS-style lifecycle). Duplicates with page apps are skipped.
+    const pageIds = new Set([...SYSTEM_OS_APPS, ...pageApps].map((app) => app.pageId))
+    const extra = installedApps.filter((app) => !pageIds.has(app.pageId))
+    return [...SYSTEM_OS_APPS, ...pageApps, ...extra]
       .filter((app) => !app.adminOnly || user?.isAdmin)
       .filter((app) => !app.requiredPermission || permissions[app.requiredPermission] === true)
       .sort((a, b) => a.order - b.order)
-  }, [pages, permissions, user?.isAdmin])
+  }, [pages, permissions, user?.isAdmin, installedApps])
 
   const visibleApps = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
@@ -205,12 +217,11 @@ export function OsHomeScreen() {
     }
   }
 
-  const openApp = (app: OsAppDefinition) => setCurrentPageId(app.pageId)
-  const getName = (app: OsAppDefinition) => app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
-  const getDescription = (app: OsAppDefinition) => app.descriptionKey ? t(app.descriptionKey) : t('os.launcher.openApp')
-
   const { openWindow, openSplit, setImmersive } = useOsWindows()
   const launchApp = (app: OsAppDefinition, mode: OsLaunchMode) => {
+    // Explicit launch-mode picks become the app's default so the app keeps
+    // running the same way next time.
+    setPreferredLaunchMode(app.pageId, mode)
     if (mode === 'fullscreen') {
       setImmersive(null)
       setCurrentPageId(app.pageId)
@@ -224,6 +235,30 @@ export function OsHomeScreen() {
       openSplit(app.pageId, mode)
     }
   }
+
+  const openApp = (app: OsAppDefinition) => {
+    // Docker apps with a web UI open embedded (iframe runner) — the
+    // runner offers "open in browser" for the external tab.
+    if (app.openUrl) {
+      setCurrentPageId(app.pageId)
+      return
+    }
+    const mode = getPreferredLaunchMode(app.pageId)
+    if (mode === 'window') {
+      openWindow(app.pageId)
+      setCurrentPageId('launcher')
+    } else if (mode === 'split-left' || mode === 'split-right') {
+      openSplit(app.pageId, mode)
+      setCurrentPageId('launcher')
+    } else if (mode === 'immersive') {
+      setImmersive(app.pageId)
+      setCurrentPageId(app.pageId)
+    } else {
+      setCurrentPageId(app.pageId)
+    }
+  }
+  const getName = (app: OsAppDefinition) => app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
+  const getDescription = (app: OsAppDefinition) => app.descriptionKey ? t(app.descriptionKey) : t('os.launcher.openApp')
 
   const swipeHandlers = {
     onPointerDown: (event: React.PointerEvent) => { pointerStart.current = event.clientX },
@@ -277,6 +312,25 @@ export function OsHomeScreen() {
             </div>}
           </div>}
           {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-[2rem] border border-white/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
+          {activeJobs.length > 0 && (
+            <div className="mx-auto mb-5 max-w-2xl space-y-2">
+              {activeJobs.map((job) => (
+                <div key={job.id} className="glass-card flex items-center gap-4 rounded-2xl border border-foreground/8 p-4">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-lg font-bold text-white shadow-lg" style={{ background: appGradient(job.appId || 'app') }}>
+                    {(job.appName || job.appId || '?').charAt(0).toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-foreground">{job.appName || job.appId || t('os.launcher.installingApp')}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-foreground/50">{job.message || t('os.launcher.installingApp')}</p>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-foreground/10">
+                      <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${Math.max(3, Math.min(100, job.progress))}%` }} />
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground/60">{Math.round(job.progress)}%</span>
+                </div>
+              ))}
+            </div>
+          )}
           <label className="ora-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd>⌘K</kbd></label>
           {appGrid}
         </div>

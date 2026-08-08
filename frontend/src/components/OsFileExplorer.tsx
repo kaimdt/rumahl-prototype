@@ -25,6 +25,7 @@ import {
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { authFetch } from '@/lib/authHelpers'
+import { OsWindowActions } from '@/components/OsWindowActions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { OsFileMoveCopyDialog } from './OsFileMoveCopyDialog'
 
@@ -106,7 +107,15 @@ export function OsFileExplorer() {
         authFetch(`/api/files/?${params.toString()}`),
         authFetch('/api/files/quota'),
       ])
-      if (!filesResponse.ok) throw new Error(`HTTP ${filesResponse.status}`)
+      if (!filesResponse.ok) {
+        // 404/502/503 = the files microservice is missing or stale → give the
+        // user a concrete hint instead of a bare status code.
+        const status = filesResponse.status
+        if (status === 404 || status === 502 || status === 503) {
+          throw new Error(t('os.files.serviceRestart', { detail: `HTTP ${status}` }))
+        }
+        throw new Error(`HTTP ${status}`)
+      }
       const data = await filesResponse.json() as { files?: FileEntry[]; folder_path?: Breadcrumb[] }
       if (request !== requestRef.current) return
       setFiles(data.files || [])
@@ -121,7 +130,7 @@ export function OsFileExplorer() {
     } finally {
       if (request === requestRef.current) { setInitialLoading(false); setRefreshing(false) }
     }
-  }, [currentFolderId, search])
+  }, [currentFolderId, search, t])
 
   useEffect(() => { void load(false) }, [load])
 
@@ -245,6 +254,8 @@ export function OsFileExplorer() {
           <button type="button" onClick={() => { const next = viewMode === 'grid' ? 'list' : 'grid'; setViewMode(next); localStorage.setItem('iora-files-view', next) }} className="ora-icon-button" aria-label={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : <GridFour size={19} />}</button>
           <label className="ora-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
           {can('os.files.write') && <><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
+          <span className="mx-0.5 h-6 w-px bg-foreground/10" aria-hidden="true" />
+          <OsWindowActions pageId="os-files" />
         </div>
       </header>
 

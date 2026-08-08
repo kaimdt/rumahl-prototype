@@ -306,6 +306,11 @@ export function baseUrlFor(path: string): string {
 }
 
 export async function adminFetch(path: string, token: string, options?: RequestInit) {
+  // Without a token any admin call would just 401 on the backend and flood
+  // its logs — fail fast locally (the caller shows the friendly message).
+  if (!token) {
+    throw new Error('Sitzung abgelaufen. Bitte neu einloggen.')
+  }
   const url = `${baseUrlFor(path)}${path}`
   const res = await fetch(url, {
     ...options,
@@ -352,6 +357,15 @@ export async function adminFetch(path: string, token: string, options?: RequestI
       }
     }
     console.error('Admin fetch failed:', { url, status: res.status, statusText: res.statusText, body: text.slice(0, 200) })
+    if (res.status === 401) {
+      // Session expired — let the AuthContext log the user out cleanly.
+      // Only when a token was actually sent (a boot-time call with an empty
+      // token must not log out an otherwise healthy session).
+      if (token) {
+        window.dispatchEvent(new CustomEvent('iora:auth-unauthorized', { detail: { url } }))
+      }
+      throw new Error('Sitzung abgelaufen. Bitte neu einloggen.')
+    }
     if (res.status === 403) {
       throw new Error('Kein Admin-Zugriff. Bitte neu einloggen.')
     }

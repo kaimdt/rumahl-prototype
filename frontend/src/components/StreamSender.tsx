@@ -6,8 +6,11 @@ import {
   Warning, CheckCircle, Gear, Broadcast, Monitor,
   Record, Camera, SlidersHorizontal, Info, Users,
   Clock, Waveform, Sparkle, ShareNetwork,
+  ArrowLeft,
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
+import { useTranslation } from 'react-i18next'
+import { StreamWidget } from '@/components/widgets/StreamWidget'
 import { toast } from 'sonner'
 import { getBackendUrl } from '@/lib/config'
 
@@ -16,6 +19,7 @@ type VideoSourceType = 'camera' | 'screen'
 type StreamState = 'idle' | 'connecting' | 'live' | 'error'
 
 export function StreamSender() {
+  const { t } = useTranslation()
   const API_BASE = getBackendUrl()
   const [mode, setMode] = useState<StreamMode>('av')
   const [videoSource, setVideoSource] = useState<VideoSourceType>('camera')
@@ -36,6 +40,36 @@ export function StreamSender() {
   const [showSettings, setShowSettings] = useState(false)
   const [hasPreview, setHasPreview] = useState(false)
   const [bitrate, setBitrate] = useState(2500)
+
+  // ── Active streams overview ────────────────────────────────
+  interface StreamInfo {
+    id: string
+    name: string
+    description?: string
+    status: string
+    created_at?: string
+    source_type?: string
+    source_url?: string | null
+    viewer_count?: number
+  }
+  const [streams, setStreams] = useState<StreamInfo[]>([])
+  const [watching, setWatching] = useState<string | null>(null)
+
+  // Poll all streams so the app shows every active stream (not only own).
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/streams`)
+        if (!res.ok) return
+        const data = await res.json() as { streams?: StreamInfo[] }
+        if (!cancelled) setStreams(data.streams || [])
+      } catch { /* backend may be offline */ }
+    }
+    void load()
+    const interval = window.setInterval(load, 5000)
+    return () => { cancelled = true; window.clearInterval(interval) }
+  }, [API_BASE])
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -349,7 +383,7 @@ export function StreamSender() {
         {/* Mobile stats bar when live */}
         {state === 'live' && (
           <div className="flex sm:hidden items-center gap-4 mt-3 pt-3 border-t border-foreground/[0.06] text-[11px] text-foreground/40">
-            <span className="flex items-center gap-1"><Eye size={12} /> {viewerCount} Zuschauer</span>
+            <span className="flex items-center gap-1"><Eye size={12} /> {viewerCount} {t('streaming.viewers')}</span>
             <span className="flex items-center gap-1"><Clock size={12} /> {formatUptime(uptime)}</span>
           </div>
         )}
@@ -499,6 +533,82 @@ export function StreamSender() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── Active Streams ──────────────────────────────────────────── */}
+      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <Eye size={16} weight="fill" className="text-accent" />
+              {t('streaming.activeStreams')}
+            </h2>
+            <p className="text-xs text-foreground/45 mt-0.5">{t('streaming.activeStreamsDesc')}</p>
+          </div>
+          {streams.length > 0 && (
+            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">
+              {streams.length} live
+            </span>
+          )}
+        </div>
+
+        {streams.length === 0 ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-foreground/10 py-8 text-center">
+            <Broadcast size={22} className="mx-auto mb-2 text-foreground/20" />
+            <p className="text-xs text-foreground/40">{t('streaming.noStreams')}</p>
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-2">
+            {streams.map((stream) => (
+              <div
+                key={stream.id}
+                onClick={() => setWatching(stream.id)}
+                className="flex cursor-pointer items-center gap-3 rounded-2xl border border-foreground/8 bg-foreground/[0.03] px-4 py-3 transition-colors hover:bg-foreground/[0.06]"
+              >
+                <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
+                  <Broadcast size={18} weight="duotone" />
+                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold text-foreground">{stream.name}</p>
+                  <p className="truncate text-[11px] text-foreground/45">
+                    {stream.description || stream.source_type || 'live'} · {stream.viewer_count ?? 0} {t('streaming.viewers')}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-red-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
+                  {t('streaming.live')}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Watch Mode ─────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {watching && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className="glass-card rounded-2xl border border-foreground/[0.06] p-4"
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <button
+                onClick={() => setWatching(null)}
+                className="flex items-center gap-1.5 rounded-full border border-foreground/10 bg-foreground/5 px-3 py-1.5 text-[11px] font-semibold text-foreground/70 transition-colors hover:bg-foreground/10"
+              >
+                <ArrowLeft size={13} weight="bold" />
+                {t('streaming.backToOverview')}
+              </button>
+              <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-red-400">
+                <Circle size={8} weight="fill" className="animate-pulse" />
+                {t('streaming.watchStream')}
+              </span>
+            </div>
+            <StreamWidget config={{ streamId: watching }} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Error Display ──────────────────────────────────────────── */}
       {error && (state === 'error' || state === 'idle') && (

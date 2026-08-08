@@ -376,7 +376,7 @@ $VM_BRIDGE = 8101
 # Forwarded dev ports (start arguments - runtime hostfwd_add rules can be
 # unreliable with QEMU slirp; rules in the command line always work). 5173
 # is the Vite dev server, 5355 an optional extra forward.
-$FWD_PORTS = @(80, 443, 3001, 5173, 5355, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098)
+$FWD_PORTS = @(80, 443, 3001, 5173, 5355, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098, 8180, 8580, 8590)
 
 # -- Helpers ----------------------------------------------------------------
 function ConvertTo-WslPath { param([string]$WinPath)
@@ -1980,13 +1980,22 @@ if [ -f "$envf" ] && ! grep -q '^SECURITY_DB_KEY=' "$envf"; then
     fi
 fi
 # -- Port collision avoidance: iora-developer-app and iora-intelligence both
-#    default to 8099 (iora-api's port). Pin them to free ports.
+#    default to 8099 (iora-api's port). Pin them to free ports. Use the
+#    service-specific {SERVICE}_PORT variable: the generic PORT= is the
+#    process' OWN port and system_config::service_url() falls back to it for
+#    EVERY service, making iora-home proxy /api/os/control/* and
+#    /api/files/* to itself (recursive loop, 503s, FD exhaustion).
 for pv in "iora-developer-app 8110" "iora-intelligence 8112"; do
     svc=${pv% *}; port=${pv#* }
     envf="/etc/iora/$svc.env"
-    if [ -f "$envf" ] && ! grep -q "^PORT=$port" "$envf" 2>/dev/null; then
-        echo "PORT=$port" >> "$envf"
+    var=$(printf '%s' "$svc" | tr '[:lower:]-' '[:upper:]_')
+    if [ -f "$envf" ] && ! grep -q "^${var}_PORT=$port" "$envf" 2>/dev/null; then
+        echo "${var}_PORT=$port" >> "$envf"
         echo "iora-db-init: pinned $svc to port $port"
+    fi
+    # Remove a legacy generic PORT= pin if present (breaks discovery)
+    if [ -f "$envf" ]; then
+        sed -i '/^PORT=[0-9]/d' "$envf" 2>/dev/null || true
     fi
 done
 mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data /var/lib/iora/iora-home
@@ -2137,6 +2146,9 @@ WorkingDirectory=/home/iora/iora/frontend
 ExecStart=/usr/bin/npm run dev -- --host 0.0.0.0 --port 5173
 Restart=always
 RestartSec=3
+# FD limit: Vite serves the SPA plus HMR websockets for every browser tab;
+# the systemd default (1024) triggers "accept error: Too many open files".
+LimitNOFILE=65536
 Environment=NODE_ENV=development
 StandardOutput=journal
 StandardError=journal

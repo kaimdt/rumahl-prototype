@@ -58,6 +58,21 @@ _iora_service() {
     local mem_limit=""
     [ -n "$memory_max" ] && mem_limit="MemoryMax=${memory_max}"
 
+    # Port discovery: expose the FULL service port map as specific
+    # {SERVICE}_PORT variables. The generic `PORT` fallback in
+    # system_config::service_port() would otherwise resolve every OTHER
+    # service to THIS service's own port (PORT=8126 in iora-home means
+    # service_url("iora-files") -> http://127.0.0.1:8126 -> iora-home
+    # itself), causing recursive self-proxy loops (503 timeouts) and 404s
+    # for /api/os/control/*. Each unit gets the whole map so cross-service
+    # discovery works identically to IORA OS defaults.
+    local port_envs=""
+    for ps in "${!IORA_PORTS[@]}"; do
+        local upper
+        upper=$(printf '%s' "$ps" | tr '[:lower:]-' '[:upper:]_')
+        port_envs="${port_envs}${upper}_PORT=${IORA_PORTS[$ps]} "
+    done
+
     # Cargo parallelism: each rustc needs ~2GB RAM. Without a limit cargo
     # uses ALL cores (e.g. 16 x 2GB = 32GB) and the OOM killer kills the
     # service -> systemd restart loop. Budget 4GB per job, 2..8 jobs.
@@ -110,10 +125,14 @@ WorkingDirectory=/home/iora/iora/iora-os/backend
 ExecStart=/home/iora/iora/iora-os/backend/target/debug/${name}
 Restart=always
 RestartSec=15
+# FD limit: default (1024) is exhausted by WebSocket/SSE clients + HTTP
+# pools (accept error: Too many open files). Match the IORA OS installer.
+LimitNOFILE=65536
+LimitNPROC=4096
 # Keep rustc parallelity within the VM's RAM (see cargo_jobs above)
 Environment=CARGO_BUILD_JOBS=${cargo_jobs}
+Environment=${port_envs}
 ${bridge_env}
-${port:+Environment=PORT=${port}}
 Environment=RUST_LOG=${name//-/_}=debug
 EnvironmentFile=-/etc/iora/${name}.env
 StandardOutput=journal
@@ -151,7 +170,12 @@ WorkingDirectory=${datadir}
 ExecStart=${binary}
 Restart=always
 RestartSec=10
-${port:+Environment=PORT=${port}}
+# FD limit: default (1024) is exhausted by WebSocket/SSE clients + HTTP
+# pools (accept error: Too many open files). Match the IORA OS installer.
+LimitNOFILE=65536
+LimitNPROC=4096
+# Full port map for cross-service discovery (see comment in _iora_service)
+Environment=${port_envs}
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=${name}
@@ -427,7 +451,7 @@ upstream iora_security {
 }
 
 upstream iora_files {
-    server 127.0.0.1:8103;
+    server 127.0.0.1:8100;
     keepalive 8;
 }
 
@@ -733,10 +757,10 @@ IORA_PORTS[iora-gateway]=8096
 IORA_PORTS[iora-supervisor]=8097
 IORA_PORTS[iora-appstore]=8098
 IORA_PORTS[iora-api]=8099
-IORA_PORTS[iora-backup]=8100
+IORA_PORTS[iora-backup]=8107
 IORA_PORTS[iora-dev-bridge]=8101
 IORA_PORTS[iora-domain-validator]=8102
-IORA_PORTS[iora-files]=8103
+IORA_PORTS[iora-files]=8100
 IORA_PORTS[iora-network-monitor]=8104
 IORA_PORTS[iora-nginx]=8089
 IORA_PORTS[iora-resource-manager]=8105

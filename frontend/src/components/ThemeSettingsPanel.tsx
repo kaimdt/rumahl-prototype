@@ -97,6 +97,12 @@ export function ThemeSettingsPanel() {
                   key={preset.name}
                   onClick={() => {
                     document.documentElement.style.setProperty('--accent', preset.color)
+                    document.documentElement.style.setProperty('--ring', preset.color)
+                    // Keep rgba(var(--accent-rgb)) consumers (widget glows) in sync
+                    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(preset.color)
+                    if (m) {
+                      document.documentElement.style.setProperty('--accent-rgb', `${parseInt(m[1], 16)} ${parseInt(m[2], 16)} ${parseInt(m[3], 16)}`)
+                    }
                     document.documentElement.setAttribute('data-accent-locked', 'true')
                     updateCustomSetting('__accent', preset.color)
                   }}

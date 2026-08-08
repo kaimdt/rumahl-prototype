@@ -1,20 +1,38 @@
 import { useTranslation } from 'react-i18next'
-import { useState, useCallback, useEffect } from 'react'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   Cube, Lightning, Plus, Play, Pause, TrashSimple, ShieldCheck,
   DownloadSimple, Upload, MagnifyingGlass, Gear, Check, X,
   ShieldWarning, Package, ArrowClockwise, Info, Warning,
   Stack, CubeFocus, Sparkle, PuzzlePiece, MusicNotes, ChartBar,
   VideoCamera, Broom, Lightbulb, CalendarBlank, SpeakerHigh, Plant,
-  Bell, Star, ArrowRight
+  Bell, Star, ArrowRight, CaretLeft, CaretRight
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
 import { AppDetailDialog } from './AppDetailDialog'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
+import { STORE_CATALOG } from '@/lib/storeCatalog'
+import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { supportedLngs } from '@/i18n'
 
 // ── Types ──────────────────────────────────────────────────────────────────
+
+/** Store-listed app: a real backend app, a preinstalled IORA Essential or a
+ * catalog app that can be installed as a Docker container. */
+interface StoreApp extends AppInfo {
+  isEssential?: boolean
+  /** Launcher pageId for preinstalled Essentials. */
+  pageId?: string
+  /** Catalog (Docker) app — installable via the ZIP install API. */
+  isCatalog?: boolean
+  /** Host port of the web UI (catalog apps). */
+  openPort?: number
+  /** Inline SVG icon (data URL) for catalog/essential apps. */
+  iconUrl?: string
+}
 
 interface AppInfo {
   id: string
@@ -30,7 +48,7 @@ interface AppInfo {
   last_started_at?: string
   last_stopped_at?: string
   installed_at: string
-  ports?: PortInfo[]
+  ports?: PortInfo[] | Array<string | PortInfo>
   kind?: 'app' | 'plugin' | 'system'
   system?: boolean
   source?: string
@@ -69,6 +87,17 @@ interface PortInfo {
   internal: number
   external: number
   protocol: string
+}
+
+/** Backend sends ports as "external:internal/protocol" strings — parse both shapes. */
+function firstExternalPort(ports: PortInfo[] | Array<string | PortInfo> | undefined): number | undefined {
+  const entry = ports?.[0]
+  if (typeof entry === 'string') {
+    const m = entry.match(/^(\d+):/)
+    return m ? Number(m[1]) : undefined
+  }
+  if (entry && 'external' in entry) return Number(entry.external)
+  return undefined
 }
 
 interface CustomPage {
@@ -238,8 +267,9 @@ export function AppStoreTab({ token }: { token: string }) {
     setLoading(false)
   }, [token, devMode])
 
+  // Load the app catalog for both the store and the installed view.
   useEffect(() => {
-    if (view === 'installed') {
+    if (view !== 'upload') {
       loadInstalled()
     }
   }, [view, loadInstalled])
@@ -325,7 +355,14 @@ export function AppStoreTab({ token }: { token: string }) {
 
       {/* App Store View */}
       {view === 'store' && (
-        <AppStoreView token={token} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+        <AppStoreView
+          token={token}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          apps={apps}
+          onAppClick={(appId) => setDetailAppId(appId)}
+          onInstalled={loadInstalled}
+        />
       )}
 
       {/* Upload View */}
@@ -462,9 +499,17 @@ function InstalledAppsView({
   }
 
   const openApp = (appId: string, openUrl?: string) => {
-    const url = openUrl || `/apps/${appId}`
-    // Use the router to navigate to the app's page
-    window.location.href = url
+    const app = apps.find((candidate) => candidate.id === appId)
+    const port = firstExternalPort(app?.ports) ?? STORE_CATALOG.find((def) => def.id === appId)?.openPort
+    if (openUrl) {
+      window.location.href = openUrl
+    } else if (port) {
+      // Docker app with a web UI — open the host port directly.
+      window.open(`http://127.0.0.1:${port}`, '_blank')
+    } else {
+      // App-defined page (custom_pages) — navigate inside the SPA.
+      window.location.href = `/apps/${appId}`
+    }
   }
 
   return (
@@ -809,66 +854,460 @@ function InstalledAppsView({
 
 // ── App Store View ───────────────────────────────────────────────────────
 
+/** Minimal inline SVG tile (rounded background + glyph) as a data URL. */
+function svgIconData(bg: string, glyph: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+    `<rect width="64" height="64" rx="14" fill="${bg}"/>` +
+    `<text x="32" y="46" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="white" text-anchor="middle">${glyph}</text>` +
+    `</svg>`
+  try {
+    return `data:image/svg+xml;base64,${btoa(svg)}`
+  } catch {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+  }
+}
+
 function AppStoreView({
   token,
   searchQuery,
-  setSearchQuery
+  setSearchQuery,
+  apps,
+  onAppClick,
+  onInstalled,
 }: {
   token: string
   searchQuery: string
   setSearchQuery: (q: string) => void
+  apps: AppInfo[]
+  onAppClick: (appId: string) => void
+  onInstalled: () => void
 }) {
   const { t } = useTranslation()
-  const [activeCategory, setActiveCategory] = useState('all')
+  const { setCurrentPageId } = usePageNavigation()
+  const { activeJobs } = useInstalledApps()
+  const [activeCategory, setActiveCategory] = useState<'all' | 'app' | 'plugin'>('all')
+  const [featuredIndex, setFeaturedIndex] = useState(0)
+  const [selectedApp, setSelectedApp] = useState<StoreApp | null>(null)
 
-  const categories = [
-    { id: 'all', label: t('apps.appStore.forYou'), icon: Sparkle },
-    { id: 'widgets', label: t('apps.appStore.widgets'), icon: PuzzlePiece },
-    { id: 'automation', label: t('apps.appStore.automation'), icon: Lightning },
-    { id: 'media', label: t('apps.appStore.media'), icon: MusicNotes },
-    { id: 'security', label: t('apps.appStore.security'), icon: ShieldCheck },
-    { id: 'energy', label: t('apps.appStore.energy'), icon: Lightning },
-    { id: 'monitoring', label: t('apps.appStore.monitoring'), icon: ChartBar },
-  ]
+  // ── IORA Essentials — only real user-facing apps (Docs, Share, Streaming) ──
+  const essentials: StoreApp[] = useMemo(() => [
+    { id: 'docs', name: t('os.apps.docs.name'), developer: 'IORA OS', description: t('os.apps.docs.description'), version: '2.0', trust_level: 'trusted', enabled: true, installed_at: '', kind: 'app', isEssential: true, pageId: 'docs', iconUrl: svgIconData('oklch(0.6 0.15 250)', 'D') },
+    { id: 'share', name: t('os.apps.share.name'), developer: 'IORA OS', description: t('os.apps.share.description'), version: '2.0', trust_level: 'trusted', enabled: true, installed_at: '', kind: 'app', isEssential: true, pageId: 'share', iconUrl: svgIconData('oklch(0.62 0.18 300)', 'S') },
+    { id: 'streaming', name: t('os.apps.streaming.name'), developer: 'IORA OS', description: t('os.apps.streaming.description'), version: '2.0', trust_level: 'trusted', enabled: true, installed_at: '', kind: 'app', isEssential: true, pageId: 'streaming', iconUrl: svgIconData('oklch(0.62 0.18 15)', '▶') },
+  ], [t])
 
-  // Featured apps (hardcoded for now, will come from store API)
-  const featuredApps = [
-    { id: 'weather', name: t('apps.appStore.catalog.weather'), dev: 'IORA Labs', rating: 4.8, icon: Sparkle, color: 'from-blue-500/20 to-cyan-500/5' },
-    { id: 'energy', name: 'Energy Monitor', dev: 'IORA Labs', rating: 4.6, icon: Lightning, color: 'from-amber-500/20 to-yellow-500/5' },
-    { id: 'security', name: 'Security Cam', dev: 'IORA Labs', rating: 4.9, icon: VideoCamera, color: 'from-red-500/20 to-rose-500/5' },
-  ]
+  // Store apps = real backend apps (no system apps) + Essentials + Docker catalog.
+  const storeApps = useMemo<StoreApp[]>(() => {
+    const backend: StoreApp[] = apps.filter((app) => app.kind !== 'system')
+    // Once a catalog app is installed it comes back via the backend list —
+    // don't show it twice.
+    const catalog: StoreApp[] = STORE_CATALOG
+      .filter((def) => !backend.some((b) => b.id === def.id))
+      .map((def) => ({
+      id: def.id,
+      name: def.name,
+      developer: def.developer,
+      description: t(`apps.appStore.catalog.${def.id}` as never, { defaultValue: def.description }) as unknown as string,
+      version: def.version,
+      trust_level: 'verified' as const,
+      enabled: false,
+      installed_at: '',
+      kind: 'app',
+      isCatalog: true,
+      openPort: def.openPort,
+      iconUrl: def.iconUrl,
+    }))
+    return [...backend, ...essentials, ...catalog]
+  }, [apps, essentials, t])
+  const installedIds = useMemo(() => new Set(apps.filter((app) => app.enabled).map((app) => app.id)), [apps])
 
-  const popularApps = [
-    { id: 'vacuum', name: 'Vacuum Control', dev: 'Community', rating: 4.5, downloads: '2.3k', icon: Broom },
-    { id: 'lights', name: 'Light Scenes', dev: 'IORA', rating: 4.7, downloads: '5.1k', icon: Lightbulb },
-    { id: 'calendar', name: 'Family Calendar', dev: 'Community', rating: 4.3, downloads: '1.8k', icon: CalendarBlank },
-    { id: 'music', name: 'Multiroom Audio', dev: 'IORA', rating: 4.4, downloads: '3.2k', icon: SpeakerHigh },
-    { id: 'garden', name: 'Garden Planner', dev: 'Community', rating: 4.2, downloads: '980', icon: Plant },
-    { id: 'notify', name: 'Notify Me', dev: 'IORA Labs', rating: 4.6, downloads: '4.1k', icon: Bell },
-  ]
+  // Category chips derive from the real data.
+  const categories = useMemo(() => {
+    const list: Array<{ id: 'all' | 'app' | 'plugin'; label: string; icon: typeof Sparkle }> = [
+      { id: 'all', label: t('apps.appStore.forYou'), icon: Sparkle },
+    ]
+    if (storeApps.some((app) => app.kind === 'app')) {
+      list.push({ id: 'app', label: t('navigation.apps'), icon: PuzzlePiece })
+    }
+    if (storeApps.some((app) => app.kind === 'plugin')) {
+      list.push({ id: 'plugin', label: t('navigation.plugins'), icon: Lightning })
+    }
+    return list
+  }, [storeApps, t])
 
-  return (
-    <div className="space-y-7 rounded-[2rem] bg-background/85 p-4 shadow-2xl ring-1 ring-foreground/8 backdrop-blur-2xl sm:p-6">
-      <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-accent/20 via-background to-background p-5 sm:p-7">
-        <div className="flex max-w-3xl items-start gap-4">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent text-white shadow-lg shadow-accent/25"><Cube size={28} weight="duotone" /></span>
-          <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h2 className="mt-1 text-2xl font-semibold">{t('apps.appStore.title')}</h2><p className="mt-2 text-sm leading-relaxed text-foreground/55">{t('apps.appStore.subtitle')}</p></div>
+  // Search + category filter over the real apps.
+  const filteredApps = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    return storeApps.filter((app) => {
+      if (activeCategory !== 'all' && app.kind !== activeCategory) return false
+      if (!query) return true
+      return [app.name, app.id, app.developer, app.description]
+        .filter(Boolean)
+        .some((field) => field!.toLowerCase().includes(query))
+    })
+  }, [storeApps, activeCategory, searchQuery])
+
+  // Featured = first apps of the filtered list (storefront banners).
+  const featured = filteredApps.slice(0, 3)
+
+  // Auto-rotate the hero banner like a storefront carousel.
+  useEffect(() => {
+    if (featured.length < 2) return
+    const timer = window.setInterval(() => {
+      setFeaturedIndex((current) => (current + 1) % featured.length)
+    }, 6000)
+    return () => window.clearInterval(timer)
+  }, [featured.length])
+
+  /** Deterministic brand gradient per app id (Play-store style tiles). */
+  const gradientFor = (id: string) => {
+    let hash = 0
+    for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) % 360
+    const h1 = hash
+    const h2 = (hash + 55) % 360
+    return { background: `linear-gradient(145deg, oklch(0.68 0.17 ${h1}), oklch(0.52 0.15 ${h2}))` }
+  }
+
+  const StoreAppIcon = ({ app, size = 'md', installing = false, progress = 0, installed = false }: {
+    app: StoreApp
+    size?: 'md' | 'lg' | 'xl'
+    /** Show a download-style progress ring over the icon (App Store look). */
+    installing?: boolean
+    progress?: number
+    /** Show a green check badge (installed & running). */
+    installed?: boolean
+  }) => {
+    const classes = {
+      md: 'h-12 w-12 rounded-2xl',
+      lg: 'h-14 w-14 rounded-2xl',
+      xl: 'h-16 w-16 rounded-[1.35rem]',
+    }[size]
+    const imgSrc = app.iconUrl || (app.icon && /^(https?:|data:)/.test(app.icon) ? app.icon : undefined)
+    const radius = 15
+    const circumference = 2 * Math.PI * radius
+    return (
+      <span className={`${classes} relative shrink-0 overflow-hidden shadow-lg`}>
+        {imgSrc ? (
+          <img src={imgSrc} alt={app.name} className="h-full w-full object-cover" />
+        ) : (
+          <span className={`flex h-full w-full items-center justify-center text-lg font-bold text-white`} style={gradientFor(app.id)}>
+            {app.name.trim().charAt(0).toUpperCase() || '?'}
+          </span>
+        )}
+        {installing && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]">
+            <svg className="h-1/2 w-1/2 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
+              <circle cx="18" cy="18" r={radius} fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="4" />
+              <circle
+                cx="18" cy="18" r={radius} fill="none" stroke="white" strokeWidth="4" strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={circumference * (1 - Math.max(0, Math.min(100, progress)) / 100)}
+              />
+            </svg>
+          </span>
+        )}
+        {!installing && installed && (
+          <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg ring-2 ring-background">
+            <Check size={11} weight="bold" />
+          </span>
+        )}
+      </span>
+    )
+  }
+
+  const openApp = (app: StoreApp) => {
+    if (app.isEssential && app.pageId) {
+      setCurrentPageId(app.pageId)
+    } else if (app.isCatalog) {
+      // Installed → open embedded (iframe runner); the runner has an
+      // "open in browser" action for the external tab.
+      const backendApp = apps.find((candidate) => candidate.id === app.id)
+      const port = firstExternalPort(backendApp?.ports) ?? app.openPort
+      if (port) {
+        setCurrentPageId(app.id)
+      } else {
+        onAppClick(app.id)
+      }
+    } else {
+      // Backend-installed app: open embedded when a host port is known
+      // (catalog port as fallback), otherwise fall back to the detail dialog.
+      const catalogPort = STORE_CATALOG.find((def) => def.id === app.id)?.openPort
+      const port = firstExternalPort(app.ports) ?? catalogPort
+      if (port) {
+        setCurrentPageId(app.id)
+      } else {
+        onAppClick(app.id)
+      }
+    }
+  }
+
+  const [installingId, setInstallingId] = useState<string | null>(null)
+  const [startingId, setStartingId] = useState<string | null>(null)
+
+  /** Backend entry for a catalog app (present once installed). */
+  const backendAppFor = (app: StoreApp) => apps.find((candidate) => candidate.id === app.id)
+
+  /** True for any installed (non-essential) app — shows uninstall + start. */
+  const isInstalledApp = (app: StoreApp) =>
+    !app.isEssential && (app.status === 'running' || app.enabled || (app.isCatalog && Boolean(backendAppFor(app))))
+
+  /** Icon overlay state (App Store style): progress ring / check badge. */
+  const iconStatus = (app: StoreApp) => {
+    const job = activeJobs.find((j) => j.appId === app.id)
+    const installing = installingId === app.id || Boolean(job)
+    const running = app.status === 'running' || (app.isCatalog ? isRunning(app) : false)
+    return {
+      installing,
+      progress: job?.progress ?? (installingId === app.id ? 12 : 0),
+      installed: !installing && running,
+    }
+  }
+
+  /** Docker apps count as installed only while RUNNING. */
+  const isRunning = (app: StoreApp) => {
+    const backend = backendAppFor(app)
+    return app.isEssential || Boolean(backend?.status === 'running' || (backend?.enabled && backend.status === 'running'))
+  }
+
+  /** Installs a catalog (Docker) app via the existing ZIP install API. */
+  const installCatalogApp = async (app: StoreApp) => {
+    const def = STORE_CATALOG.find((d) => d.id === app.id)
+    if (!def) return
+    setInstallingId(app.id)
+    try {
+      const zipData = def.buildZip()
+      await adminFetch('/api/appstore/install', token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          zip_data: zipData,
+          file_name: `${app.id}.zip`,
+          granted_permissions: def.permissions,
+          denied_permissions: [],
+        }),
+      })
+      toast.success(t('apps.appStore.installStarted', { name: app.name }))
+      // CasaOS-style: poll the backend until the app actually shows up
+      // (download → install → running), then refresh the list.
+      let attempts = 0
+      const poll = window.setInterval(() => {
+        attempts += 1
+        onInstalled()
+        if (apps.some((candidate) => candidate.id === app.id) || attempts > 40) {
+          window.clearInterval(poll)
+        }
+      }, 2500)
+      setSelectedApp(null)
+    } catch (e) {
+      toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setInstallingId(null)
+    }
+  }
+
+  /** Start a stopped app (installed but not running). */
+  const startApp = (app: StoreApp) => {
+    if (startingId) return
+    setStartingId(app.id)
+    adminFetch(`/api/supervisor/apps/${app.id}/start`, token, { method: 'POST' })
+      .then(() => { window.setTimeout(onInstalled, 1500) })
+      .catch((e) => toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) })))
+      .finally(() => setStartingId(null))
+  }
+
+  /** Uninstall an installed app (stops container + removes app data). */
+  const uninstallApp = async (app: StoreApp) => {
+    if (!window.confirm(t('apps.appStore.uninstallConfirm', { name: app.name }))) return
+    try {
+      await adminFetch(`/api/appstore/apps/${app.id}`, token, { method: 'DELETE' })
+      toast.success(t('apps.appStore.uninstalled', { name: app.name }))
+      onInstalled()
+      setSelectedApp(null)
+    } catch (e) {
+      toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) }))
+    }
+  }
+
+  /** Primary action for any store app (CasaOS-style lifecycle). */
+  const primaryAction = (app: StoreApp) => {
+    if (app.isEssential) return openApp(app)
+    if (app.isCatalog) {
+      if (isRunning(app)) return openApp(app)
+      const backend = backendAppFor(app)
+      if (backend) return startApp(app)
+      return installCatalogApp(app)
+    }
+    // Backend-installed app: running → open; enabled-but-stopped → start.
+    if (app.status === 'running') return openApp(app)
+    if (app.enabled) return startApp(app)
+    return onAppClick(app.id)
+  }
+
+  const actionLabel = (app: StoreApp) => {
+    if (app.isEssential) return t('apps.appStore.openApp')
+    if (app.isCatalog) {
+      if (installingId === app.id) return t('apps.appStore.installing', { name: '' }).trim()
+      if (startingId === app.id) return t('apps.appStore.starting', { name: '' }).trim()
+      if (isRunning(app)) return t('apps.appStore.openApp')
+      if (backendAppFor(app)) return t('apps.appStore.start')
+      return t('apps.appStore.install')
+    }
+    if (app.status === 'running') return t('apps.appStore.openApp')
+    if (app.enabled) return t('apps.appStore.start')
+    return t('apps.appStore.install')
+  }
+
+  const similarApps = useMemo(() => {
+    if (!selectedApp) return []
+    return storeApps
+      .filter((app) => app.id !== selectedApp.id && (app.developer === selectedApp.developer || app.kind === selectedApp.kind))
+      .slice(0, 6)
+  }, [selectedApp, storeApps])
+
+  // ═══════════════════ APP DETAIL PAGE (Play-store style) ═══════════════════
+  if (selectedApp) {
+    const app = selectedApp
+    const installed = installedIds.has(app.id)
+    return (
+      <div className="space-y-6">
+        {/* Back */}
+        <button
+          type="button"
+          onClick={() => setSelectedApp(null)}
+          className="flex items-center gap-2 rounded-full border border-foreground/10 bg-foreground/[0.04] px-4 py-2 text-xs font-semibold text-foreground/70 transition-colors hover:bg-foreground/[0.08] hover:text-foreground"
+        >
+          <CaretLeft size={14} weight="bold" />
+          {t('apps.appStore.back')}
+        </button>
+
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 shadow-2xl shadow-black/20">
+          <div
+            className="relative flex min-h-[13rem] flex-col justify-end p-6 sm:min-h-[15rem] sm:p-8"
+            style={bannerStyleFor(app.id)}
+          >
+            <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full bg-white/15 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-24 right-40 h-44 w-44 rounded-full bg-black/15 blur-2xl" />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,transparent_30%,rgba(0,0,0,0.28))]" />
+            <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex items-center gap-4">
+                <StoreAppIcon app={app} size="xl" {...iconStatus(app)} />
+                <div className="min-w-0">
+                  <h3 className="text-2xl font-bold text-white drop-shadow-sm">{app.name}</h3>
+                  <p className="mt-0.5 text-xs text-white/70">{app.developer} · {t('apps.appStore.version')} {app.version}</p>
+                  <div className="mt-2 flex items-center gap-2">{trustBadge(app)}{app.isEssential && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">{t('apps.appStore.preinstalled')}</span>
+                  )}</div>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => primaryAction(app)}
+                  disabled={installingId === app.id || startingId === app.id}
+                  className="rounded-full bg-white px-7 py-3 text-xs font-bold text-slate-900 shadow-xl transition-transform duration-200 hover:scale-105 active:scale-95 disabled:opacity-60"
+                >
+                  {actionLabel(app)}
+                </button>
+                {isInstalledApp(app) && (
+                  <button
+                    type="button"
+                    onClick={() => void uninstallApp(app)}
+                    className="flex items-center gap-1.5 rounded-full bg-black/30 px-4 py-3 text-xs font-bold text-white ring-1 ring-white/30 backdrop-blur-md transition-colors hover:bg-red-500/70"
+                  >
+                    <TrashSimple size={13} weight="bold" />
+                    {t('apps.appStore.uninstall')}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Description + facts */}
+        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+          <div className="rounded-[1.5rem] border border-foreground/8 bg-foreground/[0.03] p-5 sm:p-6">
+            <h4 className="text-sm font-bold text-foreground">Über diese App</h4>
+            <p className="mt-3 text-sm leading-relaxed text-foreground/65">{app.description}</p>
+            {app.isEssential && (
+              <p className="mt-4 rounded-2xl bg-accent/8 p-4 text-xs leading-relaxed text-foreground/55">
+                {t('apps.appStore.essentialsHint')}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            {[
+              { label: t('apps.appStore.developer'), value: app.developer },
+              { label: t('apps.appStore.version'), value: app.version },
+              { label: t('apps.appStore.source'), value: app.isEssential ? 'IORA OS' : (app.source || 'Local') },
+              { label: t('apps.appStore.preinstalled'), value: app.isEssential ? t('common.yes') : t('common.no') },
+            ].map((row) => (
+              <div key={row.label} className="flex items-center justify-between rounded-2xl border border-foreground/8 bg-foreground/[0.03] px-4 py-3">
+                <span className="text-xs text-foreground/45">{row.label}</span>
+                <span className="truncate pl-3 text-xs font-semibold text-foreground/80">{row.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Similar apps */}
+        {similarApps.length > 0 && (
+          <div>
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-foreground">
+              <span className="h-4 w-1 rounded-full bg-accent" />
+              {t('apps.appStore.similarApps')}
+            </h3>
+            <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {similarApps.map((similar) => (
+                <div
+                  key={similar.id}
+                  onClick={() => setSelectedApp(similar)}
+                  className="flex w-64 shrink-0 cursor-pointer items-center gap-3 rounded-2xl border border-foreground/8 bg-foreground/[0.035] p-3 transition-all hover:-translate-y-0.5 hover:bg-foreground/[0.07]"
+                >
+                  <StoreAppIcon app={similar} size="md" {...iconStatus(similar)} />
+                  <div className="min-w-0 flex-1">
+                    <h4 className="truncate text-[13px] font-semibold text-foreground">{similar.name}</h4>
+                    <p className="truncate text-[10px] text-foreground/45">{similar.developer}</p>
+                  </div>
+                  <CaretRight size={14} className="shrink-0 text-foreground/25" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-      {/* ─── Search Bar ──────────────────────────────────── */}
+    )
+  }
+
+  // ═══════════════════ STORE FRONT ═══════════════════
+  return (
+    <div className="space-y-8 rounded-[2rem] bg-background/85 p-4 shadow-2xl ring-1 ring-foreground/8 backdrop-blur-2xl sm:p-7">
+      {/* ─── Header ─────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p>
+          <h2 className="mt-1 text-2xl font-semibold text-foreground">{t('apps.appStore.title')}</h2>
+        </div>
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent/12 text-accent shadow-lg shadow-accent/10">
+          <Cube size={24} weight="duotone" />
+        </span>
+      </div>
+
+      {/* ─── Search Bar ─────────────────────────────────────── */}
       <div className="relative">
-        <MagnifyingGlass size={16} weight="bold" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground/30" />
+        <MagnifyingGlass size={17} weight="bold" className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/35" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('apps.appStore.search')}
-          className="w-full rounded-2xl border border-foreground/10 bg-foreground/[0.045] py-3.5 pl-10 pr-4 text-sm text-foreground outline-none transition-all placeholder:text-foreground/30 focus:border-accent/40 focus:ring-2 focus:ring-accent/20"
+          className="w-full rounded-2xl border border-foreground/10 bg-foreground/[0.045] py-3.5 pl-11 pr-4 text-sm text-foreground outline-none transition-all placeholder:text-foreground/30 focus:border-accent/40 focus:ring-2 focus:ring-accent/20"
         />
       </div>
 
-      {/* ─── Category Pills ──────────────────────────────── */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      {/* ─── Category Pills ─────────────────────────────────── */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none]">
         {categories.map(cat => { const CategoryIcon = cat.icon; return (
           <button
             key={cat.id}
@@ -885,82 +1324,235 @@ function AppStoreView({
         )})}
       </div>
 
-      {/* ─── Featured Banner ─────────────────────────────── */}
-      <div>
-        <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
-          <span className="w-1 h-4 rounded-full bg-accent" />
-          {t('apps.appStore.featured')}
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {featuredApps.map(app => { const FeaturedIcon = app.icon; return (
-            <div
-              key={app.id}
-              className={`group relative cursor-pointer overflow-hidden rounded-2xl border border-foreground/8 bg-gradient-to-br p-5 ${app.color} shadow-lg transition-all hover:-translate-y-0.5 hover:border-accent/30`}
-              style={{ backdropFilter: 'blur(20px)' }}
-            >
-              <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-background/75 shadow-lg"><FeaturedIcon size={27} weight="duotone" className="text-accent" /></div>
-              <h4 className="text-sm font-bold text-foreground">{app.name}</h4>
-              <p className="text-[10px] text-foreground/50 mt-0.5">{app.dev}</p>
-              <div className="flex items-center gap-1 mt-3">
-                <Star size={12} weight="fill" className="text-amber-400" />
-                <span className="text-[10px] font-medium text-foreground/70">{app.rating}</span>
-              </div>
-              {/* Glass shimmer on hover */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-          )})}
+      {filteredApps.length === 0 ? (
+        /* ─── Empty state ──────────────────────────────────── */
+        <div className="flex flex-col items-center gap-3 rounded-[1.75rem] border border-dashed border-foreground/12 bg-foreground/[0.02] px-6 py-16 text-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-foreground/[0.05] text-foreground/25">
+            <Cube size={30} weight="thin" />
+          </span>
+          <p className="text-sm font-semibold text-foreground/70">{t('apps.appStore.emptyTitle')}</p>
+          <p className="max-w-sm text-xs leading-relaxed text-foreground/40">{t('apps.appStore.emptyDescription')}</p>
         </div>
-      </div>
+      ) : (
+        <>
+          {/* ─── Hero Banner Carousel (storefront style) ─────── */}
+          <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 shadow-2xl shadow-black/20">
+            <AnimatePresence mode="wait">
+              {featured.map((app, index) => {
+                if (index !== featuredIndex) return null
+                const installed = installedIds.has(app.id)
+                return (
+                  <motion.div
+                    key={app.id}
+                    initial={{ opacity: 0, scale: 1.02 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                    className="relative flex min-h-[16rem] cursor-pointer flex-col justify-end overflow-hidden p-6 sm:min-h-[18rem] sm:p-9 [background:var(--banner-bg)]"
+                    style={{ '--banner-bg': bannerStyleFor(app.id).background } as React.CSSProperties}
+                    onClick={() => setSelectedApp(app)}
+                  >
+                    {/* decorative glow blobs */}
+                    <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full bg-white/15 blur-3xl" />
+                    <div className="pointer-events-none absolute -bottom-24 right-40 h-44 w-44 rounded-full bg-black/15 blur-2xl" />
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,transparent_30%,rgba(0,0,0,0.28))]" />
 
-      {/* ─── Popular Apps Grid ───────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-            <span className="w-1 h-4 rounded-full bg-accent" />
-            {t('apps.appStore.popular')}
-          </h3>
-          <button className="text-[10px] font-medium text-accent hover:text-accent/80 transition-colors">
-            <span className="inline-flex items-center gap-1">{t('apps.appStore.showAll')}<ArrowRight size={12} /></span>
-          </button>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-          {popularApps.map(app => { const PopularIcon = app.icon; return (
-            <div
-              key={app.id}
-              className="group cursor-pointer rounded-2xl border border-foreground/8 bg-foreground/[0.035] p-4 text-center transition-all hover:-translate-y-0.5 hover:bg-foreground/[0.07]"
-            >
-              <div className="text-3xl mb-2.5 mx-auto w-14 h-14 rounded-2xl bg-foreground/[0.04] flex items-center justify-center group-hover:bg-foreground/[0.08] transition-colors">
-                <PopularIcon size={25} weight="duotone" className="text-accent" />
-              </div>
-              <h4 className="text-xs font-semibold text-foreground truncate">{app.name}</h4>
-              <p className="text-[10px] text-foreground/40 mt-0.5">{app.dev}</p>
-              <div className="flex items-center justify-center gap-2 mt-2">
-                <span className="flex items-center gap-1 text-[10px] text-amber-400"><Star size={10} weight="fill" />{app.rating}</span>
-                <span className="text-[9px] text-foreground/25">{app.downloads}</span>
+                    <p className="relative text-[10px] font-semibold uppercase tracking-[0.22em] text-white/75">
+                      {t('apps.appStore.bannerTag')} · {app.developer}
+                    </p>
+                    <div className="relative mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                      <div className="flex items-center gap-4">
+                        <StoreAppIcon app={app} size="xl" {...iconStatus(app)} />
+                        <div className="min-w-0">
+                          <h3 className="text-xl font-bold text-white drop-shadow-sm sm:text-2xl">{app.name}</h3>
+                          <p className="mt-0.5 max-w-md truncate text-xs text-white/70 sm:text-sm">{app.description}</p>
+                          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-white/85">
+                            {app.version} · {app.kind === 'plugin' ? t('navigation.plugins') : t('navigation.apps')}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); primaryAction(app) }}
+                        disabled={installingId === app.id}
+                        className={`shrink-0 self-start rounded-full px-6 py-2.5 text-xs font-bold shadow-xl transition-transform duration-200 hover:scale-105 active:scale-95 disabled:opacity-60 sm:self-auto ${
+                          app.isEssential || installed ? 'bg-black/30 text-white ring-1 ring-white/30 backdrop-blur-md' : 'bg-white text-slate-900'
+                        }`}
+                      >
+                        {actionLabel(app)}
+                      </button>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+
+            {featured.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  aria-label={t('apps.appStore.prevBanner')}
+                  onClick={() => setFeaturedIndex((current) => (current - 1 + featured.length) % featured.length)}
+                  className="absolute left-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white backdrop-blur-md transition-colors hover:bg-black/40"
+                >
+                  <CaretLeft size={16} weight="bold" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('apps.appStore.nextBanner')}
+                  onClick={() => setFeaturedIndex((current) => (current + 1) % featured.length)}
+                  className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white backdrop-blur-md transition-colors hover:bg-black/40"
+                >
+                  <CaretRight size={16} weight="bold" />
+                </button>
+                <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+                  {featured.map((app, index) => (
+                    <button
+                      key={app.id}
+                      type="button"
+                      aria-label={t('apps.appStore.banner', { n: index + 1 })}
+                      onClick={() => setFeaturedIndex(index)}
+                      className={`h-1.5 rounded-full transition-all duration-300 ${index === featuredIndex ? 'w-6 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/70'}`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* ─── Recommended – horizontal store row ─────────── */}
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <span className="h-4 w-1 rounded-full bg-accent" />
+                {t('apps.appStore.popular')}
+              </h3>
+            </div>
+            <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {filteredApps.map(app => {
+                const installed = installedIds.has(app.id)
+                return (
+                  <div
+                    key={app.id}
+                    onClick={() => setSelectedApp(app)}
+                    className="flex w-72 shrink-0 cursor-pointer items-center gap-3 rounded-2xl border border-foreground/8 bg-foreground/[0.035] p-3 transition-all hover:-translate-y-0.5 hover:bg-foreground/[0.07]"
+                  >
+                    <StoreAppIcon app={app} size="md" {...iconStatus(app)} />
+                    <div className="min-w-0 flex-1">
+                      <h4 className="truncate text-[13px] font-semibold text-foreground">{app.name}</h4>
+                      <p className="truncate text-[10px] text-foreground/45">{app.developer}</p>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        {trustBadge(app)}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); primaryAction(app) }}
+                        disabled={installingId === app.id || startingId === app.id}
+                        className={`rounded-full px-3.5 py-1.5 text-[11px] font-bold transition-colors disabled:opacity-60 ${
+                          app.isEssential || installed ? 'bg-foreground/8 text-foreground/60' : 'bg-accent/12 text-accent hover:bg-accent/22'
+                        }`}
+                      >
+                        {actionLabel(app)}
+                      </button>
+                      {isInstalledApp(app) && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void uninstallApp(app) }}
+                          className="flex h-7 w-7 items-center justify-center rounded-full text-foreground/40 transition-colors hover:bg-red-500/15 hover:text-red-400"
+                          aria-label={t('apps.appStore.uninstall')}
+                          title={t('apps.appStore.uninstall')}
+                        >
+                          <TrashSimple size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ─── Top Charts – numbered list ─────────────────── */}
+          {filteredApps.length > 3 && (
+            <div>
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-foreground">
+                <span className="h-4 w-1 rounded-full bg-accent" />
+                {t('apps.appStore.topCharts')}
+              </h3>
+              <div className="grid gap-2">
+                {filteredApps.slice(0, 5).map((app, index) => {
+                  const installed = installedIds.has(app.id)
+                  return (
+                    <div
+                      key={app.id}
+                      onClick={() => setSelectedApp(app)}
+                      className="flex cursor-pointer items-center gap-3 rounded-2xl border border-foreground/8 bg-foreground/[0.03] px-4 py-3 transition-colors hover:bg-foreground/[0.06]"
+                    >
+                      <span className="w-6 shrink-0 text-center text-base font-extrabold tabular-nums text-foreground/20">{index + 1}</span>
+                      <StoreAppIcon app={app} size="md" {...iconStatus(app)} />
+                      <div className="min-w-0 flex-1">
+                        <h4 className="truncate text-[13px] font-semibold text-foreground">{app.name}</h4>
+                        <p className="truncate text-[10px] text-foreground/45">{app.developer} · {app.version}</p>
+                      </div>
+                      <span className="hidden sm:block">{trustBadge(app)}</span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); primaryAction(app) }}
+                          disabled={installingId === app.id || startingId === app.id}
+                          className={`rounded-full px-4 py-1.5 text-[11px] font-bold transition-colors disabled:opacity-60 ${
+                            app.isEssential || installed ? 'bg-foreground/8 text-foreground/60' : 'bg-accent/12 text-accent hover:bg-accent/22'
+                          }`}
+                        >
+                          {actionLabel(app)}
+                        </button>
+                        {isInstalledApp(app) && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); void uninstallApp(app) }}
+                            className="flex h-7 w-7 items-center justify-center rounded-full text-foreground/40 transition-colors hover:bg-red-500/15 hover:text-red-400"
+                            aria-label={t('apps.appStore.uninstall')}
+                            title={t('apps.appStore.uninstall')}
+                          >
+                            <TrashSimple size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
-          )})}
-        </div>
-      </div>
-
-      {/* ─── Coming Soon Banner ──────────────────────────── */}
-      <div className="flex items-center gap-4 rounded-2xl border border-foreground/8 bg-foreground/[0.035] p-5">
-        <div className="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center shrink-0">
-          <Cube size={24} className="text-accent" weight="fill" />
-        </div>
-        <div className="flex-1">
-          <h4 className="text-xs font-semibold text-foreground">{t('apps.appStore.comingTitle')}</h4>
-          <p className="text-[10px] text-foreground/40 mt-0.5">
-            {t('apps.appStore.comingDescription')}
-          </p>
-        </div>
-        <span className="rounded-full bg-accent/10 px-2 py-1 text-[10px] font-medium text-accent">{t('apps.appStore.comingSoon')}</span>
-      </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
+/** Compact trust indicator for store cards. */
+function trustBadge(app: AppInfo) {
+  if (app.trust_level === 'trusted') {
+    return <span className="inline-flex items-center gap-1 rounded-full bg-green-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-green-400" title="Vertrauenswürdig"><ShieldCheck size={10} weight="fill" />Vertrauenswürdig</span>
+  }
+  if (app.trust_level === 'verified') {
+    return <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-blue-400" title="Verifiziert"><Check size={10} weight="bold" />Verifiziert</span>
+  }
+  return <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-orange-400" title="Nicht vertrauenswürdig"><ShieldWarning size={10} weight="fill" />Nicht vertrauenswürdig</span>
+}
 
-// ── ZIP Upload View ───────────────────────────────────────────────────────
+/** Rich banner gradient derived deterministically from the app id. */
+function bannerStyleFor(id: string): { background: string } {
+  let hash = 0
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) % 360
+  const h1 = hash
+  const h2 = (hash + 55) % 360
+  const h3 = (hash + 110) % 360
+  return {
+    background: `linear-gradient(120deg, oklch(0.66 0.16 ${h1}) 0%, oklch(0.5 0.15 ${h2}) 55%, oklch(0.38 0.12 ${h3}) 100%)`,
+  }
+}
 
 function ZipUploadView({
   token,

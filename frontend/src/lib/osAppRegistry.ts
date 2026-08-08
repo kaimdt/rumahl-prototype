@@ -29,6 +29,10 @@ export interface OsAppDefinition {
   requiredPermission?: 'os.files.read' | 'os.network.read' | 'os.system.read' | 'os.updates' | 'os.backups'
   accent: string
   order: number
+  /** Remote icon URL (installed Docker apps) — rendered as <img> when set. */
+  iconUrl?: string
+  /** Web UI to open on click (installed Docker apps without a page). */
+  openUrl?: string
 }
 
 export const SYSTEM_OS_APPS: OsAppDefinition[] = [

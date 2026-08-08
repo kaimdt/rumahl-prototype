@@ -3083,10 +3083,15 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             .map(|ip| ip.to_string())
     });
 
+    // Expose whether Home Assistant is configured at all so the frontend can
+    // suppress "Home Assistant not reachable" banners on fresh installs.
+    let ha_configured = load_ha_runtime_config(&state.config_repo).await.is_configured();
+
     Json(serde_json::json!({
         "status": "ok",
         "ha_connected": state.entity_cache.is_ha_connected(),
         "ha_ws_connected": state.ha_ws.is_connected(),
+        "ha_configured": ha_configured,
         "connected_clients": connected_clients,
         "entity_count": entity_count,
         "cache_metrics": {
@@ -8694,8 +8699,9 @@ mod compose_healthcheck_tests {
 
 fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String {
     let image = docker
-        .get("base_image")
+        .get("image")
         .and_then(|v| v.as_str())
+        .or_else(|| docker.get("base_image").and_then(|v| v.as_str()))
         .unwrap_or("alpine:latest");
     let working_dir = docker
         .get("working_dir")
@@ -8748,13 +8754,19 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
 
     yaml.push_str(&format!("    working_dir: {working_dir}\n"));
 
-    // Ports
+    // Ports — `external` (optional) overrides the 1:1 mapping so apps can
+    // pin a free host port (e.g. 8180) instead of colliding with system ports.
+    let mut named_volumes: Vec<String> = Vec::new();
     if let Some(ports) = docker.get("internal_ports").and_then(|v| v.as_array()) {
         for port in ports {
             let internal = port.get("port").and_then(|v| v.as_u64()).unwrap_or(3000);
+            let external = port
+                .get("external")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(internal);
             yaml.push_str(&format!(
                 "    ports:\n      - \"{}:{}\"\n",
-                internal, internal
+                external, internal
             ));
         }
     }
@@ -8773,6 +8785,17 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
         for vol in volumes {
             if let Some(v) = vol.as_str() {
                 yaml.push_str(&format!("    volumes:\n      - {}\n", v));
+                // Named volumes (no slash / leading dot) must be declared at
+                // the top level or docker-compose v1 refuses to start.
+                let name = v.split(':').next().unwrap_or("");
+                if !name.is_empty()
+                    && !name.contains('/')
+                    && !name.starts_with('.')
+                    && !name.starts_with('~')
+                    && !name.starts_with('$')
+                {
+                    named_volumes.push(name.to_string());
+                }
             }
         }
     }
@@ -8837,6 +8860,16 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
             timeout,
             retries,
         ));
+    }
+
+    if !named_volumes.is_empty() {
+        yaml.push_str("\nvolumes:\n");
+        let mut seen = std::collections::BTreeSet::new();
+        for name in named_volumes {
+            if seen.insert(name.clone()) {
+                yaml.push_str(&format!("  {}:\n", name));
+            }
+        }
     }
 
     yaml.push_str("\nnetworks:\n  default:\n    driver: bridge\n");
@@ -18477,7 +18510,7 @@ async fn admin_iora_control_proxy(
         // and does not re-validate the dashboard JWT.
         if matches!(
             name.as_str(),
-            "host" | "content-length" | "connection" | "authorization" | "cookie"
+            "host" | "content-length" | "connection" | "cookie"
         ) {
             continue;
         }

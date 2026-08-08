@@ -244,6 +244,8 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
   const loadOrCreateProfile = async () => {
     if (!user || !device) return
+    // No session → skip (the login screen must not hammer auth endpoints)
+    if (!token) return
 
     try {
       setIsLoading(true)

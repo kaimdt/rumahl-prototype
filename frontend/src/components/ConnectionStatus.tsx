@@ -1,12 +1,17 @@
 import { motion, AnimatePresence } from 'motion/react'
 import { Warning, WifiSlash, CheckCircle, Terminal } from '@phosphor-icons/react'
 import { useConnection } from '@/contexts/ConnectionContext'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
 
 export function ConnectionStatus() {
-  const { backend, homeAssistant, devBridge } = useConnection()
+  const { backend, homeAssistant, devBridge, haConfigured } = useConnection()
+  const { currentPageId } = usePageNavigation()
 
   const showBackendError = backend === 'error' || backend === 'disconnected'
-  const showHAError = homeAssistant === 'error' || homeAssistant === 'disconnected'
+  // HA banner: only when HA is VERIFIED as configured (haConfigured === true)
+  // and only on the Home page — never globally, never on fresh installs where
+  // the backend hasn't reported a config yet (null).
+  const showHAError = haConfigured === true && homeAssistant === 'error' && currentPageId === 'home'
   const showDevBridge = devBridge === 'connected'
 
   if (!showBackendError && !showHAError && !showDevBridge) {

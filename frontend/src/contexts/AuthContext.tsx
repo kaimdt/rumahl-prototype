@@ -108,6 +108,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const fresh = userData.refreshed_token
             writePersistedToken(fresh, !!localStorage.getItem('ha-auth-token'))
             setToken(fresh)
+          } else if (!localStorage.getItem('ha-auth-token')) {
+            // Session came from the cookie only (e.g. after a cache clear) —
+            // mirror it into localStorage so every request helper finds it.
+            writePersistedToken(token, true)
           }
           const mapped = mapApiUser(userData)
           setUser(mapped)
@@ -246,6 +250,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const isAuthenticated = !!user
+
+  // Session-expiry handling: when any authenticated request returns 401 the
+  // backend session is gone. Log out cleanly (instead of every poller hammering
+  // the backend and flooding the logs with "not authenticated" warnings).
+  useEffect(() => {
+    const onUnauthorized = () => {
+      if (user) {
+        console.warn('[Auth] Session rejected by backend — logging out')
+        logout()
+      }
+    }
+    window.addEventListener('iora:auth-unauthorized', onUnauthorized)
+    return () => window.removeEventListener('iora:auth-unauthorized', onUnauthorized)
+  }, [user, logout])
 
   const contextValue = useMemo(() => ({
     user,

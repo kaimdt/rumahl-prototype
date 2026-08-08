@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 import { useLocalStorage } from '@/lib/storage'
+import { authFetch } from '@/lib/authHelpers'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning, MagnifyingGlass, Robot, Code, Wrench, Bug, Books, House, Cpu, Gear, ArrowSquareOut, Camera, Plugs, Spinner } from '@phosphor-icons/react'
@@ -164,7 +165,9 @@ function ExtensionsPanel() {
   useEffect(() => {
     let cancelled = false
     setLoadingApps(true)
-    fetch(`${getBackendUrl() || ''}/api/apps/assist/integrations`)
+    // Authenticated endpoint — a bare fetch would produce a 401 flood in the
+    // backend logs every time the panel opens.
+    authFetch('/api/apps/assist/integrations')
       .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
       .then((data: { integrations?: AppAssistIntegration[] }) => {
         if (!cancelled) setAppIntegrations(data.integrations ?? [])

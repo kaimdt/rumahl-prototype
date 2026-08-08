@@ -1082,11 +1082,20 @@ fn safe_compose_token(value: &str) -> String {
 }
 
 fn compose_project_dir(req: &ComposeProjectRequest) -> Result<std::path::PathBuf, String> {
-    // Define allowed base directory (canonicalized to handle macOS /var → /private/var)
+    // Allowed base directories (canonicalized to handle macOS /var → /private/var).
+    // iora-home may use either the canonical /var/lib/iora/local-apps or its own
+    // IORA_LOCAL_APPS_DIR (/var/lib/iora/iora-home/local-apps) — accept both so
+    // compose projects from either layout work.
     let base_dir_raw = std::env::var("IORA_LOCAL_APPS_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/local-apps"));
-    let base_dir = base_dir_raw.canonicalize().unwrap_or(base_dir_raw);
+    let base_dir = base_dir_raw.canonicalize().unwrap_or(base_dir_raw.clone());
+    let home_apps_dir = std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps");
+    let home_apps_dir = home_apps_dir.canonicalize().unwrap_or(home_apps_dir);
+
+    let is_allowed = |path: &std::path::Path| {
+        path.starts_with(&base_dir) || path.starts_with(&home_apps_dir)
+    };
 
     if let Some(dir) = req.compose_dir.as_deref().filter(|d| !d.trim().is_empty()) {
         let requested_path = std::path::PathBuf::from(dir);
@@ -1096,11 +1105,11 @@ fn compose_project_dir(req: &ComposeProjectRequest) -> Result<std::path::PathBuf
             .canonicalize()
             .map_err(|e| format!("Invalid compose_dir path: {}", e))?;
 
-        // Ensure the canonical path is within the allowed base directory
-        if !canonical_path.starts_with(&base_dir) {
+        // Ensure the canonical path is within an allowed base directory
+        if !is_allowed(&canonical_path) {
             return Err(format!(
-                "compose_dir must be within {:?}, got {:?}",
-                base_dir, canonical_path
+                "compose_dir must be within {:?} or {:?}, got {:?}",
+                base_dir, home_apps_dir, canonical_path
             ));
         }
 
@@ -1129,80 +1138,98 @@ async fn compose_status_for_project(
         compose_dir: None,
         prepare_mode: None,
     };
-    let compose_dir = match compose_project_dir(&req) {
-        Ok(dir) => dir,
-        Err(e) => return Err(e),
-    };
-    let output = Command::new(docker_cli_path())
-        .args([
-            "compose",
-            "-p",
-            project_name,
-            "ps",
-            "--all",
-            "--format",
-            "json",
-        ])
-        .current_dir(&compose_dir)
-        .output()
-        .await;
-
-    let output = match output {
-        Ok(output) => output,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err("docker CLI is not installed".to_string());
-        }
-        Err(e) => return Err(format!("docker compose invocation failed: {e}")),
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if stderr.contains("no configuration file provided") || stderr.contains("not found") {
-            return Ok(None);
-        }
-        return Err(stderr);
+    // iora-home keeps its apps under /var/lib/iora/iora-home/local-apps while
+    // this service defaults to /var/lib/iora/local-apps — try the default and
+    // fall back to the iora-home layout so status checks work for both.
+    let mut compose_dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(dir) = compose_project_dir(&req) {
+        compose_dirs.push(dir);
+    }
+    let home_dir = std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps")
+        .join(safe_compose_token(app_id));
+    if !compose_dirs.iter().any(|d| d == &home_dir) {
+        compose_dirs.push(home_dir);
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-
-    let rows: Vec<ComposePsRow> = if trimmed.starts_with('[') {
-        serde_json::from_str(trimmed).unwrap_or_default()
-    } else {
-        trimmed
-            .lines()
-            .filter_map(|line| serde_json::from_str::<ComposePsRow>(line.trim()).ok())
-            .collect()
-    };
-
-    if rows.is_empty() {
-        return Ok(None);
-    }
-
-    let mut status = ComposeProjectStatus {
-        project: project_name.to_string(),
-        total: rows.len(),
-        ..Default::default()
-    };
-    for row in rows {
-        let state = row.state.to_lowercase();
-        let health_state = row.health.to_lowercase();
-        if state == "running" || state == "started" {
-            if health_state == "unhealthy" {
-                status.unhealthy += 1;
-            } else {
-                status.running += 1;
+    let mut last_error: Option<String> = None;
+    for compose_dir in compose_dirs {
+        let output = Command::new(docker_cli_path())
+            .args([
+                "compose",
+                "-p",
+                project_name,
+                "ps",
+                "--all",
+                "--format",
+                "json",
+            ])
+            .current_dir(&compose_dir)
+            .output()
+            .await;
+        let output = match output {
+            Ok(output) => output,
+            // The first candidate dir often doesn't exist (different app
+            // layouts) — record and try the next one before giving up.
+            Err(e) => {
+                last_error = Some(format!("compose invocation failed: {e}"));
+                continue;
             }
-        } else if state == "exited" || state == "dead" || state == "removing" {
-            status.exited += 1;
-        }
-        status.services.insert(row.service, row.state);
-    }
+        };
 
-    Ok(Some(status))
+        if !output.status.success() {
+            last_error = Some(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let trimmed = stdout.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let rows: Vec<serde_json::Value> = serde_json::from_str(trimmed).unwrap_or_default();
+        let rows = if rows.is_empty() {
+            trimmed
+                .lines()
+                .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+                .collect::<Vec<_>>()
+        } else {
+            rows
+        };
+        if rows.is_empty() {
+            continue;
+        }
+
+        let mut status = ComposeProjectStatus::default();
+        for row in &rows {
+            let state = row
+                .get("State")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let health_state = row
+                .get("Health")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if state == "running" || state == "started" {
+                if health_state == "unhealthy" {
+                    status.unhealthy += 1;
+                } else {
+                    status.running += 1;
+                }
+            } else if state == "exited" || state == "dead" || state == "removing" {
+                status.exited += 1;
+            }
+            if let Some(service) = row.get("Service").and_then(|v| v.as_str()) {
+                status.services.insert(service.to_string(), state.clone());
+            }
+        }
+        status.total = rows.len();
+        return Ok(Some(status));
+    }
+    if let Some(err) = last_error {
+        return Err(format!("docker compose ps failed: {err}"));
+    }
+    Ok(None)
 }
 
 #[get("/api/supervisor/compose/status/{app_id}")]

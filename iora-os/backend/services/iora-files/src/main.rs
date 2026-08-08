@@ -321,6 +321,18 @@ async fn main() -> Result<()> {
                     middleware_auth::require_auth,
                 )),
         )
+        // axum 0.7 quirk: `nest("/api/files", …)` matches `/api/files` but NOT
+        // `/api/files/` (trailing slash) — the form the frontend actually calls.
+        // Mount a second, auth-protected nest so both spellings work.
+        .nest(
+            "/api/files/",
+            Router::new()
+                .route("/", get(list_files))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware_auth::require_auth,
+                )),
+        )
         .layer(DefaultBodyLimit::max(max_file_size))
         .layer(cors)
         .with_state(state.clone());

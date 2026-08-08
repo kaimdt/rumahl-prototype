@@ -157,15 +157,34 @@ pub fn security_db_key() -> String {
 /// 2. `PORT` env var (generic fallback)
 /// 3. Default port from the IORA OS port map
 pub fn service_port(service: &str, default: u16) -> u16 {
+    service_port_inner(service, default, true)
+}
+
+/// Like [`service_port`] but NEVER falls back to the generic `PORT` env var.
+///
+/// Used for cross-service discovery. `PORT` conventionally holds the
+/// *caller's own* port (Docker containers, dev-VM systemd units), so using it
+/// while resolving ANOTHER service resolves every service to the caller
+/// itself — e.g. iora-home (PORT=8126) would proxy /api/files/* to
+/// http://127.0.0.1:8126 (itself), causing recursive self-proxy loops (503
+/// timeouts), 404s for /api/os/control/* and FD exhaustion. Only the
+/// service-specific variable and the canonical port map are consulted here.
+pub fn service_port_discovery(service: &str, default: u16) -> u16 {
+    service_port_inner(service, default, false)
+}
+
+fn service_port_inner(service: &str, default: u16, allow_generic_port: bool) -> u16 {
     let specific_key = format!("{}_PORT", service.to_uppercase().replace('-', "_"));
     if let Ok(val) = std::env::var(&specific_key) {
         if let Ok(p) = val.parse() {
             return p;
         }
     }
-    if let Ok(val) = std::env::var("PORT") {
-        if let Ok(p) = val.parse() {
-            return p;
+    if allow_generic_port {
+        if let Ok(val) = std::env::var("PORT") {
+            if let Ok(p) = val.parse() {
+                return p;
+            }
         }
     }
     // Look up default from the port map
@@ -190,7 +209,7 @@ pub fn service_url(service: &str, default_port: u16) -> String {
         return url;
     }
 
-    let port = service_port(service, default_port);
+    let port = service_port_discovery(service, default_port);
     if std::env::var("IORA_SERVICE_DNS").ok().as_deref() == Some("1")
         || std::env::var("IORA_CONTAINER_MODE").ok().as_deref() == Some("1")
         || std::path::Path::new("/.dockerenv").exists()

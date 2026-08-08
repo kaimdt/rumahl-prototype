@@ -148,7 +148,8 @@
       "installHint": "Launcher und Widgets aus dem ORA App Store erscheinen hier automatisch. Manuelle Launcher können weiterhin als Manifest importiert werden.",
       "invalidManifest": "Das Launcher-Manifest ist ungültig.",
       "backendStatus": "ORA Backend",
-      "homeAssistantStatus": "Home Assistant"
+      "homeAssistantStatus": "Home Assistant",
+      "installingApp": "Wird installiert…"
     },
     "shell": {
       "openQuickSettings": "Schnelleinstellungen öffnen",
@@ -354,7 +355,8 @@
       "modified": "Geändert",
       "size": "Größe",
       "open": "Öffnen",
-      "select": "Auswählen"
+      "select": "Auswählen",
+      "serviceRestart": "Der Files-Dienst antwortet nicht korrekt ({{detail}}). Bitte starte den Files-Dienst neu (iora-files)."
     },
     "dock": {
       "open": "Öffnen",
@@ -470,7 +472,11 @@
     "backendUsageDesc": "CPU, Arbeitsspeicher und Datenbank",
     "homeAssistant": "Home Assistant",
     "homeAssistantDesc": "Verbindung, Entitäten und Domänen",
-    "screensaverTimeoutDesc": "Zeigt eine Uhr nach einer Zeit ohne Eingabe"
+    "screensaverTimeoutDesc": "Zeigt eine Uhr nach einer Zeit ohne Eingabe",
+    "tabGeneralDesc": "Profil, Sicherheit & KI",
+    "tabAppearanceDesc": "Theme, Akzent & Glas",
+    "tabDashboardDesc": "Designer & Code",
+    "tabSystemDesc": "Status & Dienste"
   },
   "dashboard": {
     "noEntities": "Keine Entitäten gefunden",
@@ -764,8 +770,38 @@
       "comingDescription": "Direkter Zugriff auf Apps, Widgets und Plugins aus dem ORA-Katalog.",
       "comingSoon": "Demnächst",
       "catalog": {
-        "weather": "Wetter Pro"
-      }
+        "nextcloud": "Deine eigene Cloud: Dateien, Kalender, Kontakte & mehr — vollständig selbst gehostet in einem Docker-Container auf deinem IORA OS.",
+        "webbrowser": "Vollwertiger Firefox im Container auf deinem Server — öffne ihn im Browser-Fenster und surfe wie auf einem eigenen Rechner. Läuft auch weiter, wenn du die Seite schließt."
+      },
+      "install": "Installieren",
+      "installed": "Installiert",
+      "topCharts": "Top-Charts",
+      "moreFrom": "Weitere von",
+      "bannerTag": "Von ORA empfohlen",
+      "prevBanner": "Vorheriges Banner",
+      "nextBanner": "Nächstes Banner",
+      "banner": "Banner {{n}}",
+      "emptyTitle": "Keine Apps im Store gefunden",
+      "emptyDescription": "Suche nach Apps, Widgets oder Plugins – oder installiere sie per ZIP hochladen.",
+      "essentials": "IORA Essentials",
+      "back": "Zurück zum Store",
+      "similarApps": "Ähnliche Apps",
+      "version": "Version",
+      "developer": "Entwickler",
+      "source": "Quelle",
+      "openApp": "Öffnen",
+      "systemApp": "System-App",
+      "preinstalled": "Vorinstalliert",
+      "essentialsHint": "Diese App ist Teil von IORA OS und bereits vorinstalliert — sie ist direkt aus dem Launcher oder hier über „Öffnen“ erreichbar.",
+      "installing": "Installiere {{name}}…",
+      "installStarted": "Installation von {{name}} gestartet",
+      "installFailed": "Installation fehlgeschlagen: {{detail}}",
+      "openPort": "Im Browser öffnen",
+      "starting": "Starte…",
+      "start": "Starten",
+      "uninstall": "Deinstallieren",
+      "uninstallConfirm": "„{{name}}“ wirklich deinstallieren? Der Container wird gestoppt und alle App-Daten entfernt.",
+      "uninstalled": "{{name}} wurde deinstalliert"
     },
     "topThemes": "Top Themes",
     "topApps": "Top Apps",
@@ -1023,5 +1059,14 @@
       "elevated": "Erhaben",
       "metallic": "Metallisch"
     }
+  },
+  "streaming": {
+    "activeStreams": "Aktive Streams",
+    "activeStreamsDesc": "Alle laufenden Streams im Netzwerk",
+    "noStreams": "Momentan sind keine Streams aktiv",
+    "viewers": "Zuschauer",
+    "watchStream": "Stream ansehen",
+    "backToOverview": "Zurück zur Übersicht",
+    "live": "live"
   }
 }

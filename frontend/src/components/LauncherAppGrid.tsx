@@ -30,13 +30,18 @@ export function buildLauncherItems(apps: OsAppDefinition[], folders: LauncherFol
 
 function AppIcon({ app, compact = false }: { app: OsAppDefinition; compact?: boolean }) {
   const Icon = app.icon
+  const size = compact ? 16 : 38
   return (
     <span
       className={`ora-app-icon relative flex shrink-0 items-center justify-center overflow-hidden border border-white/15 text-white ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'}`}
       style={{ background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
       <span className="ora-app-icon-highlight absolute inset-0" />
-      <Icon size={compact ? 16 : 38} weight="duotone" className="relative" />
+      {app.iconUrl ? (
+        <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-cover" />
+      ) : Icon ? (
+        <Icon size={size} weight="duotone" className="relative" />
+      ) : null}
     </span>
   )
 }

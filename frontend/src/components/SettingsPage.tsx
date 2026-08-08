@@ -60,6 +60,7 @@ import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
 import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
+import { OsWindowActions } from '@/components/OsWindowActions'
 import { useLocalStorage } from '@/lib/storage'
 import {
   getAutoContrastMode,
@@ -287,9 +288,10 @@ export function SettingsSection({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center gap-3 p-5 text-left hover:bg-foreground/[0.02] transition-colors"
+        aria-expanded={isOpen}
       >
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${accentIcon ? 'bg-accent/15' : 'bg-foreground/8'}`}>
-          <Icon size={18} weight="fill" className={accentIcon ? 'text-accent' : 'text-foreground/60'} />
+        <div className={`w-9 h-9 rounded-[0.7rem] flex items-center justify-center shrink-0 transition-colors duration-200 ${isOpen ? (accentIcon ? 'bg-accent/16 text-accent' : 'bg-foreground/10 text-foreground/75') : (accentIcon ? 'bg-accent/10 text-accent/70' : 'bg-foreground/8 text-foreground/55')}`}>
+          <Icon size={18} weight="fill" />
         </div>
         <div className="flex-1 min-w-0">
           <h4 className="text-sm font-semibold text-foreground">{title}</h4>
@@ -307,7 +309,7 @@ export function SettingsSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             className="overflow-hidden"
           >
             <div className="px-5 pb-5 space-y-3">
@@ -526,30 +528,50 @@ export function SettingsPage(props: SettingsPageProps) {
     <section className="ora-app-frame ora-settings-app">
       <header className="ora-settings-navbar">
         <div className="flex items-center gap-3"><span className="ora-app-mark ora-app-mark-settings"><GearSix size={24} weight="duotone" /></span><div><p className="text-xl font-semibold text-foreground">{t('navigation.settings')}</p><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
-        <div className="flex items-center gap-2 text-[11px] text-foreground/50">
-          <span className="px-2.5 py-1 rounded-lg bg-foreground/5">{userName}</span>
-          <span className="px-2.5 py-1 rounded-lg bg-foreground/5 capitalize">{theme}</span>
+        <div className="flex items-center gap-2">
+          <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium text-foreground/60 sm:flex"><User size={12} />{userName}</span>
+          <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium capitalize text-foreground/60 md:flex"><Palette size={12} />{theme}</span>
+          <OsWindowActions pageId="settings" />
         </div>
       </header>
 
       <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as typeof settingsTab)} className="ora-settings-layout">
         <TabsList className="ora-settings-sidebar">
-          <TabsTrigger value="general" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
-            <User size={15} weight="fill" />
-            <span className="hidden sm:inline">{t('settings.general')}</span>
-            <span className="sm:hidden">{t('settings.profile')}</span>
+          <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
+              <User size={15} weight="fill" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold text-foreground/85 group-data-[state=active]:text-foreground">{t('settings.general')}</span>
+              <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabGeneralDesc')}</span>
+            </span>
           </TabsTrigger>
-          <TabsTrigger value="appearance" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
-            <Palette size={15} weight="fill" />
-            <span>{t('settings.appearance')}</span>
+          <TabsTrigger value="appearance" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
+              <Palette size={15} weight="fill" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold text-foreground/85 group-data-[state=active]:text-foreground">{t('settings.appearance')}</span>
+              <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabAppearanceDesc')}</span>
+            </span>
           </TabsTrigger>
-          <TabsTrigger value="dashboard" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
-            <Layout size={15} weight="fill" />
-            <span>Dashboard</span>
+          <TabsTrigger value="dashboard" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
+              <Layout size={15} weight="fill" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold text-foreground/85 group-data-[state=active]:text-foreground">{t('settings.dashboard')}</span>
+              <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabDashboardDesc')}</span>
+            </span>
           </TabsTrigger>
-          <TabsTrigger value="system" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
-            <GearSix size={15} weight="fill" />
-            <span>System</span>
+          <TabsTrigger value="system" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
+              <GearSix size={15} weight="fill" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold text-foreground/85 group-data-[state=active]:text-foreground">{t('settings.system')}</span>
+              <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabSystemDesc')}</span>
+            </span>
           </TabsTrigger>
         </TabsList>
 

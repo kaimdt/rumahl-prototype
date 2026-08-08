@@ -24,9 +24,28 @@ export function parseStoredToken(raw: string | null): string | null {
   return null
 }
 
-/** Get the current auth token from localStorage or sessionStorage */
+/** Read the auth cookie (primary storage — survives cache clears). */
+function readAuthCookie(): string | null {
+  try {
+    const match = document.cookie.match(/(?:^|;\s*)iora_token=([^;]+)/)
+    return match ? decodeURIComponent(match[1]) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get the current auth token.
+ *
+ * Order matches AuthContext.readPersistedToken(): cookie first (primary,
+ * survives cache clears), then localStorage / sessionStorage. Without the
+ * cookie fallback a user who is logged in via cookie but has an empty
+ * localStorage would silently send ALL authenticated requests without a
+ * token → backend 401 flood.
+ */
 export function getAuthToken(): string {
-  return parseStoredToken(localStorage.getItem('ha-auth-token'))
+  return readAuthCookie()
+    ?? parseStoredToken(localStorage.getItem('ha-auth-token'))
     ?? parseStoredToken(sessionStorage.getItem('ha-auth-token'))
     ?? ''
 }
@@ -52,5 +71,21 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`)
   }
-  return fetch(url, { ...init, headers })
+  // Without a token the request would only produce a backend-side 401 flood
+  // ("Authenticated access rejected" in the logs) on the login screen and
+  // during boot — fail fast locally instead of hitting the network.
+  if (!token) {
+    return new Response(JSON.stringify({ error: 'not authenticated' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  const response = await fetch(url, { ...init, headers })
+  // A 401 with a token present means the session expired/invalidated. Notify
+  // the AuthContext so it can log the user out cleanly instead of letting
+  // every poller hammer the backend and flood the logs with rejections.
+  if (response.status === 401) {
+    window.dispatchEvent(new CustomEvent('iora:auth-unauthorized', { detail: { url } }))
+  }
+  return response
 }

@@ -17,6 +17,10 @@ import { NavigationMenu } from '@/components/NavigationMenu'
 import { OsHomeScreen } from '@/components/OsHomeScreen'
 import { OsSystemShell } from '@/components/OsSystemShell'
 import { OsDock } from '@/components/OsDock'
+import { OsFullscreenBar } from '@/components/OsFullscreenBar'
+import { OsWindowActions } from '@/components/OsWindowActions'
+import { AppRuntimeView } from '@/components/AppRuntimeView'
+import { appRuntimeUrls } from '@/hooks/useInstalledApps'
 import { OsAppWindow } from '@/components/OsAppWindow'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
 import { OsWindowProvider, useOsWindows } from '@/contexts/OsWindowContext'
@@ -149,10 +153,6 @@ function DashboardContent() {
   const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
   const isOsAppPage = standaloneAppPageIds.includes(currentPageId)
   const { windows, immersivePageId, setImmersive } = useOsWindows()
-  const exitImmersive = useCallback(() => {
-    setImmersive(null)
-    setCurrentPageId('launcher')
-  }, [setCurrentPageId, setImmersive])
 
   // OS app lookup used by the window manager (icons/names for windows + dock).
   const osApps = useMemo(() => {
@@ -175,6 +175,11 @@ function DashboardContent() {
 
 // Raw app content (no window chrome) — used by the window manager.
 const renderOsAppContent = (pageId: string): React.ReactNode => {
+  // Installed Docker apps embed their web UI in an iframe (CasaOS-style).
+  const runtimeUrl = appRuntimeUrls.get(pageId)
+  if (runtimeUrl) {
+    return <AppRuntimeView appId={pageId} url={runtimeUrl} name={getOsAppName(pageId)} />
+  }
   switch (pageId) {
     case 'launcher': return <OsHomeScreen />
     case 'os-files': return <OsSystemApp kind="files" />
@@ -227,15 +232,15 @@ const renderOsAppContent = (pageId: string): React.ReactNode => {
 // Fullscreen OS pages: embedded apps get an OS window chrome.
 const renderOsAppPage = (pageId: string): React.ReactNode => {
   if (pageId === 'app-store') {
-    return <section className="ora-app-frame p-4 sm:p-6"><header className="mb-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h1 className="mt-1 text-3xl font-semibold">{t('os.apps.appStore.name')}</h1><p className="mt-1 text-sm text-foreground/45">{t('os.apps.appStore.description')}</p></header><AppStoreTab token={token || ''} /></section>
+    return <section className="ora-app-frame p-4 sm:p-6"><header className="mb-6 flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h1 className="mt-1 text-3xl font-semibold">{t('os.apps.appStore.name')}</h1><p className="mt-1 text-sm text-foreground/45">{t('os.apps.appStore.description')}</p></div><OsWindowActions pageId={pageId} /></header><AppStoreTab token={token || ''} /></section>
   }
   if (pageId === 'admin') {
-    return user?.isAdmin ? <OsAppWindow title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminPanel /></OsAppWindow> : null
+    return user?.isAdmin ? <OsAppWindow pageId={pageId} title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminPanel /></OsAppWindow> : null
   }
-  if (pageId === 'docs') return <OsAppWindow title={t('navigation.docs')} icon={getOsAppIcon(pageId)}><DocsPage /></OsAppWindow>
-  if (pageId === 'share') return <OsAppWindow title={t('os.apps.share.name')} icon={getOsAppIcon(pageId)}><SharePage /></OsAppWindow>
-  if (pageId === 'streaming') return <OsAppWindow title={t('os.apps.streaming.name')} icon={getOsAppIcon(pageId)}><StreamSender /></OsAppWindow>
-  if (pageId === 'ai-agent') return <OsAppWindow title={t('os.apps.agent.name')} icon={getOsAppIcon(pageId)}><AgentTab token={token || ''} /></OsAppWindow>
+  if (pageId === 'docs') return <OsAppWindow pageId={pageId} title={t('navigation.docs')} icon={getOsAppIcon(pageId)}><DocsPage /></OsAppWindow>
+  if (pageId === 'share') return <OsAppWindow pageId={pageId} title={t('os.apps.share.name')} icon={getOsAppIcon(pageId)}><SharePage /></OsAppWindow>
+  if (pageId === 'streaming') return <OsAppWindow pageId={pageId} title={t('os.apps.streaming.name')} icon={getOsAppIcon(pageId)}><StreamSender /></OsAppWindow>
+  if (pageId === 'ai-agent') return <OsAppWindow pageId={pageId} title={t('os.apps.agent.name')} icon={getOsAppIcon(pageId)}><AgentTab token={token || ''} /></OsAppWindow>
   return renderOsAppContent(pageId)
 }
 
@@ -698,32 +703,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
             transition: 'filter var(--transition-duration) ease',
           }}
         >
-          {currentPageId !== 'launcher' && !immersivePageId && <header
-            className="glass-header theme-transition"
-            style={{
-              ...(warningLevel === 'emergency' ? { background: 'linear-gradient(to right, rgba(127,29,29,0.95), rgba(153,27,27,0.95))', borderBottom: '1px solid rgba(248,113,113,0.4)' }
-                : warningLevel === 'critical' ? { background: 'linear-gradient(to right, rgba(154,52,18,0.85), rgba(185,28,28,0.85))', borderBottom: '1px solid rgba(248,113,113,0.3)' }
-                : warningLevel === 'warning' ? { background: 'linear-gradient(to right, rgba(180,83,9,0.75), rgba(194,65,12,0.75))', borderBottom: '1px solid rgba(251,191,36,0.3)' }
-                : {}),
-              transition: 'background 0.5s ease, border-bottom 0.5s ease',
-            }}
-          >
-            <div className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
-                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
-                <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
-                  {currentPageId === 'launcher' ? t('os.title') : currentPageId === 'settings' ? t('navigation.settings') : currentPageId === 'admin' ? t('navigation.admin') : currentPageId === 'docs' ? t('navigation.docs') : currentPageId === 'streaming' ? t('navigation.streaming') : currentPageId === 'os-files' ? t('os.apps.files.name') : currentPageId === 'os-network' ? t('os.apps.network.name') : currentPageId === 'os-system' ? t('os.apps.system.name') : currentPageId === 'os-updates' ? t('os.apps.updates.name') : currentPageId === 'os-backups' ? t('os.apps.backups.name') : currentPageId === 'app-store' ? t('os.apps.appStore.name') : currentPageId === 'share' ? t('os.apps.share.name') : currentPageId === 'ai-agent' ? t('os.apps.agent.name') : t('navigation.home')}
-                </span>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-[11px] text-foreground/40 font-light tracking-wider hidden sm:block">
-                  {entities.length > 0 ? `${entities.length} ${t('dashboard.entities')}` : ''}
-                </span>
-                <HeaderClock />
-              </div>
-            </div>
-          </header>}
+          
 
           <main className={`${isOsAppPage ? 'max-w-[1700px]' : 'max-w-[1500px]'} mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32`} style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
           <Suspense fallback={<DashboardSkeleton />}>
@@ -760,7 +740,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
             const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
-            const isNonHAPage = nonHAPages.includes(currentPageId)
+            const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
@@ -1028,17 +1008,18 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
       </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner || standaloneAppPageIds.includes(currentPageId)} />
       {!showPageDesigner && !immersivePageId && <OsSystemShell />}
-      {!showPageDesigner && !immersivePageId && <OsDock />}
-      {!showPageDesigner && immersivePageId && (
-        <button
-          type="button"
-          onClick={exitImmersive}
-          className="glass-card fixed left-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[75] flex min-h-11 touch-manipulation items-center gap-2 rounded-full px-3 text-sm font-semibold text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring sm:left-6 sm:top-5"
-          aria-label={t('os.launcher.closeApp')}
-        >
-          <X size={18} />
-          <span className="hidden sm:inline">{t('os.launcher.closeApp')}</span>
-        </button>
+      {/* Dock only on launcher & OS pages — it must never cover the navbar in apps */}
+      {!showPageDesigner && !immersivePageId && standaloneAppPageIds.includes(currentPageId) && <OsDock />}
+      {/* Slim OS status bar on every page (like the launcher). Window actions
+         only appear inside immersive (true fullscreen) apps. */}
+      {!showPageDesigner && (
+        <OsFullscreenBar
+          pageId={immersivePageId || currentPageId}
+          name={getOsAppName(immersivePageId || currentPageId)}
+          icon={getOsAppIcon(immersivePageId || currentPageId) ? (
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent/15 text-accent">{getOsAppIcon(immersivePageId || currentPageId)}</span>
+          ) : undefined}
+        />
       )}
       {currentPageId === 'launcher' && !showPageDesigner && !immersivePageId && (
         <OsWindowOverlay

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowSquareOut, PushPin, SquaresFour } from '@phosphor-icons/react'
+import { ArrowSquareOut, Check, PushPin, SquaresFour } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
 import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useOsWindows } from '@/contexts/OsWindowContext'
+import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { DOCK_PINS_EVENT_NAME, isDockPinned, readDockPins, toggleDockPin } from '@/lib/dockPrefs'
+import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchModes'
 
 const RECENT_APPS_KEY = 'iora-os-recent-apps'
 const MAX_RECENT_IN_DOCK = 3
@@ -26,6 +28,7 @@ export function OsDock() {
   const { user } = useAuth()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const { windows, openWindow, openSplit, setImmersive, focusWindow } = useOsWindows()
+  const { installedApps } = useInstalledApps()
   const { can } = useOsPermissions()
   const [pinnedIds, setPinnedIds] = useState<string[]>(readDockPins)
   const [recentIds, setRecentIds] = useState<string[]>(readRecentIds)
@@ -33,10 +36,12 @@ export function OsDock() {
 
   const apps = useMemo(() => {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
-    return [...SYSTEM_OS_APPS, ...pageApps]
+    const pageIds = new Set([...SYSTEM_OS_APPS, ...pageApps].map((app) => app.pageId))
+    const extra = installedApps.filter((app) => !pageIds.has(app.pageId))
+    return [...SYSTEM_OS_APPS, ...pageApps, ...extra]
       .filter((app) => !app.adminOnly || user?.isAdmin)
       .filter((app) => !app.requiredPermission || can(app.requiredPermission))
-  }, [can, pages, user?.isAdmin])
+  }, [can, pages, user?.isAdmin, installedApps])
 
   const appById = useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps])
 
@@ -78,6 +83,10 @@ export function OsDock() {
 
   const handleItemClick = (app: OsAppDefinition) => {
     setMenuId(null)
+    if (app.openUrl) {
+      setCurrentPageId(app.pageId)
+      return
+    }
     if (app.pageId === 'launcher') {
       setCurrentPageId('launcher')
       return
@@ -95,7 +104,20 @@ export function OsDock() {
       setCurrentPageId('launcher')
       return
     }
-    setCurrentPageId(app.pageId)
+    // Launch in the user's preferred mode for this app.
+    const mode = getPreferredLaunchMode(app.pageId)
+    if (mode === 'window') {
+      openWindow(app.pageId)
+      setCurrentPageId('launcher')
+    } else if (mode === 'split-left' || mode === 'split-right') {
+      openSplit(app.pageId, mode)
+      setCurrentPageId('launcher')
+    } else if (mode === 'immersive') {
+      setImmersive(app.pageId)
+      setCurrentPageId(app.pageId)
+    } else {
+      setCurrentPageId(app.pageId)
+    }
   }
 
   const getName = (app: OsAppDefinition) => (app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName)
@@ -123,7 +145,7 @@ export function OsDock() {
           >
             <Icon size={24} weight="duotone" />
           </span>
-          <span className="pointer-events-none absolute -top-9 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-lg bg-black/85 px-2.5 py-1 text-[11px] font-medium text-white opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+          <span className="pointer-events-none absolute -top-9 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-xl backdrop-blur-md transition-opacity duration-150 group-hover:opacity-100">
             {name}
           </span>
           <AnimatePresence>
@@ -132,7 +154,7 @@ export function OsDock() {
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="mt-1 h-1 w-1 rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.9)]"
+                className="mt-1 h-1 w-1 rounded-full bg-accent shadow-[0_0_6px_var(--accent)]"
               />
             )}
           </AnimatePresence>
@@ -165,21 +187,25 @@ export function OsDock() {
                 </button>
                 {app.id !== 'launcher' && (
                   <>
-                    <button type="button" onClick={() => { openWindow(app.pageId); setCurrentPageId('launcher'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
+                    <button type="button" onClick={() => { openWindow(app.pageId); setPreferredLaunchMode(app.pageId, 'window'); setCurrentPageId('launcher'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
                       <SquaresFour size={16} className="text-foreground/60" />
-                      {t('os.window.asWindow')}
+                      <span className="flex-1">{t('os.window.asWindow')}</span>
+                      {getPreferredLaunchMode(app.pageId) === 'window' && <Check size={14} className="text-accent" />}
                     </button>
-                    <button type="button" onClick={() => { openSplit(app.pageId, 'split-left'); setCurrentPageId('launcher'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
+                    <button type="button" onClick={() => { openSplit(app.pageId, 'split-left'); setPreferredLaunchMode(app.pageId, 'split-left'); setCurrentPageId('launcher'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
                       <SquaresFour size={16} className="text-foreground/60" />
-                      {t('os.window.splitLeft')}
+                      <span className="flex-1">{t('os.window.splitLeft')}</span>
+                      {getPreferredLaunchMode(app.pageId) === 'split-left' && <Check size={14} className="text-accent" />}
                     </button>
-                    <button type="button" onClick={() => { openSplit(app.pageId, 'split-right'); setCurrentPageId('launcher'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
+                    <button type="button" onClick={() => { openSplit(app.pageId, 'split-right'); setPreferredLaunchMode(app.pageId, 'split-right'); setCurrentPageId('launcher'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
                       <SquaresFour size={16} className="text-foreground/60" />
-                      {t('os.window.splitRight')}
+                      <span className="flex-1">{t('os.window.splitRight')}</span>
+                      {getPreferredLaunchMode(app.pageId) === 'split-right' && <Check size={14} className="text-accent" />}
                     </button>
-                    <button type="button" onClick={() => { setImmersive(app.pageId); setCurrentPageId(app.pageId); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
+                    <button type="button" onClick={() => { setImmersive(app.pageId); setPreferredLaunchMode(app.pageId, 'immersive'); setCurrentPageId(app.pageId); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
                       <SquaresFour size={16} className="text-foreground/60" />
-                      {t('os.window.immersive')}
+                      <span className="flex-1">{t('os.window.immersive')}</span>
+                      {getPreferredLaunchMode(app.pageId) === 'immersive' && <Check size={14} className="text-accent" />}
                     </button>
                   </>
                 )}
@@ -207,7 +233,7 @@ export function OsDock() {
 
   return (
     <div className="fixed bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-1/2 z-[60] -translate-x-1/2 select-none">
-      <div className="flex items-end gap-1.5 rounded-[1.8rem] border border-white/12 bg-black/50 px-3 py-2.5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
+      <div className="flex items-end gap-1.5 rounded-[1.75rem] border border-white/12 bg-background/60 px-3 py-2.5 shadow-2xl shadow-black/25 backdrop-blur-2xl">
         {renderItem(launcherApp, false)}
         {pinned.map((app) => renderItem(app, true))}
         {recents.length > 0 && (
