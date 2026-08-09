@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BatteryCharging, Lightning, SunDim } from '@phosphor-icons/react'
 import { useEntityStore } from '@/hooks/useEntityStore'
+import { authFetch } from '@/lib/authHelpers'
 
 interface EnergyData {
   total_entities: number
@@ -41,7 +42,7 @@ export default function EnergyMonitorWidget({ config }: { config?: Record<string
     .reduce((sum, e) => sum + (parseFloat(e.state) || 0), 0)
 
   useEffect(() => {
-    fetch('/api/stats/dashboard')
+    authFetch('/api/stats/dashboard')
       .then(r => r.ok ? r.json() : null)
       .then(data => data && setStats(data))
       .catch(() => {})

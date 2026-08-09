@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
 import { OsAppFilePickerDialog, type AppFileOpenResult, type AppFileSaveRequest } from '@/components/OsAppFilePickerDialog'
+import { authFetch } from '@/lib/authHelpers'
 
 interface IFrameWidgetConfig {
   url?: string
@@ -216,7 +217,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
         case 'entities.list':
           // Forward to IORA API
           try {
-            const res = await fetch('/api/states')
+            const res = await authFetch('/api/states')
             const entities = await res.json()
             sendResponse(entities)
           } catch (e) {
@@ -228,7 +229,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
           const [entityId] = msg.params?.slice(1) || []
           if (entityId) {
             try {
-              const res = await fetch(`/api/states/${entityId}`)
+              const res = await authFetch(`/api/states/${entityId}`)
               const entity = await res.json()
               sendResponse(entity)
             } catch (e) {

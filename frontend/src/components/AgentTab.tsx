@@ -72,6 +72,7 @@ interface GitHubAuthState {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 import { getAssistUrl, getBackendUrl } from '@/lib/config'
+import { getAuthToken } from '@/lib/authHelpers'
 
 const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 
@@ -312,7 +313,7 @@ export function AgentTab({ token }: { token: string }) {
 
   // ─── SSE for live tasks ──────────────────────────────────────────────────
   useEffect(() => {
-    const es = new EventSource(`${assistBase()}/api/assist/agent/tasks/events`)
+    const es = new EventSource(`${assistBase()}/api/assist/agent/tasks/events?token=${encodeURIComponent(getAuthToken() || '')}`)
     const updateTask = (updater: (t: AgentTask) => AgentTask) => {
       setTasks(prev => prev.map(t => t.id === (updater as any)._id ? updater(t) : t))
     }

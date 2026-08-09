@@ -194,6 +194,7 @@ export function useAccentColor() {
     document.documentElement.style.setProperty('--accent', `oklch(${l} ${c} ${h})`)
     document.documentElement.style.setProperty('--ring', `oklch(${l} ${c} ${h})`)
     document.documentElement.style.setProperty('--accent-hue', `${h}`)
+    document.documentElement.style.setProperty('--accent-hue-rot', `${(h - 35).toFixed(1)}deg`)
     // rgb triplet used by rgba(var(--accent-rgb)) consumers (widget glows, neon styles)
     document.documentElement.style.setProperty('--accent-rgb', `${rgb.r} ${rgb.g} ${rgb.b}`)
   }

@@ -132,6 +132,26 @@ const ConfigurationContext = createContext<ConfigurationContextType | undefined>
 // as the backend — so an empty string (= relative URL) is the correct
 // default for every device the dashboard is opened from.
 const apiBase = () => getBackendUrl() || ''
+const BACKGROUND_CACHE_KEY = 'iora-active-background'
+
+function readCachedBackground(): BackgroundConfig | null {
+  try {
+    const raw = localStorage.getItem(BACKGROUND_CACHE_KEY)
+    if (!raw) return null
+    const background = JSON.parse(raw) as BackgroundConfig
+    return background?.is_active && background.config ? background : null
+  } catch {
+    return null
+  }
+}
+
+function cacheBackground(background: BackgroundConfig | null): void {
+  if (background?.is_active && background.config) {
+    localStorage.setItem(BACKGROUND_CACHE_KEY, JSON.stringify(background))
+  } else {
+    localStorage.removeItem(BACKGROUND_CACHE_KEY)
+  }
+}
 
 export function ConfigurationProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth()
@@ -140,7 +160,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ConfigurationProfile | null>(null)
   const [pages, setPages] = useState<DashboardPage[]>([])
   const [theme, setTheme] = useState<ThemeSettings | null>(null)
-  const [background, setBackground] = useState<BackgroundConfig | null>(null)
+  const [background, setBackground] = useState<BackgroundConfig | null>(() => readCachedBackground())
   const [designMode, setDesignMode] = useState<'user' | 'device'>('user')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -315,6 +335,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
         setTheme(data.theme)
         setBackground(data.background)
+        cacheBackground(data.background)
       }
     } catch (err) {
       console.error('Failed to load profile data:', err)
@@ -399,6 +420,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const updatedBackground = await response.json()
         setBackground(updatedBackground)
+        cacheBackground(updatedBackground)
       } else {
         throw new Error('Failed to save background')
       }

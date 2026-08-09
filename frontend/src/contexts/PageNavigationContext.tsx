@@ -97,6 +97,7 @@ import {
   Megaphone,
   ShareNetwork,
 } from '@phosphor-icons/react'
+import { STORE_CATALOG } from '@/lib/storeCatalog'
 
 export interface PageSettings {
   page_id: string
@@ -294,6 +295,7 @@ function pageIdToPath(id: string, docPath?: string): string {
   if (id === 'admin') return '/admin'
   if (id === 'docs' && docPath) return `/docs/${docPath}`
   if (builtInPages.includes(id)) return `/${id}`
+  if (STORE_CATALOG.some((app) => app.id === id)) return `/app/${id}`
   return `/page/${id}`
 }
 
@@ -301,6 +303,7 @@ function pathToPageId(path: string): string {
   if (path === '/' || path === '') return 'launcher'
   if (path.startsWith('/admin')) return 'admin'
   if (path.startsWith('/docs/') || path.startsWith('/docs')) return 'docs'
+  if (path.startsWith('/app/')) return path.slice(5)
   if (path.startsWith('/page/')) return path.slice(6)
   return path.slice(1)
 }

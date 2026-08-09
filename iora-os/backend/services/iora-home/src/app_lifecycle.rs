@@ -316,11 +316,17 @@ pub async fn spawn_health_monitor(store: Arc<LocalAppStore>, base_dir: std::path
                 None => return, // Docker nicht da → Monitor beenden
             };
 
-            // Self-heal the status: an enabled app whose containers are all
-            // running must be reported as "running" (e.g. after VM reboots).
+            // Self-heal the status: an app whose containers exist must never
+            // stay stuck in "installing" (e.g. after VM reboots). Enabled apps
+            // with all containers running are reported as "running"; disabled
+            // apps that are up are reported as "stopped" (CasaOS semantics).
             if app.status != "running" {
-                if app.enabled && status.all_running() {
-                    let _ = store.set_status(&app.id, "running").await;
+                if status.all_running() {
+                    let _ = store
+                        .set_status(&app.id, if app.enabled { "running" } else { "stopped" })
+                        .await;
+                } else if app.status == "installing" && status.total > 0 {
+                    let _ = store.set_status(&app.id, "stopped").await;
                 }
                 let mut t = trackers.write().await;
                 t.remove(&app.id); // Tracker reset, falls App manuell gestoppt

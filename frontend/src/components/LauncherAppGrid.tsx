@@ -59,6 +59,7 @@ export function LauncherAppGrid({
   editMode,
   onEditModeChange,
   onFoldersChange,
+  onReorder,
   onOpenApp,
   getAppName,
   onLaunch,
@@ -69,6 +70,8 @@ export function LauncherAppGrid({
   editMode: boolean
   onEditModeChange: (enabled: boolean) => void
   onFoldersChange: (folders: LauncherFolder[]) => void
+  /** Mobile-OS style reorder: move the item with id `fromId` to `toId`'s position. */
+  onReorder: (fromId: string, toId: string) => void
   onOpenApp: (app: OsAppDefinition) => void
   getAppName: (app: OsAppDefinition) => string
   /** Launches an app in a specific OS layout (fullscreen / window / split / immersive). */
@@ -101,6 +104,46 @@ export function LauncherAppGrid({
 
   const updateFolder = (folderId: string, update: (folder: LauncherFolder) => LauncherFolder) => {
     onFoldersChange(folders.map((folder) => folder.id === folderId ? update(folder) : folder))
+  }
+
+  const itemIdOf = (item: LauncherItem) => (item.type === 'app' ? item.app.id : item.folder.id)
+
+  /** Unified drop: apps/folders swap positions; dragging an app onto a folder moves it in. */
+  const handleDrop = (target: LauncherItem, event: React.DragEvent) => {
+    if (event) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    const targetId = itemIdOf(target)
+    dragJustHappenedRef.current = true
+    window.setTimeout(() => { dragJustHappenedRef.current = false }, 120)
+    if (draggedFolderId && draggedFolderId !== targetId) {
+      if (target.type === 'app') {
+        onReorder(draggedFolderId, targetId)
+      } else {
+        // Folder over folder → reorder folders
+        const current = [...folders]
+        const from = current.findIndex((f) => f.id === draggedFolderId)
+        const to = current.findIndex((f) => f.id === targetId)
+        if (from !== -1 && to !== -1) {
+          const next = [...current]
+          const [moved] = next.splice(from, 1)
+          next.splice(to, 0, moved)
+          onFoldersChange(next)
+        }
+      }
+      setDraggedFolderId(null)
+      return
+    }
+    if (draggedAppId) {
+      if (target.type === 'folder') {
+        dropApp(target)
+      } else if (draggedAppId !== targetId) {
+        onReorder(draggedAppId, targetId)
+      }
+      setDraggedAppId(null)
+      return
+    }
   }
 
   const dropApp = (target: LauncherItem) => {
@@ -140,14 +183,14 @@ export function LauncherAppGrid({
             <motion.button
               key={item.app.id}
               type="button"
-              draggable={editMode}
+              draggable
               onDragStartCapture={(event: React.DragEvent) => { setDraggedAppId(item.app.id); event.dataTransfer.setData('text/plain', item.app.id); event.dataTransfer.effectAllowed = 'move' }}
-              onDragEnd={() => setDraggedAppId(null)}
-              onDragOver={(event) => { if (editMode) event.preventDefault() }}
-              onDrop={() => dropApp(item)}
-              onClick={() => { if (!editMode) onOpenApp(item.app) }}
+              onDragEnd={() => { setDraggedAppId(null); dragJustHappenedRef.current = true; window.setTimeout(() => { dragJustHappenedRef.current = false }, 120) }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => handleDrop(item, event)}
+              onClick={() => { if (!dragJustHappenedRef.current) onOpenApp(item.app) }}
               onContextMenu={(event) => openQuickMenu(item.app, event)}
-              className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring ${editMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
+              className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring cursor-grab active:cursor-grabbing`}
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.025, 0.2), duration: 0.24 }} whileHover={editMode ? undefined : { y: -4, scale: 1.025 }} whileTap={editMode ? undefined : { scale: 0.96 }}
             >
               <AppIcon app={item.app} />
@@ -157,32 +200,11 @@ export function LauncherAppGrid({
             <button
               key={item.folder.id}
               type="button"
-              draggable={editMode}
+              draggable
               onDragStartCapture={(event: React.DragEvent) => { setDraggedFolderId(item.folder.id); event.dataTransfer.setData('text/plain', item.folder.id); event.dataTransfer.effectAllowed = 'move' }}
               onDragEnd={() => { setDraggedFolderId(null); dragJustHappenedRef.current = true; window.setTimeout(() => { dragJustHappenedRef.current = false }, 120) }}
-              onDragOver={(event) => { if (editMode) event.preventDefault() }}
-              onDrop={(event) => {
-                if (!editMode) return
-                event.preventDefault()
-                dragJustHappenedRef.current = true
-                window.setTimeout(() => { dragJustHappenedRef.current = false }, 120)
-                // Dragging a folder onto another folder reorders them.
-                if (draggedFolderId && draggedFolderId !== item.folder.id) {
-                  onFoldersChange((() => {
-                    const current = [...folders]
-                    const from = current.findIndex((f) => f.id === draggedFolderId)
-                    const to = current.findIndex((f) => f.id === item.folder.id)
-                    if (from === -1 || to === -1) return current
-                    const next = [...current]
-                    const [moved] = next.splice(from, 1)
-                    next.splice(to, 0, moved)
-                    return next
-                  })())
-                } else {
-                  dropApp(item)
-                }
-                setDraggedFolderId(null)
-              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => handleDrop(item, event)}
               onClick={() => { if (!dragJustHappenedRef.current) setOpenFolderId(item.folder.id) }}
               className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring ${editMode ? 'cursor-grab ring-1 ring-accent/25 active:cursor-grabbing' : ''} ${draggedFolderId === item.folder.id ? 'opacity-40' : ''}`}
             >

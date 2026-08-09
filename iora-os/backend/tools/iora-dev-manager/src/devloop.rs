@@ -146,13 +146,41 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
         .strip_prefix(repo)
         .context("changed path is outside repository")?;
     let remote = Path::new("/home/iora/iora").join(relative);
+
+    // The guest agent is already the authoritative control channel for the
+    // Dev VM.  Prefer it for regular source files: unlike a Windows SCP child
+    // process it cannot block the watcher on an interactive host-key or key
+    // permission prompt.  The SSH/SCP path below remains available for files
+    // larger than the QGA payload limit.
+    if path.exists() && path.is_file() {
+        let bytes = tokio::fs::read(path).await?;
+        if bytes.len() <= 1_048_576 {
+            let parent = remote.parent().context("remote file has no parent")?;
+            let command = format!(
+                "mkdir -p {} && printf %s {} | base64 -d > {}",
+                shell_quote(&parent.display().to_string()),
+                shell_quote(&encode_base64(&bytes)),
+                shell_quote(&remote.display().to_string())
+            );
+            channels::guest_exec(state.qga_port, &os_root.join(".cache/qga.sock"), &command)
+                .await?;
+            return Ok(());
+        }
+    }
+
     let (host, port, _) = state.connection();
     let key = os_root.join(".cache/iora-dev-key");
     let ssh_args = [
         "-o",
         "StrictHostKeyChecking=no",
         "-o",
+        "UserKnownHostsFile=NUL",
+        "-o",
         "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "ConnectionAttempts=1",
         "-p",
         &port.to_string(),
         "-i",
@@ -173,6 +201,16 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
             let copied = Command::new("scp")
                 .args([
                     "-q",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=NUL",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=5",
+                    "-o",
+                    "ConnectionAttempts=1",
                     "-P",
                     &port.to_string(),
                     "-i",

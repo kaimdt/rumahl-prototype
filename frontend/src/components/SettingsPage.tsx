@@ -287,25 +287,24 @@ export function SettingsSection({
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
   return (
-    <div className="glass-card rounded-2xl theme-transition overflow-hidden">
+    <div className="ora-settings-section-card overflow-hidden">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-3 p-5 text-left hover:bg-foreground/[0.02] transition-colors"
+        className="w-full flex items-center gap-3.5 p-5 text-left transition-colors hover:bg-foreground/[0.02]"
         aria-expanded={isOpen}
       >
-        <div className={`w-9 h-9 rounded-[0.7rem] flex items-center justify-center shrink-0 transition-colors duration-200 ${isOpen ? (accentIcon ? 'bg-accent/16 text-accent' : 'bg-foreground/10 text-foreground/75') : (accentIcon ? 'bg-accent/10 text-accent/70' : 'bg-foreground/8 text-foreground/55')}`}>
-          <Icon size={18} weight="fill" />
+        <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.85rem] transition-all duration-200 ${isOpen ? (accentIcon ? 'bg-accent/18 text-accent shadow-[0_4px_18px_-4px_color-mix(in_oklch,var(--accent)_55%,transparent)]' : 'bg-foreground/10 text-foreground/80') : (accentIcon ? 'bg-accent/8 text-accent/65' : 'bg-foreground/6 text-foreground/45')}`}>
+          {accentIcon && <span className="absolute inset-0 rounded-[0.85rem] bg-gradient-to-br from-accent/25 via-transparent to-transparent" />}
+          <Icon size={19} weight="fill" className="relative" />
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-semibold text-foreground">{title}</h4>
-          {description && <p className="text-xs text-foreground/50 mt-0.5 line-clamp-1">{description}</p>}
+          <h4 className="text-[0.92rem] font-semibold tracking-tight text-foreground">{title}</h4>
+          {description && <p className="text-xs text-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">{description}</p>}
         </div>
-        <CaretDown
-          size={16}
-          weight="bold"
-          className={`text-foreground/40 transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180' : ''}`}
-        />
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/5 text-foreground/45 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>
+          <CaretDown size={15} weight="bold" />
+        </span>
       </button>
       <AnimatePresence initial={false}>
         {isOpen && (
@@ -314,9 +313,9 @@ export function SettingsSection({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden"
+            className="overflow-hidden border-t border-foreground/[0.06]"
           >
-            <div className="px-5 pb-5 space-y-3">
+            <div className="px-5 py-5 space-y-3">
               {children}
             </div>
           </motion.div>
@@ -382,12 +381,12 @@ export function ToggleRow({
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-[1rem] border border-foreground/[0.06] bg-foreground/[0.03] px-4 py-3.5 transition-colors hover:bg-foreground/[0.045]">
       <div className="min-w-0">
-        <p className="text-[13px] font-medium text-foreground/85">{label}</p>
-        {description && <p className="text-[11px] text-foreground/50 mt-0.5">{description}</p>}
+        <p className="text-[13px] font-medium text-foreground/90">{label}</p>
+        {description && <p className="text-[11px] leading-relaxed text-foreground/50 mt-0.5">{description}</p>}
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
+      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className="shrink-0" />
     </div>
   )
 }
@@ -553,7 +552,7 @@ export function SettingsPage(props: SettingsPageProps) {
   return (
     <section className="ora-settings-app">
       <header className="ora-settings-navbar">
-        <div className="flex items-center gap-3"><span className="ora-app-mark ora-app-mark-settings"><GearSix size={24} weight="duotone" /></span><div><p className="text-xl font-semibold text-foreground">{t('navigation.settings')}</p><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
+        <div className="flex items-center gap-3.5"><span className="ora-app-mark ora-app-mark-settings"><GearSix size={26} weight="duotone" /></span><div><h1 className="text-[1.35rem] font-semibold leading-tight tracking-tight text-foreground">{t('navigation.settings')}</h1><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
         <div className="flex items-center gap-2">
           <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium text-foreground/60 sm:flex"><User size={12} />{userName}</span>
           <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium capitalize text-foreground/60 md:flex"><Palette size={12} />{theme}</span>
@@ -602,7 +601,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabsList>
 
         {/* ─── TAB: Allgemein ──────────────────────────────────────── */}
-        <TabsContent value="general" className="space-y-4 mt-5">
+        <TabsContent value="general" className="space-y-5">
 
           {/* Profile */}
           <SettingsSection icon={User} title={t("settings.profile")} description={t("settings.profileDesc")} accentIcon>
@@ -620,22 +619,22 @@ export function SettingsPage(props: SettingsPageProps) {
 
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">Benutzername</label>
+                <label className="ora-field-label">Benutzername</label>
                 <input
                   type="text"
                   value={profileUsername}
                   onChange={(e) => setProfileUsername(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
+                  className="ora-field"
                   disabled={isSavingProfile}
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">Anzeigename</label>
+                <label className="ora-field-label">Anzeigename</label>
                 <input
                   type="text"
                   value={profileDisplayName}
                   onChange={(e) => setProfileDisplayName(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
+                  className="ora-field"
                   disabled={isSavingProfile}
                 />
               </div>
@@ -653,7 +652,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <SettingsSection icon={Shield} title={t("settings.security")} description={t("settings.securityDesc")}>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">
+                <label className="ora-field-label">
                   Neue PIN (4–8 Ziffern)
                 </label>
                 <input
@@ -661,12 +660,12 @@ export function SettingsPage(props: SettingsPageProps) {
                   inputMode="numeric"
                   value={pinCode}
                   onChange={(e) => setPinCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
+                  className="ora-field"
                   placeholder="••••"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">
+                <label className="ora-field-label">
                   PIN bestätigen
                 </label>
                 <input
@@ -674,7 +673,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   inputMode="numeric"
                   value={pinConfirm}
                   onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
+                  className="ora-field"
                   placeholder="••••"
                 />
               </div>
@@ -733,7 +732,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabsContent>
 
         {/* ─── TAB: Darstellung ────────────────────────────────────── */}
-        <TabsContent value="appearance" className="space-y-4 mt-5">
+        <TabsContent value="appearance" className="space-y-5">
           {deviceLockMode && (
             <div className="rounded-xl p-3.5 border border-amber-500/25 bg-amber-500/8 text-xs text-foreground/70 flex items-center gap-2">
               <Shield size={14} className="text-amber-400 shrink-0" />
@@ -994,7 +993,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabsContent>
 
         {/* ─── TAB: Dashboard ──────────────────────────────────────── */}
-        <TabsContent value="dashboard" className="space-y-4 mt-5">
+        <TabsContent value="dashboard" className="space-y-5">
           {deviceLockMode && (
             <div className="rounded-xl p-3.5 border border-amber-500/25 bg-amber-500/8 text-xs text-foreground/70 flex items-center gap-2">
               <Shield size={14} className="text-amber-400 shrink-0" />
@@ -1051,7 +1050,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabsContent>
 
         {/* ─── TAB: System ─────────────────────────────────────────── */}
-        <TabsContent value="system" className="space-y-4 mt-5">
+        <TabsContent value="system" className="space-y-5">
           {deviceLockMode && (
             <div className="rounded-xl p-3.5 border border-amber-500/25 bg-amber-500/8 text-xs text-foreground/70 flex items-center gap-2">
               <Shield size={14} className="text-amber-400 shrink-0" />

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ChartBar } from '@phosphor-icons/react'
 import { useEntityStore } from '@/hooks/useEntityStore'
+import { authFetch } from '@/lib/authHelpers'
 
 interface StatData {
   entity_id: string
@@ -26,7 +27,7 @@ export default function EntityStatisticsWidget({
   useEffect(() => {
     if (!entityId) return
 
-    fetch(`/api/stats/entity-history/${entityId}`)
+    authFetch(`/api/stats/entity-history/${entityId}`)
       .then(r => (r.ok ? r.json() : null))
       .then(data => data && setStats(data))
       .catch(() => {})

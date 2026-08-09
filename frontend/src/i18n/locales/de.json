@@ -266,7 +266,14 @@
         "description": "Alle Bilder aus deiner IORA Cloud",
         "count": "Bilder",
         "empty": "Noch keine Bilder",
-        "emptyHint": "Lege Bilder in IORA Files ab — sie erscheinen hier automatisch."
+        "emptyHint": "Lege Bilder in IORA Files ab — sie erscheinen hier automatisch.",
+        "sortNewest": "Neueste zuerst",
+        "sortName": "Nach Name",
+        "allPhotos": "Alle Fotos",
+        "zoomIn": "Vergrößern",
+        "zoomOut": "Verkleinern",
+        "previous": "Vorheriges Bild",
+        "next": "Nächstes Bild"
       }
     },
     "systemApps": {
@@ -339,7 +346,8 @@
       "allTypes": "Alle Dateitypen",
       "acceptedTypes": "Nur passende",
       "selected": "{{count}} ausgewählt",
-      "select": "Auswählen ({{count}})"
+      "select": "Auswählen ({{count}})",
+      "selectFolder": "Ordner auswählen"
     },
     "maintenance": {
       "unavailable": "Der Wartungsdienst ist derzeit nicht verfügbar.",
@@ -401,7 +409,8 @@
       "disconnect": "Trennen",
       "scanHint": "Das lokale Netzwerk wird nach SMB-Festplatten durchsucht — gefundene Geräte kannst du direkt verbinden.",
       "noDevicesFound": "Keine Netzwerk-Festplatten gefunden",
-      "selectCount": "Auswählen ({{count}})"
+      "selectCount": "Auswählen ({{count}})",
+      "selectFolder": "Zielordner auswählen"
     },
     "dock": {
       "open": "Öffnen",

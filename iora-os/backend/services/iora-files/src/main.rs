@@ -13,7 +13,7 @@
 
 use anyhow::Result;
 use axum::{
-    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, OriginalUri, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     middleware,
     response::{IntoResponse, Json},
@@ -314,6 +314,8 @@ async fn main() -> Result<()> {
                 .route("/permissions/revoke/:perm_id", delete(revoke_permission))
                 // Quota
                 .route("/quota", get(get_quota))
+                .route("/resolve-path", get(resolve_path))
+                .route("/system-path", get(system_path))
                 .route("/network/shares", get(scan_network_shares))
                 .route("/network/mounts", get(net_mounts_list).post(net_mount_create))
                 .route("/network/mounts/:id", delete(net_mount_delete))
@@ -329,6 +331,15 @@ async fn main() -> Result<()> {
         // axum 0.7 quirk: `nest("/api/files", …)` matches `/api/files` but NOT
         // `/api/files/` (trailing slash) — the form the frontend actually calls.
         // Mount a second, auth-protected nest so both spellings work.
+        // The `/user/:username/*path` wildcard route is registered top-level:
+        // axum 0.7 nested routers do not match wildcard routes reliably.
+        .route(
+            "/api/files/user/:username/*path",
+            get(download_user_path).layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                middleware_auth::require_auth,
+            )),
+        )
         .nest(
             "/api/files/",
             Router::new()
@@ -592,9 +603,13 @@ async fn get_file_info(
 async fn download_file(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path(file_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    // Accept `?token=` as well as the Authorization header: CSS backgrounds
+    // and <img> tags cannot send headers, so the frontend appends the token
+    // to the query string for them.
+    let user_id = extract_user_id_with_query(&headers, uri.query(), &state.jwt_secret)?;
     let file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     if file.is_folder {
@@ -622,6 +637,60 @@ async fn download_file(
         ),
     ];
     Ok((headers, data))
+}
+
+/// Download a file through its stable, user-visible virtual path.
+/// The path is always scoped to the authenticated JWT username and owner ID.
+async fn download_user_path(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Path((username, path)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let claims = extract_claims(&headers, uri.query(), &state.jwt_secret)?;
+    if username != claims.username {
+        return Err((StatusCode::FORBIDDEN, "User path is private".to_string()));
+    }
+
+    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
+    if segments.is_empty() || segments.iter().any(|segment| *segment == "." || *segment == "..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid user path".to_string()));
+    }
+
+    let mut parent_id: Option<String> = None;
+    let mut file: Option<FileRecord> = None;
+    for (index, segment) in segments.iter().enumerate() {
+        let is_folder = index + 1 < segments.len();
+        file = sqlx::query_as::<_, FileRecord>(
+            "SELECT * FROM files WHERE owner_id = ? AND original_name = ? AND parent_folder_id IS ? AND is_folder = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+        )
+        .bind(&claims.sub)
+        .bind(*segment)
+        .bind(&parent_id)
+        .bind(is_folder)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+        let Some(current) = file.as_ref() else {
+            return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
+        };
+        parent_id = Some(current.id.clone());
+    }
+
+    let file = file.ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+    if file.is_folder {
+        return Err((StatusCode::BAD_REQUEST, "Cannot download a folder directly".to_string()));
+    }
+
+    let data = fs::read(state.storage_root.join(&file.storage_path)).await.map_err(|error| {
+        (StatusCode::NOT_FOUND, format!("File not found on disk: {error}"))
+    })?;
+    log_activity(&state, &file.id, &claims.sub, "download", None).await;
+    Ok(([
+        (header::CONTENT_TYPE, file.mime_type),
+        (header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", file.original_name)),
+    ], data))
 }
 
 // ─── Delete File (soft) ─────────────────────────────────────────────────────
@@ -1496,6 +1565,129 @@ async fn get_activity(
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/// Resolve an IORA path (`/icons`, `/Photos/x.jpg`, …) against the current
+/// user's file tree. `found:false` means the path is NOT an IORA path — the
+/// frontend then treats it as a web path. This resolves the ambiguity between
+/// web namespaces (e.g. `/icons/` from `public/icons`) and user-created root
+/// folders that share the same name.
+async fn resolve_path(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let path = query.get("path").cloned().unwrap_or_default();
+    let segments: Vec<&str> = path.split('/').filter(|seg| !seg.is_empty()).collect();
+    if segments.is_empty() || segments.iter().any(|seg| *seg == "." || *seg == "..") {
+        return Ok(Json(serde_json::json!({ "found": false })));
+    }
+    let mut parent_id: Option<String> = None;
+    let mut file: Option<FileRecord> = None;
+    for (index, segment) in segments.iter().enumerate() {
+        let is_last = index + 1 == segments.len();
+        let query_segment = |is_folder: bool| {
+            sqlx::query_as::<_, FileRecord>(
+                "SELECT * FROM files WHERE owner_id = ? AND original_name = ? AND parent_folder_id IS ? AND is_folder = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+            )
+            .bind(&user_id)
+            .bind(segment)
+            .bind(&parent_id)
+            .bind(is_folder)
+            .fetch_optional(&state.db)
+        };
+        // Intermediate segments must be folders; the last segment may be a
+        // folder OR a file (a path like `/icons` can point to a folder).
+        if is_last {
+            file = query_segment(true)
+                .await
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                .or_else(|| None);
+            if file.is_none() {
+                file = query_segment(false)
+                    .await
+                    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            }
+        } else {
+            file = query_segment(true)
+                .await
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        }
+        match &file {
+            Some(found) => parent_id = Some(found.id.clone()),
+            None => return Ok(Json(serde_json::json!({ "found": false }))),
+        }
+    }
+    match file {
+        Some(found) => Ok(Json(serde_json::json!({
+            "found": true,
+            "file_id": found.id,
+            "is_folder": found.is_folder,
+            "name": found.original_name,
+        }))),
+        None => Ok(Json(serde_json::json!({ "found": false }))),
+    }
+}
+
+/// Read a file from the host filesystem (absolute paths like `/var/lib/iora/…`).
+/// Access is limited to IORA data roots, files only, with a size limit.
+async fn system_path(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let _user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let raw = query.get("path").cloned().unwrap_or_default();
+    const ALLOWED_ROOTS: [&str; 4] = ["/opt/iora", "/var/lib/iora", "/home/iora/iora", "/tmp"];
+    if !ALLOWED_ROOTS.iter().any(|root| raw.starts_with(root)) {
+        return Err((StatusCode::FORBIDDEN, "Path is outside the allowed roots".to_string()));
+    }
+    let canonical = std::fs::canonicalize(&raw)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Path does not exist".to_string()))?;
+    let meta = tokio::fs::metadata(&canonical)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Path does not exist".to_string()))?;
+    if !meta.is_file() {
+        return Err((StatusCode::BAD_REQUEST, "Only files can be read".to_string()));
+    }
+    if meta.len() > 25 * 1024 * 1024 {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "File is too large".to_string()));
+    }
+    let bytes = tokio::fs::read(&canonical)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let mime = mime_guess::from_path(&canonical).first_or_octet_stream();
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, mime.as_ref().to_string())],
+        bytes,
+    ))
+}
+
+/// Like `extract_user_id` but also accepts the token via `?token=` in the
+/// query string (used by native browser elements that cannot send headers).
+fn extract_user_id_with_query(
+    headers: &HeaderMap,
+    query: Option<&str>,
+    jwt_secret: &str,
+) -> Result<String, (StatusCode, String)> {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .or_else(|| {
+            query.and_then(|q| {
+                q.split('&').find_map(|part| {
+                    let (key, value) = part.split_once('=')?;
+                    (key == "token").then_some(value)
+                })
+            })
+        })
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication".to_string()))?;
+    match crate::auth::verify_token(token, jwt_secret) {
+        Ok(user_id) => Ok(user_id),
+        Err(_) => Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string())),
+    }
+}
+
 fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, (StatusCode, String)> {
     let auth_header = headers
         .get(header::AUTHORIZATION)
@@ -1516,6 +1708,29 @@ fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, (Sta
 
     auth::verify_token(token, jwt_secret)
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)))
+}
+
+fn extract_claims(
+    headers: &HeaderMap,
+    query: Option<&str>,
+    jwt_secret: &str,
+) -> Result<auth::Claims, (StatusCode, String)> {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .or_else(|| {
+            query.and_then(|value| {
+                value.split('&').find_map(|part| {
+                    let (key, token) = part.split_once('=')?;
+                    (key == "token").then_some(token)
+                })
+            })
+        })
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication token".to_string()))?;
+
+    auth::verify_claims(token, jwt_secret)
+        .map_err(|error| (StatusCode::UNAUTHORIZED, format!("Invalid token: {error}")))
 }
 
 async fn get_file_with_access(

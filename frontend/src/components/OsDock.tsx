@@ -141,7 +141,7 @@ export function OsDock() {
             setMenuId(menuOpen ? null : app.id)
             setMenuPos({ x: event.clientX, y: event.clientY })
           }}
-          className="group relative flex touch-manipulation flex-col items-center rounded-2xl p-0.5 focus-ring"
+          className="ora-dock-item group relative flex touch-manipulation flex-col items-center rounded-2xl p-0.5 focus-ring"
           aria-label={name}
         >
           <span
@@ -202,6 +202,12 @@ export function OsDock() {
                   <ArrowSquareOut size={16} className="text-foreground/60" />
                   {t('os.dock.open')}
                 </button>
+                {app.openUrl && (
+                  <button type="button" onClick={() => { window.open(app.openUrl, '_blank', 'noopener,noreferrer'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
+                    <ArrowSquareOut size={16} className="text-foreground/60" />
+                    {t('apps.appStore.openPort')}
+                  </button>
+                )}
                 {app.id !== 'launcher' && (
                   <>
                     <button type="button" onClick={() => { openWindow(app.pageId); setPreferredLaunchMode(app.pageId, 'window'); setCurrentPageId('launcher'); setMenuId(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">

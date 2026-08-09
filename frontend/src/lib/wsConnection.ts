@@ -5,6 +5,7 @@
 // the user interacts — no waiting for React to mount.
 
 import { getBackendUrl } from '@/lib/config'
+import { getAuthToken } from '@/lib/authHelpers'
 const apiBase = () => getBackendUrl() || ''
 
 let wsInstance: WebSocket | null = null
@@ -16,22 +17,7 @@ const closeListeners = new Set<() => void>()
 
 // ── Token retrieval (matches AuthContext storage order) ─────────────
 function readAuthToken(): string | null {
-  // 1. Cookie iora_token (primary, HttpOnly-friendly path)
-  const cookieMatch = document.cookie.match(/(?:^|;\s*)iora_token=([^;]+)/)
-  if (cookieMatch) {
-    try { return decodeURIComponent(cookieMatch[1]) } catch { return cookieMatch[1] }
-  }
-  // 2. localStorage / sessionStorage (legacy + Remember-me)
-  const raw = localStorage.getItem('ha-auth-token') || sessionStorage.getItem('ha-auth-token')
-  if (!raw) return null
-  // The stored value can be either the raw JWT or a JSON-wrapped object.
-  if (raw.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(raw)
-      if (typeof parsed?.token === 'string') return parsed.token
-    } catch { /* fall through */ }
-  }
-  return raw
+  return getAuthToken() || null
 }
 
 // ── Heartbeat (client side) ─────────────────────────────────────────

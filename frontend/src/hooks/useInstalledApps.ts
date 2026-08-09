@@ -91,10 +91,17 @@ export function appOpenUrl(app: SupervisorApp): string | undefined {
   const catalogPort = STORE_CATALOG.find((def) => def.id === app.id)?.openPort
   const port = firstExternalPort(app.ports) ?? catalogPort
   if (!port) return undefined
-  // QEMU host forwards bind to 127.0.0.1 (IPv4) — "localhost" can resolve
-  // to ::1 first and the iframe gets "connection refused".
-  const host = '127.0.0.1'
-  return `http://${host}:${port}`
+  // Use the hostname that served the dashboard. A fixed loopback address only
+  // works on the IORA host itself and makes Docker apps unreachable from every
+  // phone, tablet, or remote browser.
+  const configuredBase = getBackendUrl() || window.location.origin
+  try {
+    const base = new URL(configuredBase, window.location.origin)
+    const protocol = base.protocol === 'https:' ? 'https:' : 'http:'
+    return `${protocol}//${base.hostname}:${port}`
+  } catch {
+    return `http://${window.location.hostname}:${port}`
+  }
 }
 
 export function useInstalledApps() {

@@ -1993,10 +1993,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/system/ha-info", get(get_ha_info))
         // Configuration API
         .route("/api/config/users/by-id/:user_id", put(update_user))
-        .route(
-            "/api/config/devices/:device_id/heartbeat",
-            post(device_heartbeat),
-        )
+
         .route("/api/config/profiles", post(create_profile))
         .route("/api/config/profiles/:profile_id", get(get_profile_data))
         .route(
@@ -2349,10 +2346,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/secrets/:id/audit", get(proxy_secrets))
         // iora-files (Port 8100)
         .route("/api/files/", get(proxy_files))
+        .route("/api/files/user/:username/*path", get(proxy_files))
         .route("/api/files/upload", post(proxy_files))
         .route("/api/files/shares", get(proxy_files).post(proxy_files))
         .route("/api/files/shares/:id", delete(proxy_files))
         .route("/api/files/quota", get(proxy_files))
+        .route("/api/files/resolve-path", get(proxy_files))
+        .route("/api/files/system-path", get(proxy_files))
         .route("/api/files/network/shares", get(proxy_files))
         .route("/api/files/network/mounts", get(proxy_files).post(proxy_files))
         .route("/api/files/network/mounts/:id", delete(proxy_files))
@@ -2674,6 +2674,13 @@ async fn main() -> anyhow::Result<()> {
             post(internal_create_system_notification),
         )
         .nest_service("/uploads", get_service(ServeDir::new("./data/uploads")))
+        // Device heartbeats are public: stale integrations must not flood the
+        // auth layer with 401 rejections. The handler itself only updates
+        // last_seen for authenticated callers.
+        .route(
+            "/api/config/devices/:device_id/heartbeat",
+            post(device_heartbeat),
+        )
         // Merge protected data routes
         .merge(data_routes)
         // Merge protected service routes
@@ -5701,11 +5708,32 @@ async fn get_device_info(
     }
 }
 
-/// Device heartbeat to update last_seen
+/// Device heartbeat to update last_seen.
+/// The route is public so stale/unknown integrations do not flood the auth
+/// layer with 401 rejections; last_seen is only updated for authenticated
+/// callers, unauthenticated heartbeats are acknowledged silently.
 async fn device_heartbeat(
     State(state): State<AppState>,
     Path(device_id): Path<String>,
+    headers: axum::http::HeaderMap,
+    raw_query: axum::extract::RawQuery,
 ) -> Result<StatusCode, ErrorResponse> {
+    let identity = middleware::try_authenticate(
+        headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.to_string()),
+        headers
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.to_string()),
+        raw_query.0,
+        &state,
+    )
+    .await;
+    if identity.is_none() {
+        return Ok(StatusCode::OK);
+    }
     match state.config_repo.update_device_last_seen(&device_id).await {
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => {

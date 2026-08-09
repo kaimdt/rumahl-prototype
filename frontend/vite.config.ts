@@ -6,7 +6,9 @@ import { resolve } from 'path'
 const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname
 // iora.local is only resolvable inside the dev VM — on the host the
 // backend (Vite dev or nginx forward) lives on localhost:3001.
-const backendTarget = process.env.VITE_IORA_BACKEND_URL || 'http://localhost:3001'
+// `iora.local` is the host-side alias; inside the VM the name cannot be
+// resolved — always normalize to localhost so the dev proxy keeps working.
+const backendTarget = (process.env.VITE_IORA_BACKEND_URL || 'http://localhost:3001').replace(/iora\.local/g, 'localhost')
 const backendWsTarget = backendTarget.replace(/^http/, 'ws')
 // Read version from package.json for APP_VERSION define
 const pkg = require('./package.json')

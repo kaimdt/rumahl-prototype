@@ -266,7 +266,14 @@
         "description": "All pictures from your IORA cloud",
         "count": "images",
         "empty": "No images yet",
-        "emptyHint": "Store pictures in IORA Files — they appear here automatically."
+        "emptyHint": "Store pictures in IORA Files — they appear here automatically.",
+        "sortNewest": "Newest first",
+        "sortName": "By name",
+        "allPhotos": "All photos",
+        "zoomIn": "Zoom in",
+        "zoomOut": "Zoom out",
+        "previous": "Previous image",
+        "next": "Next image"
       }
     },
     "systemApps": {
@@ -339,7 +346,8 @@
       "allTypes": "All file types",
       "acceptedTypes": "Matching only",
       "selected": "{{count}} selected",
-      "select": "Select ({{count}})"
+      "select": "Select ({{count}})",
+      "selectFolder": "Select folder"
     },
     "maintenance": {
       "unavailable": "The maintenance service is currently unavailable.",
@@ -401,7 +409,8 @@
       "disconnect": "Disconnect",
       "scanHint": "Scanning the local network for SMB drives — connect any device you find.",
       "noDevicesFound": "No network drives found",
-      "selectCount": "Select ({{count}})"
+      "selectCount": "Select ({{count}})",
+      "selectFolder": "Select a target folder"
     },
     "dock": {
       "open": "Open",

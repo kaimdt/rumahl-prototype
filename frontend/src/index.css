@@ -196,7 +196,7 @@
 
 :root {
   --radius: 0.875rem;
-  --accent-hue: 250;
+  --accent-hue: 250deg;
 
   /* ─── Day (default) — warm-white canvas, rich but soft ─── */
   --background: oklch(0.973 0.007 85);
@@ -217,7 +217,7 @@
   --muted: oklch(0.945 0.008 85);
   --muted-foreground: oklch(0.46 0.018 85);
 
-  --accent: oklch(0.56 0.16 250);
+  --accent: oklch(0.56 0.16 250); --accent-hue: 250deg;
   --accent-foreground: oklch(0.99 0 0);
 
   --success: oklch(0.55 0.15 152);
@@ -279,7 +279,7 @@
   --muted: oklch(0.955 0.006 90);
   --muted-foreground: oklch(0.42 0.015 90);
 
-  --accent: oklch(0.54 0.16 250);
+  --accent: oklch(0.54 0.16 250); --accent-hue: 250deg;
   --accent-foreground: oklch(0.99 0 0);
 
   --success: oklch(0.52 0.15 152);
@@ -327,7 +327,7 @@
   --muted: oklch(0.26 0.026 255);
   --muted-foreground: oklch(0.65 0.02 255);
 
-  --accent: oklch(0.74 0.15 65);
+  --accent: oklch(0.74 0.15 65); --accent-hue: 65deg;
   --accent-foreground: oklch(0.15 0.02 70);
 
   --success: oklch(0.65 0.16 152);
@@ -380,7 +380,7 @@
   --muted: oklch(0.32 0.03 55);
   --muted-foreground: oklch(0.68 0.03 60);
 
-  --accent: oklch(0.75 0.14 60);
+  --accent: oklch(0.75 0.14 60); --accent-hue: 60deg;
   --accent-foreground: oklch(0.20 0.04 55);
 
   --success: oklch(0.70 0.15 152);
@@ -433,7 +433,7 @@
   --muted: oklch(0.23 0.005 70);
   --muted-foreground: oklch(0.62 0.01 70);
 
-  --accent: oklch(0.76 0.15 65);
+  --accent: oklch(0.76 0.15 65); --accent-hue: 65deg;
   --accent-foreground: oklch(0.15 0.02 70);
 
   --success: oklch(0.66 0.16 152);
@@ -485,7 +485,7 @@
   --muted: oklch(0.10 0.004 250);
   --muted-foreground: oklch(0.42 0.006 250);
 
-  --accent: oklch(0.44 0.08 250);
+  --accent: oklch(0.44 0.08 250); --accent-hue: 250deg;
   --accent-foreground: oklch(0.70 0.01 250);
 
   --success: oklch(0.42 0.09 140);
@@ -2239,12 +2239,82 @@ body {
 .ora-primary-button:hover, .ora-secondary-button:hover { transform: translateY(-1px); }
 .ora-files-layout { display: flex; min-height: calc(100dvh - 17.75rem); }
 
+.ora-tooltip {
+  position: fixed;
+  z-index: 400;
+  max-width: 19rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  border-radius: 0.55rem;
+  background: color-mix(in oklch, var(--card) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: 0 10px 28px oklch(0 0 0 / 0.28);
+  padding: 0.42rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+
+.ora-marquee {
+  position: absolute;
+  z-index: 6;
+  border: 1px solid var(--accent);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  border-radius: 0.4rem;
+  pointer-events: none;
+}
+
+/* Picker overlays are portaled to <body> — they need explicit text colors. */
+.picker-overlay { color: var(--foreground); }
+.picker-overlay .ora-files-app,
+.picker-overlay footer { color: var(--foreground); }
+
 /* Picker mode: the explorer renders inside a fixed dialog → collapse heights */
 .picker-overlay .ora-files-layout,
 .picker-overlay .ora-files-surface { min-height: 0; flex: 1; }
 .picker-overlay .ora-files-layout { overflow: hidden; }
 .ora-settings-navbar { display: flex; min-height: 5.25rem; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--ora-glass-border); padding: 0.9rem 1.2rem; background: linear-gradient(180deg, color-mix(in oklch, var(--ora-text-primary) 5%, transparent), transparent); }
 .ora-settings-layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 1rem; min-height: 0; align-items: start; }
+
+/* Settings: unified field + card system */
+.ora-field {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.85rem;
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  font-size: 0.82rem;
+  color: var(--foreground);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.ora-field::placeholder { color: color-mix(in oklch, var(--foreground) 38%, transparent); }
+.ora-field:focus {
+  outline: none;
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 16%, transparent);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+.ora-field:disabled { opacity: 0.5; cursor: not-allowed; }
+.ora-field-label {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  color: color-mix(in oklch, var(--foreground) 55%, transparent);
+}
+.ora-settings-section-card {
+  border-radius: 1.35rem;
+  border: 1px solid var(--glass-border-color);
+  background: linear-gradient(180deg, color-mix(in oklch, var(--card) 90%, transparent) 0%, color-mix(in oklch, var(--card) 70%, transparent) 100%);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 12px 38px rgb(0 0 0 / 0.13), inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
 
 /* Settings page frame — unified Liquid-Glass card like the rest of the OS */
 .ora-settings-app {
@@ -2271,7 +2341,7 @@ body {
   padding: 0.9rem 1.4rem;
   background: linear-gradient(180deg, color-mix(in oklch, var(--ora-text-primary) 4%, transparent), transparent);
 }
-.ora-settings-sidebar { display: flex !important; width: auto !important; height: auto !important; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0.25rem; border-right: 1px solid var(--ora-glass-border); border-radius: 0 !important; background: transparent !important; padding: 1.1rem 0.8rem !important; position: sticky; top: 1.25rem; max-height: calc(100dvh - 2.5rem); overflow-y: auto; }
+.ora-settings-sidebar { display: flex !important; width: auto !important; height: auto !important; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0.3rem; border: 1px solid var(--glass-border-color); border-radius: 1.35rem !important; background: color-mix(in oklch, var(--card) 55%, transparent) !important; backdrop-filter: blur(24px); padding: 1rem 0.7rem !important; position: sticky; top: 1.25rem; max-height: calc(100dvh - 2.5rem); overflow-y: auto; box-shadow: 0 12px 38px rgb(0 0 0 / 0.12), inset 0 1px 0 oklch(1 0 0 / 0.05); }
 .ora-settings-sidebar [role="tab"] { width: 100%; min-height: 0 !important; justify-content: flex-start; border-radius: 0.7rem; padding: 0.5rem 0.6rem; }
 .ora-settings-layout > [role="tabpanel"] { min-width: 0; max-width: 78rem; margin: 0 !important; padding: 1.4rem 1.4rem 2rem; }
 .ora-files-sidebar { width: 13.5rem; flex: 0 0 auto; border-right: 1px solid var(--ora-glass-border); padding: 1.35rem 1rem; background: var(--ora-glass-bg); }
@@ -2386,11 +2456,13 @@ body {
 
 /* ─── Accent-tinted icons (sepia + hue-rotate to the primary color) ─── */
 [data-accent-icons="true"] .ora-app-icon img,
+[data-accent-icons="true"] .ora-dock-item img,
 [data-accent-icons="true"] .ora-folder-icon img,
 [data-accent-icons="true"] .ora-file-tile img,
 [data-accent-icons="true"] .ora-file-row img,
-[data-accent-icons="true"] .ora-file-table-row img {
-  filter: sepia(1) hue-rotate(calc(var(--accent-hue, 250) - 35deg)) saturate(2.2) brightness(0.92) !important;
+[data-accent-icons="true"] .ora-file-table-row img,
+[data-accent-icons="true"] .ora-sidebar-item img {
+  filter: sepia(1) hue-rotate(var(--accent-hue-rot, 30deg)) saturate(2.2) brightness(0.92) !important;
 }
 .ora-wallpaper-vignette { background: radial-gradient(ellipse at center, transparent 42%, rgb(0 0 0 / 0.2) 76%, rgb(0 0 0 / 0.48) 115%); box-shadow: inset 0 0 11rem rgb(0 0 0 / 0.2); }
 

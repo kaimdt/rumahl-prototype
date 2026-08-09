@@ -24,20 +24,10 @@ import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS, DEFAULT_DASHBOARD_BACKG
 import { useLocalStorage } from '@/lib/storage'
 import { toast } from 'sonner'
 import { OsFileExplorer } from '@/components/OsFileExplorer'
+import { authFetch, getAuthToken } from '@/lib/authHelpers'
 
 interface ConfigurationSettingsProps {
   settingsLocked?: boolean
-}
-
-function getAuthToken(): string {
-  const raw = localStorage.getItem('ha-auth-token') ?? sessionStorage.getItem('ha-auth-token')
-  if (!raw) return ''
-  try {
-    const parsed = JSON.parse(raw)
-    return typeof parsed === 'string' ? parsed : ''
-  } catch {
-    return raw
-  }
 }
 
 export function ConfigurationSettings({ settingsLocked = false }: ConfigurationSettingsProps) {
@@ -316,11 +306,11 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
   const [filePickerOpen, setFilePickerOpen] = useState(false)
 
   /** Pick an image from the real IORA Files explorer and use it as the background. */
-  const handleFilePick = (files: Array<{ id: string; name: string; mimeType: string; size: number; dataBase64: string }>) => {
+  const handleFilePick = (files: Array<{ id: string; name: string; mimeType: string; size: number; path?: string }>) => {
     setFilePickerOpen(false)
     const file = files[0]
-    if (file?.dataBase64) {
-      setStaticUrl(`data:${file.mimeType || 'image/png'};base64,${file.dataBase64}`)
+    if (file?.path) {
+      setStaticUrl(file.path)
       setBackgroundType('static')
       toast.success('Bild aus Files übernommen')
     }
@@ -348,11 +338,8 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
 
     setUploading(true)
     try {
-      const response = await fetch('/api/uploads/background', {
+      const response = await authFetch('/api/uploads/background', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
         body: form,
       })
 
@@ -428,8 +415,14 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-[760px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl">
+    <>
+    <Dialog modal={false} open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        className="sm:max-w-[760px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl"
+        onInteractOutside={(event) => {
+          if ((event.target as HTMLElement).closest('.picker-overlay')) event.preventDefault()
+        }}
+      >
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10">
           <DialogTitle>Hintergrund konfigurieren</DialogTitle>
           <DialogDescription>
@@ -676,16 +669,18 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
           </button>
         </div>
       </DialogContent>
-      {filePickerOpen && (
-        <OsFileExplorer
-          pickerMode={{
-            accept: 'image/*',
-            title: 'Hintergrund',
-            onCancel: () => setFilePickerOpen(false),
-            onComplete: handleFilePick,
-          }}
-        />
-      )}
     </Dialog>
+    {filePickerOpen && (
+      <OsFileExplorer
+        pickerMode={{
+          accept: 'image/*',
+          includeData: false,
+          title: 'Hintergrund',
+          onCancel: () => setFilePickerOpen(false),
+          onComplete: handleFilePick,
+        }}
+      />
+    )}
+    </>
   )
 }

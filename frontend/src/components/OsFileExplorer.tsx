@@ -30,9 +30,9 @@ import { OsWindowActions } from '@/components/OsWindowActions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { createPortal } from 'react-dom'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
-import { OsFileMoveCopyDialog } from './OsFileMoveCopyDialog'
 import { fileTypeIcon, fileTypeAppFor } from '@/lib/fileTypeRegistry'
 import { AuthImage } from '@/components/AuthImage'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 
 interface FileEntry {
   id: string
@@ -160,6 +160,9 @@ function TreeItem({
 export interface FilePickerConfig {
   accept?: string
   multiple?: boolean
+  selectFolders?: boolean
+  /** Skip downloading the selected file when its stable Files path is sufficient. */
+  includeData?: boolean
   title?: string
   onCancel: () => void
   onComplete: (files: Array<{ id: string; name: string; mimeType: string; size: number; dataBase64: string; path?: string }>) => void
@@ -281,6 +284,62 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [newFileDraft, setNewFileDraft] = useState(false)
   const [newFileName, setNewFileName] = useState('')
   const [draggedId, setDraggedId] = useState<string | null>(null)
+  const marqueeStart = useRef<{ x: number; y: number } | null>(null)
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const marqueeMode = useRef(false)
+  const gridRef = useRef<HTMLDivElement>(null)
+
+  const beginMarquee = (event: React.MouseEvent) => {
+    if (event.button !== 0) return
+    if ((event.target as HTMLElement).closest('.ora-file-tile, .ora-file-row, button, input, a')) return
+    marqueeStart.current = { x: event.clientX, y: event.clientY }
+    marqueeMode.current = false
+    const move = (moveEvent: MouseEvent) => {
+      if (!marqueeStart.current) return
+      const dx = moveEvent.clientX - marqueeStart.current.x
+      const dy = moveEvent.clientY - marqueeStart.current.y
+      if (!marqueeMode.current && Math.hypot(dx, dy) > 6) marqueeMode.current = true
+      if (marqueeMode.current) {
+        const rect = gridRef.current?.getBoundingClientRect()
+        if (rect) {
+          const x1 = Math.min(marqueeStart.current.x, moveEvent.clientX) - rect.left
+          const y1 = Math.min(marqueeStart.current.y, moveEvent.clientY) - rect.top
+          const x2 = Math.max(marqueeStart.current.x, moveEvent.clientX) - rect.left
+          const y2 = Math.max(marqueeStart.current.y, moveEvent.clientY) - rect.top
+          setMarquee({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 })
+        }
+      }
+    }
+    const up = (upEvent: MouseEvent) => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      if (marqueeMode.current && gridRef.current) {
+        const box = {
+          x1: Math.min(marqueeStart.current!.x, upEvent.clientX),
+          y1: Math.min(marqueeStart.current!.y, upEvent.clientY),
+          x2: Math.max(marqueeStart.current!.x, upEvent.clientX),
+          y2: Math.max(marqueeStart.current!.y, upEvent.clientY),
+        }
+        const additive = upEvent.ctrlKey || upEvent.metaKey || upEvent.shiftKey
+        setSelected((current) => {
+          const next = additive ? new Set(current) : new Set<string>()
+          gridRef.current!.querySelectorAll<HTMLElement>('.ora-file-tile').forEach((tile) => {
+            const r = tile.getBoundingClientRect()
+            if (r.left < box.x2 && r.right > box.x1 && r.top < box.y2 && r.bottom > box.y1) {
+              next.add(tile.dataset.id || '')
+            }
+          })
+          next.delete('')
+          return next
+        })
+      }
+      marqueeStart.current = null
+      marqueeMode.current = false
+      setMarquee(null)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
   const [dropHighlight, setDropHighlight] = useState(false)
 
   // ── Folder tree (lazy) ──
@@ -311,6 +370,20 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     }
   }
   const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'F2' || event.metaKey || event.ctrlKey || event.altKey) return
+      const active = document.activeElement as HTMLElement | null
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
+      if (selected.size === 1) {
+        const entry = files.find((f) => f.id === Array.from(selected)[0])
+        if (entry) { event.preventDefault(); setRenameEntry(entry); setRenameValue(entry.original_name) }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, files])
   const [history, setHistory] = useState<Location[]>([{ folderId: null, breadcrumbs: [] }])
   const [historyIndex, setHistoryIndex] = useState(0)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
@@ -320,8 +393,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [contextEntry, setContextEntry] = useState<FileEntry | null>(null)
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(null)
   useCloseOnOtherMenu(() => { setContextEntry(null); setContextPos(null) })
-  const [moveCopyEntry, setMoveCopyEntry] = useState<FileEntry | null>(null)
-  const [moveCopyMode, setMoveCopyMode] = useState<'move' | 'copy' | null>(null)
+  const [moveCopyPick, setMoveCopyPick] = useState<{ entry: FileEntry; mode: 'move' | 'copy' } | null>(null)
   const deviceInput = useRef<HTMLInputElement>(null)
   const requestRef = useRef(0)
   const treeRef = useRef<TreeNode[]>([])
@@ -411,6 +483,23 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     navigate(location.folderId, location.breadcrumbs, false)
   }
 
+  /** accept filter ("image/*", ".png,.jpg", "application/pdf") */
+  const isHiddenFile = (entry: FileEntry) => !entry.is_folder && entry.original_name.startsWith('.')
+
+  const matchesAccept = (entry: FileEntry) => {
+    const acceptList = pickerMode?.accept
+    if (!acceptList) return true
+    const name = entry.original_name.toLowerCase()
+    const mime = (entry.mime_type || '').toLowerCase()
+    return acceptList.split(',').some((part) => {
+      const p = part.trim().toLowerCase()
+      if (!p) return false
+      if (p.endsWith('/*')) return mime.startsWith(p.slice(0, -1))
+      if (p.startsWith('.')) return name.endsWith(p)
+      return mime === p || name.endsWith('.' + p)
+    })
+  }
+
   const openEntry = (entry: FileEntry) => {
     if (entry.is_folder) navigate(entry.id, [...breadcrumbs, { id: entry.id, name: entry.original_name }])
     else if (pickerMode && !entry.is_folder) {
@@ -423,6 +512,10 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   }
 
   const toggleSelection = (id: string, additive: boolean) => setSelected((current) => {
+    const entry = files.find((f) => f.id === id)
+    if (pickerMode?.selectFolders && entry && !entry.is_folder) return current
+    if (pickerMode && entry && !matchesAccept(entry)) return current
+    if (pickerMode && !pickerMode.multiple) additive = false
     const next = additive ? new Set(current) : new Set<string>()
     if (next.has(id)) next.delete(id); else next.add(id)
     return next
@@ -472,11 +565,16 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   const rename = async () => {
     if (!renameEntry || !renameValue.trim()) return
+    const target = renameEntry
+    const newName = renameValue.trim()
+    // Windows behaviour: the inline editor closes immediately; the blur
+    // handler must not fire a second rename afterwards.
+    setRenameEntry(null)
     setWorking(true)
     try {
-      const response = await authFetch(`/api/files/${renameEntry.id}/rename`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_name: renameValue.trim() }) })
+      const response = await authFetch(`/api/files/${target.id}/rename`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_name: newName }) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setRenameEntry(null); await load(true)
+      await load(true)
     } catch (operationError) { setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '') }
     finally { setWorking(false) }
   }
@@ -534,6 +632,19 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   }
 
   /** Move a file/folder into another folder (internal drag & drop). */
+  const copyEntry = async (fileId: string, targetFolderId: string | null) => {
+    try {
+      const response = await authFetch(`/api/files/${fileId}/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_folder_id: targetFolderId }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    } catch (operationError) {
+      setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '')
+    }
+  }
+
   const moveEntry = async (fileId: string, targetFolderId: string | null) => {
     if (!can('os.files.write')) return
     try {
@@ -575,9 +686,35 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     if (!pickerMode || selected.size === 0) return
     const entries = Array.from(selected)
       .map((id) => files.find((entry) => entry.id === id))
-      .filter((entry): entry is FileEntry => Boolean(entry && !entry.is_folder))
+      .filter((entry): entry is FileEntry => Boolean(entry && (pickerMode.selectFolders ? entry.is_folder : !entry.is_folder)))
     const results: Array<{ id: string; name: string; mimeType: string; size: number; dataBase64: string; path?: string }> = []
+    const username = localStorage.getItem('ha-username')?.trim()
+    const virtualPathFor = (entry: FileEntry) => username
+      ? `/user/${encodeURIComponent(username)}/${[...breadcrumbs.map((crumb) => crumb.name), entry.original_name].map(encodeURIComponent).join('/')}`
+      : undefined
     for (const entry of entries) {
+      if (pickerMode.selectFolders) {
+        results.push({
+          id: entry.id,
+          name: entry.original_name,
+          mimeType: 'inode/directory',
+          size: entry.size_bytes,
+          dataBase64: '',
+          path: virtualPathFor(entry),
+        })
+        continue
+      }
+      if (pickerMode.includeData === false) {
+        results.push({
+          id: entry.id,
+          name: entry.original_name,
+          mimeType: entry.mime_type || 'application/octet-stream',
+          size: entry.size_bytes,
+          dataBase64: '',
+          path: virtualPathFor(entry),
+        })
+        continue
+      }
       try {
         const res = await authFetch(`/api/files/${entry.id}/download`)
         if (!res.ok) continue
@@ -591,7 +728,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           mimeType: entry.mime_type || 'application/octet-stream',
           size: entry.size_bytes,
           dataBase64: btoa(binary),
-          path: [...breadcrumbs.map((b) => b.name), entry.original_name].join('/'),
+          path: virtualPathFor(entry),
         })
       } catch { /* skip broken file */ }
     }
@@ -612,13 +749,12 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   const openMoveCopy = (entry: FileEntry, mode: 'move' | 'copy') => {
     setContextEntry(null)
-    setMoveCopyEntry(entry)
-    setMoveCopyMode(mode)
+    setMoveCopyPick({ entry, mode })
   }
 
-  return (
-    <div className={pickerMode ? 'picker-overlay fixed inset-0 z-[150] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm sm:p-8' : ''}>
-    <section className={`ora-files-app ${pickerMode ? 'flex h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-background/95 shadow-2xl backdrop-blur-xl' : 'ora-app-frame'}`} onClick={() => setContextEntry(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
+  const explorerFrame = (
+    <>
+    <section className={`ora-files-app ${pickerMode ? 'flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-[1.6rem] border border-white/12 bg-background/95 text-foreground shadow-2xl backdrop-blur-xl' : 'ora-app-frame'}`} onClick={() => setContextEntry(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
       <header className="ora-app-navbar">
         <div className="flex min-w-0 items-center gap-3"><span className="ora-app-mark ora-app-mark-files"><FolderOpen size={24} weight="duotone" /></span><div><p className="text-lg font-semibold">{t('os.apps.files.name')}</p><p className="hidden text-xs text-foreground/45 sm:block">{t('os.apps.files.description')}</p></div></div>
         <div className="flex items-center gap-2">
@@ -627,7 +763,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         </div>
         <label className="ora-toolbar-search"><MagnifyingGlass size={17} /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('os.systemApps.searchFiles')} /></label>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('iora-files-view', next) }} className="ora-icon-button" aria-label={t('os.files.changeView')} title={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
+          <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('iora-files-view', next) }} className="ora-icon-button" aria-label={t('os.files.changeView')} data-tooltip={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
           <label className="ora-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
           {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="ora-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
           <span className="mx-0.5 h-6 w-px bg-foreground/10" aria-hidden="true" />
@@ -816,7 +952,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                 )}
               </div>
             ) : initialLoading ? <div className="ora-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="ora-file-skeleton" />)}</div> : sortedFiles.length === 0 ? <div className="flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
-              <div className="ora-file-grid">{
+              <div ref={gridRef} onMouseDown={beginMarquee} className="ora-file-grid relative">{
                 newFileDraft && (
                   <div className="ora-file-tile relative border border-accent/50 bg-accent/8">
                     <span className="ora-document-icon"><img src="/icons/file.png" alt="" width={56} height={56} className="object-contain" draggable={false} /></span>
@@ -833,30 +969,40 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                     />
                   </div>
                 )}
-                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); toggleSelection(entry.id, false) }} className={`ora-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''}`}><span className={entry.is_folder ? 'ora-folder-icon' : 'ora-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
+                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-id={entry.id} data-tooltip={entry.original_name} className={`ora-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''} ${pickerMode && !matchesAccept(entry) && !entry.is_folder ? 'opacity-35' : ''}`}><span className={entry.is_folder ? 'ora-folder-icon' : 'ora-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
                   <input
                     autoFocus
                     value={renameValue}
                     onChange={(event) => setRenameValue(event.target.value)}
+                    onFocus={(event) => event.target.select()}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') void rename()
                       if (event.key === 'Escape') setRenameEntry(null)
+                      event.stopPropagation()
                     }}
                     onBlur={() => { if (renameValue.trim() && renameValue !== renameEntry?.original_name) void rename(); else setRenameEntry(null) }}
                     className="mt-3 w-full truncate rounded-md border border-accent/50 bg-background px-2 py-1 text-center text-sm font-medium text-foreground outline-none"
                   />
                 ) : (
                   <span className="mt-3 w-full truncate text-center text-sm font-medium">{entry.original_name}</span>
-                )}<span className="mt-1 text-xs text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : formatBytes(entry.size_bytes)}</span></div>)}</div>
+                )}<span className="mt-1 text-xs text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : formatBytes(entry.size_bytes)}</span></div>)}
+          {marquee && <div className="ora-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
+          </div>
             ) : viewMode === 'list' ? (
-              <div className="ora-file-list"><div className="ora-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); toggleSelection(entry.id, false) }} className={`ora-file-row relative ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''}`}><span className="flex min-w-0 items-center gap-3">{selected.size > 0 && <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${selected.has(entry.id) ? 'bg-accent text-white' : 'bg-foreground/10 text-transparent'}`}><Check size={10} weight="bold" /></span>}<span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span>{renameEntry?.id === entry.id ? (
+              <div className="ora-file-list"><div className="ora-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row relative ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-3">{selected.size > 0 && <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${selected.has(entry.id) ? 'bg-accent text-white' : 'bg-foreground/10 text-transparent'}`}><Check size={10} weight="bold" /></span>}<span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span>{renameEntry?.id === entry.id ? (
                     <input
                       autoFocus
                       value={renameValue}
                       onChange={(event) => setRenameValue(event.target.value)}
+                      onFocus={(event) => event.target.select()}
+                      onClick={(event) => event.stopPropagation()}
+                      onDoubleClick={(event) => event.stopPropagation()}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') void rename()
                         if (event.key === 'Escape') setRenameEntry(null)
+                        event.stopPropagation()
                       }}
                       onBlur={() => { if (renameValue.trim() && renameValue !== renameEntry?.original_name) void rename(); else setRenameEntry(null) }}
                       className="min-w-0 truncate rounded-md border border-accent/50 bg-background px-2 py-0.5 text-sm text-foreground outline-none"
@@ -867,7 +1013,25 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
             ) : (
               <div className="ora-file-list">
                 <div className="ora-file-table-head"><span>{t('os.files.name')}</span><span>{t('os.files.type')}</span><span>{t('os.files.size')}</span><span>{t('os.files.modified')}</span></div>
-                {sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); toggleSelection(entry.id, false) }} className={`ora-file-row ora-file-table-row ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''}`}><span className="flex min-w-0 items-center gap-2.5"><span className="shrink-0">{fileIcon(entry, 22)}</span><span className="truncate">{entry.original_name}</span></span><span className="truncate">{entry.is_folder ? t('os.systemApps.folder') : (entry.mime_type || t('os.files.typeFile'))}</span><span>{entry.is_folder ? '—' : formatBytes(entry.size_bytes)}</span><span>{new Date(entry.updated_at).toLocaleString()}</span></button>)}
+                {sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row ora-file-table-row ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-2.5"><span className="shrink-0">{fileIcon(entry, 22)}</span>{renameEntry?.id === entry.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onFocus={(event) => event.target.select()}
+                      onClick={(event) => event.stopPropagation()}
+                      onDoubleClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void rename()
+                        if (event.key === 'Escape') setRenameEntry(null)
+                        event.stopPropagation()
+                      }}
+                      onBlur={() => { if (renameValue.trim() && renameValue !== renameEntry?.original_name) void rename(); else setRenameEntry(null) }}
+                      className="min-w-0 truncate rounded-md border border-accent/50 bg-background px-2 py-0.5 text-sm text-foreground outline-none"
+                    />
+                  ) : (
+                    <span className="truncate">{entry.original_name}</span>
+                  )}</span><span className="truncate">{entry.is_folder ? t('os.systemApps.folder') : (entry.mime_type || t('os.files.typeFile'))}</span><span>{entry.is_folder ? '—' : formatBytes(entry.size_bytes)}</span><span>{new Date(entry.updated_at).toLocaleString()}</span></button>)}
               </div>
             )}
           </div>
@@ -929,9 +1093,10 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         return (
         <div
           className="ora-context-menu"
-          style={{ left: Math.min(pos.x, window.innerWidth - 230), top: Math.min(pos.y, window.innerHeight - 320), right: 'auto' }}
+          style={{ left: Math.min(pos.x, window.innerWidth - 230), top: Math.min(pos.y, window.innerHeight - 320), right: 'auto', zIndex: pickerMode ? 270 : undefined }}
           onClick={(event) => event.stopPropagation()}
         >
+          {pickerMode && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); setSelected(new Set([e.id])); void completePick() }}><Check size={16} />{t('os.filePicker.select')}</button>}
           <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); openEntry(e) }}><FolderOpen size={16} />{contextEntry.is_folder ? t('os.files.open') : (contextEntry.mime_type?.startsWith('image/') ? t('os.files.preview') : t('os.files.open'))}</button>
           {app && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); app.open({ id: e.id, name: e.original_name }) }}><img src={app.appIcon} alt="" width={16} height={16} className="object-contain" draggable={false} />{t('os.files.openWith', { app: app.appName })}</button>}
           {!contextEntry.is_folder && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); void download(e) }}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}
@@ -943,7 +1108,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       )}
       {createPortal(
       selected.size === 1 && selectedEntries[0] && (
-        <div className="fixed inset-y-0 right-0 z-[70] flex w-72 flex-col border-l border-foreground/10 bg-background/95 shadow-2xl backdrop-blur-xl">
+        <div className={`fixed inset-y-0 right-0 flex w-72 flex-col border-l border-foreground/10 bg-background/95 shadow-2xl backdrop-blur-xl ${pickerMode ? 'z-[270]' : 'z-[70]'}`}>
           <div className="flex items-center justify-between border-b border-foreground/8 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-foreground/50">{t('os.files.details')}</p>
             <button type="button" onClick={() => setSelected(new Set())} className="ora-icon-button" aria-label={t('common.close')}><X size={16} /></button>
@@ -979,7 +1144,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       )}
       {createPortal(
       previewEntry && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-6 backdrop-blur-md" onClick={() => setPreviewEntry(null)}>
+        <div className={`fixed inset-0 flex items-center justify-center bg-black/70 p-6 backdrop-blur-md ${pickerMode ? 'z-[270]' : 'z-[80]'}`} onClick={() => setPreviewEntry(null)}>
           <div className="relative max-h-full max-w-full" onClick={(event) => event.stopPropagation()}>
             <AuthImage src={`${getBackendUrl()}/api/files/${previewEntry.id}/download`} alt={previewEntry.original_name} className="max-h-[80vh] max-w-full rounded-xl object-contain shadow-2xl" />
             <div className="mt-3 flex items-center justify-between">
@@ -996,14 +1161,30 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       )}
       {working && <div className="ora-working-pill">{t('os.systemApps.processing')}</div>}
       {newFolderOpen && <Modal title={t('os.systemApps.newFolder')} onClose={() => setNewFolderOpen(false)}><input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createFolder() }} placeholder={t('os.systemApps.folderName')} className="ora-modal-input" /><div className="ora-modal-actions"><button type="button" onClick={() => setNewFolderOpen(false)}>{t('common.cancel')}</button><button type="button" disabled={!newFolderName.trim() || working} onClick={() => void createFolder()} className="ora-primary-button">{t('common.create')}</button></div></Modal>}
-      {moveCopyEntry && moveCopyMode && <OsFileMoveCopyDialog entry={moveCopyEntry} mode={moveCopyMode} onCancel={() => { setMoveCopyEntry(null); setMoveCopyMode(null) }} onComplete={() => { setMoveCopyEntry(null); setMoveCopyMode(null); void load(true) }} />}
-      {renameEntry && <Modal title={t('os.systemApps.rename')} onClose={() => setRenameEntry(null)}><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void rename() }} className="ora-modal-input" /><div className="ora-modal-actions"><button type="button" onClick={() => setRenameEntry(null)}>{t('common.cancel')}</button><button type="button" disabled={!renameValue.trim() || working} onClick={() => void rename()} className="ora-primary-button">{t('common.save')}</button></div></Modal>}
+      {moveCopyPick && (
+        <OsFileExplorer
+          pickerMode={{
+            selectFolders: true,
+            title: moveCopyPick.mode === 'move' ? t('os.systemApps.moveTo') : t('os.systemApps.copyTo'),
+            onCancel: () => setMoveCopyPick(null),
+            onComplete: (dirs) => {
+              const target = dirs[0]
+              if (target) {
+                if (moveCopyPick.mode === 'move') void moveEntry(moveCopyPick.entry.id, target.id)
+                else void copyEntry(moveCopyPick.entry.id, target.id)
+              }
+              setMoveCopyPick(null)
+              void load(true)
+            },
+          }}
+        />
+      )}
     </section>
 
     {pickerMode && (
-      <footer className="flex shrink-0 items-center gap-3 border-t border-foreground/10 bg-background/95 px-4 py-3">
-        <p className="min-w-0 flex-1 truncate text-xs text-foreground/55">
-          {pickerMode.title ? t('os.filePicker.requestedBy', { app: pickerMode.title }) : ''} · {selected.size > 0 ? t('os.files.selected', { count: selected.size }) : t('os.files.selectFile')}
+      <footer className="flex w-[min(74rem,96vw)] shrink-0 items-center gap-3 rounded-b-[1.6rem] border border-t-0 border-white/12 bg-background/95 px-5 py-3.5 text-foreground shadow-2xl">
+        <p className="min-w-0 flex-1 truncate text-xs text-foreground/60">
+          {pickerMode.title ? t('os.filePicker.requestedBy', { app: pickerMode.title }) : ''} · {selected.size > 0 ? t('os.files.selected', { count: selected.size }) : pickerMode.selectFolders ? t('os.files.selectFolder') : t('os.files.selectFile')}
         </p>
         <button type="button" onClick={pickerMode.onCancel} className="min-h-11 rounded-xl bg-foreground/7 px-5 text-sm">{t('common.cancel')}</button>
         <button
@@ -1012,11 +1193,34 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           onClick={() => void completePick()}
           className="min-h-11 rounded-xl bg-accent px-5 text-sm font-semibold text-white disabled:opacity-40"
         >
-          {selected.size > 0 ? t('os.files.selectCount', { count: selected.size }) : t('os.filePicker.open')}
+          {pickerMode.selectFolders ? t('os.filePicker.selectFolder') : selected.size > 0 ? t('os.files.selectCount', { count: selected.size }) : t('os.filePicker.open')}
         </button>
       </footer>
     )}
-    </div>
+    </>
+  )
+
+  if (!pickerMode) return <div>{explorerFrame}</div>
+
+  // A picker can be opened from another dialog.  A plain portal looks visually
+  // correct in that case, but the parent dialog's dismissable layer can still
+  // receive the pointer event.  Keeping the picker in its own Radix dialog
+  // gives it the active modal layer and prevents clicks leaking through.
+  return (
+    <DialogPrimitive.Root open modal onOpenChange={(next) => { if (!next) pickerMode.onCancel() }}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[260] bg-black/65 backdrop-blur-md" />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          className="picker-overlay fixed inset-0 z-[261] flex flex-col items-center justify-center p-4 text-foreground outline-none sm:p-8"
+        >
+          <DialogPrimitive.Title className="sr-only">
+            {pickerMode.title || t('os.filePicker.open')}
+          </DialogPrimitive.Title>
+          {explorerFrame}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }
 

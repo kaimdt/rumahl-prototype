@@ -150,7 +150,45 @@ export function OsHomeScreen() {
   }, [apps, query, t])
 
   const homeApp = apps.find((app) => app.id === 'iora-home')
-  const launcherItems = useMemo(() => buildLauncherItems(visibleApps, query ? [] : folders), [folders, query, visibleApps])
+  const [launcherLayout, setLauncherLayout] = useState<Array<{ id: string; kind: string }> | null>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('iora-launcher-layout') || 'null')
+      return Array.isArray(parsed) ? parsed : null
+    } catch { return null }
+  })
+
+  const launcherItems = useMemo(() => {
+    const base = buildLauncherItems(visibleApps, query ? [] : folders)
+    if (!launcherLayout || query) return base
+    const byId = new Map(base.map((item) => [item.type === 'app' ? item.app.id : item.folder.id, item]))
+    const ordered: typeof base = []
+    const used = new Set<string>()
+    for (const entry of launcherLayout) {
+      const item = byId.get(entry.id)
+      if (item) { ordered.push(item); used.add(entry.id) }
+    }
+    for (const item of base) {
+      const id = item.type === 'app' ? item.app.id : item.folder.id
+      if (!used.has(id)) ordered.push(item)
+    }
+    return ordered
+  }, [folders, query, visibleApps, launcherLayout])
+
+  const persistLauncherLayout = (ordered: ReturnType<typeof buildLauncherItems>) => {
+    const layout = ordered.map((item) => ({ id: item.type === 'app' ? item.app.id : item.folder.id, kind: item.type }))
+    setLauncherLayout(layout)
+    try { localStorage.setItem('iora-launcher-layout', JSON.stringify(layout)) } catch { /* ignore */ }
+  }
+
+  const handleReorder = (fromId: string, toId: string) => {
+    const list = [...launcherItems]
+    const from = list.findIndex((item) => (item.type === 'app' ? item.app.id : item.folder.id) === fromId)
+    const to = list.findIndex((item) => (item.type === 'app' ? item.app.id : item.folder.id) === toId)
+    if (from === -1 || to === -1) return
+    const [moved] = list.splice(from, 1)
+    list.splice(to, 0, moved)
+    persistLauncherLayout(list)
+  }
   const pageSize = 24
   const appPages = useMemo(() => {
     const result: ReturnType<typeof buildLauncherItems>[] = []
@@ -319,7 +357,7 @@ export function OsHomeScreen() {
     },
   }
 
-  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} />
+  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} />
 
   return (
     <section

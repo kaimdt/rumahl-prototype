@@ -22,7 +22,9 @@ import { OsWindowActions } from '@/components/OsWindowActions'
 import { CommandPalette } from '@/components/CommandPalette'
 import { AppRuntimeView } from '@/components/AppRuntimeView'
 import { OsImagesApp } from '@/components/OsImagesApp'
-import { appRuntimeUrls } from '@/hooks/useInstalledApps'
+import { OsTooltipProvider } from '@/components/OsTooltip'
+import { appOpenUrl, appRuntimeUrls } from '@/hooks/useInstalledApps'
+import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { OsAppWindow } from '@/components/OsAppWindow'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
 import { OsWindowProvider, useOsWindows } from '@/contexts/OsWindowContext'
@@ -76,7 +78,11 @@ import { toast } from 'sonner'
 import { installGlobalErrorHandlers } from '@/lib/errorReporter'
 import { startSystemEventListener } from '@/lib/systemEventListener'
 import { ORAAssistant } from '@/components/ORAAssistant'
-const CodingAgent = lazy(() => import('@/components/CodingAgent').then(m => ({ default: m.CodingAgent })))
+const CodingAgent = lazy(() =>
+  import('@/components/CodingAgent')
+    .then((m) => ({ default: m.CodingAgent }))
+    .catch(() => ({ default: (() => <></>) as unknown as typeof import('@/components/CodingAgent').CodingAgent })),
+)
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
@@ -178,7 +184,14 @@ function DashboardContent() {
 // Raw app content (no window chrome) — used by the window manager.
 const renderOsAppContent = (pageId: string): React.ReactNode => {
   // Installed Docker apps embed their web UI in an iframe (CasaOS-style).
-  const runtimeUrl = appRuntimeUrls.get(pageId)
+  // A direct /page/<app-id> navigation does not mount the launcher first,
+  // therefore the runtime URL map has not been populated yet.  Resolve
+  // catalog apps here as well so bookmarks and deep links open their web UI.
+  const runtimeUrl = appRuntimeUrls.get(pageId) ?? (
+    STORE_CATALOG.some((app) => app.id === pageId)
+      ? appOpenUrl({ id: pageId, name: pageId, version: '', ports: [] })
+      : undefined
+  )
   if (runtimeUrl) {
     return <AppRuntimeView appId={pageId} url={runtimeUrl} name={getOsAppName(pageId)} />
   }
@@ -586,6 +599,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
       <div
         className={`min-h-screen relative theme-transition overflow-x-hidden font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
       >
+        <OsTooltipProvider />
         <Screensaver
           enabled={screensaverSettings.enabled}
           timeout={screensaverSettings.timeout}
