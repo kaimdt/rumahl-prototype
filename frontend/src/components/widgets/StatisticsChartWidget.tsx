@@ -41,10 +41,11 @@ const TIME_RANGES: { value: TimeRange; label: string; ms: number }[] = [
 ]
 
 export default function StatisticsChartWidget({ entityId, config }: StatisticsChartWidgetProps) {
-  const { entities } = useEntityStore()
+  const { getEntity } = useEntityStore()
   const [history, setHistory] = useState<HistoryPoint[]>([])
   const [loading, setLoading] = useState(true)
-  const entity = entityId ? entities.find(e => e.entity_id === entityId) : undefined
+  // ⚡ Bolt Optimization: Use O(1) getEntity instead of O(N) entities.find()
+  const entity = entityId ? getEntity(entityId) : undefined
   
   const variant = (config?.chartVariant as ChartVariant) || (config?.variant as ChartVariant) || 'area'
   const defaultRange = (config?.timeRange as TimeRange) || '24h'
