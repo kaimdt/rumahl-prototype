@@ -24,6 +24,9 @@ pub struct StreamSession {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// Display name of the device/user that started the stream.
+    #[serde(default)]
+    pub owner: String,
     pub status: StreamStatus,
     pub created_at: String,
     pub source_type: StreamSourceType,
@@ -59,6 +62,9 @@ pub struct CreateStreamRequest {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    /// Display name of the device/user starting the stream.
+    #[serde(default)]
+    pub owner: String,
     #[serde(default = "default_source_type")]
     pub source_type: StreamSourceType,
     /// Required when source_type is "external_url"
@@ -133,6 +139,7 @@ impl StreamManager {
             id: id.clone(),
             name: req.name,
             description: req.description,
+            owner: req.owner,
             status: match req.source_type {
                 StreamSourceType::ExternalUrl => StreamStatus::Live,
                 StreamSourceType::WebsocketRelay => StreamStatus::Waiting,

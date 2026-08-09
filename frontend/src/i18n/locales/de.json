@@ -1067,6 +1067,15 @@
     "viewers": "Zuschauer",
     "watchStream": "Stream ansehen",
     "backToOverview": "Zurück zur Übersicht",
-    "live": "live"
+    "live": "live",
+    "send": "Streamen",
+    "watch": "Ansehen",
+    "filterAll": "Alle",
+    "filterMine": "Mein Stream",
+    "filterOthers": "Andere Geräte",
+    "ownStream": "Eigener Stream",
+    "noStreamsHint": "Starte einen Stream oder schaue gleich los, sobald ein Gerät live geht.",
+    "device": "IORA Gerät",
+    "unknownDevice": "Unbekanntes Gerät"
   }
 }

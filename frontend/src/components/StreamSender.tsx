@@ -18,6 +18,28 @@ type StreamMode = 'av' | 'video' | 'audio'
 type VideoSourceType = 'camera' | 'screen'
 type StreamState = 'idle' | 'connecting' | 'live' | 'error'
 
+/** Stream thumbnail with graceful fallback. */
+function StreamThumb({ streamId, name }: { streamId: string; name: string }) {
+  const API = getBackendUrl()
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-foreground/[0.04]">
+        <Broadcast size={26} className="text-foreground/20" weight="duotone" />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={`${API}/api/streams/${streamId}/snapshot`}
+      alt={name}
+      onError={() => setFailed(true)}
+      className="h-full w-full object-cover"
+      loading="lazy"
+    />
+  )
+}
+
 export function StreamSender() {
   const { t } = useTranslation()
   const API_BASE = getBackendUrl()
@@ -46,14 +68,34 @@ export function StreamSender() {
     id: string
     name: string
     description?: string
+    owner?: string
     status: string
     created_at?: string
     source_type?: string
     source_url?: string | null
     viewer_count?: number
   }
+
+  const ownName = localStorage.getItem('ha-username') || t('streaming.device')
+  const formatStartTime = (iso?: string) => {
+    if (!iso) return ''
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    } catch {
+      return ''
+    }
+  }
   const [streams, setStreams] = useState<StreamInfo[]>([])
   const [watching, setWatching] = useState<string | null>(null)
+  const [view, setView] = useState<'send' | 'watch'>('watch')
+  const [streamFilter, setStreamFilter] = useState<'all' | 'mine' | 'others'>('all')
+
+  // Own stream = the one this device started (tracked in streamIdRef).
+  const visibleStreams = streams.filter((stream) => {
+    if (streamFilter === 'mine') return stream.id === streamIdRef.current
+    if (streamFilter === 'others') return stream.id !== streamIdRef.current
+    return true
+  })
 
   // Poll all streams so the app shows every active stream (not only own).
   useEffect(() => {
@@ -216,7 +258,7 @@ export function StreamSender() {
       const res = await fetch(`${API_BASE}/api/streams`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: streamName, description: `${videoSource === 'screen' ? 'screen' : mode} stream`, source_type: 'websocket_relay' }),
+        body: JSON.stringify({ name: streamName, description: `${videoSource === 'screen' ? 'screen' : mode} stream`, source_type: 'websocket_relay', owner: ownName }),
       })
       if (!res.ok) throw new Error('Stream konnte nicht erstellt werden')
       const data = await res.json()
@@ -306,8 +348,39 @@ export function StreamSender() {
             </div>
           )}
         </div>
+
+        {/* View switcher: stream OR watch all active streams */}
+        <div className="mt-4 flex gap-1 rounded-xl bg-foreground/[0.04] p-1">
+          <button
+            type="button"
+            onClick={() => setView('send')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+              view === 'send' ? 'bg-accent text-white shadow-sm' : 'text-foreground/55 hover:text-foreground'
+            }`}
+          >
+            <Record size={13} weight={view === 'send' ? 'fill' : 'regular'} />
+            {t('streaming.send')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('watch')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+              view === 'watch' ? 'bg-accent text-white shadow-sm' : 'text-foreground/55 hover:text-foreground'
+            }`}
+          >
+            <Eye size={13} weight={view === 'watch' ? 'fill' : 'regular'} />
+            {t('streaming.watch')}
+            {streams.length > 0 && (
+              <span className={`rounded-full px-1.5 text-[10px] font-bold ${view === 'watch' ? 'bg-white/20' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                {streams.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
+      {view === 'send' ? (
+      <>
       {/* ── Stream Controls Bar ───────────────────────────────────── */}
       <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -534,81 +607,121 @@ export function StreamSender() {
         </AnimatePresence>
       </div>
 
-      {/* ── Active Streams ──────────────────────────────────────────── */}
-      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
-              <Eye size={16} weight="fill" className="text-accent" />
-              {t('streaming.activeStreams')}
-            </h2>
-            <p className="text-xs text-foreground/45 mt-0.5">{t('streaming.activeStreamsDesc')}</p>
-          </div>
-          {streams.length > 0 && (
-            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">
-              {streams.length} live
-            </span>
-          )}
-        </div>
-
-        {streams.length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-foreground/10 py-8 text-center">
-            <Broadcast size={22} className="mx-auto mb-2 text-foreground/20" />
-            <p className="text-xs text-foreground/40">{t('streaming.noStreams')}</p>
-          </div>
-        ) : (
-          <div className="mt-4 grid gap-2">
-            {streams.map((stream) => (
-              <div
-                key={stream.id}
-                onClick={() => setWatching(stream.id)}
-                className="flex cursor-pointer items-center gap-3 rounded-2xl border border-foreground/8 bg-foreground/[0.03] px-4 py-3 transition-colors hover:bg-foreground/[0.06]"
-              >
-                <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
-                  <Broadcast size={18} weight="duotone" />
-                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold text-foreground">{stream.name}</p>
-                  <p className="truncate text-[11px] text-foreground/45">
-                    {stream.description || stream.source_type || 'live'} · {stream.viewer_count ?? 0} {t('streaming.viewers')}
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-full bg-red-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
-                  {t('streaming.live')}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+      </>
+      ) : (
+      <>
+      {/* ── Watch view: all active streams from other devices ────────── */}
+      <div className="flex gap-2 flex-wrap">
+        {(['all', 'mine', 'others'] as const).map((filter) => (
+          <button
+            key={filter}
+            type="button"
+            onClick={() => setStreamFilter(filter)}
+            className={`px-3.5 py-2 rounded-full text-xs font-medium transition-all ${
+              streamFilter === filter
+                ? 'bg-accent text-white shadow-lg shadow-accent/25'
+                : 'border border-foreground/10 bg-foreground/[0.04] text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground'
+            }`}
+          >
+            {filter === 'all' ? t('streaming.filterAll') : filter === 'mine' ? t('streaming.filterMine') : t('streaming.filterOthers')}
+          </button>
+        ))}
       </div>
 
-      {/* ── Watch Mode ─────────────────────────────────────────────── */}
+      {visibleStreams.length === 0 ? (
+        <div className="glass-card rounded-2xl border border-dashed border-foreground/10 py-14 text-center">
+          <Broadcast size={30} className="mx-auto mb-3 text-foreground/15" weight="duotone" />
+          <p className="text-sm font-semibold text-foreground/60">{t('streaming.noStreams')}</p>
+          <p className="mt-1 text-xs text-foreground/35">{t('streaming.noStreamsHint')}</p>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {visibleStreams.map((stream) => (
+            <button
+              key={stream.id}
+              type="button"
+              onClick={() => setWatching(stream.id)}
+              className="glass-card group overflow-hidden rounded-2xl text-left transition-all hover:-translate-y-0.5 hover:border-foreground/15"
+            >
+              <div className="relative aspect-video w-full overflow-hidden bg-black/40">
+                <StreamThumb streamId={stream.id} name={stream.name} />
+                <span className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-red-500/90 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-lg">
+                  <Circle size={6} weight="fill" className="animate-pulse" />
+                  {t('streaming.live')}
+                </span>
+                <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">
+                  <Eye size={10} />
+                  {stream.viewer_count ?? 0}
+                </span>
+                {stream.id === streamIdRef.current && (
+                  <span className="absolute bottom-2 left-2 rounded-full bg-accent/90 px-2 py-0.5 text-[9px] font-bold text-white">
+                    {t('streaming.ownStream')}
+                  </span>
+                )}
+              </div>
+              <div className="p-3">
+                <p className="truncate text-[13px] font-semibold text-foreground">{stream.name}</p>
+                <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-foreground/55">
+                  <Users size={11} className="shrink-0 text-foreground/35" />
+                  <span className="truncate">{stream.owner || t('streaming.unknownDevice')}</span>
+                  {stream.created_at && (
+                    <>
+                      <span className="text-foreground/25">·</span>
+                      <Clock size={11} className="shrink-0 text-foreground/35" />
+                      <span>{formatStartTime(stream.created_at)}</span>
+                    </>
+                  )}
+                </p>
+                <p className="mt-0.5 truncate text-[11px] text-foreground/45">
+                  {stream.description || stream.source_type || '—'}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Watch mode ─────────────────────────────────────────────── */}
       <AnimatePresence>
         {watching && (
           <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            className="glass-card rounded-2xl border border-foreground/[0.06] p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-x-0 bottom-0 top-14 z-[60] flex flex-col overflow-hidden bg-background/95 backdrop-blur-xl"
           >
-            <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex min-h-12 shrink-0 items-center gap-3 border-b border-foreground/8 px-4">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-foreground/80">
+                  {streams.find((s) => s.id === watching)?.name || t('streaming.watchStream')}
+                </p>
+                <p className="truncate text-[10px] text-foreground/45">
+                  {streams.find((s) => s.id === watching)?.owner || ''}
+                </p>
+              </div>
+              <span className="hidden items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-red-400 sm:flex">
+                <Circle size={8} weight="fill" className="animate-pulse" />
+                {t('streaming.live')}
+              </span>
               <button
                 onClick={() => setWatching(null)}
-                className="flex items-center gap-1.5 rounded-full border border-foreground/10 bg-foreground/5 px-3 py-1.5 text-[11px] font-semibold text-foreground/70 transition-colors hover:bg-foreground/10"
+                className="flex items-center gap-1.5 rounded-full border border-foreground/10 bg-foreground/5 px-3.5 py-1.5 text-[11px] font-semibold text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground"
               >
                 <ArrowLeft size={13} weight="bold" />
                 {t('streaming.backToOverview')}
               </button>
-              <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-red-400">
-                <Circle size={8} weight="fill" className="animate-pulse" />
-                {t('streaming.watchStream')}
-              </span>
             </div>
-            <StreamWidget config={{ streamId: watching }} />
+            <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+              <div className="h-full w-full max-w-5xl">
+                <StreamWidget config={{ streamId: watching }} />
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
+      </>
+      )}
 
       {/* ── Error Display ──────────────────────────────────────────── */}
       {error && (state === 'error' || state === 'idle') && (
