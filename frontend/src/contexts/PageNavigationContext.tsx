@@ -98,6 +98,7 @@ import {
   ShareNetwork,
 } from '@phosphor-icons/react'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
+import { installedAppIds } from '@/hooks/useInstalledApps'
 
 export interface PageSettings {
   page_id: string
@@ -290,22 +291,47 @@ export const iconMap = {
 
 const builtInPages = ['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'docs', 'streaming']
 
-function pageIdToPath(id: string, docPath?: string): string {
-  if (id === 'launcher') return '/'
-  if (id === 'admin') return '/admin'
+const SYSTEM_PAGE_PATHS: Record<string, string> = {
+  launcher: '/',
+  admin: '/admin',
+  settings: '/settings',
+  'app-store': '/app-store',
+  docs: '/docs',
+  share: '/share',
+  streaming: '/streaming',
+  'ai-agent': '/agent',
+  'os-files': '/files',
+  'os-images': '/images',
+  'os-network': '/network',
+  'os-system': '/system',
+  'os-updates': '/updates',
+  'os-backups': '/backups',
+}
+
+const SYSTEM_PATH_PAGE_IDS = new Map(
+  Object.entries(SYSTEM_PAGE_PATHS).map(([pageId, path]) => [path, pageId]),
+)
+
+function pageIdToPath(id: string, targetPage?: DashboardPage, docPath?: string): string {
   if (id === 'docs' && docPath) return `/docs/${docPath}`
+  if (SYSTEM_PAGE_PATHS[id]) return SYSTEM_PAGE_PATHS[id]
   if (builtInPages.includes(id)) return `/${id}`
-  if (STORE_CATALOG.some((app) => app.id === id)) return `/app/${id}`
+  const isAppPage = targetPage?.pageType === 'app' || targetPage?.pageSource?.kind === 'app'
+  if (isAppPage || STORE_CATALOG.some((app) => app.id === id) || installedAppIds.has(id)) return `/app/${id}`
   return `/page/${id}`
 }
 
 function pathToPageId(path: string): string {
-  if (path === '/' || path === '') return 'launcher'
-  if (path.startsWith('/admin')) return 'admin'
-  if (path.startsWith('/docs/') || path.startsWith('/docs')) return 'docs'
-  if (path.startsWith('/app/')) return path.slice(5)
-  if (path.startsWith('/page/')) return path.slice(6)
-  return path.slice(1)
+  const normalizedPath = path.length > 1 ? path.replace(/\/+$/, '') : path
+  if (normalizedPath === '') return 'launcher'
+  const systemPageId = SYSTEM_PATH_PAGE_IDS.get(normalizedPath)
+  if (systemPageId) return systemPageId
+  if (normalizedPath.startsWith('/docs/') || normalizedPath.startsWith('/docs')) return 'docs'
+  if (normalizedPath.startsWith('/app/')) return normalizedPath.slice(5)
+  // Compatibility only: legacy app links used the plural route.
+  if (normalizedPath.startsWith('/apps/')) return normalizedPath.slice(6)
+  if (normalizedPath.startsWith('/page/')) return normalizedPath.slice(6)
+  return normalizedPath.slice(1)
 }
 
 function extractDocPath(path: string): string | null {
@@ -545,6 +571,16 @@ function ensureDefaultPages(backendPages: DashboardPage[]): DashboardPage[] {
 // ── Provider ──────────────────────────────────────────────────────────
 
 export function PageNavigationProvider({ children }: { children: React.ReactNode }) {
+  if (window.location.pathname.startsWith('/apps/')) {
+    const canonical = `/app/${window.location.pathname.slice('/apps/'.length)}`
+    window.history.replaceState(window.history.state, '', `${canonical}${window.location.search}${window.location.hash}`)
+  } else if (window.location.pathname.startsWith('/page/')) {
+    const legacyPageId = window.location.pathname.slice('/page/'.length)
+    const canonical = SYSTEM_PAGE_PATHS[legacyPageId]
+    if (canonical) {
+      window.history.replaceState(window.history.state, '', `${canonical}${window.location.search}${window.location.hash}`)
+    }
+  }
   const [pages, setLocalPages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
   const [currentPageId, setCurrentPageIdState] = useState<string>(() =>
     pathToPageId(window.location.pathname)
@@ -571,7 +607,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     }
     setModalPageId(null) // Close any open modal
     setCurrentPageIdState(id)
-    const path = pageIdToPath(id)
+    const path = pageIdToPath(id, targetPage)
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
     }
@@ -596,6 +632,23 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  // Existing `/page/<app-id>` bookmarks predate the dedicated app namespace.
+  // Only redirect IDs confirmed by the supervisor; user dashboard pages retain
+  // their `/page/` URLs.
+  useEffect(() => {
+    const canonicalizeLegacyAppPage = () => {
+      const path = window.location.pathname
+      if (!path.startsWith('/page/')) return
+      const appId = path.slice('/page/'.length)
+      if (!installedAppIds.has(appId)) return
+      window.history.replaceState(window.history.state, '', `/app/${appId}${window.location.search}${window.location.hash}`)
+      setCurrentPageIdState(appId)
+    }
+    window.addEventListener('iora:installed-apps-updated', canonicalizeLegacyAppPage)
+    canonicalizeLegacyAppPage()
+    return () => window.removeEventListener('iora:installed-apps-updated', canonicalizeLegacyAppPage)
   }, [])
 
   // ── Backend sync: init ────────────────────────────────────────────

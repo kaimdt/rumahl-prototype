@@ -66,3 +66,4 @@ __pycache__/
 /example-website
 /ora-website/.next
 /iora-os/backend/.cache
+/.pnpm-store

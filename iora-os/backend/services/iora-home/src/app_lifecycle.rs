@@ -54,6 +54,50 @@ struct ComposePsRow {
     state: String,
     #[serde(default, alias = "Health", alias = "health")]
     health: String,
+    #[serde(default, alias = "Publishers", alias = "publishers")]
+    publishers: Vec<ComposePublisher>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ComposePublisher {
+    #[serde(default, alias = "PublishedPort", alias = "published_port")]
+    published_port: u16,
+    #[serde(default, alias = "TargetPort", alias = "target_port")]
+    target_port: u16,
+    #[serde(default, alias = "Protocol", alias = "protocol")]
+    protocol: String,
+}
+
+/// Resolve the host ports Docker actually assigned to an app. This is kept
+/// separate from manifest ports because Compose may allocate dynamic ports.
+pub async fn docker_compose_ports(app_id: &str) -> Option<Vec<(u16, u16, String)>> {
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project = format!("{prefix}{app_id}");
+        let output = Command::new("docker")
+            .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
+            .output()
+            .await;
+        let output = match output {
+            Ok(output) if output.status.success() => output,
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(_) => continue,
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let trimmed = text.trim();
+        let rows: Vec<ComposePsRow> = if trimmed.starts_with('[') {
+            serde_json::from_str(trimmed).unwrap_or_default()
+        } else {
+            trimmed.lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
+        };
+        let ports = rows.into_iter().flat_map(|row| row.publishers).filter_map(|port| {
+            (port.published_port > 0 && port.target_port > 0).then(|| {
+                (port.published_port, port.target_port, if port.protocol.is_empty() { "tcp".to_string() } else { port.protocol })
+            })
+        }).collect::<Vec<_>>();
+        if !ports.is_empty() { return Some(ports); }
+    }
+    Some(Vec::new())
 }
 
 /// Liefert den realen Container-Status für eine App. Probiert beide Compose-Project-Prefixes

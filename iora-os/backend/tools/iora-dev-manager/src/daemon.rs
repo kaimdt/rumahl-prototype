@@ -74,6 +74,9 @@ pub struct Daemon {
     pub ports_opened: Mutex<bool>,
     pub mappings: Mutex<Vec<PortMapping>>,
     pub live_added: Mutex<HashSet<u16>>,
+    /// Host port -> SSH tunnel child PID (std::process::Child can't be stored
+    /// in a Mutex across awaits, so we keep the PID and re-attach by port).
+    pub tunnels: Mutex<HashMap<u16, u32>>,
     pub mappings_path: PathBuf,
     net_repair: Mutex<NetRepairState>,
     install_marker: Mutex<MarkerState>,
@@ -90,6 +93,7 @@ impl Daemon {
             .and_then(|value| serde_json::from_str(&value).ok())
             .unwrap_or_default();
         Arc::new(Self {
+            tunnels: Mutex::new(HashMap::new()),
             manager: AsyncMutex::new(manager),
             logs: Mutex::new(VecDeque::new()),
             events,
@@ -1268,6 +1272,173 @@ impl Daemon {
         }
     }
 
+    /// SSH arguments for guest commands (the reliable channel; QGA sockets
+    /// are only present on daemon-started VMs).
+    fn ssh_args(&self, manager: &Manager) -> Vec<String> {
+        let key = manager.root.join(".cache/iora-dev-key");
+        vec![
+            "-o".into(),
+            "StrictHostKeyChecking=no".into(),
+            "-o".into(),
+            "UserKnownHostsFile=NUL".into(),
+            "-o".into(),
+            "BatchMode=yes".into(),
+            "-o".into(),
+            "ConnectTimeout=5".into(),
+            "-p".into(),
+            manager.state.ssh_port.to_string(),
+            "-i".into(),
+            key.display().to_string(),
+        ]
+    }
+
+    /// Run a command on the guest over SSH (fallback to QGA when the VM was
+    /// started by this daemon with a guest-agent chardev).
+    async fn guest_ssh(&self, command: &str) -> Result<String> {
+        let manager = self.manager.lock().await;
+        if manager.state.process_alive() {
+            let host = manager.state.vm_host.clone();
+            let args = self.ssh_args(&manager);
+            drop(manager);
+            let output = std::process::Command::new("ssh")
+                .args(&args)
+                .arg(format!("root@{host}"))
+                .arg(command)
+                .output()?;
+            if !output.status.success() {
+                anyhow::bail!(
+                    "ssh failed ({}): {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+        // VM not running — reuse the QGA path so the error message is clear.
+        let manager = self.manager.lock().await;
+        manager
+            .guest(command)
+            .await
+            .map_err(|error| anyhow::anyhow!("guest unavailable: {error}"))
+    }
+
+    /// Ensure every mapping has a live SSH tunnel from the host to the guest
+    /// (works without QMP hostfwd — the standard dev VM has none).
+    async fn sync_tunnels(&self) {
+        // Collect everything before locking the tunnel registry so no
+        // non-Send guard is held across an await (breaks the axum handlers).
+        let (mappings, host, key, ssh_port) = {
+            let manager = self.manager.lock().await;
+            (
+                self.mappings.lock().unwrap().clone(),
+                manager.state.vm_host.clone(),
+                manager.root.join(".cache/iora-dev-key"),
+                manager.state.ssh_port,
+            )
+        };
+        let mut tunnels = self.tunnels.lock().unwrap();
+        for mapping in &mappings {
+            // Skip when the host port is already served (tunnel running).
+            if std::net::TcpListener::bind(("127.0.0.1", mapping.host)).is_err() {
+                continue;
+            }
+            let args = [
+                "-N",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=NUL",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-L",
+                &format!("{}:127.0.0.1:{}", mapping.host, mapping.guest),
+                "-p",
+                &ssh_port.to_string(),
+                "-i",
+                &key.display().to_string(),
+                &format!("root@{host}"),
+            ];
+            let child = match std::process::Command::new("ssh")
+                .args(&args)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(_) => continue,
+            };
+            // The child handle is dropped on purpose: the ssh process keeps
+            // running detached; we remember its PID for later cleanup.
+            tunnels.insert(mapping.host, child.id());
+        }
+    }
+
+    /// Auto-map the exposed ports of running Docker apps (the "automatic
+    /// port mapping"): every app port becomes reachable on the host.
+    async fn auto_map_app_ports(&self) {
+        // Docker socket permissions drift after daemon restarts — heal them
+        // so the guest-side port lookups keep working.
+        let _ = self
+            .guest_ssh("chgrp docker /var/run/docker.sock 2>/dev/null; chmod 660 /var/run/docker.sock 2>/dev/null; true")
+            .await;
+        let Ok(login) = self
+            .guest_ssh(
+                "curl -s -m 6 -X POST http://localhost:8126/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin1234\"}'",
+            )
+            .await
+        else {
+            return;
+        };
+        let Ok(token) = serde_json::from_str::<serde_json::Value>(&login)
+            .map(|value| value["token"].as_str().unwrap_or_default().to_string())
+        else {
+            return;
+        };
+        if token.is_empty() {
+            return;
+        }
+        let Ok(apps_json) = self
+            .guest_ssh(&format!(
+                "curl -s -m 8 -H 'Authorization: Bearer {token}' http://localhost:8126/api/supervisor/apps"
+            ))
+            .await
+        else {
+            return;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&apps_json) else {
+            return;
+        };
+        let Some(apps) = value["apps"].as_array() else { return };
+        for app in apps {
+            let Some(app_id) = app["id"].as_str() else { continue };
+            let Some(ports) = app["ports"].as_array() else { continue };
+            for port in ports {
+                let external = port
+                    .as_str()
+                    .and_then(|text| text.split(':').next())
+                    .and_then(|text| text.parse::<u16>().ok())
+                    .or_else(|| port["external"].as_u64().map(|value| value as u16));
+                let Some(external) = external else { continue };
+                if matches!(external, 2222 | 8126 | 3001 | 5173) {
+                    continue; // reserved host ports
+                }
+                let exists = self
+                    .mappings
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|mapping| mapping.guest == external || mapping.host == external);
+                if !exists {
+                    let _ = self
+                        .add_mapping(external, external, Some(format!("app:{app_id}")))
+                        .await;
+                }
+            }
+        }
+    }
+
     async fn apply_mapping_change(&self) {
         let manager = self.manager.lock().await;
         let alive = manager.state.process_alive();
@@ -1277,6 +1448,8 @@ impl Daemon {
         }
         self.open_guest_ports().await;
         self.sync_live_forwarding().await;
+        // SSH tunnels are the reliable channel on dev-local VMs (no QMP).
+        self.sync_tunnels().await;
     }
 
     fn append_named_log(&self, label: &str, path: &Path) {
@@ -1627,6 +1800,7 @@ impl Daemon {
 
 pub fn spawn(daemon: Arc<Daemon>) {
     let stats_daemon = daemon.clone();
+    let port_daemon = daemon.clone();
     tokio::spawn(async move {
         let (repository, os_root, state_path) = {
             let manager = daemon.manager.lock().await;
@@ -1699,6 +1873,18 @@ pub fn spawn(daemon: Arc<Daemon>) {
         loop {
             tick.tick().await;
             stats_daemon.refresh_stats().await;
+        }
+    });
+
+    // Automatic app-port mapping + SSH tunnel upkeep.
+    tokio::spawn(async move {
+        // Restore tunnels for persisted mappings on startup.
+        port_daemon.sync_tunnels().await;
+        let mut tick = interval(Duration::from_secs(30));
+        loop {
+            tick.tick().await;
+            port_daemon.auto_map_app_ports().await;
+            port_daemon.sync_tunnels().await;
         }
     });
 }

@@ -212,6 +212,52 @@ function buildZipFor(manifest: Record<string, unknown>): string {
   })
 }
 
+interface DockerCatalogInput {
+  id: string
+  name: string
+  developer: string
+  description: string
+  category: string
+  image: string
+  port: number
+  internalPort: number
+  icon: string
+  volume?: string
+  permissions?: string[]
+}
+
+/** Creates a complete, installable Docker app entry for the local store. */
+function dockerCatalogApp(input: DockerCatalogInput): CatalogAppDefinition {
+  return {
+    id: input.id,
+    name: input.name,
+    developer: input.developer,
+    description: input.description,
+    version: 'latest',
+    category: input.category,
+    permissions: input.permissions || ['NetworkLocalAccess'],
+    openPort: input.port,
+    iconUrl: svgIcon(input.icon, input.name.slice(0, 1).toUpperCase()),
+    buildZip: () => buildZipFor({
+      id: input.id,
+      name: input.name,
+      version: '1.0.0',
+      developer: input.developer,
+      description: input.description,
+      type: 'app',
+      icon: input.icon,
+      permissions: input.permissions || ['NetworkLocalAccess'],
+      docker: {
+        auto_build: false,
+        image: input.image,
+        internal_ports: [{ port: input.internalPort, protocol: 'tcp', external: input.port }],
+        volumes: input.volume ? [input.volume] : [],
+        restart: 'unless-stopped',
+      },
+    }),
+  }
+}
+
 /** Real, installable apps shown in the store (Docker containers). */
 export const STORE_CATALOG: CatalogAppDefinition[] = [
   {
@@ -239,4 +285,39 @@ export const STORE_CATALOG: CatalogAppDefinition[] = [
     iconUrl: globeSvg(),
     buildZip: () => buildZipFor(browserManifest),
   },
+  dockerCatalogApp({
+    id: 'jellyfin', name: 'Jellyfin', developer: 'Jellyfin Team', category: 'Media',
+    description: 'Stream your own films, series, music, and photos from a private media server.',
+    image: 'jellyfin/jellyfin:latest', port: 8096, internalPort: 8096, icon: '#00A4DC', volume: 'jellyfin_config:/config',
+  }),
+  dockerCatalogApp({
+    id: 'vaultwarden', name: 'Vaultwarden', developer: 'Vaultwarden', category: 'Security',
+    description: 'A lightweight, private password manager compatible with Bitwarden clients.',
+    image: 'vaultwarden/server:latest', port: 8222, internalPort: 80, icon: '#175DDC', volume: 'vaultwarden_data:/data',
+  }),
+  dockerCatalogApp({
+    id: 'uptime-kuma', name: 'Uptime Kuma', developer: 'Louis Lam', category: 'Monitoring',
+    description: 'Monitor websites and services with a beautiful self-hosted status dashboard.',
+    image: 'louislam/uptime-kuma:1', port: 3003, internalPort: 3001, icon: '#5CBD3B', volume: 'uptime_kuma_data:/app/data',
+  }),
+  dockerCatalogApp({
+    id: 'syncthing', name: 'Syncthing', developer: 'Syncthing Foundation', category: 'Productivity',
+    description: 'Synchronize files privately between your devices without a central cloud.',
+    image: 'syncthing/syncthing:latest', port: 8384, internalPort: 8384, icon: '#0891B2', volume: 'syncthing_data:/var/syncthing',
+  }),
+  dockerCatalogApp({
+    id: 'grafana', name: 'Grafana', developer: 'Grafana Labs', category: 'Monitoring',
+    description: 'Build dashboards and explore metrics from your home and services.',
+    image: 'grafana/grafana-oss:latest', port: 3300, internalPort: 3000, icon: '#F46800', volume: 'grafana_data:/var/lib/grafana',
+  }),
+  dockerCatalogApp({
+    id: 'mealie', name: 'Mealie', developer: 'Mealie', category: 'Productivity',
+    description: 'Plan meals, manage recipes, and generate shopping lists for your household.',
+    image: 'ghcr.io/mealie-recipes/mealie:latest', port: 9925, internalPort: 9000, icon: '#E76F51', volume: 'mealie_data:/app/data',
+  }),
+  dockerCatalogApp({
+    id: 'homebridge', name: 'Homebridge', developer: 'Homebridge', category: 'Automation',
+    description: 'Connect compatible accessories and bridges to Apple Home.',
+    image: 'homebridge/homebridge:latest', port: 8581, internalPort: 8581, icon: '#F7B733', volume: 'homebridge_data:/homebridge',
+  }),
 ]

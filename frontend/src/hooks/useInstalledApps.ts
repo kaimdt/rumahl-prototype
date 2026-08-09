@@ -104,6 +104,17 @@ export function appOpenUrl(app: SupervisorApp): string | undefined {
   }
 }
 
+/** IDs currently confirmed by the supervisor. Navigation uses this to emit
+ * canonical `/app/<id>` URLs without treating ordinary dashboard pages as apps. */
+export const installedAppIds = new Set<string>()
+
+/**
+ * Module-level mirror of the latest installed-app list. The window manager's
+ * deep-link renderer (`/app/<id>` after a browser reload) reads this without
+ * having a mounted launcher — the hook below fills it on every refresh.
+ */
+export const installedAppsCache: InstalledOsApp[] = []
+
 export function useInstalledApps() {
   const [apps, setApps] = useState<SupervisorApp[]>([])
   const [jobs, setJobs] = useState<InstallJobInfo[]>([])
@@ -118,7 +129,11 @@ export function useInstalledApps() {
       ])
       if (appsRes.ok) {
         const data = await appsRes.json() as { apps?: SupervisorApp[] }
-        setApps(data.apps || [])
+        const nextApps = data.apps || []
+        installedAppIds.clear()
+        nextApps.forEach((app) => installedAppIds.add(app.id))
+        setApps(nextApps)
+        window.dispatchEvent(new Event('iora:installed-apps-updated'))
       }
       if (jobsRes.ok) {
         const data = await jobsRes.json() as { jobs?: InstallJobInfo[] }
@@ -153,7 +168,7 @@ export function useInstalledApps() {
   // Installed = any enabled app (launcher shows them all, with a status
   // indicator when not running).
   const installedApps: InstalledOsApp[] = useMemo(() => {
-    return apps
+    const list = apps
       .filter((app) => app.enabled)
       .map((app, index) => {
         const url = appOpenUrl(app)
@@ -163,7 +178,7 @@ export function useInstalledApps() {
           pageId: app.id,
           fallbackName: app.name,
           icon: Globe, // replaced by the remote iconUrl when available
-          kind: 'installed',
+          kind: 'installed' as OsAppDefinition['kind'],
           accent: appGradient(app.id),
           order: 200 + index,
           openUrl: url,
@@ -172,6 +187,9 @@ export function useInstalledApps() {
           backendId: app.id,
         }
       })
+    installedAppsCache.length = 0
+    installedAppsCache.push(...list)
+    return list
   }, [apps])
 
   return {

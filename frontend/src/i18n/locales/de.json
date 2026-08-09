@@ -823,13 +823,21 @@
       "monitoring": "Monitoring",
       "featured": "Empfohlen",
       "popular": "Beliebt",
+      "browseAll": "Alle Apps entdecken",
       "showAll": "Alle anzeigen",
       "comingTitle": "Der vollständige App Store kommt bald",
       "comingDescription": "Direkter Zugriff auf Apps, Widgets und Plugins aus dem ORA-Katalog.",
       "comingSoon": "Demnächst",
       "catalog": {
         "nextcloud": "Deine eigene Cloud: Dateien, Kalender, Kontakte & mehr — vollständig selbst gehostet in einem Docker-Container auf deinem IORA OS.",
-        "webbrowser": "Vollwertiger Firefox im Container auf deinem Server — öffne ihn im Browser-Fenster und surfe wie auf einem eigenen Rechner. Läuft auch weiter, wenn du die Seite schließt."
+        "webbrowser": "Vollwertiger Firefox im Container auf deinem Server — öffne ihn im Browser-Fenster und surfe wie auf einem eigenen Rechner. Läuft auch weiter, wenn du die Seite schließt.",
+        "jellyfin": "Streame eigene Filme, Serien, Musik und Fotos von einem privaten Medienserver.",
+        "vaultwarden": "Ein schlanker, privater Passwortmanager, kompatibel mit Bitwarden-Clients.",
+        "uptime-kuma": "Überwache Websites und Dienste über ein schönes selbst gehostetes Status-Dashboard.",
+        "syncthing": "Synchronisiere Dateien privat zwischen deinen Geräten – ohne zentrale Cloud.",
+        "grafana": "Erstelle Dashboards und erkunde Metriken aus deinem Zuhause und deinen Diensten.",
+        "mealie": "Plane Mahlzeiten, verwalte Rezepte und erstelle Einkaufslisten für deinen Haushalt.",
+        "homebridge": "Verbinde kompatibles Zubehör und Bridges mit Apple Home."
       },
       "install": "Installieren",
       "installed": "Installiert",
@@ -872,6 +880,8 @@
         "browser": "Browser",
         "media": "Medien",
         "productivity": "Produktivität",
+        "security": "Sicherheit",
+        "monitoring": "Monitoring",
         "docs": "Dokumentation",
         "apps": "Apps",
         "automation": "Automation"

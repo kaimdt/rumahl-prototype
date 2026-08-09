@@ -307,12 +307,11 @@ export function AppStoreTab({ token }: { token: string }) {
   }, [])
 
   return (
-    <div className="space-y-3">
-      {/* View Switcher – Play Store style tabs */}
-      <div className="flex gap-1 p-1 glass-card rounded-2xl">
+    <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)]">
+      <aside className="glass-card flex gap-2 rounded-3xl p-2 lg:flex-col lg:self-start">
         <button
           onClick={() => setView('installed')}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${
             view === 'installed'
               ? 'bg-accent text-white shadow-lg shadow-accent/25'
               : 'text-foreground/50 hover:text-foreground hover:bg-foreground/[0.04]'
@@ -322,7 +321,7 @@ export function AppStoreTab({ token }: { token: string }) {
         </button>
         <button
           onClick={() => setView('store')}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-all ${
+          className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${
             view === 'store'
               ? 'bg-accent text-white shadow-sm'
               : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5'
@@ -332,7 +331,7 @@ export function AppStoreTab({ token }: { token: string }) {
         </button>
         <button
           onClick={() => setView('upload')}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-all ${
+          className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${
             view === 'upload'
               ? 'bg-accent text-white shadow-sm'
               : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5'
@@ -340,7 +339,9 @@ export function AppStoreTab({ token }: { token: string }) {
         >
           <Upload size={14} /> ZIP hochladen
         </button>
-      </div>
+      </aside>
+
+      <main className="min-w-0 space-y-4">
 
       {/* Installed Apps View */}
       {view === 'installed' && (
@@ -372,6 +373,8 @@ export function AppStoreTab({ token }: { token: string }) {
       {view === 'upload' && (
         <ZipUploadView token={token} onSuccess={() => { setView('installed'); loadInstalled() }} />
       )}
+
+      </main>
 
       {/* App Detail Dialog */}
       <AppDetailDialog
@@ -511,7 +514,7 @@ function InstalledAppsView({
       window.open(`http://127.0.0.1:${port}`, '_blank')
     } else {
       // App-defined page (custom_pages) — navigate inside the SPA.
-      window.location.href = `/apps/${appId}`
+      window.location.href = `/app/${encodeURIComponent(appId)}`
     }
   }
 
@@ -958,6 +961,7 @@ function AppStoreView({
   // Category chips derive from the real data (Umbrel store style).
   const CATEGORY_ICONS: Record<string, typeof Sparkle> = {
     cloud: Cloud, browser: Globe, media: Play, productivity: Briefcase, docs: BookOpen, apps: PuzzlePiece, automation: Lightning,
+    security: ShieldCheck, monitoring: ChartBar,
   }
   const categories = useMemo(() => {
     const list: Array<{ id: string; label: string; icon: typeof Sparkle }> = [
@@ -1585,6 +1589,57 @@ function AppStoreView({
                       )}
                     </div>
                   </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ─── App gallery – visual storefront browsing ─────── */}
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <span className="h-4 w-1 rounded-full bg-accent" />
+                {t('apps.appStore.browseAll')}
+              </h3>
+              <span className="rounded-full bg-foreground/[0.05] px-2.5 py-1 text-[10px] font-semibold text-foreground/45">
+                {filteredApps.length}
+              </span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredApps.map((app) => {
+                const installed = installedIds.has(app.id)
+                return (
+                  <article
+                    key={app.id}
+                    onClick={() => setSelectedApp(app)}
+                    className="group relative cursor-pointer overflow-hidden rounded-[1.4rem] border border-foreground/8 bg-foreground/[0.035] p-4 transition-all duration-200 hover:-translate-y-1 hover:border-accent/25 hover:bg-foreground/[0.065] hover:shadow-xl hover:shadow-black/10"
+                  >
+                    <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-accent/10 blur-2xl transition-opacity group-hover:opacity-100" />
+                    <div className="relative flex items-start gap-3">
+                      <StoreAppIcon app={app} size="lg" {...iconStatus(app)} />
+                      <div className="min-w-0 flex-1">
+                        <h4 className="truncate text-sm font-bold text-foreground">{app.name}</h4>
+                        <p className="mt-0.5 truncate text-[11px] text-foreground/45">{app.developer}</p>
+                        <div className="mt-2">{trustBadge(app)}</div>
+                      </div>
+                    </div>
+                    <p className="relative mt-4 line-clamp-2 min-h-9 text-xs leading-relaxed text-foreground/55">{app.description}</p>
+                    <div className="relative mt-4 flex items-center justify-between gap-2">
+                      <span className="rounded-full bg-foreground/[0.06] px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-foreground/45">
+                        {t(`apps.appStore.category.${categoryOf(app)}` as never, { defaultValue: categoryOf(app) })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(event) => { event.stopPropagation(); primaryAction(app) }}
+                        disabled={installingId === app.id || startingId === app.id}
+                        className={`rounded-full px-4 py-2 text-[11px] font-bold transition-colors disabled:opacity-60 ${
+                          app.isEssential || installed ? 'bg-foreground/8 text-foreground/60' : 'bg-accent text-white shadow-md shadow-accent/20 hover:bg-accent/90'
+                        }`}
+                      >
+                        {actionLabel(app)}
+                      </button>
+                    </div>
+                  </article>
                 )
               })}
             </div>

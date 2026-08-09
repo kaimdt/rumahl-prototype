@@ -23,7 +23,7 @@ import { CommandPalette } from '@/components/CommandPalette'
 import { AppRuntimeView } from '@/components/AppRuntimeView'
 import { OsImagesApp } from '@/components/OsImagesApp'
 import { OsTooltipProvider } from '@/components/OsTooltip'
-import { appOpenUrl, appRuntimeUrls } from '@/hooks/useInstalledApps'
+import { appOpenUrl, appRuntimeUrls, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { OsAppWindow } from '@/components/OsAppWindow'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
@@ -158,8 +158,14 @@ function DashboardContent() {
   const { entities, loading, refresh } = useEntityStore()
   const warningLevel = useWarningLevel()
   const { homeAssistant: haConnectionStatus, lastHACheck } = useConnection()
+  // Keeps deep-linked `/app/<id>` routes resolvable after a browser reload,
+  // without requiring the launcher to have been mounted first.
+  const { allApps: installedRuntimeApps } = useInstalledApps()
   const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images']
-  const isOsAppPage = standaloneAppPageIds.includes(currentPageId)
+  // Deep-linked Docker apps (/app/<id>) also use the OS chrome (dock, no navbar).
+  const isOsAppPage = standaloneAppPageIds.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
+  const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
+  const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId)
   const { windows, immersivePageId, setImmersive } = useOsWindows()
 
   // OS app lookup used by the window manager (icons/names for windows + dock).
@@ -184,14 +190,15 @@ function DashboardContent() {
 // Raw app content (no window chrome) — used by the window manager.
 const renderOsAppContent = (pageId: string): React.ReactNode => {
   // Installed Docker apps embed their web UI in an iframe (CasaOS-style).
-  // A direct /page/<app-id> navigation does not mount the launcher first,
+  // A direct /app/<app-id> navigation does not mount the launcher first,
   // therefore the runtime URL map has not been populated yet.  Resolve
   // catalog apps here as well so bookmarks and deep links open their web UI.
-  const runtimeUrl = appRuntimeUrls.get(pageId) ?? (
-    STORE_CATALOG.some((app) => app.id === pageId)
+  const runtimeApp = installedAppsCache.find((app) => app.id === pageId)
+  const runtimeUrl = appRuntimeUrls.get(pageId) ?? (runtimeApp
+    ? runtimeApp.openUrl
+    : STORE_CATALOG.some((app) => app.id === pageId)
       ? appOpenUrl({ id: pageId, name: pageId, version: '', ports: [] })
-      : undefined
-  )
+      : undefined)
   if (runtimeUrl) {
     return <AppRuntimeView appId={pageId} url={runtimeUrl} name={getOsAppName(pageId)} />
   }
@@ -766,7 +773,6 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
 
             // ── 404 for pages that nobody owns ──────────────────────
             // Built-in HA entity pages always exist; everything else needs a page record.
-            const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
             if (!currentPage && !builtinPageIds.includes(currentPageId)) {
               return (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-foreground/60">
@@ -1023,10 +1029,10 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
           )
         })()}
       </AnimatePresence>
-      <NavigationMenu hidden={showPageDesigner || standaloneAppPageIds.includes(currentPageId)} />
+      <NavigationMenu hidden={showPageDesigner || isOsAppPage || isNotFoundPage} />
       {!showPageDesigner && !immersivePageId && <OsSystemShell />}
       {/* Dock only on launcher & OS pages — it must never cover the navbar in apps */}
-      {!showPageDesigner && !immersivePageId && standaloneAppPageIds.includes(currentPageId) && <OsDock />}
+      {!showPageDesigner && !immersivePageId && (isOsAppPage || isNotFoundPage) && <OsDock />}
       {/* Slim OS status bar on every page (like the launcher). Window actions
          only appear inside immersive (true fullscreen) apps. */}
       {!showPageDesigner && (

@@ -11,6 +11,13 @@ export function AppRuntimeView({ appId, url, name }: { appId: string; url: strin
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
 
+  // Apps render through the IORA app proxy: the RELATIVE url keeps the
+  // iframe on the same origin (first-party cookies work) and the backend
+  // strips X-Frame-Options/CSP, so apps like Nextcloud that forbid framing
+  // can run inside the OS.
+  const isDirectPort = /^https?:\/\/(localhost|127\.0\.0\.1):\d+/.test(url)
+  const frameUrl = isDirectPort ? `/api/apps/${appId}/proxy/` : url
+
   return (
     <div className="fixed inset-x-0 bottom-0 top-14 z-[60] flex flex-col overflow-hidden bg-background/95 backdrop-blur-xl">
       {/* Toolbar */}
@@ -40,10 +47,9 @@ export function AppRuntimeView({ appId, url, name }: { appId: string; url: strin
       </div>
       {/* Embedded app */}
       <iframe
-        src={url}
+        src={frameUrl}
         title={name || appId}
         className="min-h-0 flex-1 border-0 bg-white"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
         allow="clipboard-read; clipboard-write; fullscreen"
       />
     </div>

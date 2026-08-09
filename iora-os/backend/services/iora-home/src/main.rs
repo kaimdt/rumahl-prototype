@@ -2249,6 +2249,8 @@ async fn main() -> anyhow::Result<()> {
         // Live App-Status (Docker-realer Container-State) als SSE-Stream.
         .route("/api/apps/status/stream", get(apps_status_stream))
         // App content proxy — forwards requests to installed app containers.
+        // Both spellings are registered: the iframe URL ends with "/" and the
+        // wildcard route alone would 404 on an empty remainder.
         .route("/api/apps/:app_id/proxy/*path", get(app_proxy_handler))
         // App logs — per-app log retrieval and live streaming.
         .route("/api/apps/:app_id/logs", get(app_logs_get))
@@ -3573,11 +3575,28 @@ fn resolve_dist_dir() -> Option<std::path::PathBuf> {
 ///
 /// When IORA_FRONTEND_DEV_URL is set, requests are proxied to the Vite dev server
 /// for hot module replacement during development.
-async fn spa_fallback(uri: Uri) -> impl IntoResponse {
+async fn spa_fallback(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+) -> impl IntoResponse {
+    let uri = request.uri().clone();
     // API paths that don't match any route should return JSON, not HTML.
     // This prevents the frontend's adminFetch from receiving an HTML SPA
     // fallback page when a microservice endpoint doesn't exist on this image.
     let path = uri.path();
+    // App iframe proxy: the axum wildcard route does not match an empty
+    // remainder, so "/api/apps/<id>/proxy" and "/proxy/" land here. Delegate
+    // them to the proxy handler (covers the iframe URL exactly).
+    if let Some(rest) = path.strip_prefix("/api/apps/") {
+        if let Some((app_id, _)) = rest.split_once("/proxy") {
+            return app_proxy_handler(
+                State(state.clone()),
+                axum::extract::Path(app_id.to_string()),
+                request,
+            )
+            .await;
+        }
+    }
     if path.starts_with("/api/") || path.starts_with("/ws/") {
         return (
             StatusCode::NOT_FOUND,
@@ -3605,70 +3624,7 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
             );
             // Note: We need to convert Uri to Request for the proxy handler
             // For now, fall through to show dev mode info page
-            return (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-                    (header::CACHE_CONTROL, "no-cache"),
-                ],
-                format!(r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IORA Frontend Dev Mode</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 800px;
-            margin: 80px auto;
-            padding: 20px;
-            background: #0a0a0a;
-            color: #e5e5e5;
-        }}
-        .dev-badge {{
-            background: #f59e0b;
-            color: #000;
-            padding: 8px 16px;
-            border-radius: 6px;
-            display: inline-block;
-            font-weight: 600;
-            margin-bottom: 20px;
-        }}
-        h1 {{ color: #3b82f6; }}
-        code {{
-            background: #1e1e1e;
-            padding: 2px 6px;
-            border-radius: 4px;
-            color: #f59e0b;
-        }}
-        .info-box {{
-            background: #1e1e1e;
-            border: 1px solid #333;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-        }}
-        a {{ color: #60a5fa; }}
-    </style>
-</head>
-<body>
-    <div class="dev-badge">🔥 DEVELOPMENT MODE</div>
-    <h1>IORA Frontend Dev Proxy Active</h1>
-    <div class="info-box">
-        <p><strong>Backend:</strong> iora-home is running and serving the API</p>
-        <p><strong>Frontend:</strong> Proxying to <code>{}</code></p>
-        <p><strong>Environment:</strong> <code>IORA_FRONTEND_DEV_URL</code> is set</p>
-    </div>
-    <h2>Access the frontend:</h2>
-    <ul>
-        <li><strong>Direct Vite Dev Server (with HMR):</strong> <a href="{}">{}</a></li>
-        <li><strong>Via Backend (API integration):</strong> Current URL</li>
-    </ul>
-    <p><em>Note: For full HMR support, access the Vite dev server directly. The backend proxy is for API integration testing.</em></p>
-</body>
-</html>"#, dev_url, dev_url, dev_url),
-            ).into_response();
+            return frontend_dev_proxy::proxy_to_vite_dev(request).await;
         }
     }
 
@@ -7227,6 +7183,7 @@ async fn local_appstore_app_delete(
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
     let force = force_requested && state.dev_image.is_os_dev;
+    ensure_app_stopped_for_uninstall(&state, &app_id).await?;
     let result = if force {
         state.local_appstore.uninstall_force(&app_id).await
     } else {
@@ -7679,15 +7636,24 @@ async fn admin_dev_image_info(State(state): State<AppState>) -> Json<Value> {
 
 async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
     let installed = state.local_appstore.list().await;
-    let apps: Vec<Value> = installed
+    let mut apps: Vec<Value> = Vec::new();
+    for a in installed
         .into_iter()
         .filter(|a| a.kind != "plugin")
-        .map(|a| {
-            let custom_pages = &a.custom_pages;
-            let open_url = custom_pages
-                .first()
-                .map(|p| format!("/page/{}", p.id));
-            json!({
+    {
+            let needs_docker = a.docker_config.is_some() || a.bundle_config.is_some();
+            let docker_status = if needs_docker { app_lifecycle::docker_compose_status(&a.id).await } else { None };
+            let status = docker_status.as_ref().map(|state| {
+                if state.all_running() { "running" } else if state.any_failed() { "error" } else { "stopped" }
+            }).unwrap_or(a.status.as_str());
+            let ports = if needs_docker {
+                app_lifecycle::docker_compose_ports(&a.id).await.unwrap_or_default()
+                    .into_iter().map(|(external, internal, protocol)| format!("{external}:{internal}/{protocol}")).collect::<Vec<_>>()
+            } else { Vec::new() };
+            let ports = if ports.is_empty() {
+                a.ports.iter().map(|p| format!("{}:{}/{}", p.external, p.internal, p.protocol)).collect::<Vec<_>>()
+            } else { ports };
+            apps.push(json!({
                 "id": a.id,
                 "name": a.name,
                 "version": a.version,
@@ -7695,23 +7661,22 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
                 "author": a.developer,
                 "icon": a.icon,
                 "image": a.docker_config.as_ref().and_then(|d| d.get("image").and_then(|v| v.as_str())).unwrap_or(""),
-                "ports": a.ports.iter().map(|p| format!("{}:{}/{}", p.external, p.internal, p.protocol)).collect::<Vec<_>>(),
+                "ports": ports,
                 "environment": serde_json::Value::Null,
                 "volumes": Vec::<String>::new(),
                 "permissions": a.manifest.permissions.clone(),
                 "category": a.manifest.extra.get("store_metadata").and_then(|m| m.get("category")).and_then(|c| c.as_str()).unwrap_or("").to_string(),
                 "enabled": a.enabled,
-                "status": a.status.clone(),
+                "status": status,
                 "installed_at": a.installed_at.clone(),
                 "kind": a.kind.clone(),
-                "open_url": open_url,
-                "custom_pages": custom_pages,
+                "open_url": serde_json::Value::Null,
+                "custom_pages": a.custom_pages,
                 "is_bundle": a.is_bundle,
                 "bundle_config": a.bundle_config,
                 "services": a.bundle_config.as_ref().and_then(|b| b.get("services").cloned()).unwrap_or(serde_json::Value::Array(Vec::new())),
-            })
-        })
-        .collect();
+            }));
+    }
     Json(json!({
         "apps": apps,
         "total": apps.len(),
@@ -7856,11 +7821,32 @@ async fn supervisor_apps_start(
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
 
     if !app_meta.denied_permissions.is_empty() {
-        return Err(ErrorResponse::forbidden(format!(
-            "app '{}' cannot be started because permissions were not granted: {}",
-            app_id,
-            app_meta.denied_permissions.join(", ")
-        )));
+        // Only permissions the runtime actually knows can gate startup —
+        // catalog manifests may list custom/unknown entries (e.g.
+        // "NetworkLocalAccess") that must not brick the app.
+        let known = [
+            "AppStorage.Read",
+            "AppStorage.Write",
+            "AppStorage.Delete",
+            "AppDatabase.Sqlite",
+            "AppSchedule.Create",
+            "Messaging.Publish",
+            "Messaging.Subscribe",
+            "Webhook.Create",
+            "Network.Connect",
+        ];
+        let blocking: Vec<&String> = app_meta
+            .denied_permissions
+            .iter()
+            .filter(|permission| known.iter().any(|known| known.eq_ignore_ascii_case(permission)))
+            .collect();
+        if !blocking.is_empty() {
+            return Err(ErrorResponse::forbidden(format!(
+                "app '{}' cannot be started because permissions were not granted: {}",
+                app_id,
+                blocking.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", ")
+            )));
+        }
     }
 
     let needs_docker = app_meta.docker_config.is_some() || app_meta.bundle_config.is_some();
@@ -8273,6 +8259,7 @@ async fn supervisor_apps_uninstall(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    ensure_app_stopped_for_uninstall(&state, &app_id).await?;
     state
         .local_appstore
         .uninstall(&app_id)
@@ -8283,6 +8270,29 @@ async fn supervisor_apps_uninstall(
         "app_id": app_id,
         "message": "App deinstalliert.",
     })))
+}
+
+/// Stop a Docker-backed app and verify that Compose removed its containers
+/// before deleting its metadata and persistent data.
+async fn ensure_app_stopped_for_uninstall(state: &AppState, app_id: &str) -> Result<(), ErrorResponse> {
+    let app = state.local_appstore.list().await.into_iter().find(|app| app.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{app_id}' not found")))?;
+    if app.docker_config.is_none() && app.bundle_config.is_none() {
+        return Ok(());
+    }
+    match docker_compose_control(app_id, "down").await {
+        Some(Ok(_)) => {}
+        Some(Err(error)) => return Err(ErrorResponse::bad_gateway(format!("failed to stop app '{app_id}': {error}"))),
+        None => return Err(ErrorResponse::service_unavailable(format!("Docker is unavailable; cannot verify shutdown of '{app_id}'"))),
+    }
+    if let Some(status) = app_lifecycle::docker_compose_status(app_id).await {
+        if status.total > 0 {
+            return Err(ErrorResponse::bad_gateway(format!(
+                "app '{app_id}' still has {} Compose containers after shutdown: {:?}", status.total, status.services
+            )));
+        }
+    }
+    Ok(())
 }
 
 // ── App-Bundle-Management (v2.3 multi-container) ──────────────────
@@ -9655,10 +9665,44 @@ async fn app_pages_list(State(state): State<AppState>) -> Json<Value> {
 /// This allows the iframe widget to load app content through the IORA backend.
 /// When the app is running in Docker, this proxies to the container.
 /// When running locally (no Docker), it returns a status page.
+/// Resolve the app's externally published host port. `docker compose ps`
+/// needs a readable CWD (fails for the service user), so a direct
+/// `docker port` lookup on the project containers is the fallback.
+async fn app_host_port(app_id: &str) -> Option<u16> {
+    if let Some(ports) = app_lifecycle::docker_compose_ports(app_id).await {
+        if let Some((host, _, _)) = ports.first() {
+            return Some(*host);
+        }
+    }
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project = format!("{prefix}{app_id}");
+        let ids = tokio::process::Command::new("docker")
+            .args(["ps", "-q", "--filter", &format!("label=com.docker.compose.project={project}")])
+            .output()
+            .await
+            .ok()?;
+        let ids = String::from_utf8_lossy(&ids.stdout);
+        let Some(container) = ids.lines().next() else { continue };
+        let port = tokio::process::Command::new("docker")
+            .args(["port", container.trim()])
+            .output()
+            .await
+            .ok()?;
+        let text = String::from_utf8_lossy(&port.stdout);
+        if let Some(line) = text.lines().next() {
+            if let Some((_, right)) = line.rsplit_once("->") {
+                let host = right.trim().rsplit(':').next()?.trim().parse().ok()?;
+                return Some(host);
+            }
+        }
+    }
+    None
+}
+
 async fn app_proxy_handler(
     State(state): State<AppState>,
-    axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
-    _req: axum::extract::Request,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
 ) -> axum::response::Response {
     use axum::body::Body;
     use axum::http::{Response, StatusCode};
@@ -9668,21 +9712,62 @@ async fn app_proxy_handler(
     let app = installed.iter().find(|a| a.id == app_id);
 
     match app {
-        Some(app) if app.status == "running" => {
-            // Try to find the app's URL from custom_pages
-            let proxy_url = app.custom_pages.first().map(|p| p.url.clone());
+        // Proxy regardless of the stored status (sync-touch v3) — the live docker-compose
+        // lookup decides; an unreachable app shows the placeholder below.
+        Some(app) => {
+            // App URL: custom pages first, then the exposed host port
+            // (the standard Docker-app shape: http://localhost:<external>).
+            // Stored ports may be stale/empty, so fall back to a live
+            // docker-compose lookup.
+            let proxy_url = app
+                .custom_pages
+                .first()
+                .map(|p| p.url.clone())
+                .or_else(|| {
+                    app.ports
+                        .first()
+                        .map(|port| format!("http://localhost:{}", port.external))
+                })
+                .or_else(|| {
+                    None
+                });
+            let proxy_url = if proxy_url.is_some() {
+                proxy_url
+            } else {
+                app_host_port(&app_id)
+                    .await
+                    .map(|host| format!("http://localhost:{host}"))
+            };
 
             match proxy_url {
                 Some(base_url) => {
-                    // Build the full URL to proxy to
+                    // The remainder after "/proxy/" (may be empty for both
+                    // "/proxy" and "/proxy/" — the wildcard can be empty).
+                    let full_uri = req.uri().path();
+                    let sub_path = full_uri
+                        .split_once("/proxy/")
+                        .map(|(_, rest)| rest)
+                        .unwrap_or("");
+                    // Build the full URL to proxy to (path + query string).
+                    let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
                     let full_url = format!(
-                        "{}/{}",
+                        "{}/{}{}",
                         base_url.trim_end_matches('/'),
-                        path.trim_start_matches('/')
+                        sub_path.trim_start_matches('/'),
+                        query
                     );
 
-                    // Try to proxy the request
-                    match reqwest::get(&full_url).await {
+                    // Try to proxy the request (forward the browser's cookies
+                    // so the embedded app keeps its session).
+                    let mut request_builder = reqwest::Client::new().get(&full_url);
+                    if let Some(cookie) = req
+                        .headers()
+                        .get(axum::http::header::COOKIE)
+                        .and_then(|value| value.to_str().ok())
+                    {
+                        request_builder = request_builder.header("cookie", cookie);
+                    }
+                    match request_builder.send().await {
                         Ok(resp) => {
                             let status = resp.status();
                             let headers = resp.headers().clone();
@@ -9691,19 +9776,23 @@ async fn app_proxy_handler(
                             let axum_status = axum::http::StatusCode::from_u16(status.as_u16())
                                 .unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
                             let mut response_builder = Response::builder().status(axum_status);
-                            if let Some(content_type) = headers.get("content-type") {
-                                if let Ok(v) = content_type.to_str() {
-                                    if let Ok(hv) = axum::http::HeaderValue::from_str(v) {
-                                        response_builder =
-                                            response_builder.header("content-type", hv);
-                                    }
-                                }
-                            }
-                            if let Some(content_length) = headers.get("content-length") {
-                                if let Ok(v) = content_length.to_str() {
-                                    if let Ok(hv) = axum::http::HeaderValue::from_str(v) {
-                                        response_builder =
-                                            response_builder.header("content-length", hv);
+                            // Pass through the headers the embedded app needs.
+                            // X-Frame-Options / CSP are deliberately NOT
+                            // forwarded so the app renders inside the OS iframe.
+                            for name in [
+                                "content-type",
+                                "content-length",
+                                "set-cookie",
+                                "cache-control",
+                                "content-disposition",
+                                "location",
+                                "etag",
+                                "last-modified",
+                                "content-language",
+                            ] {
+                                if let Some(value) = headers.get(name) {
+                                    if let Ok(hv) = axum::http::HeaderValue::from_bytes(value.as_bytes()) {
+                                        response_builder = response_builder.header(name, hv);
                                     }
                                 }
                             }
@@ -15697,10 +15786,13 @@ async fn get_calendars(State(state): State<AppState>) -> Result<Json<Value>, Err
             "calendars": data,
             "count": data.as_array().map(|a| a.len()).unwrap_or(0),
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!(
-            "Kalender nicht verfügbar: {}",
-            e
-        ))),
+        // HA not configured/reachable is a normal dev state — return an empty
+        // list instead of 500 so dashboard widgets stop error-flooding.
+        Err(_) => Ok(Json(serde_json::json!({
+            "calendars": [],
+            "count": 0,
+            "error": "home-assistant-not-configured",
+        }))),
     }
 }
 
@@ -15985,10 +16077,13 @@ async fn admin_ha_calendars(State(state): State<AppState>) -> Result<Json<Value>
             "calendars": data,
             "count": data.as_array().map(|a| a.len()).unwrap_or(0),
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!(
-            "Kalender nicht verfügbar: {}",
-            e
-        ))),
+        // HA not configured/reachable is a normal dev state — return an empty
+        // list instead of 500 so dashboard widgets stop error-flooding.
+        Err(_) => Ok(Json(serde_json::json!({
+            "calendars": [],
+            "count": 0,
+            "error": "home-assistant-not-configured",
+        }))),
     }
 }
 

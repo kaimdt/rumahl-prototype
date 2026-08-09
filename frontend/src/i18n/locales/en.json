@@ -822,13 +822,21 @@
       "monitoring": "Monitoring",
       "featured": "Featured",
       "popular": "Popular",
+      "browseAll": "Browse all apps",
       "showAll": "Show all",
       "comingTitle": "The complete App Store is coming soon",
       "comingDescription": "Direct access to apps, widgets, and plugins from the ORA catalog.",
       "comingSoon": "Coming soon",
       "catalog": {
         "nextcloud": "Your own cloud: files, calendar, contacts & more — fully self-hosted in a Docker container on your IORA OS.",
-        "webbrowser": "A full Firefox running in a container on your server — open it in a window and browse like on your own machine. Keeps running when you close the page."
+        "webbrowser": "A full Firefox running in a container on your server — open it in a window and browse like on your own machine. Keeps running when you close the page.",
+        "jellyfin": "Stream your own films, series, music, and photos from a private media server.",
+        "vaultwarden": "A lightweight, private password manager compatible with Bitwarden clients.",
+        "uptime-kuma": "Monitor websites and services with a beautiful self-hosted status dashboard.",
+        "syncthing": "Synchronize files privately between your devices without a central cloud.",
+        "grafana": "Build dashboards and explore metrics from your home and services.",
+        "mealie": "Plan meals, manage recipes, and generate shopping lists for your household.",
+        "homebridge": "Connect compatible accessories and bridges to Apple Home."
       },
       "install": "Install",
       "installed": "Installed",
@@ -871,6 +879,8 @@
         "browser": "Browser",
         "media": "Media",
         "productivity": "Productivity",
+        "security": "Security",
+        "monitoring": "Monitoring",
         "docs": "Documentation",
         "apps": "Apps",
         "automation": "Automation"
