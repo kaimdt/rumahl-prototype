@@ -10,6 +10,7 @@ import { useOsWindows } from '@/contexts/OsWindowContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { DOCK_PINS_EVENT_NAME, isDockPinned, readDockPins, toggleDockPin } from '@/lib/dockPrefs'
 import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchModes'
+import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 
 const RECENT_APPS_KEY = 'iora-os-recent-apps'
 const MAX_RECENT_IN_DOCK = 3
@@ -33,6 +34,8 @@ export function OsDock() {
   const [pinnedIds, setPinnedIds] = useState<string[]>(readDockPins)
   const [recentIds, setRecentIds] = useState<string[]>(readRecentIds)
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  useCloseOnOtherMenu(() => setMenuId(null))
 
   const apps = useMemo(() => {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
@@ -134,16 +137,28 @@ export function OsDock() {
           onClick={() => handleItemClick(app)}
           onContextMenu={(event) => {
             event.preventDefault()
+            closeAllContextMenus()
             setMenuId(menuOpen ? null : app.id)
+            setMenuPos({ x: event.clientX, y: event.clientY })
           }}
           className="group relative flex touch-manipulation flex-col items-center rounded-2xl p-0.5 focus-ring"
           aria-label={name}
         >
           <span
-            className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-[1.1rem] border border-white/15 text-white shadow-lg transition-transform duration-200 group-hover:-translate-y-1 group-hover:scale-110 sm:h-12 sm:w-12 ${active ? 'ring-2 ring-white/70' : ''}`}
-            style={{ background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 70%, black))` }}
+            className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-[1.1rem] text-white transition-transform duration-200 group-hover:-translate-y-1 group-hover:scale-110 sm:h-12 sm:w-12 ${
+              app.iconUrl
+                ? 'border-0 bg-transparent shadow-none'
+                : `border shadow-lg ${active ? 'border-white/30 bg-white/10' : 'border-white/12 bg-transparent'}`
+            }`}
+            style={app.iconUrl
+              ? undefined
+              : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 70%, black))` }}
           >
-            <Icon size={24} weight="duotone" />
+            {app.iconUrl ? (
+              <img src={app.iconUrl} alt={app.fallbackName} className={`h-full w-full ${app.iconPad ? 'object-contain p-0.5' : 'object-cover'}`} />
+            ) : (
+              <Icon size={24} weight="duotone" />
+            )}
           </span>
           <span className="pointer-events-none absolute -top-9 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-xl backdrop-blur-md transition-opacity duration-150 group-hover:opacity-100">
             {name}
@@ -179,7 +194,9 @@ export function OsDock() {
                 initial={{ opacity: 0, y: 6, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                className="absolute bottom-full left-1/2 z-50 mb-2 w-44 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                className="fixed z-[88] w-44 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+                style={{ left: Math.min(menuPos.x, window.innerWidth - 200), top: Math.min(menuPos.y + 8, window.innerHeight - 300) }}
+                onClick={(event) => event.stopPropagation()}
               >
                 <button type="button" onClick={() => openApp(app.pageId)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
                   <ArrowSquareOut size={16} className="text-foreground/60" />
@@ -233,7 +250,7 @@ export function OsDock() {
 
   return (
     <div className="fixed bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-1/2 z-[60] -translate-x-1/2 select-none">
-      <div className="flex items-end gap-1.5 rounded-[1.75rem] border border-white/12 bg-background/60 px-3 py-2.5 shadow-2xl shadow-black/25 backdrop-blur-2xl">
+      <div className="flex items-end gap-1.5 rounded-2xl border border-white/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl">
         {renderItem(launcherApp, false)}
         {pinned.map((app) => renderItem(app, true))}
         {recents.length > 0 && (

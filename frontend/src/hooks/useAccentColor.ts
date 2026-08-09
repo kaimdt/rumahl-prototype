@@ -10,14 +10,15 @@ interface AccentColorSettings {
 
 const DEFAULT_ACCENT = '#3b82f6'
 
-/** Theme-appropriate fallback accents (used when no image is available). */
+/** Theme-appropriate fallback accents (used when no image is available).
+ * Warm amber — Umbrel-style brand color for the near-black themes. */
 const THEME_DEFAULT_ACCENTS: Record<string, string> = {
-  day: '#3b82f6',
-  light: '#2f7bf6',
-  'day-classic': '#4f8ff7',
-  evening: '#e0863d',
-  night: '#5b8df5',
-  sleep: '#6b8cff',
+  day: '#f5a623',
+  light: '#f5a623',
+  'day-classic': '#f5a623',
+  evening: '#f5a623',
+  night: '#f5a623',
+  sleep: '#f5a623',
 }
 
 /** Max chroma per theme group — keeps accents rich but never neon-garish. */
@@ -60,8 +61,13 @@ export function useAccentColor() {
     localStorage.setItem('accent-color-settings', JSON.stringify(settings))
   }, [settings])
 
+  // The theme panel locks the accent (data-accent-locked) when the user picks
+  // one — the wallpaper extraction must not override the user's choice.
+  const accentLocked = () => document.documentElement.hasAttribute('data-accent-locked')
+
   // Core effect: auto-extract accent when background image changes
   useEffect(() => {
+    if (accentLocked()) return
     if (settings.mode === 'static') {
       updateCSSVariable(settings.staticColor, theme)
       setAccentColor(settings.staticColor)
@@ -187,6 +193,7 @@ export function useAccentColor() {
 
     document.documentElement.style.setProperty('--accent', `oklch(${l} ${c} ${h})`)
     document.documentElement.style.setProperty('--ring', `oklch(${l} ${c} ${h})`)
+    document.documentElement.style.setProperty('--accent-hue', `${h}`)
     // rgb triplet used by rgba(var(--accent-rgb)) consumers (widget glows, neon styles)
     document.documentElement.style.setProperty('--accent-rgb', `${rgb.r} ${rgb.g} ${rgb.b}`)
   }

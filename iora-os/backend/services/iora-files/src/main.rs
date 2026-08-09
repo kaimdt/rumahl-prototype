@@ -314,6 +314,11 @@ async fn main() -> Result<()> {
                 .route("/permissions/revoke/:perm_id", delete(revoke_permission))
                 // Quota
                 .route("/quota", get(get_quota))
+                .route("/network/shares", get(scan_network_shares))
+                .route("/network/mounts", get(net_mounts_list).post(net_mount_create))
+                .route("/network/mounts/:id", delete(net_mount_delete))
+                .route("/network/mounts/:id/files", get(net_mount_files))
+                .route("/network/mounts/:id/download", get(net_mount_download))
                 // Activity
                 .route("/activity/:file_id", get(get_activity))
                 .layer(middleware::from_fn_with_state(
@@ -1380,6 +1385,60 @@ async fn revoke_permission(
 }
 
 // ─── Quota ──────────────────────────────────────────────────────────────────
+
+mod network_scan;
+mod smb_mount;
+
+async fn scan_network_shares() -> Json<serde_json::Value> {
+    let hosts = network_scan::scan_network_shares().await;
+    Json(serde_json::json!({ "hosts": hosts }))
+}
+
+#[derive(serde::Deserialize)]
+struct MountCreateRequest {
+    ip: String,
+    share: String,
+    #[serde(default)]
+    username: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+}
+
+async fn net_mounts_list() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "mounts": smb_mount::list_mounts().await }))
+}
+
+async fn net_mount_create(Json(body): Json<MountCreateRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    match smb_mount::mount_share(&body.ip, &body.share, body.username.as_deref(), body.password.as_deref()).await {
+        Ok(record) => Ok(Json(serde_json::json!({ "mount": record }))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn net_mount_delete(Path(id): Path<String>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    smb_mount::unmount_mount(&id)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
+async fn net_mount_files(Path(id): Path<String>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let files = smb_mount::list_mount_files(&id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "files": files })))
+}
+
+async fn net_mount_download(
+    Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let path = query.get("path").cloned().unwrap_or_default();
+    let bytes = smb_mount::read_mount_file(&id, &path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        bytes,
+    ).into_response())
+}
 
 async fn get_quota(
     State(state): State<Arc<AppState>>,

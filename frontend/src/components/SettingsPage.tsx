@@ -55,12 +55,16 @@ import {
   PaintBrush,
   BracketsCurly,
   Globe,
+  Power,
+  ArrowClockwise,
 } from '@phosphor-icons/react'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
 import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { OsWindowActions } from '@/components/OsWindowActions'
+import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { readAccentIcons, applyAccentIcons } from '@/lib/accentIcons'
 import { useLocalStorage } from '@/lib/storage'
 import {
   getAutoContrastMode,
@@ -521,11 +525,33 @@ export function SettingsPage(props: SettingsPageProps) {
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system'>('general')
+  const [accentIcons, setAccentIcons] = useState(readAccentIcons)
+  const { can } = useOsPermissions()
+  const [powerAction, setPowerAction] = useState<'reboot' | 'shutdown' | null>(null)
+  const [powerPending, setPowerPending] = useState(false)
+
+  const executePowerAction = async () => {
+    if (!powerAction) return
+    setPowerPending(true)
+    try {
+      const response = await authFetch(`/api/os/control/os/${powerAction}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delay_seconds: 5, reason: 'Requested from IORA OS settings' }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      setPowerAction(null)
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent('iora:toast', { detail: { message: e instanceof Error ? e.message : String(e) } }))
+    } finally {
+      setPowerPending(false)
+    }
+  }
   const [yamlEditorOpen, setYamlEditorOpen] = useState(false)
   const { stats, haInfo, loading: statsLoading, refresh: refreshStats } = useSystemStats(settingsTab === 'system')
 
   return (
-    <section className="ora-app-frame ora-settings-app">
+    <section className="ora-settings-app">
       <header className="ora-settings-navbar">
         <div className="flex items-center gap-3"><span className="ora-app-mark ora-app-mark-settings"><GearSix size={24} weight="duotone" /></span><div><p className="text-xl font-semibold text-foreground">{t('navigation.settings')}</p><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
         <div className="flex items-center gap-2">
@@ -715,6 +741,16 @@ export function SettingsPage(props: SettingsPageProps) {
             </div>
           )}
           <div className={deviceLockMode ? 'opacity-50 pointer-events-none select-none space-y-4' : 'space-y-4'}>
+
+            {/* Accent-tinted app icons */}
+            <SettingsSection icon={PaintBrush} title={t('settings.accentIcons')} description={t('settings.accentIconsDesc')} accentIcon>
+              <ToggleRow
+                label={t('settings.accentIcons')}
+                description={t('settings.accentIconsDesc')}
+                checked={accentIcons}
+                onCheckedChange={(value) => { setAccentIcons(value); applyAccentIcons(value) }}
+              />
+            </SettingsSection>
 
             {/* Theme Mode */}
             <Suspense fallback={null}><ThemePickerSection /></Suspense>
@@ -1208,6 +1244,32 @@ export function SettingsPage(props: SettingsPageProps) {
                 </div>
               </div>
             </SettingsSection>
+
+            {/* Power: reboot & shutdown live here (hidden from the quick shell) */}
+            {can('os.power') && (
+              <SettingsSection icon={Power} title={t('settings.power')} description={t('settings.powerDesc')}>
+                {powerAction ? (
+                  <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-4">
+                    <p className="text-xs font-semibold text-red-200">
+                      {powerAction === 'reboot' ? t('os.shell.confirmReboot') : t('os.shell.confirmShutdown')}
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button type="button" onClick={() => setPowerAction(null)} className="flex-1 rounded-xl bg-foreground/8 px-3 py-2.5 text-xs">{t('common.cancel')}</button>
+                      <button type="button" disabled={powerPending} onClick={executePowerAction} className="flex-1 rounded-xl bg-red-500 px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-50">{t('common.confirm')}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button type="button" onClick={() => setPowerAction('reboot')} className="flex items-center gap-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 px-4 py-3 text-left text-xs font-semibold text-foreground/75 transition-colors hover:bg-foreground/[0.08]">
+                      <ArrowClockwise size={16} className="text-foreground/50" /> {t('os.shell.reboot')}
+                    </button>
+                    <button type="button" onClick={() => setPowerAction('shutdown')} className="flex items-center gap-2.5 rounded-xl bg-red-500/10 border border-red-500/15 px-4 py-3 text-left text-xs font-semibold text-red-300 transition-colors hover:bg-red-500/15">
+                      <Power size={16} className="text-red-400" /> {t('os.shell.shutdown')}
+                    </button>
+                  </div>
+                )}
+              </SettingsSection>
+            )}
 
             {/* IORA Docs Link */}
             <SettingsSection icon={Info} title="IORA Dokumentation" description="Anleitungen, Referenzen & Systemübersicht">

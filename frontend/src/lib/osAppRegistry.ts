@@ -33,6 +33,10 @@ export interface OsAppDefinition {
   iconUrl?: string
   /** Web UI to open on click (installed Docker apps without a page). */
   openUrl?: string
+  /** Render the icon smaller (object-contain) so its corners aren't clipped. */
+  iconPad?: boolean
+  /** Runtime status for installed apps ("running" | "stopped" | …). */
+  runtimeStatus?: string
 }
 
 export const SYSTEM_OS_APPS: OsAppDefinition[] = [
@@ -45,6 +49,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     icon: House,
     kind: 'system',
     accent: 'oklch(0.68 0.17 155)',
+    iconUrl: '/icons/Home.png',
     order: 0,
   },
   {
@@ -56,7 +61,20 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     icon: Gear,
     kind: 'system',
     accent: 'oklch(0.64 0.08 245)',
+    iconUrl: '/icons/Settings.png',
     order: 20,
+  },
+  {
+    id: 'iora-images',
+    pageId: 'os-images',
+    nameKey: 'os.apps.images.name',
+    fallbackName: 'Bilder',
+    descriptionKey: 'os.apps.images.description',
+    icon: House,
+    kind: 'system',
+    accent: 'oklch(0.62 0.15 260)',
+    iconUrl: '/icons/Images.png',
+    order: 22,
   },
   {
     id: 'iora-files',
@@ -67,6 +85,8 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     icon: FolderOpen,
     kind: 'system',
     accent: 'oklch(0.68 0.16 80)',
+    iconUrl: '/icons/folder.png',
+    iconPad: true,
     order: 21,
   },
   {
@@ -78,6 +98,8 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     icon: Storefront,
     kind: 'system',
     accent: 'oklch(0.65 0.2 285)',
+    iconUrl: '/icons/appstore.png',
+    iconPad: true,
     order: 22,
   },
   {

@@ -13,6 +13,7 @@ import {
   SquaresFour,
   WifiHigh,
   WifiSlash,
+  SignOut,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
@@ -54,7 +55,6 @@ function formatUptime(seconds: number, t: (key: string, options?: Record<string,
 
 export function OsSystemShell() {
   const { t } = useTranslation()
-  const { user } = useAuth()
   const { theme, sleepMode, setSleepMode } = useTheme()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const [open, setOpen] = useState(false)
@@ -63,9 +63,10 @@ export function OsSystemShell() {
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [systemReachable, setSystemReachable] = useState<boolean | null>(null)
   const [online, setOnline] = useState(() => navigator.onLine)
-  const [powerConfirmation, setPowerConfirmation] = useState<'reboot' | 'shutdown' | null>(null)
+  const [powerConfirmation, setPowerConfirmation] = useState<'reboot' | null>(null)
   const [powerPending, setPowerPending] = useState(false)
   const { can } = useOsPermissions()
+  const { user, logout } = useAuth()
 
   const apps = useMemo(() => {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
@@ -255,24 +256,45 @@ export function OsSystemShell() {
 
               {powerConfirmation ? (
                 <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-3">
-                  <p className="text-xs font-semibold text-red-200">
-                    {powerConfirmation === 'reboot' ? t('os.shell.confirmReboot') : t('os.shell.confirmShutdown')}
-                  </p>
+                  <p className="text-xs font-semibold text-red-200">{t('os.shell.confirmReboot')}</p>
                   <div className="mt-3 flex gap-2">
                     <button type="button" onClick={() => setPowerConfirmation(null)} className="flex-1 rounded-xl bg-foreground/8 px-3 py-2 text-xs">{t('common.cancel')}</button>
                     <button type="button" disabled={powerPending} onClick={executePowerAction} className="flex-1 rounded-xl bg-red-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{t('common.confirm')}</button>
                   </div>
                 </div>
-              ) : can('os.power') ? (
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setPowerConfirmation('reboot')} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-foreground/7 px-3 py-2 text-xs hover:bg-foreground/12">
-                    <ArrowClockwise size={14} /> {t('os.shell.reboot')}
-                  </button>
-                  <button type="button" onClick={() => setPowerConfirmation('shutdown')} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-300 hover:bg-red-500/20">
-                    <Power size={14} /> {t('os.shell.shutdown')}
-                  </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {/* User row with logout */}
+                  <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-foreground/5 px-3 py-2">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[11px] font-bold text-accent">
+                      {(user?.displayName || user?.username || '?').charAt(0).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/75">
+                      {user?.displayName || user?.username || t('os.shell.guest')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { logout(); setOpen(false) }}
+                      className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground/50 transition-colors hover:bg-foreground/10 hover:text-foreground"
+                      title={t('os.shell.logout')}
+                    >
+                      <SignOut size={13} weight="bold" />
+                      <span className="hidden sm:inline">{t('os.shell.logout')}</span>
+                    </button>
+                  </div>
+                  {/* Reboot tucked behind a subtle icon button (shutdown lives in Settings) */}
+                  {can('os.power') && (
+                    <button
+                      type="button"
+                      onClick={() => setPowerConfirmation('reboot')}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-foreground/45 transition-colors hover:bg-foreground/10 hover:text-foreground"
+                      title={t('os.shell.reboot')}
+                    >
+                      <ArrowClockwise size={15} />
+                    </button>
+                  )}
                 </div>
-              ) : null}
+              )}
 
               <p className="mt-3 text-center text-[10px] text-foreground/30">
                 {stats ? `${stats.os_name} ${stats.os_version}` : t('os.shell.noSystemData')} · {theme}

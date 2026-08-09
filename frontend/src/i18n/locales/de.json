@@ -149,7 +149,16 @@
       "invalidManifest": "Das Launcher-Manifest ist ungültig.",
       "backendStatus": "ORA Backend",
       "homeAssistantStatus": "Home Assistant",
-      "installingApp": "Wird installiert…"
+      "installingApp": "Wird installiert…",
+      "discoverApps": "Entdecke Apps für dein IORA OS",
+      "discoverAppsHint": "Installiere eine App in wenigen Sekunden — sie läuft als eigener Container auf deinem Server.",
+      "widgetsEditHint": "Widgets bearbeiten — klicke auf X zum Entfernen",
+      "moreInstalls": "weitere Installationen",
+      "homeWidgetDesc": "Schnellzugriff auf das Dashboard",
+      "clockWidgetDesc": "Uhrzeit und Datum",
+      "systemWidgetDesc": "CPU, Arbeitsspeicher und Hostname",
+      "systemWidget": "System",
+      "cpu": "CPU"
     },
     "shell": {
       "openQuickSettings": "Schnelleinstellungen öffnen",
@@ -171,7 +180,9 @@
       "shutdown": "Herunterfahren",
       "confirmReboot": "ORA OS in fünf Sekunden neu starten?",
       "confirmShutdown": "ORA OS in fünf Sekunden herunterfahren?",
-      "noSystemData": "Systemdaten nicht verfügbar"
+      "noSystemData": "Systemdaten nicht verfügbar",
+      "logout": "Abmelden",
+      "guest": "Gast"
     },
     "lock": {
       "sessionLocked": "Sitzung gesperrt",
@@ -249,6 +260,13 @@
       "appStore": {
         "name": "App Store",
         "description": "ORA Apps entdecken, installieren und verwalten"
+      },
+      "images": {
+        "name": "Bilder",
+        "description": "Alle Bilder aus deiner IORA Cloud",
+        "count": "Bilder",
+        "empty": "Noch keine Bilder",
+        "emptyHint": "Lege Bilder in IORA Files ab — sie erscheinen hier automatisch."
       }
     },
     "systemApps": {
@@ -317,7 +335,11 @@
       "selectFile": "Wähle eine Datei aus.",
       "saveAs": "Speichern als {{name}}",
       "open": "Öffnen",
-      "save": "Speichern"
+      "save": "Speichern",
+      "allTypes": "Alle Dateitypen",
+      "acceptedTypes": "Nur passende",
+      "selected": "{{count}} ausgewählt",
+      "select": "Auswählen ({{count}})"
     },
     "maintenance": {
       "unavailable": "Der Wartungsdienst ist derzeit nicht verfügbar.",
@@ -356,7 +378,30 @@
       "size": "Größe",
       "open": "Öffnen",
       "select": "Auswählen",
-      "serviceRestart": "Der Files-Dienst antwortet nicht korrekt ({{detail}}). Bitte starte den Files-Dienst neu (iora-files)."
+      "serviceRestart": "Der Files-Dienst antwortet nicht korrekt ({{detail}}). Bitte starte den Files-Dienst neu (iora-files).",
+      "newFile": "Neue Datei",
+      "fileName": "Dateiname",
+      "folders": "Ordner",
+      "details": "Details",
+      "type": "Typ",
+      "typeFile": "Datei",
+      "preview": "Vorschau",
+      "viewTable": "Tabellenansicht",
+      "openWith": "Öffnen mit {{app}}",
+      "trash": "Papierkorb",
+      "trashHint": "Gelöschte Dateien landen hier — stelle sie wieder her oder lösche sie später endgültig.",
+      "trashEmpty": "Der Papierkorb ist leer",
+      "restore": "Wiederherstellen",
+      "network": "Netzwerk",
+      "scanNetwork": "Netzwerk-Festplatten suchen",
+      "scanning": "Suche…",
+      "networkDrives": "Netzwerk-Festplatten",
+      "noDrives": "Noch keine Netzwerk-Festplatten verbunden",
+      "connect": "Verbinden",
+      "disconnect": "Trennen",
+      "scanHint": "Das lokale Netzwerk wird nach SMB-Festplatten durchsucht — gefundene Geräte kannst du direkt verbinden.",
+      "noDevicesFound": "Keine Netzwerk-Festplatten gefunden",
+      "selectCount": "Auswählen ({{count}})"
     },
     "dock": {
       "open": "Öffnen",
@@ -476,7 +521,11 @@
     "tabGeneralDesc": "Profil, Sicherheit & KI",
     "tabAppearanceDesc": "Theme, Akzent & Glas",
     "tabDashboardDesc": "Designer & Code",
-    "tabSystemDesc": "Status & Dienste"
+    "tabSystemDesc": "Status & Dienste",
+    "power": "Energie",
+    "powerDesc": "System neu starten oder herunterfahren",
+    "accentIcons": "App-Icons einfärben",
+    "accentIconsDesc": "Färbt App-Icons und Ordner mit der aktuellen Primärfarbe ein (sepia + Hue-Rotation)."
   },
   "dashboard": {
     "noEntities": "Keine Entitäten gefunden",
@@ -801,7 +850,27 @@
       "start": "Starten",
       "uninstall": "Deinstallieren",
       "uninstallConfirm": "„{{name}}“ wirklich deinstallieren? Der Container wird gestoppt und alle App-Daten entfernt.",
-      "uninstalled": "{{name}} wurde deinstalliert"
+      "uninstalled": "{{name}} wurde deinstalliert",
+      "update": "Aktualisieren",
+      "updating": "Aktualisiere…",
+      "defaultCredentials": "Standard-Zugangsdaten",
+      "defaultCredentialsHint": "Nach dem ersten Start kannst du diese Daten zum Anmelden verwenden. Bitte ändere das Passwort anschließend.",
+      "username": "Benutzername",
+      "password": "Passwort",
+      "category": {
+        "all": "Alle",
+        "cloud": "Cloud",
+        "browser": "Browser",
+        "media": "Medien",
+        "productivity": "Produktivität",
+        "docs": "Dokumentation",
+        "apps": "Apps",
+        "automation": "Automation"
+      },
+      "uninstallDependents": "„{{name}}“ wird von {{apps}} benötigt. Wirklich deinstallieren? Diese Apps funktionieren danach möglicherweise nicht mehr.",
+      "installRequires": "Zuerst installieren: {{apps}}",
+      "torAddress": "Tor-Adresse",
+      "torHint": "Diese App ist über das Tor-Netzwerk erreichbar — öffne die Adresse im Tor Browser, um von außerhalb des Heimnetzwerks zuzugreifen."
     },
     "topThemes": "Top Themes",
     "topApps": "Top Apps",
@@ -1077,5 +1146,16 @@
     "noStreamsHint": "Starte einen Stream oder schaue gleich los, sobald ein Gerät live geht.",
     "device": "IORA Gerät",
     "unknownDevice": "Unbekanntes Gerät"
+  },
+  "cmd": {
+    "apps": "Apps",
+    "actions": "Aktionen",
+    "goHome": "Zum Launcher",
+    "sleepOn": "Schlafmodus aktivieren",
+    "sleepOff": "Schlafmodus beenden",
+    "lock": "Sperren",
+    "themeNight": "Nacht-Theme aktivieren",
+    "placeholder": "Apps, Seiten und Aktionen suchen…",
+    "noResults": "Keine Ergebnisse"
   }
 }

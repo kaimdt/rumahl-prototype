@@ -47,6 +47,7 @@ mod ble_client;
 mod crypto;
 mod db;
 mod desktop_gateway;
+mod tor_manager;
 mod dev_image;
 mod documentation;
 mod entity_cache;
@@ -461,6 +462,7 @@ pub struct AppState {
     pub ble_client: Arc<BleClient>,
     pub homekit_client: Arc<HomekitClient>,
     pub stream_manager: Arc<StreamManager>,
+    pub tor_manager: Arc<tor_manager::TorManager>,
     pub notification_dispatcher: Arc<NotificationDispatcher>,
     /// Centralised system-event log + broadcaster for background tasks.
     /// See [`system_events`].
@@ -1022,6 +1024,9 @@ async fn main() -> anyhow::Result<()> {
     let ble_client = Arc::new(BleClient::new());
     let homekit_client = Arc::new(HomekitClient::new());
     let stream_manager = Arc::new(StreamManager::new());
+    let tor_manager = Arc::new(tor_manager::TorManager::new(
+        std::path::PathBuf::from("/opt/iora/data/iora-home/tor"),
+    ));
     let notification_dispatcher = Arc::new(NotificationDispatcher::new(
         db_pool.clone(),
         ws_manager.clone(),
@@ -1084,6 +1089,7 @@ async fn main() -> anyhow::Result<()> {
         ble_client: ble_client.clone(),
         homekit_client: homekit_client.clone(),
         stream_manager: stream_manager.clone(),
+        tor_manager,
         notification_dispatcher: notification_dispatcher.clone(),
         system_events: system_events.clone(),
         settings_registry: Arc::new(iora_shared::settings::default_registry()),
@@ -1115,6 +1121,39 @@ async fn main() -> anyhow::Result<()> {
         },
         terminal_manager: Arc::new(AppTerminalManager::default()),
     };
+    // Tor hidden services for installed apps (Umbrel-style .onion access).
+    {
+        let store = state.local_appstore.clone();
+        let tor = state.tor_manager.clone();
+        tokio::spawn(async move {
+            let installed = store.list().await;
+            let mut ports: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+            for app in installed {
+                // Prefer assigned ports; fall back to the manifest's docker
+                // config (internal_ports[].external) for container apps.
+                let mut port: Option<u16> = app.ports.iter().find(|p| p.protocol == "tcp").map(|p| p.external);
+                if port.is_none() {
+                    if let Some(docker) = app.docker_config.as_ref() {
+                        if let Some(ports_arr) = docker.get("internal_ports").and_then(|v| v.as_array()) {
+                            if let Some(first) = ports_arr.first() {
+                                let external = first.get("external").and_then(|v| v.as_u64());
+                                let internal = first.get("port").and_then(|v| v.as_u64());
+                                port = external.or(internal).map(|p| p as u16);
+                            }
+                        }
+                    }
+                }
+                if let Some(p) = port {
+                    ports.insert(app.id.clone(), p);
+                }
+            }
+            if let Err(e) = tor.refresh(&ports).await {
+                tracing::warn!("Tor refresh failed: {e}");
+            }
+        });
+    }
+
+
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
     match state.config_repo.ensure_admin_exists().await {
@@ -1697,6 +1736,7 @@ async fn main() -> anyhow::Result<()> {
     // Authenticated routes (JWT or API key required)
     let auth_routes = Router::new()
         .route("/api/os/permissions", get(get_my_os_permissions))
+        .route("/api/tor/status", get(tor_status))
         .route("/api/os/control/*path", any(user_iora_control_proxy))
         .route("/api/os/backups/*path", any(user_backup_proxy))
         .route("/api/keys", get(list_my_api_keys))
@@ -2313,6 +2353,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/files/shares", get(proxy_files).post(proxy_files))
         .route("/api/files/shares/:id", delete(proxy_files))
         .route("/api/files/quota", get(proxy_files))
+        .route("/api/files/network/shares", get(proxy_files))
+        .route("/api/files/network/mounts", get(proxy_files).post(proxy_files))
+        .route("/api/files/network/mounts/:id", delete(proxy_files))
+        .route("/api/files/network/mounts/:id/files", get(proxy_files))
+        .route("/api/files/network/mounts/:id/download", get(proxy_files))
         .route("/api/files/folders", post(proxy_files))
         .route("/api/files/:id", get(proxy_files).delete(proxy_files))
         .route("/api/files/:id/download", get(proxy_files))
@@ -2639,6 +2684,10 @@ async fn main() -> anyhow::Result<()> {
         .merge(auth_routes)
         // Serve frontend static assets (JS, CSS, etc.) — immutable because filenames are hashed.
         // Path resolved at startup from IORA_HOME_DIST / ../dist / ./dist / /opt/iora/iora-home/dist.
+        .nest_service(
+            "/icons",
+            ServeDir::new(resolve_icons_dir()),
+        )
         .nest_service(
             "/assets",
             ServeDir::new(
@@ -3474,6 +3523,28 @@ async fn bootstrap_admin_user(
 ///   1. `IORA_HOME_DIST` env var (absolute path, set by /etc/iora/iora-home.env on IORA OS)
 ///   2. `../dist`              (legacy: cargo run from backend/iora-home/)
 ///   3. `./dist`               (running from the workspace root)
+/// Locate the app-icons directory (frontend/public/icons in the repo mirror).
+fn resolve_icons_dir() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("IORA_ICONS_DIR") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_dir() {
+            return pb;
+        }
+    }
+    for rel in [
+        "../frontend/public/icons",
+        "./frontend/public/icons",
+        "/home/iora/iora/frontend/public/icons",
+        "/opt/iora/iora-home/icons",
+    ] {
+        let pb = std::path::PathBuf::from(rel);
+        if pb.is_dir() {
+            return pb;
+        }
+    }
+    std::path::PathBuf::from("../frontend/public/icons")
+}
+
 fn resolve_dist_dir() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("IORA_HOME_DIST") {
         let pb = std::path::PathBuf::from(p);
@@ -7566,6 +7637,14 @@ async fn admin_control_restart_service(
     }
 }
 
+/// Tor status: availability + per-app .onion addresses.
+async fn tor_status(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "available": state.tor_manager.is_available(),
+        "onions": state.tor_manager.onions_from_disk(),
+    }))
+}
+
 async fn admin_dev_image_info(State(state): State<AppState>) -> Json<Value> {
     Json(state.dev_image.to_json())
 }
@@ -7592,6 +7671,7 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
                 "environment": serde_json::Value::Null,
                 "volumes": Vec::<String>::new(),
                 "permissions": a.manifest.permissions.clone(),
+                "category": a.manifest.extra.get("store_metadata").and_then(|m| m.get("category")).and_then(|c| c.as_str()).unwrap_or("").to_string(),
                 "enabled": a.enabled,
                 "status": a.status.clone(),
                 "installed_at": a.installed_at.clone(),

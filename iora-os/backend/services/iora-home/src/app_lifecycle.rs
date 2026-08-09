@@ -67,10 +67,18 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
 
     for prefix in ["iora-app-", "iora-bundle-"] {
         let project = format!("{prefix}{app_id}");
-        let out = Command::new("docker")
-            .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
-            .output()
-            .await;
+        let out = tokio::time::timeout(
+            std::time::Duration::from_secs(6),
+            Command::new("docker")
+                .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
+                .output(),
+        )
+        .await
+        .unwrap_or_else(|_| Ok(std::process::Output {
+            status: std::process::Command::new("false").status().unwrap_or(std::process::ExitStatus::default()),
+            stdout: Vec::new(),
+            stderr: b"timeout".to_vec(),
+        }));
 
         match out {
             Ok(o) if o.status.success() => {
@@ -133,7 +141,12 @@ async fn supervisor_compose_status(app_id: &str) -> Option<AppDockerStatus> {
         app_id
     );
 
-    let response = match reqwest::Client::new().get(url).send().await {
+    let response = match reqwest::Client::new()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
         Ok(response) => response,
         Err(_) => return None,
     };
@@ -293,12 +306,6 @@ pub async fn spawn_health_monitor(store: Arc<LocalAppStore>, base_dir: std::path
             if app.system {
                 continue;
             }
-            // Nur Apps überwachen, die der User auf "running" gesetzt hat
-            if app.status != "running" {
-                let mut t = trackers.write().await;
-                t.remove(&app.id); // Tracker reset, falls App manuell gestoppt
-                continue;
-            }
             let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
             if !needs_docker {
                 continue;
@@ -308,6 +315,17 @@ pub async fn spawn_health_monitor(store: Arc<LocalAppStore>, base_dir: std::path
                 Some(s) => s,
                 None => return, // Docker nicht da → Monitor beenden
             };
+
+            // Self-heal the status: an enabled app whose containers are all
+            // running must be reported as "running" (e.g. after VM reboots).
+            if app.status != "running" {
+                if app.enabled && status.all_running() {
+                    let _ = store.set_status(&app.id, "running").await;
+                }
+                let mut t = trackers.write().await;
+                t.remove(&app.id); // Tracker reset, falls App manuell gestoppt
+                continue;
+            }
 
             if status.all_running() {
                 // Stabil – Crash-Counter zurücksetzen

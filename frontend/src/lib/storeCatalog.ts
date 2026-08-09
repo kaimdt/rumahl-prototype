@@ -120,6 +120,10 @@ export interface CatalogAppDefinition {
   openPort?: number
   /** Inline SVG icon (data URL) — real icons, no external dependency. */
   iconUrl?: string
+  /** Default login shown on the detail page (Umbrel-style). */
+  defaultCredentials?: { username: string; password: string }
+  /** Apps that must be installed first (Umbrel-style dependency check). */
+  requires?: string[]
   /** Builds the installable ZIP (manifest.json + docker-compose.yml + web assets). */
   buildZip: () => string
 }
@@ -220,6 +224,7 @@ export const STORE_CATALOG: CatalogAppDefinition[] = [
     permissions: ['AppStorageRead', 'AppStorageWrite'],
     openPort: 8180,
     iconUrl: cloudSvg(),
+    defaultCredentials: { username: 'admin', password: 'iora-admin' },
     buildZip: () => buildZipFor(nextcloudManifest),
   },
   {

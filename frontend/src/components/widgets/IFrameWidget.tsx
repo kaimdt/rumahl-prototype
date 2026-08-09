@@ -101,8 +101,10 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
     })
   }, [])
 
-  const closeFilePicker = useCallback((result: AppFileOpenResult | { id: string; name: string } | null) => {
-    filePickerResolver.current?.(result)
+  const closeFilePicker = useCallback((result: AppFileOpenResult | AppFileOpenResult[] | { id: string; name: string } | null) => {
+    // Multi-select results: the iframe contract expects a single result — use the first.
+    const single = Array.isArray(result) ? result[0] ?? null : result
+    filePickerResolver.current?.(single)
     filePickerResolver.current = null
     setFilePickerRequest(null)
   }, [])

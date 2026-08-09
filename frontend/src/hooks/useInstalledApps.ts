@@ -61,6 +61,20 @@ export function firstExternalPort(ports: SupervisorApp['ports']): number | undef
   return undefined
 }
 
+/** Map backend icon *names* (e.g. "cloud") to inline SVG data URLs, so apps
+ * without a real icon URL still get a proper icon instead of a broken <img>. */
+const ICON_NAME_TO_DATA: Record<string, string> = {
+  cloud: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0082C9"/><path d="M46 40a8 8 0 0 0-1-15.9 12 12 0 0 0-22.9-2.6A9.5 9.5 0 0 0 20 40h22a6 6 0 0 0 4-1.5" fill="white"/></svg>'),
+  browser: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#FF7139"/><circle cx="32" cy="32" r="15" fill="none" stroke="white" stroke-width="5"/><ellipse cx="32" cy="32" rx="7" ry="15" fill="none" stroke="white" stroke-width="5"/><path d="M17 32h30" stroke="white" stroke-width="5"/></svg>'),
+}
+
+/** Resolve an icon to a usable URL: real URL, known icon name, or undefined. */
+export function resolveAppIcon(icon?: string): string | undefined {
+  if (!icon) return undefined
+  if (/^(https?:|data:)/.test(icon)) return icon
+  return ICON_NAME_TO_DATA[icon.toLowerCase()]
+}
+
 /** Deterministic gradient for apps without an icon URL. */
 export function appGradient(id: string): string {
   let hash = 0
@@ -121,37 +135,37 @@ export function useInstalledApps() {
     }
   }, [refresh])
 
-  // Running jobs (CasaOS-style progress tiles).
+  // Running jobs (CasaOS-style progress tiles). The backend reports finished
+  // jobs as "succeeded" — treat every terminal state as inactive.
+  const TERMINAL_JOB_STATUSES = new Set(['finished', 'succeeded', 'failed', 'cancelled'])
   const activeJobs = useMemo(
-    () => jobs.filter((job) => job.status !== 'finished' && job.status !== 'failed'),
+    () => jobs.filter((job) => !TERMINAL_JOB_STATUSES.has(job.status)),
     [jobs],
   )
 
-  // Installed = container actually running.
-  const runningApps = useMemo(
-    () => apps.filter((app) => app.status === 'running'),
-    [apps],
-  )
-
+  // Installed = any enabled app (launcher shows them all, with a status
+  // indicator when not running).
   const installedApps: InstalledOsApp[] = useMemo(() => {
-    return runningApps.map((app, index) => {
-      const url = appOpenUrl(app)
-      if (url) appRuntimeUrls.set(app.id, url)
-      return {
-        id: `inst-${app.id}`,
-        pageId: app.id,
-        fallbackName: app.name,
-        icon: Globe, // replaced by the remote iconUrl when available
-        kind: 'installed',
-        accent: appGradient(app.id),
-        order: 200 + index,
-        openUrl: url,
-        iconUrl: app.icon,
-        runtimeStatus: app.status,
-        backendId: app.id,
-      }
-    })
-  }, [runningApps])
+    return apps
+      .filter((app) => app.enabled)
+      .map((app, index) => {
+        const url = appOpenUrl(app)
+        if (url) appRuntimeUrls.set(app.id, url)
+        return {
+          id: `inst-${app.id}`,
+          pageId: app.id,
+          fallbackName: app.name,
+          icon: Globe, // replaced by the remote iconUrl when available
+          kind: 'installed',
+          accent: appGradient(app.id),
+          order: 200 + index,
+          openUrl: url,
+          iconUrl: resolveAppIcon(app.icon),
+          runtimeStatus: app.status,
+          backendId: app.id,
+        }
+      })
+  }, [apps])
 
   return {
     installedApps,

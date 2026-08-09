@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react'
 
 import { getBackendUrl, getDevBridgeUrl } from '@/lib/config'
+import { authFetch, getAuthToken } from '@/lib/authHelpers'
 const apiBase = () => getBackendUrl() || ''
 
 interface ConnectionStatus {
@@ -262,8 +263,15 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     const detectDevBridge = async () => {
+      // Authenticated endpoint — without a token this would 401-flood the
+      // backend on every boot. Bail out early (the dev bridge only exists on
+      // OS dev images, where a session is present).
+      if (!getAuthToken()) {
+        devBridgeAvailableRef.current = false
+        return
+      }
       try {
-        const response = await fetch(`${apiBase()}/api/admin/dev-image`, {
+        const response = await authFetch('/api/admin/dev-image', {
           signal: AbortSignal.timeout(5_000),
         })
         const data = response.ok ? await response.json() : null

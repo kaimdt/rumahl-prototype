@@ -8,7 +8,7 @@ import {
   ShieldWarning, Package, ArrowClockwise, Info, Warning,
   Stack, CubeFocus, Sparkle, PuzzlePiece, MusicNotes, ChartBar,
   VideoCamera, Broom, Lightbulb, CalendarBlank, SpeakerHigh, Plant,
-  Bell, Star, ArrowRight, CaretLeft, CaretRight
+  Bell, Star, ArrowRight, CaretLeft, CaretRight, LockKey, Cloud, Globe, Briefcase, BookOpen, VideoCamera as VideoIcon, Copy
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
@@ -16,6 +16,7 @@ import { AppDetailDialog } from './AppDetailDialog'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
+import { authFetch } from '@/lib/authHelpers'
 import { supportedLngs } from '@/i18n'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -50,6 +51,8 @@ interface AppInfo {
   installed_at: string
   ports?: PortInfo[] | Array<string | PortInfo>
   kind?: 'app' | 'plugin' | 'system'
+  /** Store category from the app manifest (store_metadata). */
+  category?: string
   system?: boolean
   source?: string
   error_message?: string
@@ -886,7 +889,20 @@ function AppStoreView({
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
   const { activeJobs } = useInstalledApps()
-  const [activeCategory, setActiveCategory] = useState<'all' | 'app' | 'plugin'>('all')
+  const [torOnions, setTorOnions] = useState<Record<string, string> | null>(null)
+
+  // Tor hidden-service addresses for installed apps (Umbrel-style).
+  useEffect(() => {
+    let cancelled = false
+    authFetch('/api/tor/status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { onions?: Record<string, string> } | null) => {
+        if (!cancelled && data?.onions) setTorOnions(data.onions)
+      })
+      .catch(() => { /* tor may be unavailable */ })
+    return () => { cancelled = true }
+  }, [])
+  const [activeCategory, setActiveCategory] = useState<string>('all')
   const [featuredIndex, setFeaturedIndex] = useState(0)
   const [selectedApp, setSelectedApp] = useState<StoreApp | null>(null)
 
@@ -903,7 +919,7 @@ function AppStoreView({
     // Once a catalog app is installed it comes back via the backend list —
     // don't show it twice.
     const catalog: StoreApp[] = STORE_CATALOG
-      .filter((def) => !backend.some((b) => b.id === def.id))
+      .filter((def) => !backend.some((b) => b.id === def.id && b.enabled))
       .map((def) => ({
       id: def.id,
       name: def.name,
@@ -922,16 +938,37 @@ function AppStoreView({
   }, [apps, essentials, t])
   const installedIds = useMemo(() => new Set(apps.filter((app) => app.enabled).map((app) => app.id)), [apps])
 
-  // Category chips derive from the real data.
+  /** Normalized store category per app (Umbrel-style). */
+  const categoryOf = (app: StoreApp): string => {
+    if (app.isEssential) {
+      if (app.id === 'docs') return 'docs'
+      if (app.id === 'share') return 'productivity'
+      if (app.id === 'streaming') return 'media'
+      return 'apps'
+    }
+    if (app.isCatalog) {
+      const cat = STORE_CATALOG.find((def) => def.id === app.id)?.category?.toLowerCase()
+      return cat || 'apps'
+    }
+    const cat = app.category?.toLowerCase()
+    if (!cat || cat === 'all') return 'apps'
+    return cat
+  }
+
+  // Category chips derive from the real data (Umbrel store style).
+  const CATEGORY_ICONS: Record<string, typeof Sparkle> = {
+    cloud: Cloud, browser: Globe, media: Play, productivity: Briefcase, docs: BookOpen, apps: PuzzlePiece, automation: Lightning,
+  }
   const categories = useMemo(() => {
-    const list: Array<{ id: 'all' | 'app' | 'plugin'; label: string; icon: typeof Sparkle }> = [
+    const list: Array<{ id: string; label: string; icon: typeof Sparkle }> = [
       { id: 'all', label: t('apps.appStore.forYou'), icon: Sparkle },
     ]
-    if (storeApps.some((app) => app.kind === 'app')) {
-      list.push({ id: 'app', label: t('navigation.apps'), icon: PuzzlePiece })
-    }
-    if (storeApps.some((app) => app.kind === 'plugin')) {
-      list.push({ id: 'plugin', label: t('navigation.plugins'), icon: Lightning })
+    const seen = new Set<string>(['all'])
+    for (const app of storeApps) {
+      const cat = categoryOf(app)
+      if (seen.has(cat)) continue
+      seen.add(cat)
+      list.push({ id: cat, label: t(`apps.appStore.category.${cat}` as never, { defaultValue: cat }), icon: CATEGORY_ICONS[cat] || PuzzlePiece })
     }
     return list
   }, [storeApps, t])
@@ -940,13 +977,13 @@ function AppStoreView({
   const filteredApps = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return storeApps.filter((app) => {
-      if (activeCategory !== 'all' && app.kind !== activeCategory) return false
+      if (activeCategory !== 'all' && categoryOf(app) !== activeCategory) return false
       if (!query) return true
       return [app.name, app.id, app.developer, app.description]
         .filter(Boolean)
         .some((field) => field!.toLowerCase().includes(query))
     })
-  }, [storeApps, activeCategory, searchQuery])
+  }, [storeApps, activeCategory, searchQuery, categoryOf])
 
   // Featured = first apps of the filtered list (storefront banners).
   const featured = filteredApps.slice(0, 3)
@@ -987,7 +1024,7 @@ function AppStoreView({
     const radius = 15
     const circumference = 2 * Math.PI * radius
     return (
-      <span className={`${classes} relative shrink-0 overflow-hidden shadow-lg`}>
+      <span className={`${classes} relative shrink-0 overflow-hidden ${imgSrc ? 'shadow-none' : 'shadow-lg'}`}>
         {imgSrc ? (
           <img src={imgSrc} alt={app.name} className="h-full w-full object-cover" />
         ) : (
@@ -1044,6 +1081,17 @@ function AppStoreView({
 
   const [installingId, setInstallingId] = useState<string | null>(null)
   const [startingId, setStartingId] = useState<string | null>(null)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+
+  /** Pull the newest image + restart the container (Umbrel-style update). */
+  const updateApp = (app: StoreApp) => {
+    if (updatingId) return
+    setUpdatingId(app.id)
+    adminFetch(`/api/supervisor/apps/${app.id}/restart`, token, { method: 'POST' })
+      .then(() => { window.setTimeout(onInstalled, 2500) })
+      .catch((e) => toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) })))
+      .finally(() => setUpdatingId(null))
+  }
 
   /** Backend entry for a catalog app (present once installed). */
   const backendAppFor = (app: StoreApp) => apps.find((candidate) => candidate.id === app.id)
@@ -1074,6 +1122,13 @@ function AppStoreView({
   const installCatalogApp = async (app: StoreApp) => {
     const def = STORE_CATALOG.find((d) => d.id === app.id)
     if (!def) return
+    // Dependency check: required apps must be installed & running first.
+    const missing = (def.requires || []).filter((requiredId) => !apps.some((a) => a.id === requiredId && a.status === 'running'))
+    if (missing.length > 0) {
+      const names = missing.map((id) => STORE_CATALOG.find((d) => d.id === id)?.name || id).join(', ')
+      toast.error(t('apps.appStore.installRequires', { apps: names }))
+      return
+    }
     setInstallingId(app.id)
     try {
       const zipData = def.buildZip()
@@ -1116,9 +1171,19 @@ function AppStoreView({
       .finally(() => setStartingId(null))
   }
 
+  /** Umbrel-style dependency check: warn if other catalog apps need this one. */
+  const dependentsOf = (appId: string) =>
+    STORE_CATALOG.filter((def) => def.requires?.includes(appId)).filter((def) => apps.some((a) => a.id === def.id))
+
   /** Uninstall an installed app (stops container + removes app data). */
   const uninstallApp = async (app: StoreApp) => {
-    if (!window.confirm(t('apps.appStore.uninstallConfirm', { name: app.name }))) return
+    const dependents = dependentsOf(app.id)
+    if (dependents.length > 0) {
+      const names = dependents.map((d) => d.name).join(', ')
+      if (!window.confirm(t('apps.appStore.uninstallDependents', { name: app.name, apps: names }))) return
+    } else if (!window.confirm(t('apps.appStore.uninstallConfirm', { name: app.name }))) {
+      return
+    }
     try {
       await adminFetch(`/api/appstore/apps/${app.id}`, token, { method: 'DELETE' })
       toast.success(t('apps.appStore.uninstalled', { name: app.name }))
@@ -1211,14 +1276,25 @@ function AppStoreView({
                   {actionLabel(app)}
                 </button>
                 {isInstalledApp(app) && (
-                  <button
-                    type="button"
-                    onClick={() => void uninstallApp(app)}
-                    className="flex items-center gap-1.5 rounded-full bg-black/30 px-4 py-3 text-xs font-bold text-white ring-1 ring-white/30 backdrop-blur-md transition-colors hover:bg-red-500/70"
-                  >
-                    <TrashSimple size={13} weight="bold" />
-                    {t('apps.appStore.uninstall')}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => updateApp(app)}
+                      disabled={updatingId === app.id}
+                      className="flex items-center gap-1.5 rounded-full bg-black/30 px-4 py-3 text-xs font-bold text-white ring-1 ring-white/30 backdrop-blur-md transition-colors hover:bg-white/20 disabled:opacity-60"
+                    >
+                      <ArrowClockwise size={13} weight="bold" className={updatingId === app.id ? 'animate-spin' : ''} />
+                      {updatingId === app.id ? t('apps.appStore.updating') : t('apps.appStore.update')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void uninstallApp(app)}
+                      className="flex items-center gap-1.5 rounded-full bg-black/30 px-4 py-3 text-xs font-bold text-white ring-1 ring-white/30 backdrop-blur-md transition-colors hover:bg-red-500/70"
+                    >
+                      <TrashSimple size={13} weight="bold" />
+                      {t('apps.appStore.uninstall')}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -1236,6 +1312,46 @@ function AppStoreView({
               </p>
             )}
           </div>
+          {(() => {
+            const creds = STORE_CATALOG.find((def) => def.id === app.id)?.defaultCredentials
+            if (!creds) return null
+            return (
+              <div className="rounded-[1.5rem] border border-amber-500/15 bg-amber-500/[0.06] p-5 sm:p-6">
+                <h4 className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <LockKey size={15} className="text-amber-400" />
+                  {t('apps.appStore.defaultCredentials')}
+                </h4>
+                <p className="mt-1.5 text-xs leading-relaxed text-foreground/55">{t('apps.appStore.defaultCredentialsHint')}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-xl bg-black/20 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wider text-foreground/40">{t('apps.appStore.username')}</p>
+                    <p className="mt-0.5 font-mono text-xs font-semibold text-foreground">{creds.username}</p>
+                  </div>
+                  <div className="rounded-xl bg-black/20 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wider text-foreground/40">{t('apps.appStore.password')}</p>
+                    <p className="mt-0.5 font-mono text-xs font-semibold text-foreground">{creds.password}</p>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+          {torOnions?.[app.id] && (
+            <div className="rounded-[1.5rem] border border-violet-500/20 bg-violet-500/[0.07] p-5 sm:p-6">
+              <h4 className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <Globe size={15} className="text-violet-400" />
+                {t('apps.appStore.torAddress')}
+              </h4>
+              <p className="mt-1.5 text-xs leading-relaxed text-foreground/55">{t('apps.appStore.torHint')}</p>
+              <button
+                type="button"
+                onClick={() => { void navigator.clipboard?.writeText(`http://${torOnions[app.id]}`) }}
+                className="mt-3 flex w-full items-center justify-between gap-2 rounded-xl bg-black/20 px-3 py-2.5 font-mono text-xs font-semibold text-violet-200 transition-colors hover:bg-black/30"
+              >
+                <span className="truncate">{torOnions[app.id]}</span>
+                <Copy size={13} className="shrink-0 text-violet-400" />
+              </button>
+            </div>
+          )}
           <div className="space-y-2">
             {[
               { label: t('apps.appStore.developer'), value: app.developer },

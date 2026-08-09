@@ -149,7 +149,16 @@
       "invalidManifest": "The launcher manifest is invalid.",
       "backendStatus": "ORA Backend",
       "homeAssistantStatus": "Home Assistant",
-      "installingApp": "Installing…"
+      "installingApp": "Installing…",
+      "discoverApps": "Discover apps for your IORA OS",
+      "discoverAppsHint": "Install an app in seconds — it runs as its own container on your server.",
+      "widgetsEditHint": "Editing widgets — click X to remove",
+      "moreInstalls": "more installs",
+      "homeWidgetDesc": "Quick access to the dashboard",
+      "clockWidgetDesc": "Time and date",
+      "systemWidgetDesc": "CPU, memory and hostname",
+      "systemWidget": "System",
+      "cpu": "CPU"
     },
     "shell": {
       "openQuickSettings": "Open quick settings",
@@ -171,7 +180,9 @@
       "shutdown": "Shut down",
       "confirmReboot": "Restart ORA OS in five seconds?",
       "confirmShutdown": "Shut down ORA OS in five seconds?",
-      "noSystemData": "System data unavailable"
+      "noSystemData": "System data unavailable",
+      "logout": "Log out",
+      "guest": "Guest"
     },
     "lock": {
       "sessionLocked": "Session locked",
@@ -249,6 +260,13 @@
       "appStore": {
         "name": "App Store",
         "description": "Discover, install, and manage ORA apps"
+      },
+      "images": {
+        "name": "Images",
+        "description": "All pictures from your IORA cloud",
+        "count": "images",
+        "empty": "No images yet",
+        "emptyHint": "Store pictures in IORA Files — they appear here automatically."
       }
     },
     "systemApps": {
@@ -317,7 +335,11 @@
       "selectFile": "Select a file.",
       "saveAs": "Save as {{name}}",
       "open": "Open",
-      "save": "Save"
+      "save": "Save",
+      "allTypes": "All file types",
+      "acceptedTypes": "Matching only",
+      "selected": "{{count}} selected",
+      "select": "Select ({{count}})"
     },
     "maintenance": {
       "unavailable": "The maintenance service is currently unavailable.",
@@ -356,7 +378,30 @@
       "size": "Size",
       "open": "Open",
       "select": "Select",
-      "serviceRestart": "The Files service is not responding correctly ({{detail}}). Please restart the Files service (iora-files)."
+      "serviceRestart": "The Files service is not responding correctly ({{detail}}). Please restart the Files service (iora-files).",
+      "newFile": "New file",
+      "fileName": "File name",
+      "folders": "Folders",
+      "details": "Details",
+      "type": "Type",
+      "typeFile": "File",
+      "preview": "Preview",
+      "viewTable": "Table view",
+      "openWith": "Open with {{app}}",
+      "trash": "Trash",
+      "trashHint": "Deleted files land here — restore them or remove them permanently later.",
+      "trashEmpty": "The trash is empty",
+      "restore": "Restore",
+      "network": "Network",
+      "scanNetwork": "Search network drives",
+      "scanning": "Searching…",
+      "networkDrives": "Network drives",
+      "noDrives": "No network drives connected yet",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "scanHint": "Scanning the local network for SMB drives — connect any device you find.",
+      "noDevicesFound": "No network drives found",
+      "selectCount": "Select ({{count}})"
     },
     "dock": {
       "open": "Open",
@@ -476,7 +521,11 @@
     "tabGeneralDesc": "Profile, security & AI",
     "tabAppearanceDesc": "Theme, accent & glass",
     "tabDashboardDesc": "Designer & code",
-    "tabSystemDesc": "Status & services"
+    "tabSystemDesc": "Status & services",
+    "power": "Power",
+    "powerDesc": "Reboot or shut down the system",
+    "accentIcons": "Tint app icons",
+    "accentIconsDesc": "Recolors app icons and folders with the current primary color (sepia + hue rotation)."
   },
   "dashboard": {
     "noEntities": "No entities found",
@@ -800,7 +849,27 @@
       "start": "Start",
       "uninstall": "Uninstall",
       "uninstallConfirm": "Really uninstall \"{{name}}\"? The container will be stopped and all app data removed.",
-      "uninstalled": "{{name}} was uninstalled"
+      "uninstalled": "{{name}} was uninstalled",
+      "update": "Update",
+      "updating": "Updating…",
+      "defaultCredentials": "Default credentials",
+      "defaultCredentialsHint": "Use these to sign in after the first start. Please change the password afterwards.",
+      "username": "Username",
+      "password": "Password",
+      "category": {
+        "all": "All",
+        "cloud": "Cloud",
+        "browser": "Browser",
+        "media": "Media",
+        "productivity": "Productivity",
+        "docs": "Documentation",
+        "apps": "Apps",
+        "automation": "Automation"
+      },
+      "uninstallDependents": "\"{{name}}\" is required by {{apps}}. Really uninstall? Those apps may stop working.",
+      "installRequires": "Please install first: {{apps}}",
+      "torAddress": "Tor address",
+      "torHint": "This app is reachable over the Tor network — open the address in the Tor Browser to access it from outside your home network."
     },
     "topThemes": "Top Themes",
     "topApps": "Top Apps",
@@ -1076,5 +1145,16 @@
     "noStreamsHint": "Start a stream, or tune in as soon as a device goes live.",
     "device": "IORA device",
     "unknownDevice": "Unknown device"
+  },
+  "cmd": {
+    "apps": "Apps",
+    "actions": "Actions",
+    "goHome": "Go to launcher",
+    "sleepOn": "Enable sleep mode",
+    "sleepOff": "Disable sleep mode",
+    "lock": "Lock",
+    "themeNight": "Activate night theme",
+    "placeholder": "Search apps, pages and actions…",
+    "noResults": "No results"
   }
 }

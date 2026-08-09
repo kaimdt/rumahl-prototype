@@ -19,7 +19,9 @@ import { OsSystemShell } from '@/components/OsSystemShell'
 import { OsDock } from '@/components/OsDock'
 import { OsFullscreenBar } from '@/components/OsFullscreenBar'
 import { OsWindowActions } from '@/components/OsWindowActions'
+import { CommandPalette } from '@/components/CommandPalette'
 import { AppRuntimeView } from '@/components/AppRuntimeView'
+import { OsImagesApp } from '@/components/OsImagesApp'
 import { appRuntimeUrls } from '@/hooks/useInstalledApps'
 import { OsAppWindow } from '@/components/OsAppWindow'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
@@ -150,7 +152,7 @@ function DashboardContent() {
   const { entities, loading, refresh } = useEntityStore()
   const warningLevel = useWarningLevel()
   const { homeAssistant: haConnectionStatus, lastHACheck } = useConnection()
-  const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+  const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images']
   const isOsAppPage = standaloneAppPageIds.includes(currentPageId)
   const { windows, immersivePageId, setImmersive } = useOsWindows()
 
@@ -183,6 +185,7 @@ const renderOsAppContent = (pageId: string): React.ReactNode => {
   switch (pageId) {
     case 'launcher': return <OsHomeScreen />
     case 'os-files': return <OsSystemApp kind="files" />
+    case 'os-images': return <OsImagesApp />
     case 'os-network': return <OsSystemApp kind="network" />
     case 'os-system': return <OsSystemApp kind="system" />
     case 'os-updates': return <OsMaintenanceApp kind="updates" />
@@ -1029,6 +1032,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
           onMaximize={(pageId) => setCurrentPageId(pageId)}
         />
       )}
+      <CommandPalette />
       <OsSessionLock />
       <ORAAssistant />
       {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}
