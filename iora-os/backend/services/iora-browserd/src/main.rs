@@ -616,8 +616,13 @@ async fn ws_loop(socket: WebSocket, state: AppState) {
 
 const INDEX_HTML: &str = include_str!("../static/index.html");
 
-async fn index() -> Html<&'static str> {
-    Html(INDEX_HTML)
+async fn index() -> impl axum::response::IntoResponse {
+    // Never cache the UI — the app-runner iframe must always pick up the
+    // current version (stale cached copies showed the pre-proxy WS URL).
+    (
+        [("cache-control", "no-store")],
+        Html(INDEX_HTML),
+    )
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────

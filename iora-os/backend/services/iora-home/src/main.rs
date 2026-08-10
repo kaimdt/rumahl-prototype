@@ -10130,6 +10130,17 @@ async fn app_proxy_handler(
                         let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
                             Ok(upgrade) => upgrade,
                             Err(_) => {
+                                // Log the actual headers so a broken relay
+                                // (proxy stripping Upgrade/Sec-WebSocket-*)
+                                // is diagnosable from the journal.
+                                tracing::warn!(
+                                    path = %parts.uri.path(),
+                                    connection = ?parts.headers.get(axum::http::header::CONNECTION),
+                                    upgrade_hdr = ?parts.headers.get(axum::http::header::UPGRADE),
+                                    ws_key = parts.headers.get("sec-websocket-key").is_some(),
+                                    ws_version = ?parts.headers.get("sec-websocket-version"),
+                                    "websocket upgrade rejected by axum",
+                                );
                                 return Response::builder()
                                     .status(StatusCode::BAD_REQUEST)
                                     .body(Body::from("websocket upgrade required"))
