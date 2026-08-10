@@ -189,6 +189,26 @@ const nextcloudManifest = {
   },
 }
 
+const oraBrowserManifest = {
+  id: 'ora-browser',
+  name: 'ORA Browser',
+  version: '0.1.0',
+  developer: 'IORA OS',
+  description: 'Der ORA Browser — ein echter Browser als ORA-Systemdienst. Die Seiten laufen in Chromium auf dem ORA-Server (nicht als eingebettete Seite): keine X-Frame-Options-/CSP-Probleme, Tabs und Sessions gehören ORA.',
+  type: 'app',
+  icon: 'browser',
+  permissions: ['NetworkLocalAccess'],
+  // The browser UI embeds the remote Chromium surface (canvas + WS),
+  // not a website — no iframe sandbox needed.
+  ports: [
+    { external: 8102, protocol: 'tcp', internal: 8102 },
+  ],
+  display: {
+    mode: 'embedded',
+    permissions: ['clipboard-read', 'clipboard-write', 'fullscreen'],
+  },
+}
+
 const browserManifest = {
   id: 'webbrowser',
   name: 'IORA Browser',
@@ -289,6 +309,17 @@ export const STORE_CATALOG: CatalogAppDefinition[] = [
     iconUrl: cloudSvg(),
     defaultCredentials: { username: 'admin', password: 'iora-admin' },
     buildZip: () => buildZipFor(nextcloudManifest),
+  },
+  {
+    id: 'ora-browser',
+    name: 'ORA Browser',
+    developer: 'IORA OS',
+    description: 'Der ORA Browser — ein echter Browser als ORA-Systemdienst. Seiten laufen in Chromium auf deinem ORA-Server, nicht als eingebettete Seite: X-Frame-Options und CSP sind egal, Tabs & Sessions gehören ORA.',
+    version: '0.1.0',
+    category: 'Browser',
+    permissions: ['NetworkLocalAccess'],
+    iconUrl: globeSvg(),
+    buildZip: () => buildZipFor(oraBrowserManifest),
   },
   {
     id: 'webbrowser',
