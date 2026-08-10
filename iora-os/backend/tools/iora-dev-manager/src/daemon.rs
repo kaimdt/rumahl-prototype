@@ -853,6 +853,12 @@ impl Daemon {
                 }
             } else if lifecycle != "Stopped" {
                 RestartAction::None
+            } else if !desired.ever_ready && bootstrap_alive {
+                // A dev-local bootstrap is still provisioning (first install
+                // or rebuild): no QEMU process exists yet, so keep waiting
+                // instead of treating the missing process as a failed start.
+                desired.message = "Waiting for the VM bootstrap (provisioning)...".into();
+                RestartAction::None
             } else if !desired.ever_ready {
                 // The VM never became ready after a user start; retrying
                 // would only repeat the same configuration failure. Attach
@@ -1858,6 +1864,30 @@ pub fn spawn(daemon: Arc<Daemon>) {
         // Make sure the standard ports are mapped (3001 nginx, 5432 postgres,
         // 8101 bridge) - with conflict handling and frontend URL propagation.
         daemon.ensure_default_mappings().await;
+
+        // Auto-start: the dev manager is the entry point - when the daemon
+        // comes up and no VM is running, boot it (provisioning first if the
+        // disk is missing). Disable with IORA_DEV_NO_AUTOSTART=1.
+        let autostart_enabled = std::env::var("IORA_DEV_NO_AUTOSTART")
+            .ok()
+            .map(|value| {
+                !matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(true);
+        if autostart_enabled && last_lifecycle == "Stopped" {
+            let mut desired = daemon.desired.lock().unwrap();
+            if !desired.running {
+                desired.running = true;
+                desired.retries = 0;
+                desired.mode = crate::state::NetworkMode::Slirp;
+                desired.message = "Auto-start on daemon boot".into();
+                desired.ever_ready = false;
+                daemon.emit("status", "Auto-starting the VM (daemon boot)");
+            }
+        }
 
         // Watchdog: health probe, lifecycle transitions, auto-restart on crash.
         let mut tick = interval(Duration::from_secs(WATCHDOG_SECS));

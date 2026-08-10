@@ -449,7 +449,36 @@ impl Manager {
                 self.root.join(".cache/iora-dev-vm.qcow2").display()
             );
         }
-        let shell = if cfg!(windows) { "powershell.exe" } else { "pwsh" };
+        // Remove the Mark-of-the-Web from every script under iora-os so
+        // PowerShell does not ask "Do you want to run this script?" for each
+        // module import (non-interactive bootstraps would silently decline
+        // and break the provision). This is the same as `Unblock-File`.
+        if cfg!(windows) {
+            let _ = std::process::Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-ChildItem -Path . -Recurse -Include *.ps1,*.psm1 -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue",
+                ])
+                .current_dir(&self.root)
+                .status();
+        }
+        // Prefer PowerShell 7 (correct UTF-8 parsing of the .ps1 files);
+        // Windows PowerShell 5.1 misreads UTF-8 and can break parsing.
+        let shell = if cfg!(windows) {
+            let pwsh_available = std::process::Command::new("pwsh")
+                .args(["-NoProfile", "-Command", "exit 0"])
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+            if pwsh_available {
+                "pwsh"
+            } else {
+                "powershell.exe"
+            }
+        } else {
+            "pwsh"
+        };
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
