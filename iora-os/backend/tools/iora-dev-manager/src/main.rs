@@ -420,10 +420,16 @@ async fn serve(port: u16, root: Option<PathBuf>, open: bool) -> Result<()> {
     }
 
     // Environment self-diagnosis: show known problems up front (QEMU, WSL2,
-    // VM disk, execution policy) so a broken setup is obvious immediately.
-    // The console event feed above prints them - emit only, no duplicate.
-    for note in manager::environment_notes(&daemon.manager.lock().await.root.clone()) {
-        daemon.emit("status", note.clone());
+    // VM disk, execution policy). Runs DETACHED so slow host checks (WSL
+    // status, PowerShell policy query) can never delay the dashboard bind.
+    {
+        let notes_daemon = daemon.clone();
+        tokio::spawn(async move {
+            let root = notes_daemon.manager.lock().await.root.clone();
+            for note in manager::environment_notes(&root) {
+                notes_daemon.emit("status", note.clone());
+            }
+        });
     }
     // SO_REUSEADDR lets the daemon rebind quickly after a forced kill,
     // where Windows can otherwise keep the listen socket lingering.
@@ -434,9 +440,28 @@ async fn serve(port: u16, root: Option<PathBuf>, open: bool) -> Result<()> {
         .listen(1024)
         .with_context(|| format!("cannot bind dashboard port {port}"))?;
     println!("IORA Dev Manager dashboard: {url}   (Ctrl+C stops the daemon)");
-    let result = axum::serve(listener, web::router(daemon)).await;
+
+    // Serve the dashboard on a DEDICATED runtime: the main runtime hosts the
+    // watchdog, devloop and background maintenance tasks, which perform
+    // blocking host work (provisioning downloads, QEMU/process scans, SSH
+    // tunnels). A dedicated web runtime guarantees the dashboard stays
+    // reachable no matter what the daemon is doing.
+    let web = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .thread_name("iora-dev-web")
+        .enable_all()
+        .build()
+        .context("cannot create dashboard web runtime")?;
+    let serve_listener = listener;
+    let serve_daemon = daemon.clone();
+    web.spawn(async move {
+        let _ = axum::serve(serve_listener, web::router(serve_daemon)).await;
+    });
+
+    // Keep the main runtime alive (watchdog + maintenance tasks) until
+    // Ctrl+C; the dashboard runtime lives in its own thread.
+    tokio::signal::ctrl_c().await?;
     let _ = std::fs::remove_file(&daemon_file);
-    result?;
     Ok(())
 }
 

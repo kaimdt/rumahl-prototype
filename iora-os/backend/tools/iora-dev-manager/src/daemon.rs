@@ -382,17 +382,19 @@ impl Daemon {
     /// the dashboard unresponsive during provisioning. The cache is refreshed
     /// by a background task (see `spawn`) and on demand when stale.
     pub async fn qemu_vms(&self) -> Value {
-        let cached = self.vms_cache.lock().unwrap().clone();
-        if !cached["vms"].as_array().map(|a| !a.is_empty()).unwrap_or(false) {
-            self.refresh_vms_cache().await;
-        }
         self.vms_cache.lock().unwrap().clone()
     }
 
-    /// Refresh the QEMU-process scan cache (background task).
+    /// Refresh the QEMU-process scan cache (background task). The underlying
+    /// discovery runs a slow, SYNCHRONOUS PowerShell CIM query on Windows -
+    /// it runs here via spawn_blocking so it never occupies an async worker
+    /// (which used to freeze the dashboard during provisioning).
     pub async fn refresh_vms_cache(&self) {
         let managed = self.manager.lock().await.state.pid;
-        let vms = manager::discover_qemu_processes()
+        let processes = tokio::task::spawn_blocking(manager::discover_qemu_processes)
+            .await
+            .unwrap_or_default();
+        let vms = processes
             .into_iter()
             .map(|process| {
                 let mut value = serde_json::to_value(&process).unwrap_or(Value::Null);
@@ -1407,6 +1409,11 @@ impl Daemon {
     /// Ensure every mapping has a live SSH tunnel from the host to the guest
     /// (works without QMP hostfwd — the standard dev VM has none).
     async fn sync_tunnels(&self) {
+        // No tunnels while the VM is down (SSH to a dead guest fails fast
+        // but pointless to re-spawn on every cycle).
+        if !self.manager.lock().await.state.process_alive() {
+            return;
+        }
         // Collect everything before locking the tunnel registry so no
         // non-Send guard is held across an await (breaks the axum handlers).
         let (mappings, host, key, ssh_port) = {
@@ -1460,6 +1467,11 @@ impl Daemon {
     /// Auto-map the exposed ports of running Docker apps (the "automatic
     /// port mapping"): every app port becomes reachable on the host.
     async fn auto_map_app_ports(&self) {
+        // Nothing to map while the VM is down; the SSH probes below are
+        // synchronous and would block a worker for nothing.
+        if !self.manager.lock().await.state.process_alive() {
+            return;
+        }
         // Docker socket permissions drift after daemon restarts — heal them
         // so the guest-side port lookups keep working.
         let _ = self

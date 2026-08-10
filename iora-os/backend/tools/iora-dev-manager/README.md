@@ -30,6 +30,10 @@ controls stay disabled. The dashboard stays responsive during the download
   **PowerShell 7** when installed (correct UTF-8 parsing).
 - The watchdog waits for an in-progress provision instead of declaring the
   VM dead.
+- The dashboard is served on a **dedicated runtime** (its own worker
+  threads): blocking host work (image download, process scans, SSH tunnels)
+  can never stall the web UI. The QEMU-process scan runs via
+  `spawn_blocking` and is cached; log reads are incremental.
 
 ## Common commands
 
