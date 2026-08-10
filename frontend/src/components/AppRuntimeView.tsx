@@ -43,14 +43,23 @@ export function AppRuntimeView({ appId, name }: { appId: string; name?: string }
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const lastStateRef = useRef<AppLifecycleState | null>(null)
 
-  // Public runtime URL: prefer the locally derived subdomain (respects the
-  // desktop protocol/port and returns null on loopback hosts), then the
-  // canonical one from the gateway. On loopback hosts (dev) subdomains
-  // cannot resolve, so we fall back to the legacy same-origin proxy route
-  // for local development only.
+  // Public runtime URL: the gateway's canonical URL wins. It is rejected
+  // only when it points at a loopback host the browser cannot resolve as a
+  // subdomain (misconfigured dev setup) — then the locally derived
+  // subdomain (non-loopback desktops) or the legacy same-origin proxy
+  // (loopback desktops) is used instead.
   const localUrl = appRuntimeUrl(appId)
-  const runtimeUrl = localUrl ?? (isLoopbackHostname(window.location.hostname) ? null : (info?.runtime_url ?? null))
-  const frameUrl = runtimeUrl ?? `/api/apps/${appId}/proxy/`
+  let runtimeUrl: string | null = null
+  if (info?.runtime_url) {
+    try {
+      const parsed = new URL(info.runtime_url)
+      if (!isLoopbackHostname(parsed.hostname)) runtimeUrl = info.runtime_url
+    } catch {
+      // Malformed URL from the backend — fall through to the fallbacks.
+    }
+  }
+  runtimeUrl = runtimeUrl ?? localUrl
+  const frameUrl = runtimeUrl ?? info?.proxy_url ?? `/api/apps/${appId}/proxy/`
 
   const display = info?.display ?? null
   const mode = displayModeOf(display)

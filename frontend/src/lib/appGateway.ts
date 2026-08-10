@@ -52,8 +52,11 @@ export interface AppRuntimeInfo {
   app_id: string
   state: AppLifecycleState
   display?: AppDisplayConfig | null
-  /** Public runtime URL served by the gateway (null while not running). */
+  /** Public runtime URL served by the gateway (null while not running or
+   * when subdomains are not configured — the runner then uses proxy_url). */
   runtime_url?: string | null
+  /** Same-origin proxy path (always available, no DNS required). */
+  proxy_url?: string | null
   /** URL to open the app outside the runner (external mode / fallback). */
   external_url?: string | null
   ws_supported: boolean
