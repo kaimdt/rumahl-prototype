@@ -31,6 +31,7 @@ import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchMode
 import { authFetch } from '@/lib/authHelpers'
 import { useConnection } from '@/contexts/ConnectionContext'
 import { useInstalledApps, appGradient } from '@/hooks/useInstalledApps'
+import { isAppOpenExternal } from '@/lib/appOpenPrefs'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 
 type BuiltInLauncher = 'default' | 'deck' | 'canvas'
@@ -309,6 +310,16 @@ export function OsHomeScreen() {
   }
 
   const openApp = (app: OsAppDefinition) => {
+    // Per-app user preference: "App außerhalb von ORA OS aufrufen" opens
+    // the web UI directly via its port in a new browser tab.
+    if (app.openUrl && app.kind === 'installed' && isAppOpenExternal(app.pageId)) {
+      if (app.runtimeStatus === 'running') {
+        window.open(app.openUrl, '_blank', 'noopener,noreferrer')
+        return
+      }
+      // Not running: fall through — the runner shows the state page with a
+      // start action, then opens externally once running.
+    }
     // Docker apps with a web UI open embedded (iframe runner) — the
     // runner offers "open in browser" for the external tab.
     if (app.openUrl) {

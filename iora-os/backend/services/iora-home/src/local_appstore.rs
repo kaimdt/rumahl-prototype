@@ -52,6 +52,10 @@ pub struct AppManifest {
     pub r#type: Option<String>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// Display / embedding metadata (App Embedding Gateway). Falls back to
+    /// the flatten `extra` when present in older stored manifests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<iora_shared::app_manifest::AppDisplayConfig>,
     /// Catch-all for the rest of the manifest (docker config, …) so we
     /// can round-trip it back to the UI.
     #[serde(flatten)]
@@ -585,6 +589,7 @@ impl LocalAppStore {
                 icon: None,
                 r#type: Some("system".to_string()),
                 permissions: vec!["dev-bridge".to_string(), "service-control".to_string()],
+                display: None,
                 extra: serde_json::Value::Null,
             },
             custom_pages: Vec::new(),
@@ -630,6 +635,7 @@ impl LocalAppStore {
                 icon: Some("share-network".to_string()),
                 r#type: Some("app".to_string()),
                 permissions: vec!["NetworkLocalAccess".to_string()],
+                display: None,
                 extra: serde_json::json!({
                     "custom_pages": [{
                         "id": "share",
@@ -693,6 +699,7 @@ impl LocalAppStore {
                 icon: Some("broadcast".to_string()),
                 r#type: Some("app".to_string()),
                 permissions: vec!["NetworkLocalAccess".to_string(), "MediaCapture".to_string()],
+                display: None,
                 extra: serde_json::json!({
                     "custom_pages": [{
                         "id": "streaming",

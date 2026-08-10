@@ -188,7 +188,9 @@ function DashboardContent() {
   }
 
 // Raw app content (no window chrome) — used by the window manager.
-const renderOsAppContent = (pageId: string): React.ReactNode => {
+// `opts.inWindow` is set when rendered inside a floating/split window:
+// the App Runner then fills the window instead of the full-page overlay.
+const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): React.ReactNode => {
   // Installed Docker apps embed their web UI in an iframe (CasaOS-style).
   // A direct /app/<app-id> navigation does not mount the launcher first,
   // therefore the runtime URL map has not been populated yet.  Resolve
@@ -200,7 +202,12 @@ const renderOsAppContent = (pageId: string): React.ReactNode => {
       ? appOpenUrl({ id: pageId, name: pageId, version: '', ports: [] })
       : undefined)
   if (runtimeUrl) {
-    return <AppRuntimeView appId={pageId} url={runtimeUrl} name={getOsAppName(pageId)} />
+    const runner = <AppRuntimeView appId={pageId} name={getOsAppName(pageId)} />
+    // Full-page (desktop route `/app/<id>`): keep the historic overlay that
+    // escapes the padded main container. Inside a window: fill the window.
+    return opts?.inWindow ? runner : (
+      <div className="fixed inset-x-0 bottom-0 top-14 z-[60]">{runner}</div>
+    )
   }
   switch (pageId) {
     case 'launcher': return <OsHomeScreen />
@@ -1048,7 +1055,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
         <OsWindowOverlay
           getApp={(pageId) => osAppByPageId.get(pageId)}
           getName={getOsAppName}
-          renderContent={renderOsAppContent}
+          renderContent={(pageId) => renderOsAppContent(pageId, { inWindow: true })}
           onMaximize={(pageId) => setCurrentPageId(pageId)}
         />
       )}

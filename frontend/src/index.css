@@ -2461,7 +2461,16 @@ body {
 [data-accent-icons="true"] .ora-file-tile img,
 [data-accent-icons="true"] .ora-file-row img,
 [data-accent-icons="true"] .ora-file-table-row img,
-[data-accent-icons="true"] .ora-sidebar-item img {
+[data-accent-icons="true"] .ora-sidebar-item img,
+/* Vector glyphs (Phosphor etc.) are tinted too, so every app icon follows
+   the active accent even without a raster image. */
+[data-accent-icons="true"] .ora-app-icon svg,
+[data-accent-icons="true"] .ora-dock-item svg,
+[data-accent-icons="true"] .ora-folder-icon svg,
+[data-accent-icons="true"] .ora-file-tile svg,
+[data-accent-icons="true"] .ora-file-row svg,
+[data-accent-icons="true"] .ora-file-table-row svg,
+[data-accent-icons="true"] .ora-sidebar-item svg {
   filter: sepia(1) hue-rotate(var(--accent-hue-rot, 30deg)) saturate(2.2) brightness(0.92) !important;
 }
 .ora-wallpaper-vignette { background: radial-gradient(ellipse at center, transparent 42%, rgb(0 0 0 / 0.2) 76%, rgb(0 0 0 / 0.48) 115%); box-shadow: inset 0 0 11rem rgb(0 0 0 / 0.2); }

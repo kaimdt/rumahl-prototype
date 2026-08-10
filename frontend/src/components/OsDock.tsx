@@ -9,6 +9,7 @@ import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { DOCK_PINS_EVENT_NAME, isDockPinned, readDockPins, toggleDockPin } from '@/lib/dockPrefs'
+import { isAppOpenExternal } from '@/lib/appOpenPrefs'
 import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchModes'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 
@@ -86,6 +87,15 @@ export function OsDock() {
 
   const handleItemClick = (app: OsAppDefinition) => {
     setMenuId(null)
+    // Per-app user preference: open the web UI directly via its port.
+    if (app.openUrl && isAppOpenExternal(app.pageId)) {
+      if (app.runtimeStatus === 'running') {
+        window.open(app.openUrl, '_blank', 'noopener,noreferrer')
+        return
+      }
+      // Not running yet — fall through so the runner shows the state page
+      // with a start action.
+    }
     if (app.openUrl) {
       setCurrentPageId(app.pageId)
       return

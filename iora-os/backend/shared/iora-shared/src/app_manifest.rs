@@ -137,6 +137,15 @@ pub struct AppManifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub i18n: Option<I18nConfig>,
 
+    /// --- New in v2.6: Display / embedding metadata ---
+    ///
+    /// Controls how the app is presented inside the ORA desktop (App
+    /// Embedding Gateway): iframe embedding vs. external open, isolation
+    /// level, and iframe feature permissions. Apps without this section
+    /// default to `embedded` with `relaxed` isolation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<AppDisplayConfig>,
+
     /// --- New in v2.4: Extended App/Plugin capabilities ---
 
     /// AI tools (functions) the app/plugin exposes to IORA Assist and pi.dev
@@ -379,6 +388,13 @@ pub struct DockerConfig {
     /// Health check configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health_check: Option<HealthCheck>,
+
+    /// Upstream scheme used by the App Embedding Gateway: `"http"` (default)
+    /// or `"https"` when the app serves TLS inside its container. Only
+    /// affects how the gateway reaches the app — the public URL stays on the
+    /// app's own origin (`https://<app-id>.apps.ora.local/`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheme: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -633,6 +649,64 @@ pub struct SandboxConfig {
 
     /// Allow file system access?
     pub allow_file_system: bool,
+}
+
+/// How an installed app is presented inside the ORA desktop.
+///
+/// This metadata drives the App Embedding Gateway: the display mode decides
+/// whether the app is embedded as an iframe on its own origin
+/// (`https://<app-id>.apps.ora.local/`) or opened externally, the isolation
+/// level selects the iframe sandbox policy, and `permissions` are mapped to
+/// the iframe `allow` attribute (never granted globally).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AppDisplayMode {
+    /// App runs inside the ORA desktop App Runner as an iframe.
+    Embedded,
+    /// App opens outside the desktop runner (new browser context).
+    External,
+}
+
+impl Default for AppDisplayMode {
+    fn default() -> Self {
+        AppDisplayMode::Embedded
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AppIsolationLevel {
+    /// Separate origin (default). The app subdomain is isolated from the
+    /// desktop origin; no iframe sandbox attribute is applied so the app
+    /// keeps full browser behaviour.
+    Relaxed,
+    /// Separate origin plus a restrictive iframe `sandbox` policy
+    /// (scripts/forms/popups/downloads allowed, privileged APIs denied).
+    Strict,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct AppDisplayConfig {
+    /// How the app is presented in the ORA desktop.
+    #[serde(default)]
+    pub mode: AppDisplayMode,
+
+    /// Origin/sandbox isolation level. Defaults to `relaxed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub isolation: Option<AppIsolationLevel>,
+
+    /// Browser feature permissions granted to the iframe via the `allow`
+    /// attribute. Whitelisted tokens only — e.g. `clipboard-write`,
+    /// `fullscreen`, `camera`, `microphone`, `geolocation`. Privileged APIs
+    /// are never granted unless explicitly listed here.
+    #[serde(default)]
+    pub permissions: Vec<String>,
+
+    /// Explicit iframe `sandbox` tokens. When set, these override the
+    /// default policy derived from `isolation`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

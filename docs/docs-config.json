@@ -191,6 +191,10 @@
         {
           "title": "Troubleshooting",
           "path": "guides/troubleshooting.md"
+        },
+        {
+          "title": "App Embedding Gateway",
+          "path": "apps/app-embedding-gateway.md"
         }
       ]
     },

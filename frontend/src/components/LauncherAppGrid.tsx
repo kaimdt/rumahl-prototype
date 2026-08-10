@@ -2,11 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 import { useTranslation } from 'react-i18next'
-import { ArrowSquareOut, Check, Folder, PencilSimple, PushPin, SquaresFour, Trash, X } from '@phosphor-icons/react'
+import { ArrowClockwise, ArrowSquareOut, CaretRight, Check, Folder, PencilSimple, Play, PushPin, SquaresFour, Stop, Storefront, Trash, TrashSimple, Wrench, X } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
 import { isDockPinned, toggleDockPin } from '@/lib/dockPrefs'
 import type { OsLaunchMode } from '@/contexts/OsWindowContext'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { authFetch } from '@/lib/authHelpers'
+import { requestAppDetail, requestAppInStore } from '@/lib/appStoreHandoff'
 
 export interface LauncherFolder {
   id: string
@@ -52,6 +55,11 @@ function AppIcon({ app, compact = false }: { app: OsAppDefinition; compact?: boo
   )
 }
 
+/** Small inline spinner for in-flight context-menu actions. */
+function MenuSpinner() {
+  return <span className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
+}
+
 export function LauncherAppGrid({
   items,
   apps,
@@ -83,13 +91,26 @@ export function LauncherAppGrid({
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null)
   const dragJustHappenedRef = useRef(false)
   const [quickMenu, setQuickMenu] = useState<{ app: OsAppDefinition; x: number; y: number; pinned: boolean } | null>(null)
-  useCloseOnOtherMenu(() => setQuickMenu(null))
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [morePos, setMorePos] = useState<{ x: number; y: number } | null>(null)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const flyoutRef = useRef<HTMLDivElement>(null)
+  const moreButtonRef = useRef<HTMLButtonElement>(null)
+  useCloseOnOtherMenu(() => { setQuickMenu(null); setMoreOpen(false) })
+  const { setCurrentPageId } = usePageNavigation()
   // Close the quick menu on any outside click / right-click (no backdrop, so
-  // right-clicking another app opens its own menu instead).
+  // right-clicking another app opens its own menu instead). Clicks inside the
+  // menu or its "More" flyout keep it open.
   useEffect(() => {
     if (!quickMenu) return
-    const close = () => setQuickMenu(null)
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setQuickMenu(null) }
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuRef.current?.contains(target) || flyoutRef.current?.contains(target)) return
+      setQuickMenu(null)
+      setMoreOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setQuickMenu(null); setMoreOpen(false) } }
     window.addEventListener('mousedown', close, true)
     window.addEventListener('contextmenu', close, true)
     window.addEventListener('keydown', onKey)
@@ -166,7 +187,75 @@ export function LauncherAppGrid({
   const openQuickMenu = (app: OsAppDefinition, event: React.MouseEvent) => {
     event.preventDefault()
     closeAllContextMenus()
+    setMoreOpen(false)
+    setMorePos(null)
     setQuickMenu({ app, x: event.clientX, y: event.clientY, pinned: isDockPinned(app.id) })
+  }
+
+  /** Supervisor-managed installed apps (Docker/user apps). Dashboard pages
+   * can also carry kind 'installed', so the runtime status is the reliable
+   * discriminator: only real installed apps report one. */
+  const isManagedApp = (app: OsAppDefinition) => typeof app.runtimeStatus === 'string'
+  const isAppRunning = (app: OsAppDefinition) => app.runtimeStatus === 'running' || app.runtimeStatus === 'starting'
+
+  const toast = (message: string) => window.dispatchEvent(new CustomEvent('iora:toast', { detail: { message } }))
+
+  /** Start / stop / restart an installed app via the supervisor. */
+  const runAppAction = async (action: 'start' | 'stop' | 'restart', app: OsAppDefinition) => {
+    setBusyAction(action)
+    try {
+      const res = await authFetch(`/api/supervisor/apps/${app.pageId}/${action}`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: string; message?: string } | null
+        throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
+      }
+      const key = action === 'start' ? 'os.quickActions.started' : action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
+      toast(t(key, { name: getAppName(app) }))
+      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+    } catch (e) {
+      toast(t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setBusyAction(null)
+      setQuickMenu(null)
+      setMoreOpen(false)
+    }
+  }
+
+  /** Uninstall a managed app (stops the container and removes app data). */
+  const confirmUninstall = async (app: OsAppDefinition) => {
+    if (!window.confirm(t('os.quickActions.uninstallConfirm', { name: getAppName(app) }))) return
+    setBusyAction('uninstall')
+    try {
+      const res = await authFetch(`/api/appstore/apps/${app.pageId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: string; message?: string } | null
+        throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
+      }
+      toast(t('os.quickActions.uninstalled', { name: getAppName(app) }))
+      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+    } catch (e) {
+      toast(t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setBusyAction(null)
+      setQuickMenu(null)
+      setMoreOpen(false)
+    }
+  }
+
+  /** "Fehlerbehebung": open the app detail dialog (runtime / logs / terminal). */
+  const troubleshootApp = (app: OsAppDefinition) => {
+    setQuickMenu(null)
+    setMoreOpen(false)
+    requestAppDetail(app.pageId)
+    setCurrentPageId('app-store')
+  }
+
+  /** "Im App Store anzeigen": open the store and select this app. */
+  const showAppInStore = (app: OsAppDefinition) => {
+    setQuickMenu(null)
+    setMoreOpen(false)
+    requestAppInStore(app.pageId)
+    setCurrentPageId('app-store')
   }
 
   return (
@@ -226,13 +315,13 @@ export function LauncherAppGrid({
         <motion.section initial={{ opacity: 0, scale: 0.92, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.94, y: 16 }} role="dialog" aria-modal="true" aria-label={openFolder.name} className="fixed left-1/2 top-1/2 z-[85] max-h-[80dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[2rem] border border-white/15 bg-background/95 p-5 shadow-2xl backdrop-blur-2xl sm:p-7">
           <div className="flex items-center gap-3">
             <Folder size={24} weight="duotone" className="shrink-0 text-accent" />
-            <input value={openFolder.name} onChange={(event) => updateFolder(openFolder.id, (folder) => ({ ...folder, name: event.target.value }))} aria-label={t('os.launcher.folderName')} className="min-w-0 flex-1 rounded-xl bg-foreground/5 px-3 py-2 text-xl font-semibold outline-none focus:ring-2 focus:ring-accent/40" />
-            <button type="button" onClick={() => setOpenFolderId(null)} className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-foreground/10" aria-label={t('common.close')}><X size={19} /></button>
+            <input value={openFolder.name} onChange={(event) => updateFolder(openFolder.id, (folder) => ({ ...folder, name: event.target.value }))} aria-label={t('os.launcher.folderName')} className="min-w-0 flex-1 rounded-xl bg-foreground/5 px-3 py-2 text-xl font-semibold text-foreground outline-none focus:ring-2 focus:ring-accent/40" />
+            <button type="button" onClick={() => setOpenFolderId(null)} className="flex h-10 w-10 items-center justify-center rounded-full text-foreground/70 hover:bg-foreground/10" aria-label={t('common.close')}><X size={19} /></button>
           </div>
           <div className="mt-7 grid grid-cols-3 gap-5 sm:grid-cols-4">
             {folderApps.map((app) => <div key={app.id} className="relative flex min-w-0 flex-col items-center text-center">
-              <button type="button" onClick={() => { if (!editMode) { setOpenFolderId(null); onOpenApp(app) } }} className="rounded-2xl focus-ring"><AppIcon app={app} /></button>
-              <span className="mt-2 w-full truncate text-xs">{getAppName(app)}</span>
+              <button type="button" onClick={() => { if (!editMode) { setOpenFolderId(null); onOpenApp(app) } }} onContextMenu={(event) => openQuickMenu(app, event)} className="rounded-2xl focus-ring"><AppIcon app={app} /></button>
+              <span className="mt-2 w-full truncate text-xs text-foreground/90">{getAppName(app)}</span>
               {editMode && <button type="button" onClick={() => updateFolder(openFolder.id, (folder) => ({ ...folder, appIds: folder.appIds.filter((id) => id !== app.id) }))} className="absolute -right-1 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background text-foreground shadow-lg" aria-label={t('os.launcher.removeFromFolder', { app: getAppName(app) })}><X size={14} /></button>}
             </div>)}
           </div>
@@ -245,51 +334,145 @@ export function LauncherAppGrid({
       {createPortal(
       <AnimatePresence>{quickMenu && <>
         <motion.div
+          ref={menuRef}
           initial={{ opacity: 0, y: 6, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 4, scale: 0.97 }}
           className="fixed z-[87] w-48 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
-          style={{ left: Math.min(quickMenu.x, window.innerWidth - 196), top: Math.min(quickMenu.y + 8, window.innerHeight - 260) }}
+          style={{ left: Math.min(quickMenu.x, window.innerWidth - 200), top: Math.min(quickMenu.y + 8, window.innerHeight - (isManagedApp(quickMenu.app) ? 340 : 260)) }}
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
         >
-          <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
-            <ArrowSquareOut size={16} className="text-foreground/60" />
-            {t('os.launcher.open')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              toggleDockPin(quickMenu.app.id)
-              setQuickMenu({ ...quickMenu, pinned: !quickMenu.pinned })
-            }}
-            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
-          >
-            <PushPin size={16} className="text-foreground/60" />
-            {quickMenu.pinned ? t('os.quickActions.unpin') : t('os.quickActions.pin')}
-          </button>
-          <div className="my-1 h-px bg-foreground/8" />
-          <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
-            <SquaresFour size={16} className="text-foreground/60" />
-            {t('os.window.asWindow')}
-          </button>
-          <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
-            <SquaresFour size={16} className="text-foreground/60" />
-            {t('os.window.splitLeft')}
-          </button>
-          <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
-            <SquaresFour size={16} className="text-foreground/60" />
-            {t('os.window.splitRight')}
-          </button>
-          <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
-            <SquaresFour size={16} className="text-foreground/60" />
-            {t('os.window.immersive')}
-          </button>
-          <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
-            <PencilSimple size={16} className="text-foreground/60" />
-            {t('os.quickActions.arrange')}
-          </button>
+          {isManagedApp(quickMenu.app) && <>
+            {/* Start / Stop — depending on the current runtime status */}
+            <button type="button" onClick={() => void runAppAction(isAppRunning(quickMenu.app) ? 'stop' : 'start', quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8 disabled:pointer-events-none disabled:opacity-50">
+              {busyAction === 'start' || busyAction === 'stop' ? <MenuSpinner /> : isAppRunning(quickMenu.app)
+                ? <Stop size={16} className="text-foreground/60" />
+                : <Play size={16} className="text-foreground/60" />}
+              {isAppRunning(quickMenu.app) ? t('os.quickActions.stop') : t('os.quickActions.start')}
+            </button>
+            <button type="button" onClick={() => void runAppAction('restart', quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8 disabled:pointer-events-none disabled:opacity-50">
+              {busyAction === 'restart' ? <MenuSpinner /> : <ArrowClockwise size={16} className="text-foreground/60" />}
+              {t('os.quickActions.restart')}
+            </button>
+            <button type="button" onClick={() => troubleshootApp(quickMenu.app)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <Wrench size={16} className="text-foreground/60" />
+              {t('os.quickActions.troubleshoot')}
+            </button>
+            <button type="button" onClick={() => showAppInStore(quickMenu.app)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <Storefront size={16} className="text-foreground/60" />
+              {t('os.quickActions.showInStore')}
+            </button>
+            <button type="button" onClick={() => void confirmUninstall(quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-red-300/90 hover:bg-red-500/15 disabled:pointer-events-none disabled:opacity-50">
+              {busyAction === 'uninstall' ? <MenuSpinner /> : <TrashSimple size={16} className="text-red-400/80" />}
+              {t('os.quickActions.uninstall')}
+            </button>
+            <div className="my-1 h-px bg-foreground/8" />
+            {/* Remaining actions live in the "More" submenu */}
+            <button
+              type="button"
+              ref={moreButtonRef}
+              onClick={() => {
+                const rect = moreButtonRef.current?.getBoundingClientRect()
+                if (!moreOpen) setMorePos(rect ? { x: rect.right, y: rect.top } : null)
+                setMoreOpen(!moreOpen)
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+            >
+              <SquaresFour size={16} className="text-foreground/60" />
+              <span className="flex-1">{t('os.quickActions.more')}</span>
+              <CaretRight size={14} className="text-foreground/40" />
+            </button>
+          </>}
+          {!isManagedApp(quickMenu.app) && <>
+            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <ArrowSquareOut size={16} className="text-foreground/60" />
+              {t('os.launcher.open')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                toggleDockPin(quickMenu.app.id)
+                setQuickMenu({ ...quickMenu, pinned: !quickMenu.pinned })
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+            >
+              <PushPin size={16} className="text-foreground/60" />
+              {quickMenu.pinned ? t('os.quickActions.unpin') : t('os.quickActions.pin')}
+            </button>
+            <div className="my-1 h-px bg-foreground/8" />
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.asWindow')}
+            </button>
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.splitLeft')}
+            </button>
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.splitRight')}
+            </button>
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.immersive')}
+            </button>
+            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <PencilSimple size={16} className="text-foreground/60" />
+              {t('os.quickActions.arrange')}
+            </button>
+          </>}
         </motion.div>
+
+        {moreOpen && quickMenu && isManagedApp(quickMenu.app) && (
+          <motion.div
+            ref={flyoutRef}
+            initial={{ opacity: 0, x: -6, scale: 0.96 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -4, scale: 0.97 }}
+            className="fixed z-[88] w-48 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+            style={{ left: Math.min((morePos?.x ?? quickMenu.x + 192) + 6, window.innerWidth - 200), top: Math.min(morePos?.y ?? quickMenu.y + 8, window.innerHeight - 340) }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.stopPropagation()}
+          >
+            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <ArrowSquareOut size={16} className="text-foreground/60" />
+              {t('os.launcher.open')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                toggleDockPin(quickMenu.app.id)
+                setQuickMenu({ ...quickMenu, pinned: !quickMenu.pinned })
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+            >
+              <PushPin size={16} className="text-foreground/60" />
+              {quickMenu.pinned ? t('os.quickActions.unpin') : t('os.quickActions.pin')}
+            </button>
+            <div className="my-1 h-px bg-foreground/8" />
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.asWindow')}
+            </button>
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.splitLeft')}
+            </button>
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.splitRight')}
+            </button>
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <SquaresFour size={16} className="text-foreground/60" />
+              {t('os.window.immersive')}
+            </button>
+            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+              <PencilSimple size={16} className="text-foreground/60" />
+              {t('os.quickActions.arrange')}
+            </button>
+          </motion.div>
+        )}
       </>}</AnimatePresence>,
       document.body
       )}

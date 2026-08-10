@@ -36,6 +36,7 @@ use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 mod app_database_handler;
+mod app_gateway;
 mod app_lifecycle;
 mod app_messaging_handler;
 mod app_runtime_handler;
@@ -2252,6 +2253,13 @@ async fn main() -> anyhow::Result<()> {
         // Both spellings are registered: the iframe URL ends with "/" and the
         // wildcard route alone would 404 on an empty remainder.
         .route("/api/apps/:app_id/proxy/*path", get(app_proxy_handler))
+        // App Embedding Gateway runtime info — the App Runner uses this to
+        // resolve the public runtime URL, lifecycle state and display metadata
+        // for the embedded iframe (never internal ports/addresses).
+        .route(
+            "/api/apps/:app_id/runtime",
+            get(app_gateway::runtime_info),
+        )
         // App logs — per-app log retrieval and live streaming.
         .route("/api/apps/:app_id/logs", get(app_logs_get))
         .route("/api/apps/:app_id/logs/stream", get(app_logs_stream))
@@ -2759,8 +2767,20 @@ async fn main() -> anyhow::Result<()> {
                     },
                 ),
         )
+        // App Embedding Gateway — outermost layer: requests whose Host
+        // matches `<app-id><suffix>` (e.g. nextcloud.apps.ora.local) are
+        // routed to the app gateway before any ORA route matching, so app
+        // subdomain traffic never touches desktop routes (separate origins).
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            app_gateway::apps_host_middleware,
+        ))
         // Add state
         .with_state(state);
+
+    // Install the TLS crypto provider once (ring) so https app upstreams
+    // and the gateway's TLS connectors work without feature-detection races.
+    app_gateway::ensure_tls_provider();
 
     // Background task: broadcast metrics snapshot every 2 seconds for live dashboard
     tokio::spawn(async {
@@ -7665,6 +7685,7 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
                 "environment": serde_json::Value::Null,
                 "volumes": Vec::<String>::new(),
                 "permissions": a.manifest.permissions.clone(),
+                "display": a.manifest.display,
                 "category": a.manifest.extra.get("store_metadata").and_then(|m| m.get("category")).and_then(|c| c.as_str()).unwrap_or("").to_string(),
                 "enabled": a.enabled,
                 "status": status,
@@ -9957,6 +9978,7 @@ async fn app_detail_get(
         "installed_at": app.installed_at,
         "source": app.source,
         "permissions": app.manifest.permissions,
+        "display": app.manifest.display,
         "i18n": app.manifest.extra.get("i18n").cloned().unwrap_or(serde_json::Value::Null),
         "custom_pages": app.custom_pages,
         "ports": app.ports,

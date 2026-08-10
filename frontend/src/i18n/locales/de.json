@@ -158,7 +158,16 @@
       "clockWidgetDesc": "Uhrzeit und Datum",
       "systemWidgetDesc": "CPU, Arbeitsspeicher und Hostname",
       "systemWidget": "System",
-      "cpu": "CPU"
+      "cpu": "CPU",
+      "appStarting": "Die App wird gestartet…",
+      "appStopping": "Die App wird gestoppt…",
+      "appStopped": "Diese App ist gestoppt. Starte sie, um sie in ORA OS zu nutzen.",
+      "appFailed": "Die App konnte nicht gestartet werden. Prüfe die Logs oder versuche es erneut.",
+      "appUnhealthy": "Die App läuft, ist aber nicht gesund. Prüfe ihren Status.",
+      "appNotFound": "Diese App ist auf diesem ORA OS nicht installiert.",
+      "appStart": "App starten",
+      "appExternalHint": "Diese App ist dafür konfiguriert, außerhalb des ORA Desktops zu öffnen.",
+      "appExternalOpen": "App extern öffnen"
     },
     "shell": {
       "openQuickSettings": "Schnelleinstellungen öffnen",
@@ -420,7 +429,20 @@
     "quickActions": {
       "arrange": "Apps anordnen",
       "pin": "An Dock anheften",
-      "unpin": "Vom Dock entfernen"
+      "unpin": "Vom Dock entfernen",
+      "start": "Starten",
+      "stop": "Stoppen",
+      "restart": "Neustarten",
+      "troubleshoot": "Fehlerbehebung",
+      "showInStore": "Im App Store anzeigen",
+      "uninstall": "Deinstallieren",
+      "more": "Mehr",
+      "started": "{{name}} gestartet",
+      "stopped": "{{name}} gestoppt",
+      "restarted": "{{name}} neu gestartet",
+      "uninstalled": "{{name}} deinstalliert",
+      "actionFailed": "Aktion fehlgeschlagen: {{detail}}",
+      "uninstallConfirm": "{{name}} deinstallieren? Die App und ihre Daten werden entfernt."
     },
     "window": {
       "asWindow": "Als Fenster öffnen",
@@ -534,7 +556,18 @@
     "power": "Energie",
     "powerDesc": "System neu starten oder herunterfahren",
     "accentIcons": "App-Icons einfärben",
-    "accentIconsDesc": "Färbt App-Icons und Ordner mit der aktuellen Primärfarbe ein (sepia + Hue-Rotation)."
+    "accentIconsDesc": "Färbt App-Icons und Ordner mit der aktuellen Primärfarbe ein (sepia + Hue-Rotation).",
+    "apps": "Apps",
+    "tabAppsDesc": "Installierte Apps, Berechtigungen & Einbettung",
+    "appsDesc": "Verwalte deine installierten Apps: starte und stoppe sie, kontrolliere ihre Berechtigungen und entscheide, ob sie im ORA Desktop laufen oder direkt über ihren Port geöffnet werden.",
+    "appsEmpty": "Keine installierbaren Apps gefunden. Installiere zuerst eine App aus dem App Store.",
+    "appExternalBadge": "extern",
+    "appExternalToggle": "App außerhalb von ORA OS aufrufen",
+    "appExternalToggleDesc": "Öffnet die App direkt über ihren Port im Browser, statt sie innerhalb des ORA Desktops einzubetten.",
+    "appExternalOverride": "Benutzer-Einstellung: öffnet direkt über den Port",
+    "appEmbedMode": "Anzeigemodus",
+    "appPermissions": "Berechtigungen",
+    "appDangerZone": "Gefahrenzone"
   },
   "dashboard": {
     "noEntities": "Keine Entitäten gefunden",

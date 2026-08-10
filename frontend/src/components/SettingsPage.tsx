@@ -57,6 +57,7 @@ import {
   Globe,
   Power,
   ArrowClockwise,
+  AppWindow,
 } from '@phosphor-icons/react'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
@@ -110,6 +111,7 @@ const ThemePickerSection = lazy(() => import('./settings/SettingsAppearance').th
 const ScreensaverScheduleEditor = lazy(() => import('./settings/SettingsDashboard').then((m) => ({ default: m.ScreensaverScheduleEditor })))
 const AdditionalSettings = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.AdditionalSettings })))
 const NinaSettingsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.NinaSettingsSection })))
+const SettingsAppsSection = lazy(() => import('./SettingsAppsSection').then((m) => ({ default: m.SettingsAppsSection })))
 
 /** Map icon name string to Phosphor icon component */
 export function MapThemeIcon(iconName?: string | null): React.ElementType {
@@ -523,7 +525,7 @@ export function SettingsPage(props: SettingsPageProps) {
     theme,
   } = props
 
-  const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system'>('general')
+  const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
   const [accentIcons, setAccentIcons] = useState(readAccentIcons)
   const { can } = useOsPermissions()
   const [powerAction, setPowerAction] = useState<'reboot' | 'shutdown' | null>(null)
@@ -596,6 +598,15 @@ export function SettingsPage(props: SettingsPageProps) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-foreground/85 group-data-[state=active]:text-foreground">{t('settings.system')}</span>
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabSystemDesc')}</span>
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="apps" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
+              <AppWindow size={15} weight="fill" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold text-foreground/85 group-data-[state=active]:text-foreground">{t('settings.apps')}</span>
+              <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabAppsDesc')}</span>
             </span>
           </TabsTrigger>
         </TabsList>
@@ -1290,6 +1301,13 @@ export function SettingsPage(props: SettingsPageProps) {
               </button>
             </SettingsSection>
           </div>
+        </TabsContent>
+
+        {/* ─── TAB: Apps (Apple-style per-app settings) ─────────────── */}
+        <TabsContent value="apps" className="space-y-5">
+          <Suspense fallback={<div className="flex items-center justify-center py-14"><span className="h-7 w-7 animate-spin rounded-full border-2 border-foreground/20 border-t-accent" /></div>}>
+            <SettingsAppsSection />
+          </Suspense>
         </TabsContent>
       </Tabs>
 

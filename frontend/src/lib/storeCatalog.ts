@@ -169,6 +169,12 @@ const nextcloudManifest = {
   type: 'app',
   icon: 'cloud',
   permissions: ['AppStorageRead', 'AppStorageWrite', 'NetworkLocalAccess'],
+  // App Embedding Gateway: runs inside the ORA desktop on its own origin.
+  display: {
+    mode: 'embedded',
+    isolation: 'strict',
+    permissions: ['clipboard-write', 'fullscreen'],
+  },
   docker: {
     auto_build: false,
     image: 'nextcloud:stable',
@@ -192,6 +198,12 @@ const browserManifest = {
   type: 'app',
   icon: 'browser',
   permissions: ['NetworkLocalAccess'],
+  // The embedded VNC viewer needs clipboard + fullscreen + pointer lock.
+  display: {
+    mode: 'embedded',
+    isolation: 'strict',
+    permissions: ['clipboard-read', 'clipboard-write', 'fullscreen'],
+  },
   docker: {
     auto_build: false,
     image: 'jlesage/firefox:latest',
@@ -247,6 +259,11 @@ function dockerCatalogApp(input: DockerCatalogInput): CatalogAppDefinition {
       type: 'app',
       icon: input.icon,
       permissions: input.permissions || ['NetworkLocalAccess'],
+      display: {
+        mode: 'embedded',
+        isolation: 'strict',
+        permissions: ['clipboard-write', 'fullscreen'],
+      },
       docker: {
         auto_build: false,
         image: input.image,

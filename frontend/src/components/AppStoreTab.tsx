@@ -18,6 +18,7 @@ import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { authFetch } from '@/lib/authHelpers'
 import { supportedLngs } from '@/i18n'
+import { consumeAppDetail, consumeAppInStore } from '@/lib/appStoreHandoff'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -153,6 +154,8 @@ export function AppStoreTab({ token }: { token: string }) {
   const [integrations, setIntegrations] = useState<AppIntegrationInfo[]>([])
   // App detail dialog
   const [detailAppId, setDetailAppId] = useState<string | null>(null)
+  // App to highlight/select in the store view ("Im App Store anzeigen").
+  const [storeFocusAppId, setStoreFocusAppId] = useState<string | null>(null)
   // On OS-dev images the Developer App may replace/delete *any* app,
   // including system apps. We probe the dev-image marker once on mount.
   const [isOsDev, setIsOsDev] = useState(false)
@@ -306,6 +309,26 @@ export function AppStoreTab({ token }: { token: string }) {
     return () => window.removeEventListener('open-app-detail', handler as EventListener)
   }, [])
 
+  // Mount-safe handoffs from the launcher context menu: "Fehlerbehebung"
+  // opens the detail dialog, "Im App Store anzeigen" opens the store page.
+  useEffect(() => {
+    const showHandler = (e: CustomEvent) => {
+      if (e.detail?.appId) {
+        setStoreFocusAppId(e.detail.appId)
+        setView('store')
+      }
+    }
+    const pendingDetail = consumeAppDetail()
+    if (pendingDetail) {
+      setDetailAppId(pendingDetail)
+      setView('installed')
+    }
+    const pendingShow = consumeAppInStore()
+    if (pendingShow) setStoreFocusAppId(pendingShow)
+    window.addEventListener('iora:appstore-show-app', showHandler as EventListener)
+    return () => window.removeEventListener('iora:appstore-show-app', showHandler as EventListener)
+  }, [])
+
   return (
     <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)]">
       <aside className="glass-card flex gap-2 rounded-3xl p-2 lg:flex-col lg:self-start">
@@ -366,6 +389,8 @@ export function AppStoreTab({ token }: { token: string }) {
           apps={apps}
           onAppClick={(appId) => setDetailAppId(appId)}
           onInstalled={loadInstalled}
+          focusAppId={storeFocusAppId}
+          onFocusHandled={() => setStoreFocusAppId(null)}
         />
       )}
 
@@ -881,6 +906,8 @@ function AppStoreView({
   apps,
   onAppClick,
   onInstalled,
+  focusAppId,
+  onFocusHandled,
 }: {
   token: string
   searchQuery: string
@@ -888,6 +915,9 @@ function AppStoreView({
   apps: AppInfo[]
   onAppClick: (appId: string) => void
   onInstalled: () => void
+  /** App requested via "Im App Store anzeigen" from the launcher. */
+  focusAppId: string | null
+  onFocusHandled: () => void
 }) {
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
@@ -939,6 +969,18 @@ function AppStoreView({
     }))
     return [...backend, ...essentials, ...catalog]
   }, [apps, essentials, t])
+
+  // "Im App Store anzeigen" from the launcher context menu: select the
+  // requested app once it shows up in the store list (apps load async).
+  useEffect(() => {
+    if (!focusAppId) return
+    const app = storeApps.find((candidate) => candidate.id === focusAppId)
+    if (!app) return
+    setSelectedApp(app)
+    setActiveCategory('all')
+    setSearchQuery('')
+    onFocusHandled()
+  }, [focusAppId, storeApps, onFocusHandled])
   const installedIds = useMemo(() => new Set(apps.filter((app) => app.enabled).map((app) => app.id)), [apps])
 
   /** Normalized store category per app (Umbrel-style). */

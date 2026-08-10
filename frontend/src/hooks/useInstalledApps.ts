@@ -4,6 +4,7 @@ import { authFetch } from '@/lib/authHelpers'
 import { getBackendUrl } from '@/lib/config'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
+import { appRuntimeUrl, type AppDisplayConfig } from '@/lib/appGateway'
 
 /**
  * Installed Docker/user apps + in-flight install jobs for the launcher.
@@ -22,6 +23,11 @@ export interface InstalledOsApp extends OsAppDefinition {
   runtimeStatus?: string
   /** Whether the app backend entry exists (installed via store/zip). */
   backendId?: string
+  /** Display / embedding metadata from the manifest (App Gateway). */
+  display?: AppDisplayConfig | null
+  /** Public runtime URL on the app subdomain (App Embedding Gateway).
+   * Null on loopback hosts (dev) where the subdomain cannot resolve. */
+  gatewayUrl?: string | null
 }
 
 export interface InstallJobInfo {
@@ -46,6 +52,10 @@ interface SupervisorApp {
   ports?: Array<string | { external: number; internal: number; protocol: string }>
   open_url?: string | null
   developer?: string
+  /** "app" / "plugin" / "system" — used by the UI to filter. */
+  kind?: string
+  /** App Embedding Gateway display metadata (manifest `display`). */
+  display?: AppDisplayConfig | null
 }
 
 /** Parse the first external host port from either port shape. */
@@ -151,9 +161,14 @@ export function useInstalledApps() {
     void refresh()
     // Fast poll while installs are running, slow otherwise.
     const interval = window.setInterval(() => { void refresh() }, 5000)
+    // Launcher context-menu actions (start/stop/restart/uninstall) request a
+    // refresh so the grid reflects the new runtime state immediately.
+    const onRefreshRequest = () => { void refresh() }
+    window.addEventListener('iora:installed-apps-refresh', onRefreshRequest)
     return () => {
       mountedRef.current = false
       window.clearInterval(interval)
+      window.removeEventListener('iora:installed-apps-refresh', onRefreshRequest)
     }
   }, [refresh])
 
@@ -185,6 +200,8 @@ export function useInstalledApps() {
           iconUrl: resolveAppIcon(app.icon),
           runtimeStatus: app.status,
           backendId: app.id,
+          display: app.display ?? null,
+          gatewayUrl: appRuntimeUrl(app.id),
         }
       })
     installedAppsCache.length = 0

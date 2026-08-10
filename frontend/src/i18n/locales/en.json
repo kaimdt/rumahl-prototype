@@ -158,7 +158,16 @@
       "clockWidgetDesc": "Time and date",
       "systemWidgetDesc": "CPU, memory and hostname",
       "systemWidget": "System",
-      "cpu": "CPU"
+      "cpu": "CPU",
+      "appStarting": "Starting the app…",
+      "appStopping": "Stopping the app…",
+      "appStopped": "This app is stopped. Start it to use it inside ORA OS.",
+      "appFailed": "The app failed to start. Check its logs or try again.",
+      "appUnhealthy": "The app is running but unhealthy. Check its health status.",
+      "appNotFound": "This app is not installed on this ORA OS.",
+      "appStart": "Start app",
+      "appExternalHint": "This app is configured to open outside the ORA desktop.",
+      "appExternalOpen": "Open app externally"
     },
     "shell": {
       "openQuickSettings": "Open quick settings",
@@ -420,7 +429,20 @@
     "quickActions": {
       "arrange": "Arrange apps",
       "pin": "Pin to Dock",
-      "unpin": "Remove from Dock"
+      "unpin": "Remove from Dock",
+      "start": "Start",
+      "stop": "Stop",
+      "restart": "Restart",
+      "troubleshoot": "Troubleshooting",
+      "showInStore": "Show in App Store",
+      "uninstall": "Uninstall",
+      "more": "More",
+      "started": "{{name}} started",
+      "stopped": "{{name}} stopped",
+      "restarted": "{{name}} restarted",
+      "uninstalled": "{{name}} uninstalled",
+      "actionFailed": "Action failed: {{detail}}",
+      "uninstallConfirm": "Uninstall {{name}}? The app and its data will be removed."
     },
     "window": {
       "asWindow": "Open as window",
@@ -534,7 +556,18 @@
     "power": "Power",
     "powerDesc": "Reboot or shut down the system",
     "accentIcons": "Tint app icons",
-    "accentIconsDesc": "Recolors app icons and folders with the current primary color (sepia + hue rotation)."
+    "accentIconsDesc": "Recolors app icons and folders with the current primary color (sepia + hue rotation).",
+    "apps": "Apps",
+    "tabAppsDesc": "Installed apps, permissions & embedding",
+    "appsDesc": "Manage your installed apps: start and stop them, control their permissions and decide whether they run inside the ORA desktop or open directly via their port.",
+    "appsEmpty": "No installable apps found. Install an app from the App Store first.",
+    "appExternalBadge": "external",
+    "appExternalToggle": "Open app outside ORA OS",
+    "appExternalToggleDesc": "Opens the app directly via its port in your browser instead of embedding it inside the ORA desktop.",
+    "appExternalOverride": "user override: opens directly via port",
+    "appEmbedMode": "Display mode",
+    "appPermissions": "Permissions",
+    "appDangerZone": "Danger zone"
   },
   "dashboard": {
     "noEntities": "No entities found",
