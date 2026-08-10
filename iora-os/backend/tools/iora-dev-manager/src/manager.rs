@@ -198,19 +198,62 @@ impl Manager {
         } else {
             "q35"
         };
-        let acceleration = std::env::var("IORA_DEV_ACCEL").unwrap_or_else(|_| {
+        // Acceleration selection. On Windows try WHPX first (the fast path),
+        // then fall back to TCG with clamped resources when Hyper-V/WHP is
+        // unavailable or the process dies instantly — mirrors the proven
+        // dev-local.ps1 fallback so a machine without WHPX still boots.
+        let accel_override = std::env::var("IORA_DEV_ACCEL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let skip_whpx = std::env::var("IORA_DEV_SKIP_WHPX")
+            .ok()
+            .map(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false);
+        let default_accel = || -> String {
             if cfg!(windows) {
-                "whpx".into()
+                if skip_whpx {
+                    "tcg".to_string()
+                } else {
+                    "whpx".to_string()
+                }
             } else if cfg!(target_os = "macos") {
-                "hvf".into()
+                "hvf".to_string()
             } else if Path::new("/dev/kvm").exists() {
-                "kvm".into()
+                "kvm".to_string()
             } else {
-                "tcg".into()
+                "tcg".to_string()
             }
-        });
+        };
         let memory = std::env::var("IORA_DEV_RAM").unwrap_or_else(|_| "8G".into());
         let cpus = std::env::var("IORA_DEV_CPUS").unwrap_or_else(|_| "4".into());
+        let first_accel = accel_override.clone().unwrap_or_else(default_accel);
+        // TCG has no hardware acceleration: clamp RAM to 4-8 GB and vCPUs
+        // to 2-8 (dev-local.ps1 uses the same limits for its TCG fallback).
+        let tcg_ram = format!(
+            "{}G",
+            clamp_ram_gb(&memory).clamp(4, 8)
+        );
+        let tcg_cpus = cpus
+            .trim_end_matches(['C', 'c'])
+            .parse::<u32>()
+            .unwrap_or(4)
+            .clamp(2, 8)
+            .to_string();
+        let candidates: Vec<(String, String, String)> =
+            if cfg!(windows) && accel_override.is_none() {
+                vec![
+                    (first_accel.clone(), memory.clone(), cpus.clone()),
+                    ("tcg".to_string(), tcg_ram, tcg_cpus),
+                ]
+            } else {
+                vec![(first_accel.clone(), memory.clone(), cpus.clone())]
+            };
         let network = match mode {
             NetworkMode::Slirp => {
                 // Bind every rule to loopback: Windows Firewall silently drops
@@ -249,98 +292,137 @@ impl Manager {
                 )
             }
         };
-        let mut arguments = vec![
-            "-name".into(),
-            "IORA-Dev".into(),
-            "-m".into(),
-            memory,
-            "-smp".into(),
-            cpus,
-            "-machine".into(),
-            format!("{machine},accel={acceleration}"),
-            "-cpu".into(),
-            cpu_model(&acceleration),
-            "-drive".into(),
-            format!(
-                "file={},format=qcow2,if=virtio,cache=writeback",
-                disk.display()
-            ),
-            "-netdev".into(),
-            network,
-            "-device".into(),
-            if architecture == "aarch64" {
-                "virtio-net-device,netdev=n0".into()
-            } else {
-                "virtio-net-pci,netdev=n0".into()
-            },
-            "-device".into(),
-            if architecture == "aarch64" {
-                "virtio-serial-device".into()
-            } else {
-                "virtio-serial-pci".into()
-            },
-        ];
-        if architecture == "aarch64" {
+        // AArch64 firmware is resolved once; the argument builder reuses it.
+        let firmware = if architecture == "aarch64" {
             let firmware = find_aarch64_firmware().context(
                 "AArch64 QEMU firmware was not found; set IORA_DEV_FIRMWARE to its path",
             )?;
-            arguments.extend(["-bios".into(), firmware.display().to_string()]);
             self.state.firmware = Some(firmware.display().to_string());
-        }
-        let seed = cache.join("iora-dev-seed.iso");
-        if seed.exists() {
-            arguments.extend([
-                "-drive".into(),
-                format!("file={},format=raw,media=cdrom", seed.display()),
-            ]);
-        }
-        if cfg!(windows) {
-            arguments.extend([
-                "-chardev".into(),
-                format!(
-                    "socket,id=qga0,host=127.0.0.1,port={},server=on,wait=off",
-                    self.state.qga_port
-                ),
-                "-qmp".into(),
-                format!("tcp:127.0.0.1:{},server=on,wait=off", self.state.qmp_port),
-            ]);
+            Some(firmware)
         } else {
+            None
+        };
+        let seed = cache.join("iora-dev-seed.iso");
+        let build_args = |accel: &str, mem: &str, cpu: &str| -> Vec<String> {
+            let mut arguments = vec![
+                "-name".into(),
+                "IORA-Dev".into(),
+                "-m".into(),
+                mem.to_string(),
+                "-smp".into(),
+                cpu.to_string(),
+                "-machine".into(),
+                format!("{machine},accel={accel}"),
+                "-cpu".into(),
+                cpu_model(accel),
+                "-drive".into(),
+                format!(
+                    "file={},format=qcow2,if=virtio,cache=writeback",
+                    disk.display()
+                ),
+                "-netdev".into(),
+                network.clone(),
+                "-device".into(),
+                if architecture == "aarch64" {
+                    "virtio-net-device,netdev=n0".into()
+                } else {
+                    "virtio-net-pci,netdev=n0".into()
+                },
+                "-device".into(),
+                if architecture == "aarch64" {
+                    "virtio-serial-device".into()
+                } else {
+                    "virtio-serial-pci".into()
+                },
+            ];
+            if let Some(firmware) = &firmware {
+                arguments.extend(["-bios".into(), firmware.display().to_string()]);
+            }
+            if seed.exists() {
+                arguments.extend([
+                    "-drive".into(),
+                    format!("file={},format=raw,media=cdrom", seed.display()),
+                ]);
+            }
+            if cfg!(windows) {
+                arguments.extend([
+                    "-chardev".into(),
+                    format!(
+                        "socket,id=qga0,host=127.0.0.1,port={},server=on,wait=off",
+                        self.state.qga_port
+                    ),
+                    "-qmp".into(),
+                    format!("tcp:127.0.0.1:{},server=on,wait=off", self.state.qmp_port),
+                ]);
+            } else {
+                arguments.extend([
+                    "-chardev".into(),
+                    format!(
+                        "socket,id=qga0,path={},server=on,wait=off",
+                        cache.join("qga.sock").display()
+                    ),
+                    "-qmp".into(),
+                    format!(
+                        "unix:{},server=on,wait=off",
+                        cache.join("qmp.sock").display()
+                    ),
+                ]);
+            }
             arguments.extend([
-                "-chardev".into(),
+                "-device".into(),
+                "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0".into(),
+                "-serial".into(),
+                format!("file:{}", cache.join("qemu-serial.log").display()),
+                "-vnc".into(),
                 format!(
-                    "socket,id=qga0,path={},server=on,wait=off",
-                    cache.join("qga.sock").display()
+                    "127.0.0.1:{},websocket={}",
+                    display_number(),
+                    5700 + display_number()
                 ),
-                "-qmp".into(),
-                format!(
-                    "unix:{},server=on,wait=off",
-                    cache.join("qmp.sock").display()
-                ),
+                "-display".into(),
+                "none".into(),
             ]);
+            arguments
+        };
+
+        // Spawn with fallback: when a candidate dies within the grace window
+        // (e.g. WHPX unavailable), try the next one (TCG) before giving up.
+        let mut spawned_child: Option<std::process::Child> = None;
+        let mut spawn_error = String::new();
+        for (index, (accel, mem, cpu)) in candidates.iter().enumerate() {
+            let arguments = build_args(accel, mem, cpu);
+            let mut command = Command::new(&qemu);
+            command
+                .args(&arguments)
+                .stdin(Stdio::null())
+                .stdout(Stdio::from(log.try_clone()?))
+                .stderr(Stdio::from(log.try_clone()?));
+            let mut child = match command.spawn() {
+                Ok(child) => child,
+                Err(error) => {
+                    spawn_error = format!("failed to launch {qemu}: {error:#}");
+                    continue;
+                }
+            };
+            let has_fallback = index + 1 < candidates.len();
+            if has_fallback {
+                // Give the first candidate a short grace period: WHPX fails
+                // within milliseconds when Hyper-V/WHP is not available.
+                std::thread::sleep(Duration::from_secs(4));
+                if let Ok(Some(status)) = child.try_wait() {
+                    spawn_error = format!(
+                        "{accel} exited immediately ({status}); tail of dev-manager.log:\n{}",
+                        read_tail(&cache.join("dev-manager.log"), 12)
+                    );
+                    eprintln!("[dev-manager] {spawn_error}");
+                    continue;
+                }
+            }
+            spawned_child = Some(child);
+            self.state.acceleration = Some(accel.clone());
+            break;
         }
-        arguments.extend([
-            "-device".into(),
-            "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0".into(),
-            "-serial".into(),
-            format!("file:{}", cache.join("qemu-serial.log").display()),
-            "-vnc".into(),
-            format!(
-                "127.0.0.1:{},websocket={}",
-                display_number(),
-                5700 + display_number()
-            ),
-            "-display".into(),
-            "none".into(),
-        ]);
-        let mut command = Command::new(&qemu);
-        command
-            .args(&arguments)
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log));
-        let child = command
-            .spawn()
-            .with_context(|| format!("failed to launch {qemu}"))?;
+        let child = spawned_child.ok_or_else(|| anyhow::anyhow!(spawn_error))?;
         self.state.pid = Some(child.id());
         self.state.lifecycle = "Starting".into();
         self.state.network_mode = mode;
@@ -350,7 +432,6 @@ impl Manager {
             String::new()
         };
         self.state.vm_disk = Some(disk);
-        self.state.acceleration = Some(acceleration);
         self.state.vnc_port = Some(5900 + display_number());
         self.state.vnc_ws_port = Some(5700 + display_number());
         // forwarded_ports / skipped_ports were already recorded by the Slirp
@@ -948,6 +1029,21 @@ fn tap_available(_tap: &str) -> bool {
 
 /// WHPX rejects `host`/`max` CPU models on some QEMU builds
 /// ("WHPX: Unexpected VP exit code 4"); qemu64 is the reliable default there.
+/// Parse the RAM value ("8G", "8192M") into GB for TCG clamping.
+fn clamp_ram_gb(memory: &str) -> u32 {
+    let digits: String = memory
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if digits.is_empty() {
+        8
+    } else if memory.contains(['M', 'm']) {
+        digits.parse::<u32>().unwrap_or(8) / 1024
+    } else {
+        digits.parse::<u32>().unwrap_or(8)
+    }
+}
+
 fn cpu_model(acceleration: &str) -> String {
     std::env::var("IORA_DEV_CPU").unwrap_or_else(|_| {
         if acceleration == "tcg" {
