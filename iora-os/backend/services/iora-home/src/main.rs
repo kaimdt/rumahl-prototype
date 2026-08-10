@@ -970,9 +970,14 @@ async fn main() -> anyhow::Result<()> {
         }
     } else {
         // Secret exists in DB — seed the system_config cache so jwt_secret()
-        // picks it up without needing an env var.
+        // picks it up without needing an env var. The preference column is a
+        // JSON string (stored as `"<base64>"` WITH quotes), so strip the
+        // quotes: otherwise iora-home would sign with the quoted value while
+        // the shared secret file (and every other service) holds the raw
+        // base64 -> cross-service InvalidSignature.
         if let Ok(Some(pref)) = config_repo.get_system_preference("jwt_secret").await {
-            iora_shared_config::system_config::persist_jwt_secret(&pref.preference_value);
+            let secret = pref.preference_value.trim().trim_matches('"').to_string();
+            iora_shared_config::system_config::persist_jwt_secret(&secret);
         }
     }
 
