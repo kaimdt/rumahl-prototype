@@ -209,33 +209,6 @@ const oraBrowserManifest = {
   },
 }
 
-const browserManifest = {
-  id: 'webbrowser',
-  name: 'IORA Browser',
-  version: '1.0.0',
-  developer: 'IORA OS',
-  description: 'Ein vollwertiger Firefox-Browser, der als Container auf deinem IORA OS läuft — mit Web-Oberfläche erreichbar, inklusive KasmVNC-Fernzugriff.',
-  type: 'app',
-  icon: 'browser',
-  permissions: ['NetworkLocalAccess'],
-  // The embedded VNC viewer needs clipboard + fullscreen + pointer lock.
-  display: {
-    mode: 'embedded',
-    isolation: 'strict',
-    permissions: ['clipboard-read', 'clipboard-write', 'fullscreen'],
-  },
-  docker: {
-    auto_build: false,
-    image: 'jlesage/firefox:latest',
-    internal_ports: [
-      { port: 5800, protocol: 'tcp', external: 8580 },
-      { port: 5900, protocol: 'tcp', external: 8590 },
-    ],
-    volumes: ['firefox_config:/config', '/dev/shm:/dev/shm'],
-    restart: 'unless-stopped',
-  },
-}
-
 function buildZipFor(manifest: Record<string, unknown>): string {
   // The backend generates the docker-compose.yml from the manifest's
   // `docker` config and assigns free external ports automatically.
@@ -318,20 +291,9 @@ export const STORE_CATALOG: CatalogAppDefinition[] = [
     version: '0.1.0',
     category: 'Browser',
     permissions: ['NetworkLocalAccess'],
+    openPort: 8102,
     iconUrl: globeSvg(),
     buildZip: () => buildZipFor(oraBrowserManifest),
-  },
-  {
-    id: 'webbrowser',
-    name: 'IORA Browser',
-    developer: 'IORA OS',
-    description: 'Vollwertiger Firefox im Container auf deinem Server — öffne ihn im Browser-Fenster und surfe wie auf einem eigenen Rechner. Läuft auch dann weiter, wenn du die Seite schließt.',
-    version: '1.0.0',
-    category: 'Browser',
-    permissions: ['NetworkLocalAccess'],
-    openPort: 8580,
-    iconUrl: globeSvg(),
-    buildZip: () => buildZipFor(browserManifest),
   },
   dockerCatalogApp({
     id: 'jellyfin', name: 'Jellyfin', developer: 'Jellyfin Team', category: 'Media',

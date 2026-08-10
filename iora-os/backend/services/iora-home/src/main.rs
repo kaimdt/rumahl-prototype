@@ -8317,9 +8317,21 @@ async fn ensure_app_stopped_for_uninstall(state: &AppState, app_id: &str) -> Res
         None => return Err(ErrorResponse::service_unavailable(format!("Docker is unavailable; cannot verify shutdown of '{app_id}'"))),
     }
     if let Some(status) = app_lifecycle::docker_compose_status(app_id).await {
-        if status.total > 0 {
+        // A failed supervisor status probe is reported as a synthetic
+        // "iora-supervisor" service (total 1) — that is NOT a running
+        // container and must not block the uninstall (docker compose is
+        // unavailable inside the supervisor for local apps / compose
+        // failures). Only real compose containers block.
+        let real_services: Vec<&String> = status
+            .services
+            .keys()
+            .filter(|name| name.as_str() != "iora-supervisor")
+            .collect();
+        let real_total = real_services.len();
+        if real_total > 0 || (status.total > 0 && status.services.is_empty()) {
             return Err(ErrorResponse::bad_gateway(format!(
-                "app '{app_id}' still has {} Compose containers after shutdown: {:?}", status.total, status.services
+                "app '{app_id}' still has {real_total} Compose containers after shutdown: {:?}",
+                real_services
             )));
         }
     }
