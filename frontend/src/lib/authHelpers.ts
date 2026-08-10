@@ -8,29 +8,36 @@ const apiBase = () => getBackendUrl() || ''
 const AUTH_SESSION_STORAGE_KEY = 'iora-auth-session'
 
 function readStoredSession(): { token: string; refreshToken: string } | null {
-  try {
-    const raw = localStorage.getItem(AUTH_SESSION_STORAGE_KEY)
-    if (!raw) return null
-    const session = JSON.parse(raw) as { token?: unknown; refreshToken?: unknown }
-    return typeof session.token === 'string' && typeof session.refreshToken === 'string'
-      ? { token: session.token, refreshToken: session.refreshToken }
-      : null
-  } catch {
-    return null
+  // Prefer localStorage; fall back to sessionStorage (some browsers block
+  // localStorage in privacy/partitioned contexts).
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      const raw = storage.getItem(AUTH_SESSION_STORAGE_KEY)
+      if (!raw) continue
+      const session = JSON.parse(raw) as { token?: unknown; refreshToken?: unknown }
+      if (typeof session.token === 'string' && typeof session.refreshToken === 'string') {
+        return { token: session.token, refreshToken: session.refreshToken }
+      }
+    } catch { /* try next storage */ }
   }
+  return null
 }
 
 /** Persist an access/refresh token pair so a browser or service restart can restore the session. */
 export function persistAuthSession(token: string, refreshToken: string): void {
-  localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify({ token, refreshToken }))
-  localStorage.setItem('ha-auth-token', JSON.stringify(token))
+  const payload = JSON.stringify({ token, refreshToken })
+  // Write to both storages so a session survives even when one is blocked.
+  try { localStorage.setItem(AUTH_SESSION_STORAGE_KEY, payload) } catch { /* ignore */ }
+  try { sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, payload) } catch { /* ignore */ }
+  try { localStorage.setItem('ha-auth-token', JSON.stringify(token)) } catch { /* ignore */ }
 }
 
 /** Clear every persisted credential used by the dashboard. */
 export function clearAuthSession(): void {
-  localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
-  localStorage.removeItem('ha-auth-token')
-  sessionStorage.removeItem('ha-auth-token')
+  try { localStorage.removeItem(AUTH_SESSION_STORAGE_KEY) } catch { /* ignore */ }
+  try { localStorage.removeItem('ha-auth-token') } catch { /* ignore */ }
+  try { sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY) } catch { /* ignore */ }
+  try { sessionStorage.removeItem('ha-auth-token') } catch { /* ignore */ }
 }
 
 /** Parse a stored token string (may be JSON-wrapped or plain) */
@@ -237,18 +244,24 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
   let response = await fetch(url, { ...init, headers })
   // A short-lived access JWT may have expired while the durable session is
   // still valid. Refresh once and replay the original request transparently.
+  let refreshed = false
   if (response.status === 401) {
     const freshToken = await refreshAccessToken()
     if (freshToken) {
+      refreshed = true
       headers.set('Authorization', `Bearer ${freshToken}`)
       response = await fetch(url, { ...init, headers })
     }
   }
-  // A 401 with a token present means the session expired/invalidated. Notify
-  // the AuthContext so it can log the user out cleanly instead of letting
-  // every poller hammer the backend and flood the logs with rejections.
-  if (response.status === 401) {
+  // Only when the refresh could NOT restore the session is the session
+  // genuinely dead - notify the AuthContext to log out. A plain 401 (e.g.
+  // permission-denied, missing feature, or an endpoint-specific rejection)
+  // must never kill the session: previously ANY 401 fired this event, which
+  // turned a single bad endpoint into a login loop.
+  if (response.status === 401 && !refreshed) {
     window.dispatchEvent(new CustomEvent('iora:auth-unauthorized', { detail: { url } }))
+  } else if (response.status === 401) {
+    console.warn(`[authFetch] ${url} returned 401 even after a successful refresh (endpoint/permission issue - session kept)`)
   }
   return response
 }
