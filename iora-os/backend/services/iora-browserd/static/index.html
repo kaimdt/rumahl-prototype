@@ -104,6 +104,15 @@
     cursor: default;
     outline: none;
   }
+  #surface-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #111318;
+    display: none;
+  }
   #status {
     position: absolute;
     right: 10px; bottom: 10px;
@@ -129,6 +138,7 @@
     <button class="btn" id="open-ext" title="Im ORA-Desktop öffnen">⤢</button>
   </div>
   <div id="surface-wrap">
+    <video id="surface-video" autoplay playsinline muted></video>
     <canvas id="surface" tabindex="0"></canvas>
     <div id="status"></div>
   </div>
@@ -138,6 +148,7 @@
   const VW = 1280, VH = 800
   const canvas = document.getElementById('surface')
   const ctx = canvas.getContext('2d')
+  const videoEl = document.getElementById('surface-video')
   const urlbar = document.getElementById('urlbar')
   const tabsEl = document.getElementById('tabs')
   const statusEl = document.getElementById('status')
@@ -151,6 +162,7 @@
   let nav = { url: '', title: '', canGoBack: false, canGoForward: false }
   let frameReady = false
   let reconnectTimer = null
+  let pc = null
 
   const wsUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws'
 
@@ -162,9 +174,12 @@
 
   function connect() {
     ws = new WebSocket(wsUrl)
-    ws.onopen = () => { status('Verbunden', 1200); frameReady = false }
+    ws.onopen = () => { status('Verbunden', 1200); frameReady = false; startWebRTC() }
     ws.onclose = () => {
       status('Verbindung verloren — versuche neu…', 4000)
+      if (pc) { pc.close(); pc = null }
+      videoEl.style.display = 'none'
+      canvas.style.display = 'block'
       clearTimeout(reconnectTimer)
       reconnectTimer = setTimeout(connect, 2000)
     }
@@ -173,6 +188,15 @@
       let msg
       try { msg = JSON.parse(e.data) } catch { return }
       switch (msg.type) {
+        case 'webrtc-answer':
+          if (pc) pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp }).catch(() => {})
+          break
+        case 'ice':
+          if (pc && msg.candidate) pc.addIceCandidate({ candidate: msg.candidate }).catch(() => {})
+          break
+        case 'webrtc-error':
+          status('WebRTC: ' + (msg.message || 'Fehler'), 4000)
+          break
         case 'frame':
           if (msg.tab !== activeTab) return
           const img = new Image()
@@ -223,6 +247,39 @@
 
   function send(obj) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj))
+  }
+
+  // ── WebRTC: VP8 stream from the GStreamer session (canvas fallback) ──
+  async function startWebRTC() {
+    try {
+      if (pc) { pc.close(); pc = null }
+      pc = new RTCPeerConnection({ iceServers: [] })
+      pc.addTransceiver('video', { direction: 'recvonly' })
+      pc.ontrack = (e) => {
+        videoEl.srcObject = e.streams[0]
+        videoEl.style.display = 'block'
+        canvas.style.display = 'none'
+        status('WebRTC aktiv', 1500)
+      }
+      pc.onicecandidate = (e) => {
+        if (e.candidate) send({ type: 'ice', candidate: e.candidate.candidate })
+      }
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      send({ type: 'webrtc-offer', sdp: offer.sdp })
+      // If no track arrives within 8s, fall back to the canvas stream.
+      setTimeout(() => {
+        if (!videoEl.srcObject) {
+          pc.close(); pc = null
+          videoEl.style.display = 'none'
+          canvas.style.display = 'block'
+          status('WebRTC nicht verfügbar — Canvas-Modus', 3000)
+        }
+      }, 8000)
+    } catch (err) {
+      status('WebRTC-Fehler: ' + err.message, 3000)
+      pc = null
+    }
   }
 
   // ── Input: canvas coordinates → viewport coordinates ──

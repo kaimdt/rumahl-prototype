@@ -1051,6 +1051,16 @@ fn forwarding_plan_with(
             .push(format!("hostfwd=tcp:127.0.0.1:{host}-:{guest}"));
         plan.forwarded.push((host, guest, label));
     }
+    // WebRTC (ORA Browser): the browser receives the GStreamer media over
+    // UDP. It connects to 127.0.0.1:40000 on the host; inside the guest
+    // iora-browserd runs a socat hop from :40000 to the session port.
+    if !port_in_use(40000) {
+        plan.rules.push("hostfwd=udp:127.0.0.1:40000-:40000".to_string());
+        plan.forwarded
+            .push((40000, 40000, Some("WebRTC (UDP)".to_string())));
+    } else {
+        plan.skipped.push(40000);
+    }
     plan
 }
 

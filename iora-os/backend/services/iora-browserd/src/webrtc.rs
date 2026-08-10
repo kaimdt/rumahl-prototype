@@ -170,11 +170,42 @@ fn run_session_inner(
         None
     });
 
-    // Local ICE candidates (rewritten host when configured for the dev VM).
+    // Local ICE candidates. In the dev VM the guest IP is unreachable from
+    // the host browser: rewrite every UDP candidate to 127.0.0.1:40000
+    // (QEMU UDP forwarding) and start a socat hop to the real session port
+    // once. TCP candidates are dropped (their ports are not forwarded).
+    // Without a configured candidate host the candidates pass through
+    // unchanged (production OS: direct LAN connectivity).
     let evt_ice = events.clone();
+    let forwarded_port = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0));
     webrtc.connect("on-ice-candidate", false, move |values| {
         if let Ok(candidate) = values[2].get::<&str>() {
-            let rewritten = rewrite_candidate(candidate, candidate_host.as_deref());
+            let tokens: Vec<&str> = candidate.split_whitespace().collect();
+            let is_udp = tokens.len() >= 7 && tokens.get(2).copied() == Some("UDP");
+            let rewritten = if candidate_host.is_some() && is_udp {
+                let port: u16 = tokens[5].parse().unwrap_or(0);
+                if forwarded_port.load(std::sync::atomic::Ordering::Relaxed) == 0 && port != 0 {
+                    let _ = std::process::Command::new("socat")
+                        .args([
+                            "UDP4-LISTEN:40000,reuseaddr,fork",
+                            &format!("UDP4:127.0.0.1:{port}"),
+                        ])
+                        .spawn();
+                    forwarded_port.store(port, std::sync::atomic::Ordering::Relaxed);
+                }
+                // Single fixed host port for every UDP candidate.
+                format!(
+                    "{} {} {} {} {} 127.0.0.1 40000 {}",
+                    tokens[0],
+                    tokens[1],
+                    tokens[2],
+                    tokens[3],
+                    tokens[4],
+                    tokens[6..].join(" ")
+                )
+            } else {
+                candidate.to_string()
+            };
             let _ = evt_ice.send(SessionEvent::Ice { candidate: rewritten });
         }
         None
@@ -288,6 +319,7 @@ fn run_session_inner(
 /// Rewrite the IP in a GStreamer ICE candidate string to the configured
 /// host (dev VM: 127.0.0.1 with QEMU UDP forwarding). Returns the
 /// candidate unchanged when no rewrite host is configured.
+#[allow(dead_code)]
 fn rewrite_candidate(candidate: &str, host: Option<&str>) -> String {
     let Some(host) = host else {
         return candidate.to_string();
