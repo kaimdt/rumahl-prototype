@@ -9963,11 +9963,100 @@ mod app_html_rewrite_tests {
     }
 }
 
+/// True when the request carries an HTTP upgrade (WebSocket) header.
+fn is_ws_upgrade(req: &axum::extract::Request) -> bool {
+    req.headers()
+        .get(axum::http::header::CONNECTION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .split(',')
+        .any(|token| token.trim() == "upgrade")
+}
+
+/// Transparent WebSocket tunnel from the ORA desktop client to the app
+/// service: the same-origin proxy cannot relay HTTP upgrades with reqwest,
+/// so the client socket is upgraded by axum and frames are forwarded
+/// bidirectionally (the ORA Browser UI streams its screencast/WebRTC
+/// signaling over /ws).
+async fn ws_tunnel(
+    client: axum::extract::ws::WebSocket,
+    base_url: String,
+    sub_path: String,
+) {
+    use axum::extract::ws::Message as WsMessage;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as TungMessage;
+
+    let host_port = base_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_end_matches('/')
+        .to_string();
+    let path = if sub_path.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{sub_path}")
+    };
+    let url = format!("ws://{host_port}{path}");
+    let Ok((upstream, _)) = tokio_tungstenite::connect_async(&url).await else {
+        return;
+    };
+    let (mut client_tx, mut client_rx) = client.split();
+    let (mut up_tx, mut up_rx) = upstream.split();
+
+    let client_to_upstream = async {
+        while let Some(Ok(message)) = client_rx.next().await {
+            let out = match message {
+                WsMessage::Text(text) => TungMessage::Text(text),
+                WsMessage::Binary(bytes) => TungMessage::Binary(bytes),
+                WsMessage::Ping(payload) => TungMessage::Ping(payload),
+                WsMessage::Pong(payload) => TungMessage::Pong(payload),
+                WsMessage::Close(frame) => {
+                    let close = frame.map(|f| {
+                        tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                            code: f.code.into(),
+                            reason: f.reason.into(),
+                        }
+                    });
+                    let _ = up_tx.send(TungMessage::Close(close)).await;
+                    break;
+                }
+            };
+            if up_tx.send(out).await.is_err() {
+                break;
+            }
+        }
+        let _ = up_tx.close().await;
+    };
+    let upstream_to_client = async {
+        while let Some(Ok(message)) = up_rx.next().await {
+            let out = match message {
+                TungMessage::Text(text) => WsMessage::Text(text),
+                TungMessage::Binary(bytes) => WsMessage::Binary(bytes),
+                TungMessage::Ping(payload) => WsMessage::Ping(payload),
+                TungMessage::Pong(payload) => WsMessage::Pong(payload),
+                TungMessage::Close(_) => {
+                    let _ = client_tx.send(WsMessage::Close(None)).await;
+                    break;
+                }
+                _ => continue,
+            };
+            if client_tx.send(out).await.is_err() {
+                break;
+            }
+        }
+        let _ = client_tx.close().await;
+    };
+    let _ = tokio::join!(client_to_upstream, upstream_to_client);
+}
+
 async fn app_proxy_handler(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
     use axum::body::Body;
+    use axum::extract::FromRequestParts;
     use axum::http::{Response, StatusCode};
 
     // The app id is parsed from the path instead of the axum Path
@@ -10019,11 +10108,11 @@ async fn app_proxy_handler(
                 Some(base_url) => {
                     // The remainder after "/proxy/" (may be empty for both
                     // "/proxy" and "/proxy/" — the wildcard can be empty).
-                    let full_uri = req.uri().path();
+                    let full_uri = req.uri().path().to_string();
                     let sub_path = full_uri
                         .split_once("/proxy/")
-                        .map(|(_, rest)| rest)
-                        .unwrap_or("");
+                        .map(|(_, rest)| rest.to_string())
+                        .unwrap_or_default();
                     // Build the full URL to proxy to (path + query string).
                     let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
                     let full_url = format!(
@@ -10032,6 +10121,27 @@ async fn app_proxy_handler(
                         sub_path.trim_start_matches('/'),
                         query
                     );
+
+                    // WebSocket upgrade → transparent tunnel to the app
+                    // service (the ORA Browser UI streams frames + WebRTC
+                    // signaling over /ws; reqwest cannot relay upgrades).
+                    if is_ws_upgrade(&req) {
+                        let (mut parts, _body) = req.into_parts();
+                        let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
+                            Ok(upgrade) => upgrade,
+                            Err(_) => {
+                                return Response::builder()
+                                    .status(StatusCode::BAD_REQUEST)
+                                    .body(Body::from("websocket upgrade required"))
+                                    .unwrap_or_else(|_| Response::new(Body::empty()));
+                            }
+                        };
+                        let base_url = base_url.clone();
+                        let sub_path = sub_path.to_string();
+                        return upgrade
+                            .on_upgrade(move |socket| ws_tunnel(socket, base_url, sub_path))
+                            .into_response();
+                    }
 
                     // Try to proxy the request (forward the browser's cookies
                     // so the embedded app keeps its session).
