@@ -1231,19 +1231,28 @@ pub fn open(url: &str) -> Result<()> {
 }
 
 pub fn read_tail(path: &Path, lines: usize) -> String {
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|s| {
-            s.lines()
-                .rev()
-                .take(lines)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_else(|| "No log available".into())
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return "No log available".into();
+    };
+    // Seek near the end instead of reading the whole (possibly multi-MB)
+    // log - keeps `doctor`, `logs` and the activity parser cheap.
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let window: u64 = 64 * 1024;
+    let start = size.saturating_sub(window);
+    let _ = file.seek(SeekFrom::Start(start));
+    let mut buf = String::new();
+    let _ = file.read_to_string(&mut buf);
+    let all: Vec<&str> = buf.lines().collect();
+    let slice = if all.len() > lines {
+        &all[all.len() - lines..]
+    } else {
+        &all[..]
+    };
+    if slice.is_empty() {
+        return "No log available".into();
+    }
+    slice.join("\n")
 }
 
 #[cfg(test)]

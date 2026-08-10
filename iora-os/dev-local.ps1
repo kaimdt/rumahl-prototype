@@ -130,7 +130,7 @@ if (-not (Test-IoraModulesLoadable)) {
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.6.5"
+$DEV_LOCAL_VERSION = "2.6.6"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -970,14 +970,35 @@ if (-not (Test-Path $IMG_CACHE)) {
         # .NET HttpWebRequest: Invoke-WebRequest errors would be written into
         # the dev-local transcript as "TerminatingError(...)" even when caught
         # (PS 5.1 quirk) - raw .NET exceptions stay silent.
+        # Progress is streamed as machine-readable "[DLP] <received> <total>"
+        # lines (Write-Host -> transcript -> dev-local.log), which the IORA
+        # Dev Manager parses to show percent + ETA in the dashboard.
         $req = [System.Net.HttpWebRequest]::Create($IMG_URL)
         $req.Timeout = 900000
         $req.UserAgent = "iora-dev-local/2.6"
         $dlResp = $req.GetResponse()
         try {
+            $total = $dlResp.ContentLength
             $inStream = $dlResp.GetResponseStream()
             $outStream = [System.IO.File]::Create("$IMG_CACHE.tmp")
-            try { $inStream.CopyTo($outStream) } finally { $outStream.Close() }
+            try {
+                $buffer = New-Object byte[] 262144
+                $received = [long]0
+                $lastPct = -1
+                while ($true) {
+                    $read = $inStream.Read($buffer, 0, $buffer.Length)
+                    if ($read -le 0) { break }
+                    $outStream.Write($buffer, 0, $read)
+                    $received += $read
+                    if ($total -gt 0) {
+                        $pct = [int](($received / $total) * 100)
+                        if (($pct -ge ($lastPct + 2)) -or ($received -eq $total)) {
+                            $lastPct = $pct
+                            Write-Host "[DLP] $received $total"
+                        }
+                    }
+                }
+            } finally { $outStream.Close() }
         } finally { $dlResp.Close() }
     } catch {
         Remove-Item "$IMG_CACHE.tmp" -Force -ErrorAction SilentlyContinue

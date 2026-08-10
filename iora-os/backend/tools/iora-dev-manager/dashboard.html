@@ -140,6 +140,12 @@
       <div id="activity">
         <div class="field"><div class="k">Current step</div><div class="v">-</div></div>
       </div>
+      <div id="download" style="display:none;margin-top:10px">
+        <div class="field"><div class="k">Vorbereitung</div><div class="v"><span id="dl-text">-</span></div></div>
+        <div style="background:#2a2f3a;border-radius:4px;height:12px;margin-top:8px;overflow:hidden">
+          <div id="dl-bar" style="background:linear-gradient(90deg,#6366f1,#22d3ee);height:12px;width:0%;border-radius:4px;transition:width .8s ease"></div>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
@@ -290,9 +296,37 @@
     const value = String(lifecycle || '').toLowerCase();
     if (value === 'ready') return 'ready';
     if (value === 'stopped') return 'stopped';
-    if (value === 'reinstalling') return 'reinstalling';
+    if (value === 'provisioning' || value === 'reinstalling' || value === 'installing') return 'reinstalling';
     if (value === 'degraded') return 'degraded';
     return 'starting';
+  }
+
+  // German labels for the lifecycle badge ("Vorbereitung" while preparing).
+  const LIFECYCLE_LABELS = {
+    ready: 'Bereit', stopped: 'Gestoppt', provisioning: 'Vorbereitung',
+    reinstalling: 'Wiederherstellung', installing: 'Installation',
+    starting: 'Startet', booting: 'Bootet', 'waiting for network': 'Netzwerk warten',
+    degraded: 'Eingeschränkt', stopping: 'Stoppt', unknown: 'Unbekannt'
+  };
+
+  function isPreparing(data) {
+    const lc = String(data.lifecycle || '').toLowerCase();
+    const bootstrap = data.bootstrap && data.bootstrap.alive;
+    return bootstrap || lc === 'provisioning' || lc === 'reinstalling' || lc === 'installing';
+  }
+
+  function renderDownload() {
+    const box = document.getElementById('download');
+    const dl = data.download;
+    if (!dl || !dl.percent) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    document.getElementById('dl-bar').style.width = Math.min(100, dl.percent) + '%';
+    const eta = dl.etaSecs
+      ? Math.ceil(dl.etaSecs / 60) + ' min verbleibend'
+      : 'Rate wird ermittelt…';
+    document.getElementById('dl-text').textContent =
+      dl.percent + '% · ' + dl.receivedMb + ' / ' + dl.totalMb + ' MB · ' +
+      (dl.rateMbPerS || 0) + ' MB/s · ' + eta;
   }
 
   async function refresh() {
@@ -375,9 +409,16 @@
   function render() {
     const lifecycle = data.lifecycle || 'unknown';
     badge.className = badgeClass(lifecycle);
-    badge.textContent = lifecycle;
+    badge.textContent = LIFECYCLE_LABELS[lifecycle.toLowerCase()] || lifecycle;
     message.textContent = data.message || '';
+    // While the VM is preparing (download / install / reinstall) the
+    // controls must stay disabled so the user cannot interrupt it.
+    const preparing = isPreparing(data);
+    document.querySelectorAll('.controls button').forEach(function (button) {
+      button.disabled = preparing || busy;
+    });
     renderActivity();
+    renderDownload();
     renderAccess();
 
     const state = data.state || {};
@@ -487,7 +528,8 @@
     }
     busy = false;
     document.querySelectorAll('.controls button').forEach(function (button) {
-      button.disabled = false;
+      // Stay disabled while the VM is still preparing (download/install).
+      button.disabled = isPreparing(data);
     });
     refresh();
   }

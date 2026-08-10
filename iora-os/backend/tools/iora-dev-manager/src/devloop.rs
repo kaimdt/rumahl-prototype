@@ -187,6 +187,12 @@ async fn verify_and_sync(
     state: &RuntimeState,
     events: &mpsc::UnboundedSender<DevEvent>,
 ) {
+    // Never try to sync into a VM that is not running: each SSH attempt to a
+    // dead guest blocks ~10s (ConnectTimeout) and starves the runtime while
+    // the VM is booting or provisioning.
+    if !state.process_alive() {
+        return;
+    }
     if SYNC_IN_PROGRESS.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -267,6 +273,9 @@ async fn apply_changes(
     paths: &HashSet<PathBuf>,
     events: &mpsc::UnboundedSender<DevEvent>,
 ) -> Result<()> {
+    if !state.process_alive() {
+        return Ok(());
+    }
     for path in paths {
         sync_path(repo, os_root, state, path).await?;
     }

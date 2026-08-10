@@ -16,7 +16,11 @@ cargo build -p iora-dev-manager
 ```
 
 On startup the manager **auto-starts the VM** (provisioning it first when
-the disk is missing) — no need to run `dev-local.ps1` manually:
+the disk is missing) — no need to run `dev-local.ps1` manually. While the
+cloud image is downloaded, the dashboard shows the **"Vorbereitung"**
+(Preparing) state with a live progress bar (percent, MB, rate, ETA) and the
+controls stay disabled. The dashboard stays responsive during the download
+(the QEMU process scan is cached, log reads are incremental):
 
 - WHPX is tried first, with an automatic **TCG fallback** when Hyper-V/WHP
   is unavailable (no disk modification on failure).
