@@ -65,23 +65,72 @@ param(
 # explicitly where it matters.
 $ErrorActionPreference = "Continue"
 
-# Some systems use a restrictive PowerShell execution policy (Restricted /
-# AllSigned / RemoteSigned with Mark-of-the-Web), which blocks Import-Module
-# of the unsigned .psm1 helpers and breaks the whole bootstrap with
-# "not digitally signed" errors. Bypass the policy for THIS session only
-# (process scope - the user/machine policy is never changed) so the modules
-# load regardless. Must run before the first Import-Module below.
-try {
-    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop
-} catch {
-    # Policy locked down even for process scope - continue anyway; the module
-    # imports below use -ErrorAction SilentlyContinue and the script degrades
-    # gracefully (no auto-repair / runtime-state tracking).
+# ── Intelligent execution-policy handling ────────────────────────────────
+# A restrictive PowerShell policy (Restricted / AllSigned / RemoteSigned with
+# Mark-of-the-Web) blocks Import-Module of the unsigned .psm1 helpers and
+# breaks the bootstrap with "not digitally signed" errors. Fix it WITHOUT
+# touching the user/machine policy:
+#   1. only act when the effective policy would actually block module imports,
+#   2. prefer a process-scope Bypass for THIS session,
+#   3. if even that is locked down (Group Policy), re-launch this script in a
+#      child PowerShell with `-ExecutionPolicy Bypass` (no policy is changed).
+# Must run before the first Import-Module below.
+
+function Test-IoraModulesLoadable {
+    # Effective policy = first defined scope in Get-ExecutionPolicy -List.
+    $effective = $null
+    try {
+        $effective = Get-ExecutionPolicy -List |
+            Where-Object { $_.ExecutionPolicy -ne 'Undefined' } |
+            Select-Object -First 1
+    } catch { }
+    $policyName = if ($effective) { $effective.ExecutionPolicy.ToString() } else { 'Restricted' }
+    if ($policyName -in @('Bypass', 'Unrestricted')) { return $true }
+    if ($policyName -eq 'RemoteSigned') {
+        # RemoteSigned blocks only files carrying the Mark-of-the-Web.
+        try {
+            $marked = Get-ChildItem -Path $PSScriptRoot -Recurse -Include *.ps1, *.psm1 -ErrorAction SilentlyContinue |
+                Where-Object { Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue } |
+                Select-Object -First 1
+            if (-not $marked) { return $true }
+        } catch { }
+    }
+    return $false
 }
+
+if (-not (Test-IoraModulesLoadable)) {
+    $processBypass = $false
+    try {
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop
+        $processBypass = $true
+    } catch { }
+    if ($processBypass) {
+        Write-Host "[i] Execution policy '$policyName' blocks unsigned modules; " -ForegroundColor Yellow -NoNewline
+        Write-Host "bypassed for this session only (process scope, system policy unchanged)." -ForegroundColor Yellow
+    } else {
+        # Group Policy locked even the process scope -> re-launch this script
+        # in a child PowerShell that runs with -ExecutionPolicy Bypass.
+        Write-Host "[i] Execution policy is locked (Group Policy); re-launching with -ExecutionPolicy Bypass..." -ForegroundColor Yellow
+        $forward = @()
+        foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+            if ($entry.Value -is [switch]) {
+                if ($entry.Value) { $forward += "-$($entry.Key)" }
+            } elseif ($null -ne $entry.Value) {
+                $forward += "-$($entry.Key)"
+                $forward += "`"$($entry.Value)`""
+            }
+        }
+        $child = Start-Process -FilePath "powershell.exe" -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`""
+        ) + $forward -Wait -PassThru -NoNewWindow
+        exit $child.ExitCode
+    }
+}
+# ── /Execution policy -----------------------------------------------------
 
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.6.4"
+$DEV_LOCAL_VERSION = "2.6.5"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }

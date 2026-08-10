@@ -819,6 +819,91 @@ pub fn bootstrap_alive(root: &Path) -> bool {
     pid.is_some_and(crate::state::process_alive)
 }
 
+/// Environment self-diagnosis shown at daemon startup and by `doctor`.
+/// Returns human-readable notes; the caller decides how to present them.
+pub fn environment_notes(root: &Path) -> Vec<String> {
+    let mut notes: Vec<String> = Vec::new();
+
+    // QEMU binary present?
+    let qemu = resolve_qemu();
+    let qemu_ok = if cfg!(windows) {
+        windows_qemu_dir("qemu-system-x86_64.exe").is_some()
+            || std::env::var("IORA_DEV_QEMU").is_ok_and(|p| Path::new(&p).exists())
+    } else {
+        Path::new("/dev/kvm").exists() || {
+            std::process::Command::new(&qemu)
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        }
+    };
+    if !qemu_ok {
+        notes.push(format!(
+            "QEMU not found ({qemu}). Install it (winget install SoftwareFreedomConservancy.QEMU) or set IORA_DEV_QEMU."
+        ));
+    }
+
+    // WSL2 (needed on Windows for ISO/tar creation).
+    if cfg!(windows) {
+        let wsl_ok = std::process::Command::new("wsl.exe")
+            .args(["--status"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !wsl_ok {
+            notes.push(
+                "WSL2 not available (wsl --status failed). The bootstrap needs WSL for ISO/tar creation: run `wsl --install`."
+                    .to_string(),
+            );
+        }
+    }
+
+    // VM disk present? If not, the daemon provisions on first start.
+    let disk = root.join(".cache/iora-dev-vm.qcow2");
+    if !disk.exists() {
+        notes.push(format!(
+            "VM disk missing ({}): first start will download the Debian cloud image and provision (~400MB, one-time).",
+            disk.display()
+        ));
+    }
+
+    // Windows execution policy: unsigned .psm1 imports may be blocked.
+    if cfg!(windows) {
+        if let Some(policy) = execution_policy_name() {
+            let blocking = matches!(policy.as_str(), "Restricted" | "AllSigned" | "RemoteSigned");
+            if blocking {
+                notes.push(format!(
+                    "Windows PowerShell execution policy is '{policy}': unsigned module imports may be blocked. The daemon launches scripts with -ExecutionPolicy Bypass and dev-local.ps1 self-heals for its own session - no action needed."
+                ));
+            }
+        }
+    }
+
+    notes
+}
+
+/// Current Windows PowerShell execution policy (first defined scope).
+fn execution_policy_name() -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "(Get-ExecutionPolicy -List | Where-Object { $_.ExecutionPolicy -ne 'Undefined' } | Select-Object -First 1).ExecutionPolicy",
+        ])
+        .output()
+        .ok()?;
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
+}
+
 /// Find the VM disk path: start at the first `iora-dev-vm` occurrence and
 /// expand to the whole token (bounded by space/quote/comma).
 fn disk_after(input: &str) -> Option<String> {

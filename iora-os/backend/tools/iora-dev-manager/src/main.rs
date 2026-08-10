@@ -215,6 +215,17 @@ async fn main() -> Result<()> {
             let mut manager = Manager::discover(root)?;
             let probe = manager.probe().await;
             println!("IORA Dev Doctor\nStatus: {}\nQEMU: {}\nQMP: {}\nQGA: {}\nSSH: {}\nHome internal: {}\nHome external: {}",probe.lifecycle(),yes(probe.process),yes(probe.qmp),yes(probe.qga),yes(probe.ssh),yes(probe.internal_home),yes(probe.external_home));
+            // Environment notes: surface known problems (QEMU, WSL2, disk,
+            // execution policy) alongside the probe result.
+            let notes = manager::environment_notes(&manager.root);
+            if notes.is_empty() {
+                println!("\nEnvironment: no known problems.");
+            } else {
+                println!("\nEnvironment notes:");
+                for note in &notes {
+                    println!("  [!] {note}");
+                }
+            }
             std::process::exit(if probe.lifecycle() == "Ready" { 0 } else { 1 });
         }
         Some(Command::Health { root }) => {
@@ -387,6 +398,33 @@ async fn serve(port: u16, root: Option<PathBuf>, open: bool) -> Result<()> {
     )?;
     let daemon = daemon::Daemon::new(manager);
     daemon::spawn(daemon.clone());
+
+    // Surface daemon events on the console so problems are visible without
+    // opening the dashboard: errors are printed prominently, lifecycle and
+    // status events as a timeline.
+    {
+        let console_daemon = daemon.clone();
+        tokio::spawn(async move {
+            let mut receiver = console_daemon.events.subscribe();
+            while let Ok(event) = receiver.recv().await {
+                let marker = match event.kind.as_str() {
+                    "error" => "[!] ",
+                    "lifecycle" => "  ~ ",
+                    _ => "  · ",
+                };
+                if matches!(event.kind.as_str(), "error" | "lifecycle" | "status") {
+                    println!("{marker}{}", event.message);
+                }
+            }
+        });
+    }
+
+    // Environment self-diagnosis: show known problems up front (QEMU, WSL2,
+    // VM disk, execution policy) so a broken setup is obvious immediately.
+    for note in manager::environment_notes(&daemon.manager.lock().await.root.clone()) {
+        daemon.emit("status", note.clone());
+        println!("  · {note}");
+    }
     // SO_REUSEADDR lets the daemon rebind quickly after a forced kill,
     // where Windows can otherwise keep the listen socket lingering.
     let socket = tokio::net::TcpSocket::new_v4()?;
