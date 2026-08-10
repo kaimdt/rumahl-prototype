@@ -66,6 +66,9 @@ export default defineConfig({
       '/api': {
         target: backendTarget,
         changeOrigin: true,
+        // Relay WebSocket upgrades (app proxy WS tunnel: the ORA Browser
+        // UI streams screencast/WebRTC signaling through the proxy).
+        ws: true,
       },
       '/ws': {
         target: backendWsTarget,
