@@ -164,7 +164,15 @@
   let reconnectTimer = null
   let pc = null
 
-  const wsUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws'
+  // WS endpoint: inside the app-runner iframe the UI is served through
+  // the same-origin app proxy, so the socket must go through the proxy
+  // tunnel as well (`/api/apps/<id>/proxy/ws`). Direct service access
+  // (dev) uses `/ws`.
+  const proxyMatch = location.pathname.match(/^\/api\/apps\/([^/]+)\/proxy\//)
+  const wsPath = proxyMatch
+    ? `/api/apps/${encodeURIComponent(proxyMatch[1])}/proxy/ws`
+    : '/ws'
+  const wsUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + wsPath
 
   function status(text, ms = 2500) {
     statusEl.textContent = text
