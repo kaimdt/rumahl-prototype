@@ -315,7 +315,7 @@ async fn apply_changes(
 }
 
 fn ssh_args(state: &RuntimeState, os_root: &Path) -> Vec<String> {
-    let (host, port, _) = state.connection();
+    let (_host, port, _) = state.connection();
     let key = os_root.join(".cache/iora-dev-key");
     vec![
         "-o".into(),

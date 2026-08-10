@@ -82,6 +82,7 @@ pub struct Daemon {
     install_marker: Mutex<MarkerState>,
     seed_progress: Mutex<SeedProgress>,
     last_build_check: Mutex<Option<Instant>>,
+    last_provision_note: Mutex<Option<Instant>>,
 }
 
 impl Daemon {
@@ -128,6 +129,7 @@ impl Daemon {
                 rate_mb_per_s: 0.0,
             }),
             last_build_check: Mutex::new(None),
+            last_provision_note: Mutex::new(None),
         })
     }
 
@@ -176,10 +178,15 @@ impl Daemon {
         let probe = self.last_probe.lock().unwrap().clone();
         let desired = self.desired.lock().unwrap().clone();
         let bootstrap_alive = manager::bootstrap_alive(&root);
-        // While a reinstall (dev-local -Rebuild) runs, the VM is not
-        // "Stopped" - surface the real activity instead.
-        let lifecycle = if state.lifecycle == "Reinstalling" || bootstrap_alive {
-            "Reinstalling"
+        // While the bootstrap runs (first install or -Rebuild) there is no
+        // QEMU process yet, so the probe would say "Stopped" - surface the
+        // real activity instead.
+        let lifecycle = if bootstrap_alive {
+            if state.lifecycle == "Reinstalling" {
+                "Reinstalling"
+            } else {
+                "Provisioning"
+            }
         } else {
             probe.lifecycle()
         };
@@ -729,6 +736,28 @@ impl Daemon {
         };
         *self.last_probe.lock().unwrap() = probe.clone();
         let lifecycle = probe.lifecycle().to_string();
+
+        // While the bootstrap provisions (first install / -Rebuild) there is
+        // no QEMU process, so the probe stays "Stopped". Emit a throttled
+        // progress note so the console + dashboard explain what is happening
+        // instead of appearing stuck.
+        if lifecycle == "Stopped" && manager::bootstrap_alive(&root) {
+            let note_due = self
+                .last_provision_note
+                .lock()
+                .unwrap()
+                .map_or(true, |last| last.elapsed() >= Duration::from_secs(20));
+            if note_due {
+                *self.last_provision_note.lock().unwrap() = Some(Instant::now());
+                self.emit(
+                    "status",
+                    "Provisioning in progress: the first start downloads the Debian cloud image (~400MB) and installs the IORA runtime (5-15 min). The dashboard stays reachable; the IORA web UI appears once the VM is ready.",
+                );
+            }
+        } else if lifecycle != "Stopped" {
+            *self.last_provision_note.lock().unwrap() = None;
+        }
+
         // Open forwarded ports only once the guest is fully up: the IORA
         // firewall service rebuilds the chains during boot and would flush
         // rules inserted too early.

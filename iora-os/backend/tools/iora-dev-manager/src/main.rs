@@ -421,9 +421,9 @@ async fn serve(port: u16, root: Option<PathBuf>, open: bool) -> Result<()> {
 
     // Environment self-diagnosis: show known problems up front (QEMU, WSL2,
     // VM disk, execution policy) so a broken setup is obvious immediately.
+    // The console event feed above prints them - emit only, no duplicate.
     for note in manager::environment_notes(&daemon.manager.lock().await.root.clone()) {
         daemon.emit("status", note.clone());
-        println!("  · {note}");
     }
     // SO_REUSEADDR lets the daemon rebind quickly after a forced kill,
     // where Windows can otherwise keep the listen socket lingering.
