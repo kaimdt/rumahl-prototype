@@ -113,6 +113,37 @@ static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
 /// 1. `IORA_JWT_SECRET` environment variable
 /// 2. Settings cache key `jwt_secret` (populated from system_preferences table)
 /// 3. Auto-generated random secret (set by `persist_jwt_secret` or UUID v4 fallback)
+/// Shared JWT-secret file: iora-home persists the canonical secret here so
+/// EVERY microservice on the host (iora-control, iora-files, iora-security,
+/// ...) validates with the SAME secret. Without this, each process falls
+/// back to a per-process random secret and cross-service JWT checks fail
+/// with "InvalidSignature". Path is overridable for dev/tests.
+pub fn jwt_secret_file() -> std::path::PathBuf {
+    std::env::var_os("IORA_JWT_SECRET_FILE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/etc/iora/jwt-secret"))
+}
+
+fn read_jwt_secret_file() -> Option<String> {
+    let value = std::fs::read_to_string(jwt_secret_file()).ok()?;
+    let secret = value.trim().to_string();
+    if secret.is_empty() || secret.len() < 16 {
+        return None;
+    }
+    Some(secret)
+}
+
+fn write_jwt_secret_file(secret: &str) {
+    let path = jwt_secret_file();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Ignore errors (e.g. no permission in dev on the host) — the fallback
+    // keeps working for single-service dev; in the VM all services run as
+    // root and share the file.
+    let _ = std::fs::write(&path, secret.as_bytes());
+}
+
 pub fn jwt_secret() -> String {
     // 1. Env var (highest priority, for explicit override)
     if let Some(secret) = env_optional("IORA_JWT_SECRET") {
@@ -122,20 +153,30 @@ pub fn jwt_secret() -> String {
     if let Some(secret) = get_cached_setting("jwt_secret") {
         return secret;
     }
-    // 3. Auto-generated fallback (UUID v4 is cryptographically random)
+    // 3. Shared secret file — the cross-service source of truth. Checked
+    // before the fallback so a late-appearing file always wins (services
+    // that start before iora-home persists the secret pick it up on the
+    // next call instead of being stuck with a per-process random value).
+    if let Some(secret) = read_jwt_secret_file() {
+        return secret;
+    }
+    // 4. Auto-generated fallback (UUID v4 is cryptographically random) —
+    //    only used when no shared secret exists yet.
     AUTO_JWT_SECRET
         .get_or_init(|| uuid::Uuid::new_v4().to_string())
         .clone()
 }
 
 /// Persist a generated JWT secret — called by iora-home after writing to the DB.
-/// Updates both the settings cache and the auto-generated fallback so all callers
-/// see the same secret.
+/// Updates the settings cache, the auto-generated fallback AND the shared
+/// secret file, so every service on the host uses the same secret.
 pub fn persist_jwt_secret(secret: &str) {
     update_cached_setting("jwt_secret".to_string(), secret.to_string());
     // Also update the auto-generated fallback to match the persisted value.
     // If the OnceLock is already initialized, force-set it (best-effort).
     let _ = AUTO_JWT_SECRET.set(secret.to_string());
+    // Share with all services on this host.
+    write_jwt_secret_file(secret);
 }
 
 /// Master encryption key for the secrets service.
