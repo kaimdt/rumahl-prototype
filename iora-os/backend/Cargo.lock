@@ -3263,6 +3263,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "iora-browserd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "futures-util",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.21.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "iora-cli"
 version = "0.1.0"
 dependencies = [
