@@ -25,6 +25,7 @@
 //!   GET  /ws                   → frame stream + input channel
 
 mod cdp;
+mod webrtc;
 
 use axum::{
     extract::{
@@ -69,6 +70,8 @@ struct AppState {
     tabs: Arc<Mutex<HashMap<String, Tab>>>,
     active: Arc<RwLock<Option<String>>>,
     frames: broadcast::Sender<String>,
+    webrtc_session: Arc<Mutex<Option<webrtc::WebRtcSession>>>,
+    webrtc_candidate_host: Option<String>,
 }
 
 // ─── Chromium launch ──────────────────────────────────────────────────────
@@ -193,6 +196,15 @@ async fn open_tab(state: &AppState, url: &str) -> anyhow::Result<Tab> {
                             "h": h,
                         });
                         let _ = pump_state.frames.send(msg.to_string());
+                        // Feed the WebRTC render session as well (VP8).
+                        if let Some(session) = pump_state.webrtc_session.lock().await.as_ref() {
+                            if let Ok(jpeg) = base64::Engine::decode(
+                                &base64::engine::general_purpose::STANDARD,
+                                &data,
+                            ) {
+                                session.push_frame(&jpeg);
+                            }
+                        }
                     }
                 }
                 cdp::TabEvent::Nav {
@@ -453,6 +465,10 @@ enum ClientMsg {
     TabActivate { id: String },
     #[serde(rename = "tab-close")]
     TabClose { id: String },
+    #[serde(rename = "webrtc-offer")]
+    WebRtcOffer { sdp: String },
+    #[serde(rename = "ice")]
+    Ice { candidate: String },
 }
 
 async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
@@ -462,6 +478,7 @@ async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl
 async fn ws_loop(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let mut frame_rx = state.frames.subscribe();
+    let (session_evt_tx, mut session_evt_rx) = tokio::sync::mpsc::channel::<webrtc::SessionEvent>(32);
 
     // Push the current tab list + navigation state immediately.
     broadcast_tabs(&state).await;
@@ -499,6 +516,38 @@ async fn ws_loop(socket: WebSocket, state: AppState) {
                     None => None,
                 };
                 match msg {
+                    ClientMsg::WebRtcOffer { sdp } => {
+                        // Replace any previous session.
+                        *state.webrtc_session.lock().await = None;
+                        let (std_tx, std_rx) = std::sync::mpsc::channel::<webrtc::SessionEvent>();
+                        let tokio_tx = session_evt_tx.clone();
+                        std::thread::spawn(move || {
+                            while let Ok(event) = std_rx.recv() {
+                                if tokio_tx.blocking_send(event).is_err() {
+                                    break;
+                                }
+                            }
+                        });
+                        match webrtc::WebRtcSession::start(
+                            &sdp,
+                            std_tx,
+                            state.webrtc_candidate_host.clone(),
+                        ) {
+                            Ok(session) => {
+                                *state.webrtc_session.lock().await = Some(session);
+                            }
+                            Err(e) => {
+                                let _ = sender.send(WsMessage::Text(
+                                    json!({"type": "webrtc-error", "message": e}).to_string().into(),
+                                )).await;
+                            }
+                        }
+                    }
+                    ClientMsg::Ice { candidate } => {
+                        if let Some(session) = state.webrtc_session.lock().await.as_ref() {
+                            session.remote_ice(&candidate);
+                        }
+                    }
                     ClientMsg::Navigate { url } => {
                         if let Some(t) = &tab { let _ = t.cdp.navigate(&url).await; }
                     }
@@ -542,6 +591,23 @@ async fn ws_loop(socket: WebSocket, state: AppState) {
                     }
                 }
             }
+            evt = session_evt_rx.recv() => {
+                let Some(event) = evt else { continue };
+                let msg = match event {
+                    webrtc::SessionEvent::Answer { sdp } => {
+                        json!({"type": "webrtc-answer", "sdp": sdp})
+                    }
+                    webrtc::SessionEvent::Ice { candidate } => {
+                        json!({"type": "ice", "candidate": candidate})
+                    }
+                    webrtc::SessionEvent::Error(message) => {
+                        json!({"type": "webrtc-error", "message": message})
+                    }
+                };
+                if sender.send(WsMessage::Text(msg.to_string().into())).await.is_err() {
+                    break;
+                }
+            }
         }
     }
 }
@@ -572,6 +638,11 @@ async fn main() -> anyhow::Result<()> {
         tabs: Arc::new(Mutex::new(HashMap::new())),
         active: Arc::new(RwLock::new(None)),
         frames: broadcast::channel(64).0,
+        webrtc_session: Arc::new(Mutex::new(None)),
+        webrtc_candidate_host: std::env::var("IORA_WEBRTC_CANDIDATE_HOST")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
     };
 
     // Restore a fresh start tab.
