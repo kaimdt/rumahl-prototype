@@ -124,6 +124,11 @@ pub async fn resolve_lifecycle_state(app: &InstalledApp) -> AppLifecycleState {
             }
             return AppLifecycleState::Stopped;
         }
+        // Docker status could not be determined (daemon/plugin error). Never
+        // trust a stored "running" here - the container may be gone (e.g. a
+        // broken `docker compose` kept the stale status). Report the app as
+        // failed so the runner shows the state page instead of a dead iframe.
+        return AppLifecycleState::Failed;
     }
     match app.status.as_str() {
         "starting" => AppLifecycleState::Starting,

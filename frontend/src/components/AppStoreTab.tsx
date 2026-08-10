@@ -967,7 +967,19 @@ function AppStoreView({
       openPort: def.openPort,
       iconUrl: def.iconUrl,
     }))
-    return [...backend, ...essentials, ...catalog]
+    // Dedupe by id: a backend entry (installed app) wins over its catalog
+    // twin, so the list never contains the same app id twice (React keys
+    // must be unique). This can happen when a catalog app is installed but
+    // not marked enabled (failed start) - it would otherwise appear both as
+    // a backend entry and as a catalog card.
+    const seen = new Set<string>()
+    const deduped: StoreApp[] = []
+    for (const app of [...backend, ...essentials, ...catalog]) {
+      if (seen.has(app.id)) continue
+      seen.add(app.id)
+      deduped.push(app)
+    }
+    return deduped
   }, [apps, essentials, t])
 
   // "Im App Store anzeigen" from the launcher context menu: select the

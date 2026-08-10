@@ -258,7 +258,7 @@ export function AppRuntimeView({ appId, name }: { appId: string; name?: string }
           {state === APP_LIFECYCLE.STARTING || state === APP_LIFECYCLE.STOPPING || !info ? (
             <>
               <span className="h-8 w-8 animate-spin rounded-full border-2 border-foreground/20 border-t-accent" />
-              <p className="text-sm text-foreground/60">
+              <p className="text-sm text-foreground/80">
                 {state === APP_LIFECYCLE.STOPPING
                   ? t('os.launcher.appStopping')
                   : t('os.launcher.appStarting')}
@@ -275,8 +275,8 @@ export function AppRuntimeView({ appId, name }: { appId: string; name?: string }
               >
                 {(name || appId).charAt(0).toUpperCase()}
               </span>
-              <p className="text-sm font-semibold text-foreground/80">{displayName}</p>
-              <p className="max-w-sm text-xs leading-relaxed text-foreground/45">
+              <p className="text-sm font-semibold text-foreground">{displayName}</p>
+              <p className="max-w-sm text-xs leading-relaxed text-foreground/75">
                 {state === APP_LIFECYCLE.FAILED && t('os.launcher.appFailed')}
                 {state === APP_LIFECYCLE.UNHEALTHY && t('os.launcher.appUnhealthy')}
                 {state === APP_LIFECYCLE.STOPPED && t('os.launcher.appStopped')}

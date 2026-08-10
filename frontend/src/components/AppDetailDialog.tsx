@@ -229,10 +229,17 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
         const firstService = typeof data.services?.[0]?.name === 'string' ? data.services[0].name : ''
         setSelectedTerminalService(firstService)
         const notes: string[] = []
+        // Runtime-audit and secrets require app-manifest permissions
+        // (AppRuntimeAuditRead / AppSecretsRead). Apps that don't declare
+        // them return 403 - that is expected, not an error: keep the tabs
+        // empty and stay quiet instead of surfacing a failure.
+        const silent = async (url: string): Promise<unknown> => {
+          try { return await adminFetch(url, token) } catch { return null }
+        }
         const [jobs, audit, secrets] = await Promise.all([
           adminFetch(`/api/apps/${appId}/jobs`, token).catch((e) => { notes.push(`Jobs: ${(e as Error).message}`); return null }),
-          adminFetch(`/api/apps/${appId}/audit`, token).catch((e) => { notes.push(`Audit: ${(e as Error).message}`); return null }),
-          adminFetch(`/api/apps/${appId}/secrets`, token).catch((e) => { notes.push(`Secrets: ${(e as Error).message}`); return null }),
+          silent(`/api/apps/${appId}/audit`),
+          silent(`/api/apps/${appId}/secrets`),
         ])
         setRuntimeJobs(((jobs as any)?.jobs || []).slice(-12))
         setRuntimeAudit(((audit as any)?.events || []).slice(-20))
