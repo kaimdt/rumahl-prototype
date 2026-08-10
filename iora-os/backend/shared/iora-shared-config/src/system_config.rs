@@ -118,10 +118,15 @@ static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
 /// ...) validates with the SAME secret. Without this, each process falls
 /// back to a per-process random secret and cross-service JWT checks fail
 /// with "InvalidSignature". Path is overridable for dev/tests.
+///
+/// Lives under /var/lib/iora (NOT /etc/iora): the iora-* services run as
+/// the unprivileged `iora` user, and /var/lib/iora is the chowned,
+/// ReadWritePaths-permitted data directory. A write to root-owned /etc/iora
+/// would fail silently and the shared secret would never materialize.
 pub fn jwt_secret_file() -> std::path::PathBuf {
     std::env::var_os("IORA_JWT_SECRET_FILE")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/etc/iora/jwt-secret"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/iora/jwt-secret"))
 }
 
 fn read_jwt_secret_file() -> Option<String> {
@@ -138,10 +143,14 @@ fn write_jwt_secret_file(secret: &str) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    // Ignore errors (e.g. no permission in dev on the host) — the fallback
-    // keeps working for single-service dev; in the VM all services run as
-    // root and share the file.
-    let _ = std::fs::write(&path, secret.as_bytes());
+    if let Err(error) = std::fs::write(&path, secret.as_bytes()) {
+        // Visible in journald so a missing shared secret can never hide
+        // again (previously the error was swallowed -> cross-service 401s).
+        eprintln!(
+            "[iora-shared-config] WARNING: could not persist shared JWT secret to {}: {error}",
+            path.display()
+        );
+    }
 }
 
 pub fn jwt_secret() -> String {
