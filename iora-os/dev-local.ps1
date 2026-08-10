@@ -65,9 +65,23 @@ param(
 # explicitly where it matters.
 $ErrorActionPreference = "Continue"
 
+# Some systems use a restrictive PowerShell execution policy (Restricted /
+# AllSigned / RemoteSigned with Mark-of-the-Web), which blocks Import-Module
+# of the unsigned .psm1 helpers and breaks the whole bootstrap with
+# "not digitally signed" errors. Bypass the policy for THIS session only
+# (process scope - the user/machine policy is never changed) so the modules
+# load regardless. Must run before the first Import-Module below.
+try {
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop
+} catch {
+    # Policy locked down even for process scope - continue anyway; the module
+    # imports below use -ErrorAction SilentlyContinue and the script degrades
+    # gracefully (no auto-repair / runtime-state tracking).
+}
+
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.6.3"
+$DEV_LOCAL_VERSION = "2.6.4"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
