@@ -58,8 +58,7 @@ impl AppState {
         // issued by iora-home's /api/auth/login are accepted here. The generic
         // `JWT_SECRET` env var with a hardcoded fallback never matched the
         // dashboard's secret, which made every proxied request 401.
-        let jwt_secret = iora_shared_config::system_config::jwt_secret();
-
+    
         Self {
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -74,7 +73,7 @@ impl AppState {
             started_at: Arc::new(Instant::now()),
             cache: Cache::new(),
             ws_state: Arc::new(WsState::new()),
-            auth_state: Arc::new(AuthState { jwt_secret }),
+            auth_state: Arc::new(AuthState::new()),
         }
     }
 }

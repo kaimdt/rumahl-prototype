@@ -40,7 +40,6 @@ mod middleware_auth;
 struct AppState {
     db: SqlitePool,
     storage_root: PathBuf,
-    jwt_secret: String,
     #[allow(dead_code)]
     max_file_size: usize, // bytes
     default_quota_bytes: i64, // per user
@@ -235,7 +234,6 @@ async fn main() -> Result<()> {
 
     let database_url = system_config::database_url_for("iora-files");
     let storage_root = PathBuf::from(system_config::files_storage_dir());
-    let jwt_secret = system_config::jwt_secret();
     let port: u16 = system_config::service_port("iora-files", 8100);
     let max_file_size: usize = system_config::files_max_size_bytes();
     let default_quota: i64 = system_config::files_default_quota();
@@ -266,7 +264,6 @@ async fn main() -> Result<()> {
     let state = Arc::new(AppState {
         db,
         storage_root,
-        jwt_secret,
         max_file_size,
         default_quota_bytes: default_quota,
         base_url,
@@ -384,7 +381,7 @@ async fn upload_file(
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     // Check quota
     ensure_quota(&state, &user_id, 0).await?;
@@ -540,7 +537,7 @@ async fn list_files(
     headers: HeaderMap,
     Query(query): Query<ListFilesQuery>,
 ) -> Result<Json<FileListResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let files: Vec<FileRecord> = if let Some(ref search) = query.search {
         let pattern = format!("%{}%", search);
@@ -593,7 +590,7 @@ async fn get_file_info(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<FileRecord>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
     Ok(Json(file))
 }
@@ -609,7 +606,7 @@ async fn download_file(
     // Accept `?token=` as well as the Authorization header: CSS backgrounds
     // and <img> tags cannot send headers, so the frontend appends the token
     // to the query string for them.
-    let user_id = extract_user_id_with_query(&headers, uri.query(), &state.jwt_secret)?;
+    let user_id = extract_user_id_with_query(&headers, uri.query())?;
     let file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     if file.is_folder {
@@ -647,7 +644,7 @@ async fn download_user_path(
     OriginalUri(uri): OriginalUri,
     Path((username, path)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let claims = extract_claims(&headers, uri.query(), &state.jwt_secret)?;
+    let claims = extract_claims(&headers, uri.query())?;
     if username != claims.username {
         return Err((StatusCode::FORBIDDEN, "User path is private".to_string()));
     }
@@ -700,7 +697,7 @@ async fn delete_file(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let file = get_file_with_access(&state, &file_id, &user_id, "write").await?;
 
     let now = Utc::now().to_rfc3339();
@@ -734,7 +731,7 @@ async fn restore_file(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let file: FileRecord = sqlx::query_as("SELECT * FROM files WHERE id = ? AND owner_id = ?")
         .bind(&file_id)
@@ -777,7 +774,7 @@ async fn move_file(
     Path(file_id): Path<String>,
     Json(body): Json<MoveFileRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "write").await?;
 
     // Validate target folder exists and belongs to user
@@ -823,7 +820,7 @@ async fn copy_file(
     Path(file_id): Path<String>,
     Json(body): Json<CopyFileRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let source = get_file_with_access(&state, &file_id, &user_id, "write").await?;
 
     // Validate target folder exists and belongs to user
@@ -1048,7 +1045,7 @@ async fn rename_file(
     Path(file_id): Path<String>,
     Json(body): Json<RenameFileRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "write").await?;
 
     let safe_name = sanitize_filename(&body.new_name);
@@ -1085,7 +1082,7 @@ async fn list_versions(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<Vec<FileVersion>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let versions: Vec<FileVersion> = sqlx::query_as(
@@ -1106,7 +1103,7 @@ async fn create_folder(
     headers: HeaderMap,
     Json(body): Json<CreateFolderRequest>,
 ) -> Result<Json<FileRecord>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let folder_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -1161,7 +1158,7 @@ async fn create_share_link(
     headers: HeaderMap,
     Json(body): Json<CreateShareLinkRequest>,
 ) -> Result<Json<ShareLinkResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &body.file_id, &user_id, "write").await?;
 
     let share_id = Uuid::new_v4().to_string();
@@ -1221,7 +1218,7 @@ async fn list_share_links(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ShareLink>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let links: Vec<ShareLink> = sqlx::query_as(
         "SELECT * FROM share_links WHERE created_by = ? AND is_active = 1 ORDER BY created_at DESC",
@@ -1239,7 +1236,7 @@ async fn revoke_share_link(
     headers: HeaderMap,
     Path(share_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     sqlx::query("UPDATE share_links SET is_active = 0 WHERE id = ? AND created_by = ?")
         .bind(&share_id)
@@ -1353,7 +1350,7 @@ async fn set_permission(
     headers: HeaderMap,
     Json(body): Json<SetPermissionRequest>,
 ) -> Result<Json<FilePermission>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &body.file_id, &user_id, "admin").await?;
 
     if !["read", "write", "admin"].contains(&body.permission.as_str()) {
@@ -1413,7 +1410,7 @@ async fn list_permissions(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<Vec<FilePermission>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let perms: Vec<FilePermission> =
@@ -1431,7 +1428,7 @@ async fn revoke_permission(
     headers: HeaderMap,
     Path(perm_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     // Verify user owns the file this permission belongs to
     let perm: Option<FilePermission> =
@@ -1513,7 +1510,7 @@ async fn get_quota(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<QuotaResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let quota: Option<StorageQuota> =
         sqlx::query_as("SELECT * FROM storage_quotas WHERE user_id = ?")
@@ -1549,7 +1546,7 @@ async fn get_activity(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<Vec<FileActivity>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let activity: Vec<FileActivity> = sqlx::query_as(
@@ -1575,7 +1572,7 @@ async fn resolve_path(
     headers: HeaderMap,
     Query(query): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let path = query.get("path").cloned().unwrap_or_default();
     let segments: Vec<&str> = path.split('/').filter(|seg| !seg.is_empty()).collect();
     if segments.is_empty() || segments.iter().any(|seg| *seg == "." || *seg == "..") {
@@ -1631,11 +1628,11 @@ async fn resolve_path(
 /// Read a file from the host filesystem (absolute paths like `/var/lib/iora/…`).
 /// Access is limited to IORA data roots, files only, with a size limit.
 async fn system_path(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     headers: HeaderMap,
     Query(query): Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let _user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let _user_id = extract_user_id(&headers)?;
     let raw = query.get("path").cloned().unwrap_or_default();
     const ALLOWED_ROOTS: [&str; 4] = ["/opt/iora", "/var/lib/iora", "/home/iora/iora", "/tmp"];
     if !ALLOWED_ROOTS.iter().any(|root| raw.starts_with(root)) {
@@ -1667,8 +1664,11 @@ async fn system_path(
 fn extract_user_id_with_query(
     headers: &HeaderMap,
     query: Option<&str>,
-    jwt_secret: &str,
 ) -> Result<String, (StatusCode, String)> {
+    // Read the shared JWT secret fresh so a late-appearing shared file is
+    // picked up without a restart (all services must validate with the same
+    // secret that iora-home persists to /etc/iora/jwt-secret).
+    let jwt_secret = system_config::jwt_secret();
     let token = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -1682,13 +1682,14 @@ fn extract_user_id_with_query(
             })
         })
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication".to_string()))?;
-    match crate::auth::verify_token(token, jwt_secret) {
+    match crate::auth::verify_token(token, &jwt_secret) {
         Ok(user_id) => Ok(user_id),
         Err(_) => Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string())),
     }
 }
 
-fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, (StatusCode, String)> {
+fn extract_user_id(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    let jwt_secret = system_config::jwt_secret();
     let auth_header = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -1706,15 +1707,15 @@ fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, (Sta
         )
     })?;
 
-    auth::verify_token(token, jwt_secret)
+    auth::verify_token(token, &jwt_secret)
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)))
 }
 
 fn extract_claims(
     headers: &HeaderMap,
     query: Option<&str>,
-    jwt_secret: &str,
 ) -> Result<auth::Claims, (StatusCode, String)> {
+    let jwt_secret = system_config::jwt_secret();
     let token = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -1729,7 +1730,7 @@ fn extract_claims(
         })
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication token".to_string()))?;
 
-    auth::verify_claims(token, jwt_secret)
+    auth::verify_claims(token, &jwt_secret)
         .map_err(|error| (StatusCode::UNAUTHORIZED, format!("Invalid token: {error}")))
 }
 

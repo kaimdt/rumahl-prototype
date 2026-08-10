@@ -13,7 +13,7 @@ use crate::AppState;
 /// Middleware that verifies JWT tokens on protected routes.
 /// Passes through if valid; returns 401 otherwise.
 pub async fn require_auth(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -34,7 +34,7 @@ pub async fn require_auth(
         })
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    match crate::auth::verify_token(token, &state.jwt_secret) {
+    match crate::auth::verify_token(token, &iora_shared_config::system_config::jwt_secret()) {
         Ok(_user_id) => Ok(next.run(request).await),
         Err(_) => Err(StatusCode::UNAUTHORIZED),
     }
