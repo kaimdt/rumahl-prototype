@@ -199,10 +199,14 @@ const oraBrowserManifest = {
   icon: 'browser',
   permissions: ['NetworkLocalAccess'],
   // The browser UI embeds the remote Chromium surface (canvas + WS),
-  // not a website — no iframe sandbox needed.
+  // not a website — no iframe sandbox needed. The local app lifecycle
+  // uses these loopback hooks: start opens a fresh tab, stop closes all
+  // tabs (the global engine keeps running for other apps).
   ports: [
     { external: 8102, protocol: 'tcp', internal: 8102 },
   ],
+  start_endpoint: 'http://127.0.0.1:8102/api/tabs',
+  stop_endpoint: 'http://127.0.0.1:8102/api/shutdown',
   display: {
     mode: 'embedded',
     permissions: ['clipboard-read', 'clipboard-write', 'fullscreen'],

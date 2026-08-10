@@ -346,6 +346,21 @@ async fn close_tab(State(state): State<AppState>, Path(id): Path<String>) -> imp
     }
 }
 
+/// Stop hook used by the local app lifecycle (`stop_endpoint` in the app
+/// manifest): close every tab so the browser surface is paused while the
+/// global Chromium engine keeps running for other apps.
+async fn shutdown(State(state): State<AppState>) -> impl IntoResponse {
+    let ids: Vec<String> = state.tabs.lock().await.keys().cloned().collect();
+    for id in &ids {
+        if let Some(tab) = state.tabs.lock().await.remove(id) {
+            cdp_close_target(&tab.id).await;
+        }
+    }
+    *state.active.write().await = None;
+    broadcast_tabs(&state).await;
+    Json(json!({ "ok": true, "closed": ids.len() })).into_response()
+}
+
 async fn tab_navigate(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -572,6 +587,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/tabs/:id/close", post(close_tab))
         .route("/api/tabs/:id/navigate", post(tab_navigate))
         .route("/api/tabs/:id/:action", post(tab_action))
+        .route("/api/shutdown", post(shutdown))
         .route("/ws", get(ws_handler))
         .with_state(state);
 

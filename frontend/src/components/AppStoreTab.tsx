@@ -8,7 +8,7 @@ import {
   ShieldWarning, Package, ArrowClockwise, Info, Warning,
   Stack, CubeFocus, Sparkle, PuzzlePiece, MusicNotes, ChartBar,
   VideoCamera, Broom, Lightbulb, CalendarBlank, SpeakerHigh, Plant,
-  Bell, Star, ArrowRight, CaretLeft, CaretRight, LockKey, Cloud, Globe, Briefcase, BookOpen, VideoCamera as VideoIcon, Copy
+  Bell, Star, ArrowRight, CaretLeft, CaretRight, LockKey, Cloud, Globe, Briefcase, BookOpen, VideoCamera as VideoIcon, Copy, ArrowSquareOut
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
@@ -529,18 +529,11 @@ function InstalledAppsView({
     setActionLoading(null)
   }
 
-  const openApp = (appId: string, openUrl?: string) => {
-    const app = apps.find((candidate) => candidate.id === appId)
-    const port = firstExternalPort(app?.ports) ?? STORE_CATALOG.find((def) => def.id === appId)?.openPort
-    if (openUrl) {
-      window.location.href = openUrl
-    } else if (port) {
-      // Docker app with a web UI — open the host port directly.
-      window.open(`http://127.0.0.1:${port}`, '_blank')
-    } else {
-      // App-defined page (custom_pages) — navigate inside the SPA.
-      window.location.href = `/app/${encodeURIComponent(appId)}`
-    }
+  const openApp = (appId: string) => {
+    // All installed apps open inside the ORA App Runner (`/app/<id>`): the
+    // runner resolves the gateway proxy_url and embeds the app's web UI —
+    // consistent with the launcher, no raw host ports in the address bar.
+    window.location.href = `/app/${encodeURIComponent(appId)}`
   }
 
   return (
@@ -608,13 +601,24 @@ function InstalledAppsView({
               onClick={() => onAppClick(app.id)}
             >
               <div className="flex items-start gap-3 mb-3">
-                {app.icon ? (
-                  <img src={app.icon} alt={app.name} className="w-10 h-10 rounded-lg flex-shrink-0 object-cover" />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center flex-shrink-0">
-                    <Cube size={20} className="text-accent" />
-                  </div>
-                )}
+                <div className="relative flex-shrink-0">
+                  {app.icon ? (
+                    <img src={app.icon} alt={app.name} className="w-11 h-11 rounded-xl object-cover" />
+                  ) : (
+                    <div className="w-11 h-11 rounded-xl bg-accent/20 flex items-center justify-center">
+                      <Cube size={22} className="text-accent" />
+                    </div>
+                  )}
+                  {/* Live status dot on the icon (like the launcher) */}
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
+                      app.status === 'running' ? 'bg-green-400' :
+                      app.status === 'starting' || app.status === 'installing' ? 'bg-amber-300 animate-pulse' :
+                      app.status === 'error' || app.status === 'crashed' || app.status === 'unhealthy' ? 'bg-red-400' :
+                      'bg-foreground/30'
+                    }`}
+                  />
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="flex-1 min-w-0">
@@ -744,14 +748,14 @@ function InstalledAppsView({
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                {/* Open button - for apps with custom pages */}
-                {(app.custom_pages?.length ?? 0) > 0 && (
+              <div className="flex items-center gap-2 flex-wrap pt-2.5 mt-1 border-t border-foreground/5" onClick={(e) => e.stopPropagation()}>
+                {/* Open — every running app opens in the App Runner */}
+                {app.status === 'running' && (
                   <button
-                    onClick={() => openApp(app.id, app.open_url)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors"
+                    onClick={() => openApp(app.id)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-accent text-white rounded-lg text-[10px] font-semibold hover:bg-accent/85 transition-colors shadow-sm"
                   >
-                    <Play size={12} weight="fill" /> Öffnen
+                    <ArrowSquareOut size={12} weight="bold" /> Öffnen
                   </button>
                 )}
 

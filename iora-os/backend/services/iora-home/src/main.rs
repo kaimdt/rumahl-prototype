@@ -7884,6 +7884,41 @@ async fn supervisor_apps_start(
 
     let _ = state.local_appstore.set_status(&app_id, "starting").await;
 
+    // Local app: optional start hook (manifest `start_endpoint`, loopback
+    // only) — e.g. the ORA Browser opens a fresh tab. Then a quick port
+    // health check so the UI reports a real failure instead of a blind
+    // "running".
+    if !needs_docker {
+        if let Some(msg) = invoke_local_app_hook(&app_meta, "start_endpoint", json!({ "url": "about:blank" })).await {
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "INFO".to_string(),
+                    message: msg,
+                    source: "app-runtime".to_string(),
+                },
+            );
+        }
+        if let Some(port) = app_meta.ports.first() {
+            let mut reachable = false;
+            for _ in 0..4 {
+                if tokio::net::TcpStream::connect(("127.0.0.1", port.external)).await.is_ok() {
+                    reachable = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            if !reachable {
+                let _ = state.local_appstore.set_status(&app_id, "failed").await;
+                return Err(ErrorResponse::bad_gateway(format!(
+                    "App '{}' ist auf Port {} nicht erreichbar — Dienst läuft nicht.",
+                    app_id, port.external
+                )));
+            }
+        }
+    }
+
     // Mark as starting immediately so the UI shows status without waiting
     // for the (potentially long-running) docker compose pull/up.
     state.local_appstore.append_log(
@@ -8027,11 +8062,11 @@ async fn supervisor_apps_stop(
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
 
-    // Try to stop Docker container
+    // Try to stop Docker container (or invoke the local stop hook).
     let docker_result = if needs_docker {
         try_docker_compose_down(&app_id).await
     } else {
-        None
+        invoke_local_app_hook(&app, "stop_endpoint", json!({})).await
     };
 
     state.local_appstore.append_log(
@@ -8057,6 +8092,34 @@ async fn supervisor_apps_stop(
         "docker": docker_result,
         "message": format!("App '{}' gestoppt.", app.name),
     })))
+}
+
+/// Best-effort invocation of an optional manifest hook endpoint
+/// (`start_endpoint` / `stop_endpoint`) for LOCAL (non-Docker) apps — e.g.
+/// the ORA Browser opens a fresh tab on start and closes all tabs on stop.
+/// Only loopback URLs are allowed: the endpoint comes from the installed
+/// manifest, which the admin chose, but it must never reach into the
+/// network.
+async fn invoke_local_app_hook(
+    app: &local_appstore::InstalledApp,
+    key: &str,
+    body: serde_json::Value,
+) -> Option<String> {
+    let url = app.manifest.extra.get(key)?.as_str()?;
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if !(host == "127.0.0.1" || host == "localhost" || host == "::1") {
+        return None;
+    }
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(parsed)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await
+        .ok()?;
+    Some(format!("{key} → HTTP {}", resp.status()))
 }
 
 async fn docker_compose_control(app_id: &str, action: &str) -> Option<Result<String, String>> {
