@@ -63,13 +63,13 @@ function getVariants(type: string) {
   switch (type) {
     case 'slide':
       return {
-        enter: { opacity: 1, x: 0, filter: 'blur(0px)' },
+        enter: { opacity: 1, x: 0, filter: 'none' },
         exit: { opacity: 0, x: -24, filter: 'blur(3px)', transition: exitTransition },
         initial: { opacity: 0, x: 28, filter: 'blur(4px)' },
       }
     case 'scale':
       return {
-        enter: { opacity: 1, scale: 1, filter: 'blur(0px)' },
+        enter: { opacity: 1, scale: 1, filter: 'none' },
         exit: { opacity: 0, scale: 0.93, filter: 'blur(4px)', transition: exitTransition },
         initial: { opacity: 0, scale: 0.93, filter: 'blur(4px)' },
       }
@@ -89,7 +89,7 @@ function getVariants(type: string) {
     case 'fade':
     default:
       return {
-        enter: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
+        enter: { opacity: 1, y: 0, scale: 1, filter: 'none' },
         exit: { opacity: 0, y: -10, scale: 0.992, filter: 'blur(3px)', transition: exitTransition },
         initial: { opacity: 0, y: 16, scale: 0.984, filter: 'blur(5px)' },
       }

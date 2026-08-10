@@ -1184,6 +1184,32 @@ pub async fn apps_host_middleware(
     next.run(req).await
 }
 
+/// Build the public runtime URL `{scheme}://<app-id><suffix>[:port]/` for
+/// an installed app. Scheme defaults to `https` and the port is omitted,
+/// matching the production IORA OS gateway; the dev VM overrides both via
+/// `IORA_APPS_PUBLIC_SCHEME` (e.g. `http`) and `IORA_APPS_PUBLIC_PORT`
+/// (e.g. `8126`, the forwarded host port that reaches iora-home).
+pub fn public_app_runtime_url(app_id: &str, base: &str) -> String {
+    let scheme = std::env::var("IORA_APPS_PUBLIC_SCHEME")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https".to_string())
+        .to_ascii_lowercase();
+    let port = std::env::var("IORA_APPS_PUBLIC_PORT")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s.parse::<u16>().is_ok());
+    let with_port = match port.as_deref() {
+        Some(p) if (scheme == "https" && p != "443") || (scheme == "http" && p != "80") => {
+            format!(":{p}")
+        }
+        _ => String::new(),
+    };
+    let base = base.trim().trim_start_matches('.');
+    format!("{scheme}://{app_id}.{base}{with_port}/")
+}
+
 /// Runtime info endpoint used by the App Runner:
 /// `GET /api/apps/:app_id/runtime`.
 pub async fn runtime_info(
@@ -1210,17 +1236,30 @@ pub async fn runtime_info(
     let running = lifecycle == AppLifecycleState::Running;
     let suffix = apps_host_suffix();
     let base = suffix.trim().trim_start_matches('.').trim_end_matches('.');
-    let runtime_url = if running {
+    // Subdomains are only used when explicitly configured — the production
+    // OS cannot rely on *.apps.ora.local DNS/wildcard routing being
+    // available, so the default is the same-origin proxy path, which works
+    // everywhere (the gateway rewrites the app's HTML assets for it).
+    let subdomains_configured = std::env::var("IORA_APPS_PUBLIC_SCHEME")
+        .ok()
+        .is_some_and(|s| !s.trim().is_empty());
+    let runtime_url = if running && subdomains_configured {
         resolve_runtime_target(&state.local_appstore, app)
             .await
             .map(|_| {
                 // Public URL is derived from the subdomain, not the target —
-                // the browser must never see the internal host/port.
-                format!("https://{app_id}.{base}/")
+                // the browser must never see the internal host/port. Scheme
+                // and port are configurable (IORA_APPS_PUBLIC_SCHEME /
+                // IORA_APPS_PUBLIC_PORT): the dev VM serves the gateway on
+                // http via a forwarded host port because *.apps.ora.local
+                // cannot be resolved on loopback otherwise.
+                public_app_runtime_url(&app_id, &base)
             })
     } else {
         None
     };
+    // Same-origin proxy path — always available, no DNS required.
+    let proxy_url = format!("/api/apps/{app_id}/proxy/");
 
     let display = app
         .manifest
@@ -1245,6 +1284,7 @@ pub async fn runtime_info(
             "state": lifecycle.as_str(),
             "display": display,
             "runtime_url": runtime_url,
+            "proxy_url": proxy_url,
             "external_url": external_url,
             "ws_supported": running,
             "startable": matches!(lifecycle, AppLifecycleState::Stopped | AppLifecycleState::Failed | AppLifecycleState::Unhealthy),
@@ -1265,6 +1305,38 @@ mod tests {
             internal_port: internal,
             protocol: "http".to_string(),
         }
+    }
+
+    #[test]
+    fn public_url_defaults_to_https_without_port() {
+        std::env::remove_var("IORA_APPS_PUBLIC_SCHEME");
+        std::env::remove_var("IORA_APPS_PUBLIC_PORT");
+        assert_eq!(
+            public_app_runtime_url("nextcloud", "apps.ora.local"),
+            "https://nextcloud.apps.ora.local/"
+        );
+    }
+
+    #[test]
+    fn public_url_honours_dev_scheme_and_port() {
+        std::env::set_var("IORA_APPS_PUBLIC_SCHEME", "http");
+        std::env::set_var("IORA_APPS_PUBLIC_PORT", "8126");
+        assert_eq!(
+            public_app_runtime_url("nextcloud", "apps.ora.local"),
+            "http://nextcloud.apps.ora.local:8126/"
+        );
+    }
+
+    #[test]
+    fn public_url_omits_default_ports() {
+        std::env::set_var("IORA_APPS_PUBLIC_SCHEME", "http");
+        std::env::set_var("IORA_APPS_PUBLIC_PORT", "80");
+        assert_eq!(
+            public_app_runtime_url("files", ".apps.ora.local"),
+            "http://files.apps.ora.local/"
+        );
+        std::env::remove_var("IORA_APPS_PUBLIC_PORT");
+        std::env::remove_var("IORA_APPS_PUBLIC_SCHEME");
     }
 
     #[test]
