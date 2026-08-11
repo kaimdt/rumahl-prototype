@@ -2129,13 +2129,13 @@ function InstallProgressList({ token, onJobComplete }: { token: string; onJobCom
   if (visibleJobs.length === 0) return null
 
   const statusLabel = (s: InstallJob['status']) => ({
-    pending: 'Warten',
-    extracting: 'Entpacken',
-    validating: 'Prüfen',
-    installing: 'Installieren',
-    succeeded: 'Fertig',
-    failed: 'Fehler',
-    canceled: 'Abgebrochen',
+    pending: t('appStore.statusPending'),
+    extracting: t('appStore.statusExtracting'),
+    validating: t('appStore.statusValidating'),
+    installing: t('appStore.statusInstalling'),
+    succeeded: t('appStore.statusSucceeded'),
+    failed: t('appStore.statusFailed'),
+    canceled: t('appStore.statusCanceled'),
   }[s])
 
   const statusColor = (s: InstallJob['status']) => {

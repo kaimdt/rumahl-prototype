@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { motion } from 'motion/react'
 import {
@@ -488,6 +489,7 @@ function WidgetProperties({
   onMoveWidget?: (widgetId: string, col: number, row: number) => void
   onOpenWidgetGroupDesigner?: (widgetId: string) => void
 }) {
+  const { t } = useTranslation()
   const def = getWidgetDef(widget.type)
   if (!def) return null
 
@@ -554,14 +556,26 @@ function WidgetProperties({
             onChange={(e) => updateRule(key, index, { mode: e.target.value as VisibilityMode })}
             className="flex-1 px-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-foreground text-xs"
           >
-            {VISIBILITY_MODES.map(({ key: modeKey, label }) => (
-              <option key={modeKey} value={modeKey}>{label}</option>
-            ))}
+            {VISIBILITY_MODES.map(({ key: modeKey }) => {
+              const visibilityLabels: Record<string, string> = {
+                always: t('pageDesigner.visibilityAlways'),
+                when_music_playing: t('pageDesigner.visibilityMusicPlaying'),
+                when_evening: t('pageDesigner.visibilityEvening'),
+                when_night: t('pageDesigner.visibilityNight'),
+                when_entity_state: t('pageDesigner.visibilityEntityState'),
+                when_entity_not_state: t('pageDesigner.visibilityEntityNotState'),
+                when_entity_state_in: t('pageDesigner.visibilityEntityStateIn'),
+                when_entity_numeric: t('pageDesigner.visibilityEntityNumeric'),
+              }
+              return (
+                <option key={modeKey} value={modeKey}>{visibilityLabels[modeKey] || modeKey}</option>
+              )
+            })}
           </select>
           <button
             onClick={() => removeRule(key, index)}
             className="p-1.5 rounded-md hover:bg-red-500/10 text-red-400/80 hover:text-red-400"
-            title="Regel entfernen"
+            title={t('pageDesigner.removeRule')}
           >
             <Trash size={13} weight="bold" />
           </button>
@@ -571,9 +585,9 @@ function WidgetProperties({
           <SearchableSelect
             value={rule.entityId || ''}
             onValueChange={(value) => updateRule(key, index, { entityId: value })}
-            placeholder="Entity fuer Bedingung"
-            searchPlaceholder="Entity suchen..."
-            emptyMessage="Keine Entities gefunden."
+            placeholder={t('pageDesigner.entityCondition')}
+            searchPlaceholder={t('pageDesigner.entitySearch')}
+            emptyMessage={t('common.noResults')}
             options={availableEntities.map(entity => ({
               value: entity.entity_id,
               label: (entity.attributes?.friendly_name as string) || entity.entity_id,
@@ -1360,8 +1374,8 @@ function WidgetProperties({
               onValuesChange={(ids) => onUpdateWidget(widget.id, {
                 config: { ...widget.config, entityIds: ids }
               })}
-              placeholder="Entities suchen & auswählen..."
-              searchPlaceholder="Entity suchen..."
+              placeholder={t('pageDesigner.entityMultipleSelect')}
+              searchPlaceholder={t('pageDesigner.entitySearch')}
               emptyMessage="Keine Entities gefunden."
               options={availableEntities.map(entity => ({
                 value: entity.entity_id,
@@ -1773,7 +1787,7 @@ function WidgetProperties({
                       ents[idx] = val
                       onUpdateWidget(widget.id, { config: { ...widget.config, entities: ents } })
                     }}
-                    placeholder="Entity wählen..."
+                    placeholder={t('pageDesigner.entitySelect')}
                     searchPlaceholder="Person/Tracker suchen..."
                     options={availableEntities
                       .filter(e => e.entity_id.startsWith('person.') || e.entity_id.startsWith('device_tracker.'))

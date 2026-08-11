@@ -272,7 +272,7 @@ function NotificationItem({
             </button>
           </Tip>
         )}
-        <Tip content="Entfernen">
+        <Tip content={t('common.remove')}>
           <button
             onClick={onDismiss}
             className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-red-400 transition-colors"
