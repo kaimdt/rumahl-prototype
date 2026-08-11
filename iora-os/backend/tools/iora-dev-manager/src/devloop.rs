@@ -360,14 +360,27 @@ async fn apply_changes(
         return Ok(());
     }
     let services = affected_services(&os_root.join("backend"), &rust_paths).await?;
-    for service in services {
-        let _ = events.send(DevEvent::Building(service.clone()));
-        let unit = native_unit(&service);
-        let command=format!("cd /home/iora/iora/iora-os/backend && sudo -u iora bash -c 'cd /home/iora/iora/iora-os/backend && HOME=/home/iora /home/iora/.cargo/bin/cargo build -p {} --offline' && if ! systemctl cat {} >/dev/null 2>&1; then printf %s {} > /etc/systemd/system/{}.service && systemctl daemon-reload && systemctl enable {}.service; fi && systemctl restart {} && systemctl is-active --quiet {}",shell_quote(&service),shell_quote(&service),shell_quote(&unit),service,service,shell_quote(&service),shell_quote(&service));
-        ssh_run(state, os_root, &command).await?;
-        let _ = events.send(DevEvent::Ready(format!(
-            "{service} rebuilt, restarted and healthy"
-        )));
+    if !services.is_empty() {
+        let _ = events.send(DevEvent::Building(services.join(", ")));
+        // Detached build + poll: survives SSH connection resets during long
+        // compiles (QEMU slirp drops idle sessions).
+        let _ = run_guest_build(state, os_root, &services).await?;
+        for service in services {
+            let unit = native_unit(&service);
+            let command = format!(
+                "if ! systemctl cat {} >/dev/null 2>&1; then printf %s {} > /etc/systemd/system/{}.service && systemctl daemon-reload && systemctl enable {}.service; fi && systemctl restart {} && systemctl is-active --quiet {}",
+                shell_quote(&unit),
+                shell_quote(&service),
+                service,
+                service,
+                shell_quote(&service),
+                shell_quote(&service)
+            );
+            ssh_run(state, os_root, &command).await?;
+            let _ = events.send(DevEvent::Ready(format!(
+                "{service} rebuilt, restarted and healthy"
+            )));
+        }
     }
     Ok(())
 }
@@ -386,6 +399,12 @@ fn ssh_args(state: &RuntimeState, os_root: &Path) -> Vec<String> {
         "ConnectTimeout=5".into(),
         "-o".into(),
         "ConnectionAttempts=2".into(),
+        // Keep idle sessions alive: QEMU slirp resets SSH connections that
+        // stay silent for a while (seen as 'Connection reset', exit 255).
+        "-o".into(),
+        "ServerAliveInterval=15".into(),
+        "-o".into(),
+        "ServerAliveCountMax=10".into(),
         "-p".into(),
         port.to_string(),
         "-i".into(),
@@ -657,17 +676,14 @@ pub async fn force_full_sync(
     }
     bulk_sync(repo, os_root, state, &paths).await?;
     // 2) Rebuild every service whose sources just arrived (cargo metadata
-    //    resolves the workspace + reverse dependencies).
+    //    resolves the workspace + reverse dependencies). Built detached so
+    //    the multi-minute compile survives SSH connection resets.
     let backend = os_root.join("backend");
     let services = affected_services(&backend, &paths).await?;
     let mut rebuilt: Vec<String> = Vec::new();
-    for service in &services {
-        let command = format!(
-            "cd /home/iora/iora/iora-os/backend && sudo -u iora bash -c 'cd /home/iora/iora/iora-os/backend && HOME=/home/iora /home/iora/.cargo/bin/cargo build -p {} --offline'",
-            shell_quote(service)
-        );
-        ssh_run(state, os_root, &command).await?;
-        rebuilt.push(service.clone());
+    if !services.is_empty() {
+        let _ = run_guest_build(state, os_root, &services).await?;
+        rebuilt = services;
     }
     // 3) Restart the rebuilt services (create the unit on demand, exactly
     //    like the live-update path does).
@@ -698,6 +714,65 @@ pub async fn force_full_sync(
         rebuilt.join(", "),
         started.elapsed().as_secs_f64()
     ))
+}
+
+/// Run a cargo build for the given services in the guest DETACHED (nohup)
+/// and poll until it finishes. The SSH channel is only used for short status
+/// checks, so multi-minute compiles cannot be killed by connection resets
+/// (QEMU slirp drops idle SSH sessions - seen as 'client_loop: send
+/// disconnect: Connection reset', exit 255). Returns the build log tail.
+async fn run_guest_build(
+    state: &RuntimeState,
+    os_root: &Path,
+    services: &[String],
+) -> Result<String> {
+    if services.is_empty() {
+        return Ok(String::new());
+    }
+    let packages: Vec<String> = services
+        .iter()
+        .flat_map(|service| ["-p".to_string(), service.clone()])
+        .collect();
+    let spec = packages.join(" ");
+    let log = "/tmp/iora-dev-build.log";
+    // Start the build detached: the SSH command returns immediately, the
+    // compile keeps running inside the guest regardless of the channel.
+    ssh_run(
+        state,
+        os_root,
+        &format!(
+            "rm -f {log} && nohup sudo -u iora bash -c 'cd /home/iora/iora/iora-os/backend && HOME=/home/iora /home/iora/.cargo/bin/cargo build {spec} --offline' >{log} 2>&1 & echo started"
+        ),
+    )
+    .await?;
+    // Poll with short SSH calls (up to 60 min for cold workspace builds).
+    let mut finished = false;
+    for _ in 0..720 {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let running = ssh_run(
+            state,
+            os_root,
+            "pgrep -f 'cargo build' >/dev/null && echo RUNNING || echo DONE",
+        )
+        .await
+        .unwrap_or_else(|_| "RUNNING".to_string());
+        if running.trim() == "DONE" {
+            finished = true;
+            break;
+        }
+    }
+    if !finished {
+        anyhow::bail!("guest build timed out after 60 minutes");
+    }
+    let tail = ssh_run(state, os_root, &format!("tail -c 8000 {log}")).await?;
+    let failed = tail.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("error") || line.starts_with("error[")
+    });
+    if failed {
+        anyhow::bail!("guest build failed:\n{tail}");
+    }
+    Ok(tail)
 }
 
 async fn affected_services(backend: &Path, changed: &[PathBuf]) -> Result<Vec<String>> {
