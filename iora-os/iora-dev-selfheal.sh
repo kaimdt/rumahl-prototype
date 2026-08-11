@@ -230,6 +230,29 @@ TIMEREOF
     fi
 }
 
+# -- GStreamer runtime for iora-browserd (WebRTC) --------------------------
+# The ORA Browser renders via WebRTC (webrtcbin in plugins-bad, vp8enc in
+# plugins-good, jpegdec in plugins-base). Missing packages silently disable
+# WebRTC and leave only the canvas fallback - install them idempotently.
+# The -dev packages are required so cargo can build gstreamer-rs.
+gstreamer_check() {
+    if pkg-config --exists gstreamer-1.0 gstreamer-webrtc-1.0 2>/dev/null; then
+        return 0
+    fi
+    log "installing GStreamer packages for iora-browserd WebRTC…"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq 2>/dev/null || true
+    apt-get install -y -qq --no-install-recommends \
+        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad gstreamer1.0-tools 2>&1 | tail -2 || true
+    if pkg-config --exists gstreamer-1.0 gstreamer-webrtc-1.0 2>/dev/null; then
+        log "GStreamer ready"
+    else
+        log "GStreamer install failed (check network/apt)"
+    fi
+}
+
 case "$MODE" in
     --net)
         net_check
@@ -243,6 +266,7 @@ case "$MODE" in
         fix_firewall_ports
         harden_ssh
         install_net_watchdog
+        gstreamer_check
         log "self-heal --apply finished"
         ;;
     *)

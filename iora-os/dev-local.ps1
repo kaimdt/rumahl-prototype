@@ -1820,7 +1820,10 @@ apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
     curl git ca-certificates build-essential pkg-config libssl-dev \
     nodejs npm docker.io docker-compose postgresql postgresql-client rsync \
     python3 python3-pip htop vim mold nginx openssl socat \
-    sudo systemd-container
+    sudo systemd-container \
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-tools
 systemctl enable --now docker postgresql nginx 2>/dev/null || true
 '@
     $installOutput = Invoke-SSHStdin $installScript

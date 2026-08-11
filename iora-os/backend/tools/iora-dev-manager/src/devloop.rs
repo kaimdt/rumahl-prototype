@@ -751,6 +751,17 @@ pub async fn force_full_sync(
         anyhow::bail!("Force Sync abgebrochen");
     }
     bulk_sync(repo, os_root, state, &paths).await?;
+    // Run the idempotent guest self-heal BEFORE building: it installs the
+    // GStreamer packages iora-browserd needs for WebRTC (webrtcbin/vp8enc/
+    // jpegdec + -dev for cargo) on guests that predate the provisioning
+    // change, and applies the other one-time fixes.
+    if let Ok(content) = std::fs::read_to_string(os_root.join("iora-dev-selfheal.sh")) {
+        let command = format!(
+            "echo {} | base64 -d > /tmp/iora-dev-selfheal.sh && chmod 755 /tmp/iora-dev-selfheal.sh && bash /tmp/iora-dev-selfheal.sh --apply",
+            channels::base64_encode(content.as_bytes())
+        );
+        let _ = ssh_run(state, os_root, &command).await;
+    }
     if progress.is_some_and(|p| p.cancelled()) {
         anyhow::bail!("Force Sync abgebrochen");
     }
