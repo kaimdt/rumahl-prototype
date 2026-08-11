@@ -25,7 +25,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 log "Synchronizing Global Config access..."
-log "JWT synchronization revision: 2 (canonical /etc/iora/jwt-secret)"
+log "JWT synchronization revision: 3 (self-healing canonical secret)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. Ensure IORA OS environment markers exist
@@ -84,6 +84,11 @@ success "Config helper: /usr/lib/iora/iora-get-config"
 # 3. Service environment configuration
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Preserve the previous shared value before service.env is regenerated. This
+# is an important recovery source when PostgreSQL is temporarily unavailable
+# or an older image has not persisted jwt_secret yet.
+PREVIOUS_ENV_SECRET=$(sed -n 's/^IORA_JWT_SECRET=//p' /etc/iora/service.env 2>/dev/null | tail -1 || true)
+
 # Create default environment for all IORA services
 cat > /etc/iora/service.env <<'EOF'
 # Global IORA Service Configuration
@@ -117,23 +122,68 @@ success "Service environment: /etc/iora/service.env"
 # 401. Publish the DB secret into the global service.env (this script runs
 # as root AFTER iora-home, see iora-config-sync.service) so all services
 # resolve the same IORA_JWT_SECRET.
-DB_SECRET=$(su - postgres -c "psql -d iora_home -tAc \"SELECT preference_value FROM system_preferences WHERE preference_key='jwt_secret'\"" 2>/dev/null | tr -d '\"' | tr -d '\n')
-CURRENT_SECRET=$(sed -n 's/^IORA_JWT_SECRET=//p' /etc/iora/service.env 2>/dev/null | tail -1)
-if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ] && [ "$CURRENT_SECRET" != "$DB_SECRET" ]; then
-    sed -i '/^IORA_JWT_SECRET=/d' /etc/iora/service.env
-    echo "IORA_JWT_SECRET=$DB_SECRET" >> /etc/iora/service.env
-    success "Published shared JWT secret to service.env (${#DB_SECRET} chars)"
-elif [ -z "$DB_SECRET" ] || [ "${#DB_SECRET}" -lt 32 ]; then
-    warn "JWT secret not found in DB yet (iora-home may still be starting)"
+normalize_secret() {
+    printf '%s' "${1:-}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
+DB_SECRET=$(su - postgres -c "psql -d iora_home -tAc \"SELECT preference_value FROM system_preferences WHERE preference_key='jwt_secret'\"" 2>/dev/null || true)
+DB_SECRET=$(normalize_secret "$DB_SECRET")
+FILE_SECRET=$(normalize_secret "$(cat /etc/iora/jwt-secret 2>/dev/null || true)")
+FALLBACK_FILE_SECRET=$(normalize_secret "$(cat /var/lib/iora/jwt-secret 2>/dev/null || true)")
+PREVIOUS_ENV_SECRET=$(normalize_secret "$PREVIOUS_ENV_SECRET")
+
+JWT_SECRET_SOURCE="database"
+JWT_SECRET="$DB_SECRET"
+if [ "${#JWT_SECRET}" -lt 32 ]; then
+    JWT_SECRET_SOURCE="canonical file"
+    JWT_SECRET="$FILE_SECRET"
+fi
+if [ "${#JWT_SECRET}" -lt 32 ]; then
+    JWT_SECRET_SOURCE="fallback file"
+    JWT_SECRET="$FALLBACK_FILE_SECRET"
+fi
+if [ "${#JWT_SECRET}" -lt 32 ]; then
+    JWT_SECRET_SOURCE="previous service environment"
+    JWT_SECRET="$PREVIOUS_ENV_SECRET"
+fi
+if [ "${#JWT_SECRET}" -lt 32 ]; then
+    JWT_SECRET_SOURCE="new cryptographic value"
+    JWT_SECRET=$(openssl rand -base64 64 | tr -d '\r\n')
+fi
+if [ "${#JWT_SECRET}" -lt 32 ]; then
+    echo "ERROR: Unable to establish a JWT secret of at least 32 characters" >&2
+    exit 1
+fi
+
+echo "IORA_JWT_SECRET=$JWT_SECRET" >> /etc/iora/service.env
+success "Published shared JWT secret from $JWT_SECRET_SOURCE (${#JWT_SECRET} chars)"
+
+# Repair a missing or malformed database preference whenever PostgreSQL is
+# reachable. The JSON string representation is required by iora-home's
+# SystemPreference model.
+if [ "$DB_SECRET" != "$JWT_SECRET" ]; then
+    JWT_ROW_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || openssl rand -hex 16)
+    if runuser -u postgres -- psql -d iora_home -v ON_ERROR_STOP=1 \
+        --set=row_id="$JWT_ROW_ID" --set=jwt_secret="$JWT_SECRET" >/dev/null 2>&1 <<'SQLEOF'
+INSERT INTO system_preferences (id, preference_key, preference_value, created_at, updated_at)
+VALUES (:'row_id', 'jwt_secret', to_json(:'jwt_secret'::text)::text, NOW(), NOW())
+ON CONFLICT (preference_key) DO UPDATE
+SET preference_value = EXCLUDED.preference_value, updated_at = NOW();
+SQLEOF
+    then
+        success "Persisted shared JWT secret to system_preferences"
+    else
+        warn "Could not persist JWT secret to PostgreSQL; file and environment recovery remain active"
+    fi
 fi
 
 # Materialize the canonical cross-service secret file on every sync, even if
 # service.env was already current. iora-home runs unprivileged and therefore
 # cannot reliably create /etc/iora/jwt-secret itself on hardened images.
-if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ]; then
+if [ -n "$JWT_SECRET" ] && [ "${#JWT_SECRET}" -ge 32 ]; then
     install -d -m 0750 /etc/iora
     JWT_SECRET_TMP=$(mktemp /etc/iora/.jwt-secret.XXXXXX)
-    printf '%s' "$DB_SECRET" > "$JWT_SECRET_TMP"
+    printf '%s' "$JWT_SECRET" > "$JWT_SECRET_TMP"
     if getent group iora >/dev/null 2>&1; then
         chown root:iora "$JWT_SECRET_TMP"
         chmod 0640 "$JWT_SECRET_TMP"
@@ -149,6 +199,12 @@ if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ]; then
         exit 1
     fi
     success "Synchronized canonical JWT secret: /etc/iora/jwt-secret"
+fi
+
+# Keep a root-owned executable copy so Dev Manager recovery does not depend on
+# the checkout path or executable bit remaining available inside the guest.
+if [ "$(readlink -f "$0")" != "/usr/lib/iora/iora-config-sync" ]; then
+    install -m 0755 "$0" /usr/lib/iora/iora-config-sync
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════

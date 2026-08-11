@@ -57,7 +57,10 @@ the normal ORA frontend or guest network is broken.
 root in the guest, verifies `/etc/iora/jwt-secret`, reloads systemd, and
 restarts only `iora-home`, `iora-files`, and `iora-supervisor`. This is the
 manual recovery action for cross-service 401 errors; its result is immediately
-reflected in the monitoring table.
+reflected in the monitoring table. The synchronizer recovers the shared secret
+from PostgreSQL, the canonical or fallback secret files, or the previous service
+environment. If no valid value exists, it generates a cryptographically random
+secret and persists it back to PostgreSQL when the database is reachable.
 
 **Install Docker Compose** repairs development guests that have Docker Engine
 but neither the Compose v2 plugin nor the standalone `docker-compose` command.

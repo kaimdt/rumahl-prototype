@@ -227,6 +227,8 @@ set +e
 check() { if sh -c "$2" >/dev/null 2>&1; then printf 'ok|%s|%s\n' "$1" "$3"; else printf 'error|%s|%s\n' "$1" "$4"; fi; }
 check jwt_file 'test -s /etc/iora/jwt-secret' '/etc/iora/jwt-secret is present' '/etc/iora/jwt-secret is missing or empty'
 check jwt_size 'test "$(wc -c </etc/iora/jwt-secret 2>/dev/null)" -ge 32' 'JWT secret length is valid' 'JWT secret is shorter than 32 bytes'
+check jwt_env 'test "$(sed -n "s/^IORA_JWT_SECRET=//p" /etc/iora/service.env 2>/dev/null | tail -1 | wc -c)" -ge 33' 'Service environment contains a valid JWT secret' 'Service environment JWT secret is missing or too short'
+check jwt_match 'test "$(cat /etc/iora/jwt-secret 2>/dev/null)" = "$(sed -n "s/^IORA_JWT_SECRET=//p" /etc/iora/service.env 2>/dev/null | tail -1)"' 'JWT file and service environment match' 'JWT file and service environment differ'
 check files 'systemctl is-active --quiet iora-files' 'iora-files is active' 'iora-files is not active'
 check home 'systemctl is-active --quiet iora-home' 'iora-home is active' 'iora-home is not active'
 check supervisor 'systemctl is-active --quiet iora-supervisor' 'iora-supervisor is active' 'iora-supervisor is not active'
@@ -260,13 +262,17 @@ systemctl --failed --no-legend 2>/dev/null | awk '{print "error|failed_unit|" $1
 async fn config_sync(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
     let command = r#"
 set -eu
-SCRIPT=/home/iora/iora/iora-os/iora-config-sync.sh
-if [ ! -x "$SCRIPT" ]; then SCRIPT=/usr/lib/iora/iora-config-sync; fi
-test -x "$SCRIPT"
-"$SCRIPT"
+SOURCE=/home/iora/iora/iora-os/iora-config-sync.sh
+SCRIPT=/usr/lib/iora/iora-config-sync
+if [ -r "$SOURCE" ]; then install -m 0755 "$SOURCE" "$SCRIPT"; fi
+test -r "$SCRIPT"
+bash "$SCRIPT"
 test -s /etc/iora/jwt-secret
+test "$(wc -c </etc/iora/jwt-secret)" -ge 32
 systemctl daemon-reload
-systemctl restart iora-home iora-files iora-supervisor
+systemctl restart iora-home
+systemctl restart iora-files
+systemctl restart iora-supervisor
 printf 'Config synchronized; JWT file verified; services restarted.'
 "#;
     match daemon.guest(command.to_string()).await {
