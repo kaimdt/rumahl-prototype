@@ -49,6 +49,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/maintenance/docker-compose", post(install_docker_compose))
         .route("/api/maintenance/force-sync", post(force_sync))
         .route("/api/maintenance/force-sync/status", get(force_sync_status))
+        .route("/api/maintenance/force-sync/cancel", post(force_sync_cancel))
         .route("/api/guest", post(guest))
         .route("/api/ssh", post(ssh_open))
         .route("/api/logs", get(logs))
@@ -400,6 +401,22 @@ async fn force_sync(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
 /// Live progress of the running Force Sync & Rebuild.
 async fn force_sync_status(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
     Json(json!({"ok": true, "status": daemon.force_sync_status()}))
+}
+
+/// Cancel the running Force Sync & Rebuild (stops the guest build, aborts
+/// the worker at the next check point).
+async fn force_sync_cancel(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    if daemon.cancel_force_sync() {
+        Json(json!({
+            "ok": true,
+            "message": "Abbruch angefordert — der Force Sync wird an der nächsten Stelle beendet.",
+        }))
+    } else {
+        Json(json!({
+            "ok": false,
+            "message": "Kein aktiver Force Sync zum Abbrechen.",
+        }))
+    }
 }
 
 #[derive(Deserialize)]

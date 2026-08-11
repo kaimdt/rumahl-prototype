@@ -309,6 +309,9 @@
           <div id="sync-bar" style="background:linear-gradient(90deg,#6366f1,#22d3ee);height:12px;width:0%;border-radius:4px;transition:width .6s ease"></div>
         </div>
         <div class="foot" id="sync-message" style="margin-top:6px">-</div>
+        <div style="margin-top:8px">
+          <button id="sync-cancel-button" class="danger small" style="display:none" onclick="cancelSync()">Cancel</button>
+        </div>
       </div>
     </div>
     </div>
@@ -1015,23 +1018,26 @@
     const phaseEl = document.getElementById('sync-phase');
     const msgEl = document.getElementById('sync-message');
     const button = document.getElementById('force-sync-button');
+    const cancelButton = document.getElementById('sync-cancel-button');
     try {
       const response = await fetch('/api/maintenance/force-sync/status');
       const result = await response.json();
       const status = (result && result.status) || {};
-      const running = status.running === true || (status.phase !== 'idle' && status.phase !== 'done' && status.phase !== 'error');
+      const running = status.running === true || (status.phase !== 'idle' && status.phase !== 'done' && status.phase !== 'error' && status.phase !== 'cancelled');
       if (!running) {
         box.style.display = 'none';
+        cancelButton.style.display = 'none';
         button.disabled = false;
         button.textContent = 'Force Sync & Rebuild';
         if (syncPollTimer) { clearInterval(syncPollTimer); syncPollTimer = null; }
-        if (status.phase === 'done' || status.phase === 'error') {
+        if (status.phase === 'done' || status.phase === 'error' || status.phase === 'cancelled') {
           message.textContent = status.message || '';
         }
         return;
       }
       // Running: show live progress + keep the button disabled.
       box.style.display = 'block';
+      cancelButton.style.display = 'inline-block';
       button.disabled = true;
       button.textContent = 'Running...';
       const phaseLabel = {
@@ -1048,6 +1054,23 @@
     } catch (error) {
       // Endpoint not reachable - keep polling lightly.
       if (!syncPollTimer) syncPollTimer = setInterval(loadSyncStatus, 5000);
+    }
+  }
+
+  async function cancelSync() {
+    const cancelButton = document.getElementById('sync-cancel-button');
+    if (!confirm('Force Sync & Rebuild abbrechen? Läuft bereits: Der Guest-Build wird gestoppt und der Sync beendet.')) return;
+    cancelButton.disabled = true;
+    cancelButton.textContent = 'Cancelling...';
+    try {
+      const response = await fetch('/api/maintenance/force-sync/cancel', { method: 'POST' });
+      const result = await response.json();
+      message.textContent = result.message || 'Cancel requested.';
+    } catch (error) {
+      message.textContent = 'cancel failed: ' + error;
+    } finally {
+      cancelButton.disabled = false;
+      cancelButton.textContent = 'Cancel';
     }
   }
 

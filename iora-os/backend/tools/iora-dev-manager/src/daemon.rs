@@ -430,16 +430,35 @@ impl Daemon {
         match &result {
             Ok(summary) => self.emit("status", summary.clone()),
             Err(error) => {
+                let cancelled = progress.cancelled();
                 let mut snapshot = progress.snapshot();
+                let message = if cancelled {
+                    "Force Sync abgebrochen.".to_string()
+                } else {
+                    format!("Force sync fehlgeschlagen: {error:#}")
+                };
                 snapshot.running = false;
-                snapshot.phase = "error".into();
-                snapshot.message = format!("Force sync fehlgeschlagen: {error:#}");
+                snapshot.phase = if cancelled { "cancelled".into() } else { "error".into() };
+                snapshot.message = message.clone();
                 snapshot.updated_at = Some(devloop::now_iso());
                 *progress.inner.lock().unwrap() = snapshot;
-                self.emit("error", format!("Force sync failed: {error:#}"));
+                self.emit(if cancelled { "status" } else { "error" }, format!("Force sync: {message}"));
             }
         }
         result
+    }
+
+    /// Request cancellation of the running Force Sync & Rebuild.
+    pub fn cancel_force_sync(&self) -> bool {
+        let guard = self.force_sync_progress.lock().unwrap();
+        match guard.as_ref() {
+            Some(progress) if progress.snapshot().running => {
+                progress.request_cancel();
+                self.emit("status", "Force Sync: Abbruch angefordert…");
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Snapshot of the running force-sync progress (idle state when none).

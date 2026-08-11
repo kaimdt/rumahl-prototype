@@ -19,7 +19,7 @@ use tokio::{process::Command, sync::mpsc};
 #[serde(default, rename_all = "camelCase")]
 pub struct SyncProgressState {
     pub running: bool,
-    /// "sync" | "build" | "restart" | "done" | "error"
+    /// "sync" | "build" | "restart" | "done" | "error" | "cancelled"
     pub phase: String,
     pub message: String,
     pub percent: Option<u8>,
@@ -29,6 +29,9 @@ pub struct SyncProgressState {
     pub services: Vec<String>,
     /// Files pushed in the sync phase.
     pub files_pushed: Option<u64>,
+    /// Set by the dashboard's Cancel button; the worker checks it between
+    /// phases and inside the build poll loop.
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,6 +52,15 @@ impl SyncProgress {
     }
     pub fn snapshot(&self) -> SyncProgressState {
         self.inner.lock().unwrap().clone()
+    }
+    pub fn request_cancel(&self) {
+        let mut state = self.inner.lock().unwrap();
+        state.cancelled = true;
+        state.message = "Abbruch angefordert — wird beendet…".into();
+        state.updated_at = Some(now_iso());
+    }
+    pub fn cancelled(&self) -> bool {
+        self.inner.lock().unwrap().cancelled
     }
 }
 
@@ -735,7 +747,13 @@ pub async fn force_full_sync(
             Some(10),
         );
     }
+    if progress.is_some_and(|p| p.cancelled()) {
+        anyhow::bail!("Force Sync abgebrochen");
+    }
     bulk_sync(repo, os_root, state, &paths).await?;
+    if progress.is_some_and(|p| p.cancelled()) {
+        anyhow::bail!("Force Sync abgebrochen");
+    }
     // 2) Rebuild every service whose sources just arrived (cargo metadata
     //    resolves the workspace + reverse dependencies). Built detached so
     //    the multi-minute compile survives SSH connection resets.
@@ -846,11 +864,20 @@ async fn run_guest_build(
     .await?;
     // Poll with short SSH calls (up to 60 min for cold workspace builds).
     // While waiting, surface the live build log tail so the dashboard can
-    // show what cargo is currently compiling.
+    // show what cargo is currently compiling. If the VM becomes unreachable
+    // (e.g. stopped by the user) the loop aborts instead of hanging until
+    // the timeout.
     let mut finished = false;
     let mut last_tail_at = std::time::Instant::now();
+    let mut ssh_failures = 0_u32;
     for _ in 0..720 {
         tokio::time::sleep(Duration::from_secs(5)).await;
+        if let Some(progress) = progress {
+            if progress.cancelled() {
+                let _ = ssh_run(state, os_root, "pkill -f 'cargo build' 2>/dev/null || true").await;
+                anyhow::bail!("Force Sync abgebrochen");
+            }
+        }
         if progress.is_some() && last_tail_at.elapsed() >= Duration::from_secs(15) {
             last_tail_at = std::time::Instant::now();
             if let Ok(tail) = ssh_run(state, os_root, &format!("tail -c 2000 {log}")).await {
@@ -865,13 +892,27 @@ async fn run_guest_build(
                 }
             }
         }
-        let running = ssh_run(
+        let running = match ssh_run(
             state,
             os_root,
             "pgrep -f 'cargo build' >/dev/null && echo RUNNING || echo DONE",
         )
         .await
-        .unwrap_or_else(|_| "RUNNING".to_string());
+        {
+            Ok(output) => {
+                ssh_failures = 0;
+                output
+            }
+            Err(_) => {
+                // Guest unreachable (VM stopped / SSH broken): abort quickly
+                // instead of pretending the build is still running.
+                ssh_failures += 1;
+                if ssh_failures >= 3 {
+                    anyhow::bail!("VM nicht erreichbar — Force Sync abgebrochen (läuft die VM?)");
+                }
+                "RUNNING".to_string()
+            }
+        };
         if running.trim() == "DONE" {
             finished = true;
             break;
