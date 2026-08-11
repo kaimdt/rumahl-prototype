@@ -884,7 +884,8 @@
         "enable": "{{name}} enabled.",
         "disable": "{{name}} disabled.",
         "uninstall": "{{name}} uninstalled."
-      }
+      },
+      "installingDescription": "This app is being installed — it will appear as installed automatically once the process finishes."
     },
     "appStore": {
       "title": "Discover more for your ORA OS",
@@ -906,7 +907,6 @@
       "comingSoon": "Coming soon",
       "catalog": {
         "nextcloud": "Your own cloud: files, calendar, contacts & more — fully self-hosted in a Docker container on your IORA OS.",
-        "webbrowser": "A full Firefox running in a container on your server — open it in a window and browse like on your own machine. Keeps running when you close the page.",
         "jellyfin": "Stream your own films, series, music, and photos from a private media server.",
         "vaultwarden": "A lightweight, private password manager compatible with Bitwarden clients.",
         "uptime-kuma": "Monitor websites and services with a beautiful self-hosted status dashboard.",

@@ -632,6 +632,74 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
     Ok(())
 }
 
+/// Explicit "Force Sync & Rebuild" (dashboard button): transfer every
+/// relevant source file UNCONDITIONALLY (no drift check - repairs mtime
+/// skew and missed watcher events), then rebuild all affected IORA services
+/// in the guest (cargo build, offline) and restart them. Returns a summary
+/// line; the caller decides how long to wait / where to surface progress.
+pub async fn force_full_sync(
+    repo: &Path,
+    os_root: &Path,
+    state: &RuntimeState,
+) -> Result<String> {
+    let started = std::time::Instant::now();
+    if !state.process_alive() {
+        anyhow::bail!("VM is not running - start it before forcing a sync");
+    }
+    // 1) Push EVERY relevant file (not just the drift set).
+    let files = collect_local_files(repo);
+    let paths: Vec<PathBuf> = files
+        .iter()
+        .map(|(relative, _, _)| repo.join(relative))
+        .collect();
+    if paths.is_empty() {
+        anyhow::bail!("no synchronizable files found in {}", repo.display());
+    }
+    bulk_sync(repo, os_root, state, &paths).await?;
+    // 2) Rebuild every service whose sources just arrived (cargo metadata
+    //    resolves the workspace + reverse dependencies).
+    let backend = os_root.join("backend");
+    let services = affected_services(&backend, &paths).await?;
+    let mut rebuilt: Vec<String> = Vec::new();
+    for service in &services {
+        let command = format!(
+            "cd /home/iora/iora/iora-os/backend && sudo -u iora bash -c 'cd /home/iora/iora/iora-os/backend && HOME=/home/iora /home/iora/.cargo/bin/cargo build -p {} --offline'",
+            shell_quote(service)
+        );
+        ssh_run(state, os_root, &command).await?;
+        rebuilt.push(service.clone());
+    }
+    // 3) Restart the rebuilt services (create the unit on demand, exactly
+    //    like the live-update path does).
+    for service in &rebuilt {
+        let unit = format!("{service}.service");
+        let restart = format!(
+            "if ! systemctl cat {} >/dev/null 2>&1; then printf %s {} > /etc/systemd/system/{} && systemctl daemon-reload && systemctl enable {}; fi && systemctl restart {} && systemctl is-active --quiet {}",
+            shell_quote(&unit),
+            shell_quote(&native_unit(service)),
+            shell_quote(&unit),
+            shell_quote(&unit),
+            shell_quote(&unit),
+            shell_quote(&unit)
+        );
+        let _ = ssh_run(state, os_root, &restart).await;
+    }
+    // 4) Frontend dev server picks up config/package changes.
+    let _ = ssh_run(
+        state,
+        os_root,
+        "systemctl restart iora-frontend-dev 2>/dev/null || true",
+    )
+    .await;
+    Ok(format!(
+        "Force sync: {} file(s) pushed, {} service(s) rebuilt & restarted ({}) in {:.0}s",
+        paths.len(),
+        rebuilt.len(),
+        rebuilt.join(", "),
+        started.elapsed().as_secs_f64()
+    ))
+}
+
 async fn affected_services(backend: &Path, changed: &[PathBuf]) -> Result<Vec<String>> {
     let output = Command::new("cargo")
         .args(["metadata", "--format-version", "1"])

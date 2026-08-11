@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   Cube, Lightning, Plus, Play, Pause, Stop, TrashSimple, ShieldCheck,
-  DownloadSimple, Upload, MagnifyingGlass, Gear, Check, X,
+  DownloadSimple, Upload, MagnifyingGlass, Gear, Check,
   ShieldWarning, Package, ArrowClockwise, Info, Warning,
   Stack, CubeFocus, Sparkle, PuzzlePiece, MusicNotes, ChartBar,
   VideoCamera, Broom, Lightbulb, CalendarBlank, SpeakerHigh, Plant,
@@ -45,6 +45,8 @@ interface AppInfo {
   developer: string
   description: string
   icon?: string
+  /** Synthetic entry for an app whose install job is still running. */
+  installing?: boolean
   trust_level: 'trusted' | 'untrusted' | 'verified'
   enabled: boolean
   autostart?: boolean
@@ -154,6 +156,26 @@ export function AppStoreTab({ token }: { token: string }) {
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [integrations, setIntegrations] = useState<AppIntegrationInfo[]>([])
+  // Apps currently being installed: surfaced directly in the installed list
+  // (instead of a separate progress bar) so the user always sees them.
+  const { activeJobs } = useInstalledApps()
+  const installingApps = useMemo<AppInfo[]>(() => activeJobs
+    .filter((job) => job.appId && !apps.some((app) => app.id === job.appId))
+    .map((job) => ({
+      id: job.appId as string,
+      name: job.appName || job.appId || '…',
+      version: '',
+      developer: '',
+      description: '',
+      trust_level: 'untrusted' as const,
+      enabled: false,
+      status: 'installing',
+      installed_at: '',
+      source: 'zip',
+      kind: 'app' as const,
+      icon: undefined,
+      installing: true,
+    })), [activeJobs, apps])
   // App detail dialog
   const [detailAppId, setDetailAppId] = useState<string | null>(null)
   // App to highlight/select in the store view ("Im App Store anzeigen").
@@ -220,6 +242,25 @@ export function AppStoreTab({ token }: { token: string }) {
         }
       } catch { /* ignore */ }
       let appList = data.apps || []
+
+      // Final dedupe by id: the supervisor may report several containers for
+      // the same app id (leftover containers of a re-install) and merging two
+      // lists above can also produce duplicates. Without this, the same app
+      // shows up multiple times in the installed view. The richest entry
+      // (one that has a runtime status and is enabled) wins.
+      {
+        const byId = new Map<string, AppInfo>()
+        for (const app of appList) {
+          const existing = byId.get(app.id)
+          if (!existing) { byId.set(app.id, app); continue }
+          const rank = (candidate: AppInfo) =>
+            (candidate.status === 'running' ? 4 : candidate.status ? 2 : 0) +
+            (candidate.enabled ? 2 : 0) +
+            (candidate.trust_level === 'trusted' ? 1 : 0)
+          if (rank(app) > rank(existing)) byId.set(app.id, app)
+        }
+        appList = [...byId.values()]
+      }
 
       // Ensure the IORA Developer App appears when developer mode is active,
       // even if the backend hasn't registered it properly (frontend fallback).
@@ -368,16 +409,15 @@ export function AppStoreTab({ token }: { token: string }) {
 
       <main className="min-w-0 space-y-4">
 
-      {/* Installed Apps View */}
+      {/* Installed Apps View — installing apps appear inline in the list */}
       {view === 'installed' && (
         <>
-          <InstallProgressList token={token} onJobComplete={loadInstalled} />
           {loading ? (
             <LoadingSpinner />
           ) : error ? (
             <ErrorMessage>{error}</ErrorMessage>
           ) : (
-            <InstalledAppsView apps={apps} integrations={integrations} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} onAppClick={setDetailAppId} />
+            <InstalledAppsView apps={apps} installingApps={installingApps} integrations={integrations} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} onAppClick={setDetailAppId} />
           )}
         </>
       )}
@@ -418,6 +458,7 @@ export function AppStoreTab({ token }: { token: string }) {
 
 function InstalledAppsView({
   apps,
+  installingApps,
   integrations,
   token,
   onReload,
@@ -426,6 +467,8 @@ function InstalledAppsView({
   onAppClick,
 }: {
   apps: AppInfo[]
+  /** Synthetic "installing" entries for running install jobs. */
+  installingApps: AppInfo[]
   integrations: AppIntegrationInfo[]
   token: string
   onReload: () => void
@@ -435,6 +478,7 @@ function InstalledAppsView({
 }) {
   const { t, i18n } = useTranslation()
   const locale = i18n.language?.startsWith('de') ? 'de-DE' : 'en-US'
+  const { navigateToPage } = usePageNavigation()
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | 'app' | 'plugin' | 'system'>('all')
   const [installedSearch, setInstalledSearch] = useState('')
@@ -449,6 +493,12 @@ function InstalledAppsView({
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(query)))
   }), [apps, installedSearch, kindFilter])
+
+  // Installing jobs first, then the installed apps (deduplicated by id).
+  const visibleApps = useMemo(() => {
+    const ids = new Set(installingApps.map((app) => app.id))
+    return [...installingApps, ...filteredApps.filter((app) => !ids.has(app.id))]
+  }, [installingApps, filteredApps])
 
   const runningCount = apps.filter((app) => app.status === 'running').length
   const attentionCount = apps.filter((app) => ['error', 'failed', 'crashed', 'unhealthy'].includes(app.status || '')).length
@@ -545,30 +595,33 @@ function InstalledAppsView({
           <h3 className="mt-4 text-base font-semibold">{t('apps.installedManagement.emptyTitle')}</h3>
           <p className="mt-1 max-w-sm text-sm text-foreground/45">{t('apps.installedManagement.emptyDescription')}</p>
         </div>
-      ) : filteredApps.length === 0 ? (
+      ) : filteredApps.length === 0 && installingApps.length === 0 ? (
         <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.025] p-10 text-center text-sm text-foreground/45">{t('apps.overview.noFilteredEntries')}</div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          {filteredApps.map((app) => {
+          {visibleApps.map((app) => {
             const integration = integrationsByApp.get(app.id)
             const busy = actionLoading?.endsWith(`-${app.id}`) || actionLoading === `uninstall-${app.id}`
             const running = app.status === 'running'
+            const installing = app.installing === true || app.status === 'installing'
             const portCount = app.ports?.length || 0
             return (
-              <article key={app.id} className="group relative overflow-hidden rounded-[1.6rem] border border-white/10 bg-gradient-to-br from-foreground/[0.065] to-foreground/[0.025] p-5 shadow-xl shadow-black/10 backdrop-blur-2xl transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-2xl">
-                <button type="button" onClick={() => onAppClick(app.id)} className="flex w-full items-start gap-4 text-left focus-ring rounded-xl">
+              <article key={app.id} className={`group relative overflow-hidden rounded-[1.6rem] border p-5 shadow-xl shadow-black/10 backdrop-blur-2xl transition duration-200 ${installing ? 'border-amber-400/20 bg-amber-400/[0.04]' : 'border-white/10 bg-gradient-to-br from-foreground/[0.065] to-foreground/[0.025] hover:-translate-y-0.5 hover:border-white/20 hover:shadow-2xl'}`}>
+                <button type="button" onClick={() => { if (!installing) onAppClick(app.id) }} className={`flex w-full items-start gap-4 text-left focus-ring rounded-xl ${installing ? 'cursor-default' : ''}`}>
                   <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-accent/35 to-accent/10 text-accent shadow-lg ring-1 ring-white/10">
-                    {app.icon ? <img src={app.icon} alt="" className="h-full w-full object-cover" /> : <Cube size={30} weight="duotone" />}
+                    {app.icon ? <img src={app.icon} alt="" className="h-full w-full object-cover" /> : installing ? <InlineSpinner size={26} /> : <Cube size={30} weight="duotone" />}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <strong className="truncate text-base font-semibold text-foreground">{app.name}</strong>
-                      <AppStatusBadge status={app.status} compact />
+                      {installing
+                        ? <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[9px] font-semibold text-amber-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />{t('apps.appStore.installing', { name: '' }).trim()}</span>
+                        : <AppStatusBadge status={app.status} compact />}
                     </span>
                     <span className="mt-1 block truncate text-xs text-foreground/45">{t('apps.installedManagement.versionByDeveloper', { version: app.version, developer: app.developer || 'ORA OS' })}</span>
-                    <span className="mt-2 line-clamp-2 block text-xs leading-relaxed text-foreground/50">{app.description}</span>
+                    <span className="mt-2 line-clamp-2 block text-xs leading-relaxed text-foreground/50">{installing ? t('apps.installedManagement.installingDescription') : app.description}</span>
                   </span>
-                  <CaretRight size={18} className="mt-1 shrink-0 text-foreground/25 transition-transform group-hover:translate-x-0.5" />
+                  <CaretRight size={18} className={`mt-1 shrink-0 text-foreground/25 transition-transform ${installing ? '' : 'group-hover:translate-x-0.5'}`} />
                 </button>
 
                 <div className="mt-4 grid grid-cols-2 gap-2 border-y border-white/[0.07] py-3 sm:grid-cols-4">
@@ -583,20 +636,21 @@ function InstalledAppsView({
                   {app.is_bundle && <span className="inline-flex items-center gap-1 rounded-full bg-violet-400/10 px-2 py-1 text-violet-300"><Stack size={11} />{t('apps.installedManagement.bundle')}</span>}
                   {app.system && <span className="inline-flex items-center gap-1 rounded-full bg-sky-400/10 px-2 py-1 text-sky-300"><ShieldCheck size={11} />{t('apps.systemApp')}</span>}
                   {(integration?.surfaces?.length || 0) > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-cyan-400/10 px-2 py-1 text-cyan-300"><Lightning size={11} />{integration?.surfaces?.length} {t('apps.overview.integrations')}</span>}
-                  <span className="ml-auto">{t('apps.overview.installedAt')}: {new Date(app.installed_at).toLocaleDateString(locale)}</span>
+                  <span className="ml-auto">{installing ? t('apps.appStore.installing', { name: '' }).trim() : `${t('apps.overview.installedAt')}: ${new Date(app.installed_at).toLocaleDateString(locale)}`}</span>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                  {running && <button type="button" onClick={() => { window.location.href = `/app/${encodeURIComponent(app.id)}` }} className="ora-primary-button"><ArrowSquareOut size={14} />{t('apps.installedManagement.open')}</button>}
-                  {!app.system && (running
+                  {installing && <span className="inline-flex min-h-[2.65rem] items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-3 text-xs font-semibold text-amber-300"><InlineSpinner size={13} />{t('apps.appStore.installing', { name: '' }).trim()}</span>}
+                  {!installing && running && <button type="button" onClick={() => { window.location.href = `/app/${encodeURIComponent(app.id)}` }} className="ora-primary-button"><ArrowSquareOut size={14} />{t('apps.installedManagement.open')}</button>}
+                  {!installing && !app.system && (running
                     ? <button type="button" disabled={busy} onClick={() => void runAction(app, 'stop')} className="ora-secondary-button">{actionLoading === `stop-${app.id}` ? <InlineSpinner size={13} /> : <Stop size={14} />}{t('apps.installedManagement.stop')}</button>
                     : <button type="button" disabled={busy || app.status === 'starting' || app.status === 'installing'} onClick={() => void runAction(app, 'start')} className="ora-primary-button">{actionLoading === `start-${app.id}` ? <InlineSpinner size={13} /> : <Play size={14} />}{t('apps.installedManagement.start')}</button>)}
-                  {!app.system && running && <button type="button" disabled={busy} onClick={() => void runAction(app, 'restart')} className="ora-secondary-button">{actionLoading === `restart-${app.id}` ? <InlineSpinner size={13} /> : <ArrowClockwise size={14} />}{t('apps.installedManagement.restart')}</button>}
-                  {!app.system && running && (app.docker || app.docker_config || app.is_bundle) && <button type="button" disabled={busy} onClick={() => void runAction(app, 'pause')} className="ora-secondary-button">{actionLoading === `pause-${app.id}` ? <InlineSpinner size={13} /> : <Pause size={14} />}{t('apps.installedManagement.pause')}</button>}
-                  {!app.system && <button type="button" disabled={busy} onClick={() => void runAction(app, app.enabled ? 'disable' : 'enable')} className="ora-secondary-button">{actionLoading === `${app.enabled ? 'disable' : 'enable'}-${app.id}` ? <InlineSpinner size={13} /> : app.enabled ? <Pause size={14} /> : <Play size={14} />}{t(`apps.installedManagement.${app.enabled ? 'disable' : 'enable'}`)}</button>}
-                  <button type="button" onClick={() => { window.location.href = `/app-settings/${encodeURIComponent(app.id)}` }} className="ora-secondary-button"><Gear size={14} />{t('settings.title')}</button>
-                  {!app.system && <button type="button" disabled={busy} onClick={() => void uninstallApp(app)} className="inline-flex min-h-[2.65rem] items-center gap-2 rounded-xl border border-red-400/15 bg-red-400/[0.07] px-3 text-xs font-semibold text-red-300 transition hover:bg-red-400/15 disabled:opacity-40">{actionLoading === `uninstall-${app.id}` ? <InlineSpinner size={13} /> : <TrashSimple size={14} />}{t('apps.installedManagement.uninstall')}</button>}
-                  {app.system && isOsDev && <button type="button" disabled={busy} onClick={() => void uninstallApp(app, true)} className="inline-flex min-h-[2.65rem] items-center gap-2 rounded-xl border border-amber-400/15 bg-amber-400/[0.07] px-3 text-xs font-semibold text-amber-300 transition hover:bg-amber-400/15 disabled:opacity-40"><TrashSimple size={14} />{t('apps.installedManagement.forceUninstall')}</button>}
+                  {!installing && !app.system && running && <button type="button" disabled={busy} onClick={() => void runAction(app, 'restart')} className="ora-secondary-button">{actionLoading === `restart-${app.id}` ? <InlineSpinner size={13} /> : <ArrowClockwise size={14} />}{t('apps.installedManagement.restart')}</button>}
+                  {!installing && !app.system && running && (app.docker || app.docker_config || app.is_bundle) && <button type="button" disabled={busy} onClick={() => void runAction(app, 'pause')} className="ora-secondary-button">{actionLoading === `pause-${app.id}` ? <InlineSpinner size={13} /> : <Pause size={14} />}{t('apps.installedManagement.pause')}</button>}
+                  {!installing && !app.system && <button type="button" disabled={busy} onClick={() => void runAction(app, app.enabled ? 'disable' : 'enable')} className="ora-secondary-button">{actionLoading === `${app.enabled ? 'disable' : 'enable'}-${app.id}` ? <InlineSpinner size={13} /> : app.enabled ? <Pause size={14} /> : <Play size={14} />}{t(`apps.installedManagement.${app.enabled ? 'disable' : 'enable'}`)}</button>}
+                  {!installing && <button type="button" onClick={() => { navigateToPage('settings', `apps/${encodeURIComponent(app.id)}`) }} className="ora-secondary-button"><Gear size={14} />{t('settings.title')}</button>}
+                  {!installing && !app.system && <button type="button" disabled={busy} onClick={() => void uninstallApp(app)} className="inline-flex min-h-[2.65rem] items-center gap-2 rounded-xl border border-red-400/15 bg-red-400/[0.07] px-3 text-xs font-semibold text-red-300 transition hover:bg-red-400/15 disabled:opacity-40">{actionLoading === `uninstall-${app.id}` ? <InlineSpinner size={13} /> : <TrashSimple size={14} />}{t('apps.installedManagement.uninstall')}</button>}
+                  {!installing && app.system && isOsDev && <button type="button" disabled={busy} onClick={() => void uninstallApp(app, true)} className="inline-flex min-h-[2.65rem] items-center gap-2 rounded-xl border border-amber-400/15 bg-amber-400/[0.07] px-3 text-xs font-semibold text-amber-300 transition hover:bg-amber-400/15 disabled:opacity-40"><TrashSimple size={14} />{t('apps.installedManagement.forceUninstall')}</button>}
                 </div>
               </article>
             )
@@ -1858,157 +1912,6 @@ function ZipUploadView({
             </>
           )}
         </button>
-      </div>
-    </AdminCard>
-  )
-}
-
-// ── Install Progress List ────────────────────────────────────────────────
-
-interface InstallJob {
-  id: string
-  file_name: string
-  size_bytes: number
-  status: 'pending' | 'extracting' | 'validating' | 'installing' | 'succeeded' | 'failed' | 'canceled'
-  progress: number
-  message: string
-  app_id?: string | null
-  app_name?: string | null
-  app_version?: string | null
-  started_at: string
-  finished_at?: string | null
-  error?: string | null
-  log?: string[]
-}
-
-function InstallProgressList({ token, onJobComplete }: { token: string; onJobComplete: () => void }) {
-  const [jobs, setJobs] = useState<InstallJob[]>([])
-  const [activeCount, setActiveCount] = useState(0)
-  const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    let lastSucceeded = 0
-
-    const tick = async () => {
-      try {
-        const data = await adminFetch('/api/appstore/jobs', token) as { jobs: InstallJob[]; active: number }
-        if (cancelled) return
-        const list = data.jobs ?? []
-        const succeededNow = list.filter(j => j.status === 'succeeded').length
-        if (succeededNow > lastSucceeded) onJobComplete()
-        lastSucceeded = succeededNow
-        setJobs(list)
-        setActiveCount(data.active ?? 0)
-      } catch {
-        /* swallow — endpoint may temporarily be down */
-      }
-    }
-
-    tick()
-    const interval = setInterval(tick, 1500)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [token, onJobComplete])
-
-  // Hide entirely when there's no history.
-  const visibleJobs = jobs.slice(0, 8)
-  if (visibleJobs.length === 0) return null
-
-  const statusLabel = (s: InstallJob['status']) => ({
-    pending: 'Warten',
-    extracting: 'Entpacken',
-    validating: 'Prüfen',
-    installing: 'Installieren',
-    succeeded: 'Fertig',
-    failed: 'Fehler',
-    canceled: 'Abgebrochen',
-  }[s])
-
-  const statusColor = (s: InstallJob['status']) => {
-    switch (s) {
-      case 'succeeded': return 'bg-green-500/15 text-green-300'
-      case 'failed': return 'bg-red-500/15 text-red-300'
-      case 'canceled': return 'bg-foreground/10 text-foreground/40'
-      default: return 'bg-blue-500/15 text-blue-300'
-    }
-  }
-
-  const barColor = (s: InstallJob['status']) =>
-    s === 'failed' ? 'bg-red-400' : s === 'succeeded' ? 'bg-green-400' : 'bg-accent'
-
-  const canClear = (s: InstallJob['status']) => ['succeeded', 'failed', 'canceled'].includes(s)
-
-  const clearJob = async (jobId: string) => {
-    try {
-      await adminFetch(`/api/appstore/jobs/${encodeURIComponent(jobId)}`, token, { method: 'DELETE' })
-      setJobs(current => current.filter(job => job.id !== jobId))
-      toast.success('Installationseintrag entfernt')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  return (
-    <AdminCard
-      title={activeCount > 0 ? `App-Installationen (${activeCount} aktiv)` : 'Letzte Installationen'}
-      icon={DownloadSimple}
-    >
-      <div className="space-y-2">
-        {visibleJobs.map(job => (
-          <div key={job.id} className="p-2.5 rounded-lg bg-foreground/3 border border-foreground/5">
-            <div className="flex items-center justify-between gap-2 mb-1.5">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold text-foreground truncate">
-                  {job.app_name ?? job.file_name}
-                  {job.app_version && (
-                    <span className="ml-1.5 text-[10px] text-foreground/40 font-normal">v{job.app_version}</span>
-                  )}
-                </div>
-                <div className="text-[10px] text-foreground/50 truncate">{job.message}</div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${statusColor(job.status)}`}>
-                  {statusLabel(job.status)} {job.progress > 0 && job.status !== 'succeeded' ? `· ${job.progress}%` : ''}
-                </span>
-                {canClear(job.status) && (
-                  <button
-                    type="button"
-                    onClick={() => clearJob(job.id)}
-                    className="p-1 rounded text-foreground/35 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                    title="Eintrag aus Letzte Installationen entfernen"
-                  >
-                    <X size={12} weight="bold" />
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${barColor(job.status)}`}
-                style={{ width: `${Math.max(2, Math.min(100, job.status === 'succeeded' ? 100 : job.progress))}%` }}
-              />
-            </div>
-            {job.error && (
-              <div className="mt-1.5 text-[10px] text-red-300/90 truncate" title={job.error}>
-                {job.error}
-              </div>
-            )}
-          </div>
-        ))}
-        {jobs.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setOpen(o => !o)}
-            className="text-[10px] text-foreground/50 hover:text-foreground/80"
-          >
-            {open ? 'Details ausblenden' : `${jobs.length} Einträge insgesamt`}
-          </button>
-        )}
-        {open && (
-          <pre className="text-[10px] text-foreground/60 bg-foreground/[0.02] rounded p-2 max-h-60 overflow-auto">
-            {jobs.flatMap(j => (j.log ?? []).map(l => `[${j.id.slice(0, 8)}] ${l}`)).join('\n')}
-          </pre>
-        )}
       </div>
     </AdminCard>
   )

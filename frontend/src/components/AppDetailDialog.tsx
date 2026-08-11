@@ -485,7 +485,8 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
   const openSettings = () => {
     if (!appId) return
-    window.location.href = `/app-settings/${appId}`
+    // Deep link into the Settings app's per-app detail view.
+    window.location.href = `/settings/apps/${encodeURIComponent(appId)}`
   }
 
   const savePermissions = async () => {

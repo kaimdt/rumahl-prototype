@@ -5,6 +5,59 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Persistent Dev Manager configuration (`dev-manager.json` in the iora-os
+/// root). Controls VM sizing for NEW disk creations (first boot / reinstall)
+/// and the live VM defaults. The dashboard edits this via `/api/settings`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DevManagerConfig {
+    /// Virtual disk size for newly created VM disks (GB).
+    pub default_disk_gb: u64,
+    /// RAM for the VM when no IORA_DEV_RAM env override is set (GB).
+    pub default_ram_gb: u64,
+    /// vCPU count when no IORA_DEV_CPUS env override is set.
+    pub default_cpus: u32,
+    /// Auto-start the VM when the daemon boots.
+    pub autostart: bool,
+    /// SFTP user for the guest file access link (default root).
+    pub sftp_user: String,
+    /// Extra host ports forwarded to the guest (comma separated).
+    pub extra_ports: String,
+}
+
+impl Default for DevManagerConfig {
+    fn default() -> Self {
+        Self {
+            default_disk_gb: 40,
+            default_ram_gb: 8,
+            default_cpus: 4,
+            autostart: false,
+            sftp_user: "root".into(),
+            extra_ports: String::new(),
+        }
+    }
+}
+
+impl DevManagerConfig {
+    pub fn load(root: &Path) -> Self {
+        fs::read_to_string(root.join(CONFIG_FILE))
+            .ok()
+            .and_then(|value| serde_json::from_str(&value).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, root: &Path) -> Result<()> {
+        let path = root.join(CONFIG_FILE);
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, serde_json::to_vec_pretty(self)?)?;
+        fs::rename(temporary, path)?;
+        Ok(())
+    }
+}
+
+pub const CONFIG_FILE: &str = "dev-manager.json";
+
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkMode {

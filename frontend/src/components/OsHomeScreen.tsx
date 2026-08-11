@@ -86,7 +86,7 @@ export function OsHomeScreen() {
   const { pages, setCurrentPageId } = usePageNavigation()
   const { permissions } = useOsPermissions()
   const { backend, homeAssistant } = useConnection()
-  const { installedApps, activeJobs } = useInstalledApps()
+  const { installedApps } = useInstalledApps()
   const [sysStats, setSysStats] = useState<{ cpu: number; mem: number; hostname: string } | null>(null)
 
   const [query, setQuery] = useState('')
@@ -368,7 +368,7 @@ export function OsHomeScreen() {
     },
   }
 
-  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} installJobs={activeJobs} />
+  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} />
 
   return (
     <section
@@ -532,37 +532,8 @@ export function OsHomeScreen() {
         {storeWidgets.length > 0 && <><p className="mb-2 mt-4 px-1 text-xs font-semibold uppercase tracking-wider text-foreground/45">{t('os.launcher.storeWidgets')}</p><div className="grid grid-cols-2 gap-2">{storeWidgets.map((widget) => { const enabled = widgetIds.includes(widget.id); return <button key={widget.id} type="button" onClick={() => toggleWidget(widget.id)} className={`min-h-16 rounded-xl border p-3 text-left ${enabled ? 'border-accent/50 bg-accent/10' : 'border-foreground/10 bg-foreground/5'}`}><span className="block truncate text-xs font-semibold">{widget.name}</span><span className="mt-1 flex items-center justify-between text-[10px] text-foreground/40"><span className="truncate">{widget.sourceAppId}</span>{enabled && <Check size={14} className="shrink-0 text-accent" />}</span></button> })}</div></>}
       </div>}
 
-      {/* Install progress — compact pill above the dock so it never blocks content */}
-      <AnimatePresence>
-        {activeJobs.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            className="fixed bottom-[calc(max(0.9rem,env(safe-area-inset-bottom))+4.6rem)] left-1/2 z-[59] w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2"
-          >
-            <div className="glass-card overflow-hidden rounded-2xl border border-foreground/10 px-4 py-3 shadow-2xl shadow-black/30">
-              {activeJobs.slice(0, 3).map((job) => (
-                <div key={job.id} className="flex items-center gap-3 py-1">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold text-white" style={{ background: appGradient(job.appId || 'app') }}>
-                    {(job.appName || job.appId || '?').charAt(0).toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-semibold text-foreground">{job.appName || job.appId || t('os.launcher.installingApp')}</p>
-                    <div className="mt-1 h-1 overflow-hidden rounded-full bg-foreground/10">
-                      <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${Math.max(3, Math.min(100, job.progress))}%` }} />
-                    </div>
-                  </div>
-                  <span className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground/55">{Math.round(job.progress)}%</span>
-                </div>
-              ))}
-              {activeJobs.length > 3 && (
-                <p className="pt-1 text-center text-[10px] text-foreground/40">+{activeJobs.length - 3} {t('os.launcher.moreInstalls')}</p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Install progress removed: installing apps now appear directly in
+          the installed-apps list (Admin → Apps) instead of a floating bar. */}
 
       <AnimatePresence>{settingsOpen && <><motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSettingsOpen(false)} className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm" aria-label={t('common.close')} /><motion.aside initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} className="glass-card fixed inset-y-0 right-0 z-[81] w-[min(26rem,100vw)] overflow-y-auto border-l border-white/10 p-5 pt-[max(1.25rem,env(safe-area-inset-top))]"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.18em] text-accent">ORA OS</p><h2 className="mt-1 text-xl font-semibold">{t('os.launcher.customize')}</h2></div><button type="button" onClick={() => setSettingsOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-foreground/10" aria-label={t('common.close')}><X size={20} /></button></div><p className="mt-6 text-xs font-semibold uppercase tracking-wider text-foreground/45">{t('os.launcher.choose')}</p><div className="mt-3 space-y-2">{([{ id: 'default', name: t('os.launcher.defaultName'), base: 'default' }, { id: 'deck', name: t('os.launcher.deckName'), base: 'deck' }, { id: 'canvas', name: t('os.launcher.canvasName'), base: 'canvas' }] as Array<{ id: string; name: string; base: BuiltInLauncher }>).concat(customLaunchers).map((item) => <button key={item.id} type="button" onClick={() => selectLauncher(item.id)} className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border p-3 text-left ${launcherId === item.id ? 'border-accent/50 bg-accent/10' : 'border-foreground/10 bg-foreground/5'}`}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground/8">{item.base === 'default' ? <SquaresFour size={18} /> : item.base === 'deck' ? <ArrowRight size={18} /> : <House size={18} />}</span><span className="flex-1 text-sm font-semibold">{item.name}</span>{launcherId === item.id && <Check size={18} className="text-accent" />}</button>)}</div><input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void installLauncher(file) }} /><button type="button" onClick={() => fileInput.current?.click()} className="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-foreground/20 text-sm text-foreground/65 hover:bg-foreground/5"><UploadSimple size={18} />{t('os.launcher.install')}</button><div className="mt-4 rounded-2xl bg-foreground/5 p-4 text-xs leading-relaxed text-foreground/45"><Plus size={17} className="mb-2 text-accent" />{t('os.launcher.installHint')}</div></motion.aside></>}</AnimatePresence>
     </section>

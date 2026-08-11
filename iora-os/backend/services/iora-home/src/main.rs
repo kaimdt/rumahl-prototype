@@ -1221,6 +1221,30 @@ async fn main() -> anyhow::Result<()> {
             if let Err(e) = store.set_streaming_app(true).await {
                 warn!("bootstrap: streaming-app registration failed: {e:#}");
             }
+            // Legacy cleanup: the old "IORA Browser" (webbrowser,
+            // jlesage/firefox container) was removed from the store catalog
+            // and replaced by the global iora-browserd based "ORA Browser"
+            // (ora-browser). VMs provisioned before that change can still
+            // hold the legacy app entry + its compose containers, which
+            // makes the browser appear as installed multiple times (once as
+            // webbrowser, once as ora-browser, plus stale containers).
+            // Remove the legacy entry once on every boot (idempotent).
+            {
+                let legacy_installed = store.list().await.iter().any(|a| a.id == "webbrowser");
+                if legacy_installed {
+                    if let Err(e) = store.uninstall_force("webbrowser").await {
+                        warn!("bootstrap: legacy webbrowser app removal failed: {e:#}");
+                    } else {
+                        info!("bootstrap: removed legacy 'webbrowser' app (replaced by ora-browser)");
+                    }
+                }
+                for prefix in ["iora-app-", "iora-bundle-"] {
+                    let _ = tokio::process::Command::new("docker")
+                        .args(["compose", "-p", &format!("{prefix}webbrowser"), "down"])
+                        .output()
+                        .await;
+                }
+            }
         });
     }
 
@@ -7222,6 +7246,39 @@ async fn local_appstore_app_delete(
     result.map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
     // Best-effort: drop any capabilities this app registered with iora-assist.
     spawn_remove_app_capabilities(state.clone(), app_id.clone());
+    // Remove leftover containers so the supervisor app list (which enumerates
+    // every container labelled `iora.type=app`) cannot resurrect the app as
+    // "installed" after the uninstall. Compose projects are already down;
+    // also remove standalone containers created by the supervisor path.
+    {
+        let filter = format!("label=iora.app.id={app_id}");
+        let list = tokio::process::Command::new("docker")
+            .args(["ps", "-aq", "--filter", &filter])
+            .output()
+            .await;
+        if let Ok(list) = list {
+            let ids: Vec<String> = String::from_utf8_lossy(&list.stdout)
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(String::from)
+                .collect();
+            if !ids.is_empty() {
+                let mut command = tokio::process::Command::new("docker");
+                command.arg("rm").arg("-f");
+                command.args(&ids);
+                if let Ok(output) = command.output().await {
+                    info!(
+                        "uninstall: removed {} leftover container(s) of '{app_id}'",
+                        String::from_utf8_lossy(&output.stdout).lines().count()
+                    );
+                }
+            }
+        }
+    }
+    // Finished install jobs of this app must not linger: a "succeeded" job
+    // would otherwise re-trigger the frontend auto-start/progress logic.
+    let _ = state.local_appstore.clear_jobs_for_app(&app_id).await;
     Ok(Json(
         json!({ "success": true, "app_id": app_id, "force": force }),
     ))
@@ -10083,7 +10140,8 @@ async fn app_proxy_handler(
             // App URL: custom pages first, then the exposed host port
             // (the standard Docker-app shape: http://localhost:<external>).
             // Stored ports may be stale/empty, so fall back to a live
-            // docker-compose lookup.
+            // docker-compose lookup and finally to the manifest-declared
+            // ports (local non-Docker apps like the ORA Browser).
             let proxy_url = app
                 .custom_pages
                 .first()
@@ -10094,7 +10152,13 @@ async fn app_proxy_handler(
                         .map(|port| format!("http://localhost:{}", port.external))
                 })
                 .or_else(|| {
-                    None
+                    app.manifest
+                        .extra
+                        .get("ports")
+                        .and_then(|ports| ports.as_array())
+                        .and_then(|ports| ports.first())
+                        .and_then(|port| port.get("external").and_then(|v| v.as_u64()))
+                        .map(|external| format!("http://localhost:{external}"))
                 });
             let proxy_url = if proxy_url.is_some() {
                 proxy_url

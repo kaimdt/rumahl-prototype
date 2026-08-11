@@ -47,11 +47,20 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/monitoring", get(monitoring))
         .route("/api/maintenance/config-sync", post(config_sync))
         .route("/api/maintenance/docker-compose", post(install_docker_compose))
+        .route("/api/maintenance/force-sync", post(force_sync))
         .route("/api/guest", post(guest))
         .route("/api/ssh", post(ssh_open))
         .route("/api/logs", get(logs))
         .route("/api/logs/stream", get(log_stream))
         .route("/ws/ssh", get(ws_ssh))
+        // Disk management: inspect the VM disk and expand it (live via QMP
+        // when the VM runs, qemu-img when stopped, guest grow via QGA).
+        .route("/api/disk", get(disk_info))
+        .route("/api/disk/resize", post(disk_resize))
+        // Persistent Dev Manager settings (dev-manager.json).
+        .route("/api/settings", get(settings_get).post(settings_set))
+        // SFTP key download (private key of the guest SSH channel).
+        .route("/api/sftp/key", get(sftp_key))
         .fallback(novnc_fallback)
         .with_state(daemon)
 }
@@ -351,6 +360,166 @@ async fn ssh_open(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
         Ok(()) => Json(json!({"ok": true, "message": "SSH session closed"})),
         Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
     }
+}
+
+/// Current VM disk information (virtual + on-disk size).
+async fn disk_info(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    let manager = daemon.manager.lock().await;
+    let info = manager.disk_info().await;
+    let config = manager.config.clone();
+    Json(json!({"ok": true, "disk": info, "defaultDiskGb": config.default_disk_gb}))
+}
+
+/// Force Sync & Rebuild: push every source file into the guest and rebuild
+/// the affected IORA services. Runs detached - the response returns right
+/// away, progress appears in the live log stream.
+async fn force_sync(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    let worker = daemon.clone();
+    tokio::spawn(async move {
+        match worker.force_sync_and_rebuild().await {
+            Ok(summary) => worker.emit("status", format!("✓ {summary}")),
+            Err(error) => worker.emit("error", format!("Force sync failed: {error:#}")),
+        }
+    });
+    Json(json!({
+        "ok": true,
+        "message": "Force Sync & Rebuild gestartet — Fortschritt im Log (unten rechts / Logs-Tab).",
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiskResizeBody {
+    size_gb: u64,
+}
+
+/// Expand the VM disk (live QMP block_resize when running, qemu-img when
+/// stopped) and grow the guest root filesystem via QGA.
+async fn disk_resize(
+    State(daemon): State<Arc<Daemon>>,
+    Json(body): Json<DiskResizeBody>,
+) -> Json<Value> {
+    if body.size_gb == 0 || body.size_gb > 4096 {
+        return Json(json!({
+            "ok": false,
+            "message": "size_gb must be between 1 and 4096"
+        }));
+    }
+    let manager = daemon.manager.lock().await;
+    match manager.resize_disk(body.size_gb).await {
+        Ok(message) => Json(json!({"ok": true, "message": message})),
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsBody {
+    default_disk_gb: Option<u64>,
+    default_ram_gb: Option<u64>,
+    default_cpus: Option<u32>,
+    autostart: Option<bool>,
+    sftp_user: Option<String>,
+    extra_ports: Option<String>,
+}
+
+/// Read the persistent Dev Manager settings (dev-manager.json).
+async fn settings_get(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    let manager = daemon.manager.lock().await;
+    let config = manager.config.clone();
+    let disk = manager.disk_info().await;
+    Json(json!({
+        "ok": true,
+        "config": config,
+        "disk": disk,
+        "state": { "running": manager.state.process_alive() },
+    }))
+}
+
+/// Update the persistent Dev Manager settings. Values apply to NEW VM disk
+/// creations (dev-local bootstrap) and to the next VM start (RAM/CPUs).
+async fn settings_set(
+    State(daemon): State<Arc<Daemon>>,
+    Json(body): Json<SettingsBody>,
+) -> Json<Value> {
+    let mut manager = daemon.manager.lock().await;
+    let mut config = manager.config.clone();
+    if let Some(value) = body.default_disk_gb {
+        if value < 4 || value > 4096 {
+            return Json(json!({"ok": false, "message": "defaultDiskGb must be 4..4096"}));
+        }
+        config.default_disk_gb = value;
+    }
+    if let Some(value) = body.default_ram_gb {
+        if value < 4 || value > 64 {
+            return Json(json!({"ok": false, "message": "defaultRamGb must be 4..64"}));
+        }
+        config.default_ram_gb = value;
+    }
+    if let Some(value) = body.default_cpus {
+        if !(1..=64).contains(&value) {
+            return Json(json!({"ok": false, "message": "defaultCpus must be 1..64"}));
+        }
+        config.default_cpus = value;
+    }
+    if let Some(value) = body.autostart {
+        config.autostart = value;
+    }
+    if let Some(value) = body.sftp_user {
+        let value = value.trim().to_string();
+        if value.is_empty() {
+            return Json(json!({"ok": false, "message": "sftpUser must not be empty"}));
+        }
+        config.sftp_user = value;
+    }
+    if let Some(value) = body.extra_ports {
+        config.extra_ports = value
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .collect::<Vec<_>>()
+            .join(",");
+    }
+    match config.save(&manager.root) {
+        Ok(()) => {
+            // Persist the in-memory copy so /api/settings (and the next
+            // VM start / disk creation) sees the new values immediately -
+            // without this the dashboard would keep showing the old ones.
+            manager.config = config.clone();
+            Json(json!({
+                "ok": true,
+                "message": "Settings saved to dev-manager.json (apply to the next VM start / new disk creation).",
+                "config": config,
+            }))
+        }
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+/// Download the guest SSH private key for SFTP clients (WinSCP/FileZilla/
+/// scp). Loopback dev tool - the key is generated by dev-local.ps1.
+async fn sftp_key(State(daemon): State<Arc<Daemon>>) -> Response {
+    let manager = daemon.manager.lock().await;
+    let key_path = manager.root.join(".cache/iora-dev-key");
+    let bytes = match std::fs::read(&key_path) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return StatusCode::NOT_FOUND
+                .into_response();
+        }
+    };
+    let attachment = format!(
+        "attachment; filename={}",
+        key_path.file_name().unwrap_or_default().to_string_lossy()
+    );
+    (
+        [
+            (header::CONTENT_TYPE, "application/x-pem-file".to_string()),
+            (header::CONTENT_DISPOSITION, attachment),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 /// Serve the bundled noVNC viewer (core/, vendor/ and vnc-viewer.html)

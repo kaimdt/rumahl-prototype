@@ -62,10 +62,23 @@ interface SettingsAppDetail {
   display?: AppDisplayConfig | null
 }
 
-export function SettingsAppsSection() {
+export function SettingsAppsSection({ initialSelectedId, onSelectApp }: { initialSelectedId?: string | null; onSelectApp?: (appId: string) => void } = {}) {
   const { t } = useTranslation()
   const { allApps, refresh } = useInstalledApps()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
+
+  // Keep the detail view in sync with the URL deep link (back/forward or
+  // a direct /settings/apps/<id> navigation).
+  useEffect(() => {
+    if (initialSelectedId !== undefined) {
+      setSelectedId(initialSelectedId)
+    }
+  }, [initialSelectedId])
+
+  const selectApp = (appId: string) => {
+    setSelectedId(appId)
+    onSelectApp?.(appId)
+  }
 
   const apps = allApps
     .filter((app) => app.kind !== 'plugin' && app.id !== 'iora-developer-app')
@@ -75,7 +88,7 @@ export function SettingsAppsSection() {
     return (
       <SettingsAppDetailPage
         appId={selectedId}
-        onBack={() => setSelectedId(null)}
+        onBack={() => { setSelectedId(null); onSelectApp?.('') }}
         onChanged={refresh}
       />
     )
@@ -95,7 +108,7 @@ export function SettingsAppsSection() {
             <button
               key={app.id}
               type="button"
-              onClick={() => setSelectedId(app.id)}
+              onClick={() => selectApp(app.id)}
               className={`group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-foreground/[0.04] ${
                 index > 0 ? 'border-t border-foreground/6' : ''
               }`}

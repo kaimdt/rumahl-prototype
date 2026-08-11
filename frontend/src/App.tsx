@@ -57,6 +57,9 @@ const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ def
 const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default: m.AgentTab })))
 const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
 const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
+// AppSettingsPage is now rendered inside the Settings app (SettingsAppsSection
+// → SettingsAppDetailPage) at /settings/apps/<id>; the standalone component
+// remains available for compatibility and is no longer routed directly.
 const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
 const AppStoreTab = lazy(() => import('@/components/AppStoreTab').then(m => ({ default: m.AppStoreTab })))
 import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
@@ -202,7 +205,10 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
     : STORE_CATALOG.some((app) => app.id === pageId)
       ? appOpenUrl({ id: pageId, name: pageId, version: '', ports: [] })
       : undefined)
-  if (runtimeUrl) {
+  // Render the runtime also for proxy-only/local apps without a host URL:
+  // AppRuntimeView falls back to the app proxy (/api/apps/<id>/proxy) which
+  // resolves the guest service port server-side.
+  if (runtimeUrl || runtimeApp || STORE_CATALOG.some((app) => app.id === pageId)) {
     const runner = <AppRuntimeView appId={pageId} name={getOsAppName(pageId)} />
     // Full-page (desktop route `/app/<id>`): render through a portal
     // directly on <body>. The page containers apply transforms/filters for
@@ -333,7 +339,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
     )
     // Check if navigating directly to a specific page (not the dashboard home)
     const isDirectPage = typeof window !== 'undefined' && (
-      window.location.pathname.startsWith('/app-settings/') ||
+      window.location.pathname.startsWith('/settings/apps/') ||
       window.location.pathname.startsWith('/streaming') ||
       window.location.pathname.startsWith('/docs')
     )
@@ -748,11 +754,10 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
           <Suspense fallback={<DashboardSkeleton />}>
           <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {
-            // App Settings standalone page (opened in new tab from AppStoreTab)
-            if (window.location.pathname.startsWith('/app-settings/')) {
-              return <Suspense fallback={null}><AppSettingsPage /></Suspense>
-            }
-
+            // Legacy standalone app-settings route was merged into the
+            // Settings app (/settings/apps/<id>) - the provider redirects
+            // /app-settings/* URLs, so rendering happens via the settings
+            // page below.
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
             const systemPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
 

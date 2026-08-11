@@ -118,6 +118,10 @@ export interface CatalogAppDefinition {
   permissions: string[]
   /** Port the web UI is reachable at after install (host port). */
   openPort?: number
+  /** Local (non-Docker) app: the "port" is a guest-only service port that
+   * must NOT be opened as a host URL - the app proxy routes it inside the
+   * guest (/api/apps/<id>/proxy). Used by the ORA Browser (iora-browserd). */
+  proxyOnly?: boolean
   /** Inline SVG icon (data URL) — real icons, no external dependency. */
   iconUrl?: string
   /** Default login shown on the detail page (Umbrel-style). */
@@ -296,6 +300,7 @@ export const STORE_CATALOG: CatalogAppDefinition[] = [
     category: 'Browser',
     permissions: ['NetworkLocalAccess'],
     openPort: 8102,
+    proxyOnly: true,
     iconUrl: globeSvg(),
     buildZip: () => buildZipFor(oraBrowserManifest),
   },

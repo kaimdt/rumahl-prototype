@@ -862,8 +862,42 @@ async fn list_apps(data: web::Data<AppState>) -> impl Responder {
         }
     };
 
-    let apps: Vec<serde_json::Value> = containers
-        .iter()
+    // Deduplicate by `iora.app.id`: stale containers of a previously
+    // replaced installation (e.g. an old compose service that was never
+    // removed) would otherwise surface as duplicate app entries and make
+    // the frontend show the same app multiple times (launcher tiles and
+    // AppStore rows). The newest container wins; running containers are
+    // preferred over stopped leftovers.
+    let mut best_by_id: HashMap<String, &bollard::models::ContainerSummary> = HashMap::new();
+    for container in &containers {
+        let labels = container.labels.as_ref();
+        let id = labels
+            .and_then(|l| l.get("iora.app.id"))
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        let Some(existing) = best_by_id.get(&id) else {
+            best_by_id.insert(id, container);
+            continue;
+        };
+        let container_running = container
+            .state
+            .as_deref()
+            .is_some_and(|state| state == "running");
+        let existing_running = existing
+            .state
+            .as_deref()
+            .is_some_and(|state| state == "running");
+        let container_newer = container
+            .created
+            .unwrap_or(0)
+            .gt(&existing.created.unwrap_or(0));
+        if (container_running && !existing_running) || (container_running == existing_running && container_newer) {
+            best_by_id.insert(id, container);
+        }
+    }
+
+    let mut apps: Vec<serde_json::Value> = best_by_id
+        .values()
         .map(|c| {
             let labels = c.labels.as_ref();
             serde_json::json!({
@@ -879,6 +913,13 @@ async fn list_apps(data: web::Data<AppState>) -> impl Responder {
             })
         })
         .collect();
+    apps.sort_by(|a, b| {
+        a["name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_lowercase()
+            .cmp(&b["name"].as_str().unwrap_or_default().to_lowercase())
+    });
 
     HttpResponse::Ok().json(serde_json::json!({
         "apps": apps,

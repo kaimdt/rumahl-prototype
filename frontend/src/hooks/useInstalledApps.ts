@@ -132,10 +132,14 @@ export function appGradient(id: string): string {
 }
 
 /** Build the web-UI URL for a Docker app (host port from the supervisor,
- * falling back to the store-catalog port hint). */
+ * falling back to the store-catalog port hint). Local (proxy-only) apps
+ * return undefined - their guest service port is not reachable as a host
+ * URL, the App Runtime renders them through the app proxy instead. */
 export function appOpenUrl(app: SupervisorApp): string | undefined {
   if (app.open_url) return app.open_url
-  const catalogPort = STORE_CATALOG.find((def) => def.id === app.id)?.openPort
+  const catalog = STORE_CATALOG.find((def) => def.id === app.id)
+  if (catalog?.proxyOnly) return undefined
+  const catalogPort = catalog?.openPort
   const port = firstExternalPort(app.ports) ?? catalogPort
   if (!port) return undefined
   // Use the hostname that served the dashboard. A fixed loopback address only
@@ -179,7 +183,22 @@ export function useInstalledApps() {
       ])
       if (appsRes.ok) {
         const data = await appsRes.json() as { apps?: SupervisorApp[] }
-        const nextApps = data.apps || []
+        // Dedupe by id: the supervisor reports one entry per container, so a
+        // leftover container of a re-installed app (same `iora.app.id` label)
+        // would otherwise render duplicate launcher tiles. The first (and
+        // preferably running) entry wins.
+        const seen = new Map<string, SupervisorApp>()
+        for (const app of data.apps || []) {
+          const existing = seen.get(app.id)
+          if (!existing) {
+            seen.set(app.id, app)
+            continue
+          }
+          const nextRunning = app.status === 'running'
+          const currentRunning = existing.status === 'running'
+          if (nextRunning && !currentRunning) seen.set(app.id, app)
+        }
+        const nextApps = [...seen.values()]
         installedAppIds.clear()
         nextApps.forEach((app) => installedAppIds.add(app.id))
         setApps(nextApps)

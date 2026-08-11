@@ -98,6 +98,9 @@ pub struct Daemon {
     last_provision_note: Mutex<Option<Instant>>,
     download_progress: Mutex<DownloadProgress>,
     vms_cache: Mutex<Value>,
+    /// One-shot per VM start: grow the guest root filesystem when the disk
+    /// was expanded while the VM was stopped (qemu-img resize).
+    disk_grow_done: Mutex<bool>,
 }
 
 impl Daemon {
@@ -147,6 +150,7 @@ impl Daemon {
             last_provision_note: Mutex::new(None),
             download_progress: Mutex::new(DownloadProgress::default()),
             vms_cache: Mutex::new(json!({"vms": []})),
+            disk_grow_done: Mutex::new(false),
         })
     }
 
@@ -190,6 +194,7 @@ impl Daemon {
         };
         let state = manager.state.clone();
         let root = manager.root.clone();
+        let config = manager.config.clone();
         let (host, ssh, home) = state.connection();
         drop(manager);
         let probe = self.last_probe.lock().unwrap().clone();
@@ -233,7 +238,14 @@ impl Daemon {
                 "webUser": "admin",
                 "webPassword": "admin1234",
                 "webPin": "0000",
+                // SFTP link for the file browser: same SSH channel + key.
+                // sftp://<user>@<host>:<port>/ - import .cache/iora-dev-key
+                // into WinSCP / FileZilla / any SFTP client.
+                "sftpUser": config.sftp_user.clone(),
+                "sftp": format!("sftp://{}@{}:{}/", config.sftp_user, host, ssh),
+                "sftpKey": root.join(".cache/iora-dev-key").display().to_string(),
             }),
+            "config": config,
         })
     }
 
@@ -264,6 +276,8 @@ impl Daemon {
                 value: None,
                 checked_at: None,
             };
+            // Re-run the one-shot disk grow after the next boot as well.
+            *self.disk_grow_done.lock().unwrap() = false;
         }
         match result {
             Ok(()) => {
@@ -372,6 +386,27 @@ impl Daemon {
     pub async fn guest(&self, command: String) -> Result<String> {
         let manager = self.manager.lock().await;
         manager.guest(&command).await
+    }
+
+    /// Explicit "Force Sync & Rebuild": push every source file into the
+    /// guest and rebuild/restart the affected IORA services. Runs detached
+    /// so the dashboard stays responsive; progress is emitted as events.
+    pub async fn force_sync_and_rebuild(&self) -> Result<String> {
+        let (repository, os_root, state) = {
+            let manager = self.manager.lock().await;
+            (
+                manager.root.parent().unwrap_or(&manager.root).to_path_buf(),
+                manager.root.clone(),
+                manager.state.clone(),
+            )
+        };
+        self.emit("status", "Force sync: pushing all sources to the guest…");
+        let result = devloop::force_full_sync(&repository, &os_root, &state).await;
+        match &result {
+            Ok(summary) => self.emit("status", summary.clone()),
+            Err(error) => self.emit("error", format!("Force sync failed: {error:#}")),
+        }
+        result
     }
 
     /// All running QEMU processes with their parsed details; `isManaged`
@@ -821,6 +856,7 @@ impl Daemon {
         //    (e.g. the DHCP conflict guard flushed the only address).
         if probe.qga {
             self.apply_guest_fixes().await;
+            self.grow_guest_disk_once().await;
             // Build-deadlock autofix: if the iora-* cargo services stall on
             // the shared build lock (no rustc compiling), the self-heal
             // script kills the oldest waiter so the chain continues. Run
@@ -1256,6 +1292,9 @@ impl Daemon {
         (3001, 3001, "iora-home (nginx)"),
         (5432, 5432, "postgres"),
         (8101, 8101, "dev bridge"),
+        // iora-files web UI: gives the Dev Manager a direct HTTP window into
+        // every file of IORA OS (alternative to the SFTP link in Access).
+        (8100, 8100, "iora-files"),
     ];
 
     async fn ensure_default_mappings(&self) {
@@ -1749,6 +1788,62 @@ impl Daemon {
         }
     }
 
+    /// One-shot per VM start: grow the guest root partition + filesystem
+    /// when the virtual disk was expanded while the VM was stopped
+    /// (`qemu-img resize`). The script is idempotent - when there is
+    /// nothing to grow (disk unchanged) it simply reports no change, so
+    /// running it on every boot is cheap and safe. This makes a stopped-VM
+    /// disk expansion visible automatically after the next start, without
+    /// any manual `growpart`/`resize2fs`.
+    async fn grow_guest_disk_once(&self) {
+        {
+            let mut done = self.disk_grow_done.lock().unwrap();
+            if *done {
+                return;
+            }
+            *done = true;
+        }
+        let (qga_port, socket) = {
+            let manager = self.manager.lock().await;
+            (manager.state.qga_port, manager.root.join(".cache/qga.sock"))
+        };
+        let script = r#"
+set -e
+ROOT=$(findmnt -no SOURCE /)
+case "$ROOT" in
+  /dev/vd[a-z][0-9]*) DISK=${ROOT%[0-9]*}; PART=${ROOT##*[a-z]} ;;
+  /dev/sd[a-z][0-9]*) DISK=${ROOT%[0-9]*}; PART=${ROOT##*[a-z]} ;;
+  /dev/nvme0n[0-9]p[0-9]*) DISK=${ROOT%p[0-9]*}; PART=${ROOT##*p} ;;
+  *) echo "unsupported root device: $ROOT"; exit 0 ;;
+esac
+BEFORE=$(blockdev --getsize64 "$ROOT" 2>/dev/null || echo 0)
+command -v growpart >/dev/null 2>&1 || { echo "growpart missing (cloud-guest-utils) - disk grow skipped"; exit 0; }
+if growpart "$DISK" "$PART" >/dev/null 2>&1; then
+  FSTYPE=$(findmnt -no FSTYPE /)
+  if [ "$FSTYPE" = "xfs" ]; then xfs_growfs / || true; else resize2fs "$ROOT" || true; fi
+  AFTER=$(blockdev --getsize64 "$ROOT" 2>/dev/null || echo 0)
+  echo "disk-grown before=$BEFORE after=$AFTER"
+else
+  echo "disk-grow-nochange"
+fi
+"#;
+        match channels::guest_exec(qga_port, &socket, script).await {
+            Ok(output) => {
+                let output = output.trim();
+                if output.contains("disk-grown") {
+                    self.emit(
+                        "status",
+                        format!("Guest disk grown to the expanded size ({output})"),
+                    );
+                }
+            }
+            Err(_) => {
+                // Not fatal: growpart/resize2fs may be unavailable or the
+                // guest is still booting - the next VM start retries.
+            }
+        }
+    }
+
     /// Restore the guest network when the VM has no reachable IP - bounded
     /// to 3 attempts with a 30s cooldown so a broken guest is not hammered.
     async fn network_remediation(&self) {
@@ -2013,6 +2108,46 @@ pub fn spawn(daemon: Arc<Daemon>) {
                 loop {
                     tick.tick().await;
                     vms_daemon.refresh_vms_cache().await;
+                }
+            });
+        }
+
+        // Autostart: when dev-manager.json has autostart=true and the VM is
+        // neither running nor being (re)provisioned, bring it up.
+        {
+            let autostart_daemon = daemon.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                let (should_start, mode) = {
+                    let manager = autostart_daemon.manager.lock().await;
+                    // IORA_DEV_NO_AUTOSTART=1 wins over the config file so
+                    // headless/CI invocations can always opt out.
+                    let no_autostart = std::env::var("IORA_DEV_NO_AUTOSTART")
+                        .ok()
+                        .map(|value| {
+                            matches!(
+                                value.trim().to_ascii_lowercase().as_str(),
+                                "1" | "true" | "yes" | "on"
+                            )
+                        })
+                        .unwrap_or(false);
+                    let autostart = manager.config.autostart && !no_autostart;
+                    let mode = manager.state.network_mode.clone();
+                    let running = manager.state.process_alive()
+                        || manager::bootstrap_alive(&manager.root);
+                    (autostart && !running, mode)
+                };
+                if should_start {
+                    autostart_daemon.emit(
+                        "status",
+                        "Autostart enabled (dev-manager.json) - starting the VM".to_string(),
+                    );
+                    if let Err(error) = autostart_daemon.start(mode).await {
+                        autostart_daemon.emit(
+                            "error",
+                            format!("Autostart failed: {error:#}"),
+                        );
+                    }
                 }
             });
         }

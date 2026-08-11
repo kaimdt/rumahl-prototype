@@ -11,7 +11,6 @@ import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { authFetch } from '@/lib/authHelpers'
 import { requestAppDetail, requestAppInStore } from '@/lib/appStoreHandoff'
 import type { InstallJobInfo } from '@/hooks/useInstalledApps'
-import { AppInstallProgress } from '@/components/app/AppInstallProgress'
 
 export interface LauncherFolder {
   id: string
@@ -272,19 +271,6 @@ export function LauncherAppGrid({
       </div>
       <AnimatePresence mode="wait">
         <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6">
-          {installJobs.map((job) => (
-            <motion.div
-              key={`install-${job.id}`}
-              className="flex min-w-0 flex-col items-center rounded-3xl p-2 text-center"
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-            >
-              <AppInstallProgress appId={job.appId || job.id} label={job.appName || t('os.launcher.installingApp')} progress={job.progress} />
-              <span className="mt-2.5 w-full truncate text-xs font-medium text-foreground/90 sm:text-sm">{job.appName || t('os.launcher.installingApp')}</span>
-              <span className="mt-0.5 text-[10px] text-foreground/45">{t('apps.appStore.installing', { name: '' }).trim()}</span>
-            </motion.div>
-          ))}
           {items.map((item, index) => item.type === 'app' ? (
             <motion.button
               key={item.app.id}
