@@ -645,7 +645,7 @@ function AppStoreView({
 }) {
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
-  const { activeJobs } = useInstalledApps()
+  const { activeJobs, failedJobs } = useInstalledApps()
   const [torOnions, setTorOnions] = useState<Record<string, string> | null>(null)
 
   // Tor hidden-service addresses for installed apps (Umbrel-style).
@@ -862,6 +862,7 @@ function AppStoreView({
   }
 
   const [installingId, setInstallingId] = useState<string | null>(null)
+  const [installJobByApp, setInstallJobByApp] = useState<Record<string, string>>({})
   const [startingId, setStartingId] = useState<string | null>(null)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
@@ -893,14 +894,23 @@ function AppStoreView({
     }
   }
 
+  const failedInstallFor = (appId: string) => {
+    const currentJobId = installJobByApp[appId]
+    return currentJobId
+      ? failedJobs.find((job) => job.id === currentJobId)
+      : failedJobs.find((job) => job.appId === appId)
+  }
+
   useEffect(() => {
     if (!installingId) return
     const job = activeJobs.find((candidate) => candidate.appId === installingId)
     const app = apps.find((candidate) => candidate.id === installingId)
-    if (job || app?.status === 'running' || app?.status === 'error' || app?.status === 'failed') {
+    const failedJobId = installJobByApp[installingId]
+    const failedJob = failedJobs.some((candidate) => candidate.appId === installingId || candidate.id === failedJobId)
+    if (job || failedJob || app?.status === 'running' || app?.status === 'error' || app?.status === 'failed') {
       setInstallingId(null)
     }
-  }, [activeJobs, apps, installingId])
+  }, [activeJobs, apps, failedJobs, installJobByApp, installingId])
 
   /** Docker apps count as installed only while RUNNING. */
   const isRunning = (app: StoreApp) => {
@@ -922,7 +932,7 @@ function AppStoreView({
     setInstallingId(app.id)
     try {
       const zipData = def.buildZip()
-      await adminFetch('/api/appstore/install', token, {
+      const installResult = await adminFetch('/api/appstore/install', token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -931,7 +941,10 @@ function AppStoreView({
           granted_permissions: def.permissions,
           denied_permissions: [],
         }),
-      })
+      }) as { install_id?: string }
+      if (installResult.install_id) {
+        setInstallJobByApp((current) => ({ ...current, [app.id]: installResult.install_id! }))
+      }
       toast.success(t('apps.appStore.installStarted', { name: app.name }))
       // CasaOS-style: poll the backend until the app actually shows up
       // (download → install → running), then refresh the list.
@@ -956,7 +969,6 @@ function AppStoreView({
           window.clearInterval(poll)
         }
       }, 2500)
-      setSelectedApp(null)
     } catch (e) {
       setInstallingId(null)
       toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) }))
@@ -1036,6 +1048,8 @@ function AppStoreView({
   if (selectedApp) {
     const app = selectedApp
     const installed = installedIds.has(app.id)
+    const installJob = activeJobs.find((job) => job.appId === app.id || job.id === installJobByApp[app.id])
+    const failedInstall = failedInstallFor(app.id)
     return (
       <div className="space-y-6">
         {/* Back */}
@@ -1047,6 +1061,34 @@ function AppStoreView({
           <CaretLeft size={14} weight="bold" />
           {t('apps.appStore.back')}
         </button>
+
+        {failedInstall && (
+          <div className="flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-red-200">
+            <Warning size={20} weight="fill" className="mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{t('apps.appStore.installFailedTitle')}</p>
+              <p className="mt-1 text-xs leading-relaxed text-red-100/65">{failedInstall.error || failedInstall.message || t('apps.appStore.installFailedUnknown')}</p>
+            </div>
+          </div>
+        )}
+
+        {(installingId === app.id || installJob) && (
+          <div className="rounded-2xl border border-accent/20 bg-accent/[0.08] p-4 shadow-lg shadow-accent/5 backdrop-blur-xl" role="status" aria-live="polite">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <InlineSpinner size={18} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">{t('apps.appStore.installing', { name: app.name })}</p>
+                  <p className="mt-0.5 truncate text-xs text-foreground/45">{installJob?.message || t('apps.appStore.installPreparing')}</p>
+                </div>
+              </div>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-accent">{Math.round(installJob?.progress ?? 12)}%</span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-foreground/10">
+              <div className="h-full rounded-full bg-accent shadow-[0_0_14px_color-mix(in_oklch,var(--accent)_55%,transparent)] transition-[width] duration-500" style={{ width: `${Math.max(3, Math.min(100, installJob?.progress ?? 12))}%` }} />
+            </div>
+          </div>
+        )}
 
         {/* Hero */}
         <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 shadow-2xl shadow-black/20">

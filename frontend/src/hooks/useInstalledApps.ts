@@ -244,6 +244,10 @@ export function useInstalledApps() {
       progress: app?.status === 'starting' ? 96 : 92,
     }]
   }), [apps, jobs])
+  const failedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'failed'),
+    [jobs],
+  )
 
   // Installed = any enabled app (launcher shows them all, with a status
   // indicator when not running).
@@ -307,6 +311,7 @@ export function useInstalledApps() {
   return {
     installedApps,
     activeJobs,
+    failedJobs,
     allApps: apps,
     loading,
     refresh,

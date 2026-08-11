@@ -938,6 +938,9 @@
       "installing": "Installing {{name}}…",
       "installStarted": "Installation of {{name}} started",
       "installFailed": "Installation failed: {{detail}}",
+      "installFailedTitle": "Installation failed",
+      "installFailedUnknown": "The app package could not be installed. Open the installation details and try again.",
+      "installPreparing": "Preparing the local app package…",
       "openPort": "Open in browser",
       "starting": "Starting…",
       "start": "Start",
@@ -987,8 +990,14 @@
     "detail": {
       "permissionsUpdated": "Permissions updated",
       "tabs": {
+        "info": "Overview",
         "permissions": "Permissions",
-        "pages": "Pages"
+        "runtime": "Runtime",
+        "logs": "Logs ({{count}})",
+        "terminal": "Terminal",
+        "settings": "Settings",
+        "pages": "Pages",
+        "bundle": "Services"
       },
       "permissions": {
         "granted": "Granted",

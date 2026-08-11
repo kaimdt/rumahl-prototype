@@ -574,28 +574,29 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
   return (
     <Dialog open={!!appId} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col glass-card border-foreground/15 bg-card/95 backdrop-blur-2xl shadow-2xl">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10 flex-shrink-0">
-          <DialogTitle className="flex items-center gap-3">
+      <DialogContent className="flex h-[min(90dvh,58rem)] max-h-[90dvh] w-[min(96vw,72rem)] max-w-none flex-col overflow-hidden border-white/15 bg-card/80 p-0 shadow-[0_35px_100px_rgba(0,0,0,0.55)] backdrop-blur-3xl sm:max-w-none">
+        <DialogHeader className="relative flex-shrink-0 overflow-hidden border-b border-white/10 bg-gradient-to-br from-foreground/[0.09] to-transparent px-5 pb-5 pt-6 sm:px-7">
+          <div className="pointer-events-none absolute -right-16 -top-24 h-56 w-56 rounded-full bg-accent/15 blur-3xl" />
+          <DialogTitle className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
             {loading ? (
-              <div className="w-8 h-8 rounded-lg bg-accent/20 animate-pulse" />
+              <div className="h-16 w-16 rounded-2xl bg-accent/20 animate-pulse" />
             ) : detail?.icon && !detail.icon.includes('default-app-icon') ? (
-              <img src={detail.icon} alt="" className="w-8 h-8 rounded-lg" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <img src={detail.icon} alt="" className="h-16 w-16 rounded-2xl object-cover shadow-xl ring-1 ring-white/15" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
             ) : (
-              <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
-                <Cube size={18} className="text-accent" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15 shadow-xl ring-1 ring-white/10">
+                <Cube size={30} weight="duotone" className="text-accent" />
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-foreground truncate">
+              <div className="truncate text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                 {detail?.name || 'App'}
               </div>
-              <div className="text-[10px] text-foreground/60">
+              <div className="mt-1 text-xs font-normal text-foreground/50">
                 {detail?.version} · {detail?.developer || 'Unbekannt'}
               </div>
             </div>
             {detail && (
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:max-w-[32rem] sm:justify-end">
                 {detail.status === 'running' ? (
                   <>
                     <button onClick={pauseApp} disabled={actionLoading === 'pause'}
@@ -638,8 +639,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
           </DialogTitle>
         </DialogHeader>
 
-        {/* Tab Navigation */}
-        <div className="flex gap-1 p-1.5 bg-foreground/[0.07] border border-foreground/10 mx-4 mt-3 rounded-lg flex-shrink-0">
+        <div className="grid min-h-0 flex-1 md:grid-cols-[13.5rem_minmax(0,1fr)]">
+        {/* App-local navigation: sidebar on desktop, scrollable rail on mobile. */}
+        <aside className="border-b border-white/10 bg-black/[0.08] p-3 md:border-b-0 md:border-r md:p-4">
+        <div className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
           {([
             'info',
             'permissions',
@@ -653,10 +656,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-semibold transition-all ${
+              className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition-all md:w-full ${
                 activeTab === tab
-                  ? 'bg-accent text-white shadow-sm'
-                  : 'text-foreground/75 hover:text-foreground hover:bg-foreground/10'
+                  ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                  : 'text-foreground/55 hover:bg-foreground/[0.07] hover:text-foreground'
               }`}
             >
               {tab === 'info' && <Info size={12} />}
@@ -667,20 +670,21 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {tab === 'settings' && <Gear size={12} />}
               {tab === 'pages' && <Code size={12} />}
               {tab === 'bundle' && <Stack size={12} />}
-              {tab === 'info' ? 'Info'
+              {tab === 'info' ? t('apps.detail.tabs.info')
                 : tab === 'permissions' ? t('apps.detail.tabs.permissions')
-                : tab === 'runtime' ? 'Runtime'
-                : tab === 'logs' ? `Logs (${logs.length})`
-                : tab === 'terminal' ? 'Terminal'
-                : tab === 'settings' ? t('settings.title')
+                : tab === 'runtime' ? t('apps.detail.tabs.runtime')
+                : tab === 'logs' ? t('apps.detail.tabs.logs', { count: logs.length })
+                : tab === 'terminal' ? t('apps.detail.tabs.terminal')
+                : tab === 'settings' ? t('apps.detail.tabs.settings')
                 : tab === 'pages' ? t('apps.detail.tabs.pages')
-                : 'Bundle'}
+                : t('apps.detail.tabs.bundle')}
             </button>
           ))}
         </div>
+        </aside>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <InlineSpinner size={24} />
@@ -1263,6 +1267,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               )}
             </>
           )}
+        </div>
         </div>
       </DialogContent>
     </Dialog>

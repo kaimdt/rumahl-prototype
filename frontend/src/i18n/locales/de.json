@@ -939,6 +939,9 @@
       "installing": "Installiere {{name}}…",
       "installStarted": "Installation von {{name}} gestartet",
       "installFailed": "Installation fehlgeschlagen: {{detail}}",
+      "installFailedTitle": "Installation fehlgeschlagen",
+      "installFailedUnknown": "Das App-Paket konnte nicht installiert werden. Öffne die Installationsdetails und versuche es erneut.",
+      "installPreparing": "Das lokale App-Paket wird vorbereitet…",
       "openPort": "Im Browser öffnen",
       "starting": "Starte…",
       "start": "Starten",
@@ -988,8 +991,14 @@
     "detail": {
       "permissionsUpdated": "Berechtigungen aktualisiert",
       "tabs": {
+        "info": "Übersicht",
         "permissions": "Rechte",
-        "pages": "Seiten"
+        "runtime": "Laufzeit",
+        "logs": "Logs ({{count}})",
+        "terminal": "Terminal",
+        "settings": "Einstellungen",
+        "pages": "Seiten",
+        "bundle": "Dienste"
       },
       "permissions": {
         "granted": "Gewährt",

@@ -126,6 +126,26 @@ elif [ -z "$DB_SECRET" ] || [ "${#DB_SECRET}" -lt 32 ]; then
     warn "JWT secret not found in DB yet (iora-home may still be starting)"
 fi
 
+# Materialize the canonical cross-service secret file on every sync, even if
+# service.env was already current. iora-home runs unprivileged and therefore
+# cannot reliably create /etc/iora/jwt-secret itself on hardened images.
+if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ]; then
+    install -d -m 0750 /etc/iora
+    JWT_SECRET_TMP=$(mktemp /etc/iora/.jwt-secret.XXXXXX)
+    printf '%s' "$DB_SECRET" > "$JWT_SECRET_TMP"
+    if getent group iora >/dev/null 2>&1; then
+        chown root:iora "$JWT_SECRET_TMP"
+        chmod 0640 "$JWT_SECRET_TMP"
+    else
+        # Development images may run services under the invoking user and not
+        # create the iora group. Keep the canonical file readable there.
+        chown root:root "$JWT_SECRET_TMP"
+        chmod 0644 "$JWT_SECRET_TMP"
+    fi
+    mv -f "$JWT_SECRET_TMP" /etc/iora/jwt-secret
+    success "Synchronized canonical JWT secret: /etc/iora/jwt-secret"
+fi
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. Update all service units to load global environment
 # ═══════════════════════════════════════════════════════════════════════════════
