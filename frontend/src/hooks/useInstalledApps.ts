@@ -5,6 +5,16 @@ import { getBackendUrl } from '@/lib/config'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { appRuntimeUrl, type AppDisplayConfig } from '@/lib/appGateway'
+import {
+  appRoute,
+  healthFromRuntime,
+  lifecycleFromRuntime,
+  normalizeRuntimeState,
+  type AppHealthState,
+  type AppLifecycleState,
+  type AppRegistryEntry,
+  type AppRuntimeState,
+} from '@/lib/appSystem'
 
 /**
  * Installed Docker/user apps + in-flight install jobs for the launcher.
@@ -28,6 +38,11 @@ export interface InstalledOsApp extends OsAppDefinition {
   /** Public runtime URL on the app subdomain (App Embedding Gateway).
    * Null on loopback hosts (dev) where the subdomain cannot resolve. */
   gatewayUrl?: string | null
+  /** Canonical app-system state shared with management and the runtime. */
+  lifecycle: AppLifecycleState
+  runtimeState: AppRuntimeState
+  health: AppHealthState
+  registry: AppRegistryEntry
 }
 
 export interface InstallJobInfo {
@@ -38,6 +53,28 @@ export interface InstallJobInfo {
   progress: number
   message?: string
   error?: string | null
+}
+
+export interface InstallJobPayload {
+  id: string
+  app_id?: string | null
+  app_name?: string | null
+  status: string
+  progress: number
+  message?: string
+  error?: string | null
+}
+
+export function normalizeInstallJob(job: InstallJobPayload): InstallJobInfo {
+  return {
+    id: job.id,
+    appId: job.app_id || '',
+    appName: job.app_name || job.app_id || '',
+    status: job.status,
+    progress: Math.max(0, Math.min(100, job.progress)),
+    message: job.message,
+    error: job.error,
+  }
 }
 
 interface SupervisorApp {
@@ -125,6 +162,9 @@ export const installedAppIds = new Set<string>()
  */
 export const installedAppsCache: InstalledOsApp[] = []
 
+/** Prevent duplicate automatic start requests when several OS surfaces use the hook. */
+const installStartRequests = new Set<string>()
+
 export function useInstalledApps() {
   const [apps, setApps] = useState<SupervisorApp[]>([])
   const [jobs, setJobs] = useState<InstallJobInfo[]>([])
@@ -146,8 +186,8 @@ export function useInstalledApps() {
         window.dispatchEvent(new Event('iora:installed-apps-updated'))
       }
       if (jobsRes.ok) {
-        const data = await jobsRes.json() as { jobs?: InstallJobInfo[] }
-        setJobs(data.jobs || [])
+        const data = await jobsRes.json() as { jobs?: InstallJobPayload[] }
+        setJobs((data.jobs || []).map(normalizeInstallJob))
       }
     } catch {
       // backend unreachable — keep last state
@@ -172,13 +212,38 @@ export function useInstalledApps() {
     }
   }, [refresh])
 
+  // Installation is complete only after the locally prepared runtime is
+  // running. Once extraction/image preparation finishes, start it exactly
+  // once and keep the progress item visible during startup.
+  useEffect(() => {
+    for (const job of jobs) {
+      if (job.status !== 'succeeded' || !job.appId || installStartRequests.has(job.appId)) continue
+      const app = apps.find((candidate) => candidate.id === job.appId)
+      if (!app || app.enabled || app.status === 'running' || app.status === 'starting' || app.status === 'error' || app.status === 'failed') continue
+      installStartRequests.add(job.appId)
+      void authFetch(`/api/supervisor/apps/${job.appId}/start`, { method: 'POST' })
+        .then((response) => {
+          if (!response.ok) throw new Error(`App start failed with HTTP ${response.status}`)
+        })
+        .catch(() => { installStartRequests.delete(job.appId) })
+        .finally(() => window.setTimeout(() => void refresh(), 800))
+    }
+  }, [apps, jobs, refresh])
+
   // Running jobs (CasaOS-style progress tiles). The backend reports finished
   // jobs as "succeeded" — treat every terminal state as inactive.
-  const TERMINAL_JOB_STATUSES = new Set(['finished', 'succeeded', 'failed', 'cancelled'])
-  const activeJobs = useMemo(
-    () => jobs.filter((job) => !TERMINAL_JOB_STATUSES.has(job.status)),
-    [jobs],
-  )
+  const TERMINAL_JOB_STATUSES = new Set(['finished', 'succeeded', 'failed', 'canceled', 'cancelled'])
+  const activeJobs = useMemo(() => jobs.flatMap((job) => {
+    if (!TERMINAL_JOB_STATUSES.has(job.status)) return [job]
+    if (job.status !== 'succeeded' || !job.appId) return []
+    const app = apps.find((candidate) => candidate.id === job.appId)
+    if (app?.status === 'running' || app?.status === 'error' || app?.status === 'failed' || (app?.enabled && app.status === 'stopped')) return []
+    return [{
+      ...job,
+      status: app?.status === 'starting' ? 'starting' : 'installing',
+      progress: app?.status === 'starting' ? 96 : 92,
+    }]
+  }), [apps, jobs])
 
   // Installed = any enabled app (launcher shows them all, with a status
   // indicator when not running).
@@ -188,6 +253,32 @@ export function useInstalledApps() {
       .map((app, index) => {
         const url = appOpenUrl(app)
         if (url) appRuntimeUrls.set(app.id, url)
+        const runtimeState = normalizeRuntimeState(app.status)
+        const lifecycle = lifecycleFromRuntime(app.status)
+        const health = healthFromRuntime(app.status)
+        const runtimeKind = app.display?.mode === 'external' ? 'external' as const : 'iframe' as const
+        const registry: AppRegistryEntry = {
+          id: app.id,
+          name: app.name,
+          displayName: app.name,
+          description: app.description || '',
+          version: app.version,
+          icon: resolveAppIcon(app.icon),
+          developer: app.developer,
+          permissions: [],
+          lifecycle,
+          runtimeState,
+          health,
+          runtimeKind,
+          route: appRoute(app.id),
+          runtimeUrl: url,
+          installSource: 'store',
+          dependencies: [],
+          requiredServices: [],
+          configurable: true,
+          updateAvailable: false,
+          ports: [],
+        }
         return {
           id: `inst-${app.id}`,
           pageId: app.id,
@@ -202,6 +293,10 @@ export function useInstalledApps() {
           backendId: app.id,
           display: app.display ?? null,
           gatewayUrl: appRuntimeUrl(app.id),
+          lifecycle,
+          runtimeState,
+          health,
+          registry,
         }
       })
     installedAppsCache.length = 0

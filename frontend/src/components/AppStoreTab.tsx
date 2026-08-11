@@ -19,6 +19,7 @@ import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { authFetch } from '@/lib/authHelpers'
 import { supportedLngs } from '@/i18n'
 import { consumeAppDetail, consumeAppInStore } from '@/lib/appStoreHandoff'
+import { AppInstallProgress } from '@/components/app/AppInstallProgress'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -997,7 +998,10 @@ function AppStoreView({
     setSearchQuery('')
     onFocusHandled()
   }, [focusAppId, storeApps, onFocusHandled])
-  const installedIds = useMemo(() => new Set(apps.filter((app) => app.enabled).map((app) => app.id)), [apps])
+  // During a fresh install an extracted manifest is already present in the
+  // backend, but the app is not installed from the user's perspective until
+  // its runtime is verified as running.
+  const installedIds = useMemo(() => new Set(apps.filter((app) => app.status === 'running').map((app) => app.id)), [apps])
 
   /** Normalized store category per app (Umbrel-style). */
   const categoryOf = (app: StoreApp): string => {
@@ -1083,8 +1087,17 @@ function AppStoreView({
       xl: 'h-16 w-16 rounded-[1.35rem]',
     }[size]
     const imgSrc = app.iconUrl || (app.icon && /^(https?:|data:)/.test(app.icon) ? app.icon : undefined)
-    const radius = 15
-    const circumference = 2 * Math.PI * radius
+    if (installing) {
+      return (
+        <AppInstallProgress
+          appId={app.id}
+          iconUrl={imgSrc}
+          label={app.name}
+          progress={progress}
+          size={size === 'md' ? 'compact' : size === 'lg' ? 'small' : 'medium'}
+        />
+      )
+    }
     return (
       <span className={`${classes} relative shrink-0 overflow-hidden ${imgSrc ? 'shadow-none' : 'shadow-lg'}`}>
         {imgSrc ? (
@@ -1092,18 +1105,6 @@ function AppStoreView({
         ) : (
           <span className={`flex h-full w-full items-center justify-center text-lg font-bold text-white`} style={gradientFor(app.id)}>
             {app.name.trim().charAt(0).toUpperCase() || '?'}
-          </span>
-        )}
-        {installing && (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]">
-            <svg className="h-1/2 w-1/2 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
-              <circle cx="18" cy="18" r={radius} fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="4" />
-              <circle
-                cx="18" cy="18" r={radius} fill="none" stroke="white" strokeWidth="4" strokeLinecap="round"
-                strokeDasharray={circumference}
-                strokeDashoffset={circumference * (1 - Math.max(0, Math.min(100, progress)) / 100)}
-              />
-            </svg>
           </span>
         )}
         {!installing && installed && (
@@ -1159,8 +1160,7 @@ function AppStoreView({
   const backendAppFor = (app: StoreApp) => apps.find((candidate) => candidate.id === app.id)
 
   /** True for any installed (non-essential) app — shows uninstall + start. */
-  const isInstalledApp = (app: StoreApp) =>
-    !app.isEssential && (app.status === 'running' || app.enabled || (app.isCatalog && Boolean(backendAppFor(app))))
+  const isInstalledApp = (app: StoreApp) => !app.isEssential && isRunning(app)
 
   /** Icon overlay state (App Store style): progress ring / check badge. */
   const iconStatus = (app: StoreApp) => {
@@ -1173,6 +1173,15 @@ function AppStoreView({
       installed: !installing && running,
     }
   }
+
+  useEffect(() => {
+    if (!installingId) return
+    const job = activeJobs.find((candidate) => candidate.appId === installingId)
+    const app = apps.find((candidate) => candidate.id === installingId)
+    if (job || app?.status === 'running' || app?.status === 'error' || app?.status === 'failed') {
+      setInstallingId(null)
+    }
+  }, [activeJobs, apps, installingId])
 
   /** Docker apps count as installed only while RUNNING. */
   const isRunning = (app: StoreApp) => {
@@ -1208,18 +1217,30 @@ function AppStoreView({
       // CasaOS-style: poll the backend until the app actually shows up
       // (download → install → running), then refresh the list.
       let attempts = 0
-      const poll = window.setInterval(() => {
+      let polling = false
+      const poll = window.setInterval(async () => {
+        if (polling) return
+        polling = true
         attempts += 1
         onInstalled()
-        if (apps.some((candidate) => candidate.id === app.id) || attempts > 40) {
+        let completed = false
+        try {
+          const snapshot = await adminFetch('/api/supervisor/apps', token) as { apps?: AppInfo[] }
+          const installed = snapshot.apps?.find((candidate) => candidate.id === app.id)
+          completed = installed?.status === 'running' || installed?.status === 'error' || installed?.status === 'failed'
+        } catch {
+          // The shared installed-app hook retains the last state while offline.
+        } finally {
+          polling = false
+        }
+        if (completed || attempts > 40) {
           window.clearInterval(poll)
         }
       }, 2500)
       setSelectedApp(null)
     } catch (e) {
-      toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) }))
-    } finally {
       setInstallingId(null)
+      toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) }))
     }
   }
 

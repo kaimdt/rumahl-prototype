@@ -16,6 +16,7 @@ import { authFetch } from '@/lib/authHelpers'
 import { isAppOpenExternal, setAppOpenExternal } from '@/lib/appOpenPrefs'
 import { displayModeOf, type AppDisplayConfig } from '@/lib/appGateway'
 import { ToggleRow } from './SettingsPage'
+import { AppStatusBadge } from '@/components/app/AppStatusBadge'
 
 /**
  * Settings → Apps — Apple-settings-style per-app pages.
@@ -59,15 +60,6 @@ interface SettingsAppDetail {
   open_url?: string | null
   is_bundle?: boolean
   display?: AppDisplayConfig | null
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  running: 'bg-emerald-500/15 text-emerald-400',
-  starting: 'bg-amber-500/15 text-amber-400',
-  stopping: 'bg-foreground/10 text-foreground/60',
-  stopped: 'bg-foreground/10 text-foreground/50',
-  paused: 'bg-amber-500/15 text-amber-400',
-  error: 'bg-red-500/15 text-red-400',
 }
 
 export function SettingsAppsSection() {
@@ -121,9 +113,7 @@ export function SettingsAppsSection() {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-foreground/90">{app.name || app.id}</span>
                 <span className="mt-0.5 flex items-center gap-2">
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${STATUS_COLORS[app.status || 'stopped'] || 'bg-foreground/10 text-foreground/50'}`}>
-                    {app.status || 'stopped'}
-                  </span>
+                  <AppStatusBadge status={app.status} compact />
                   {isAppOpenExternal(app.id) && (
                     <span className="rounded-full bg-accent/12 px-2 py-0.5 text-[9px] font-semibold text-accent">
                       {t('settings.appExternalBadge')}
@@ -291,9 +281,7 @@ function SettingsAppDetailPage({
               <p className="mt-0.5 truncate text-xs text-foreground/50">
                 {detail.version} · {detail.developer || '—'}
               </p>
-              <span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_COLORS[detail.status] || 'bg-foreground/10 text-foreground/50'}`}>
-                {detail.status}
-              </span>
+              <span className="mt-2 inline-flex"><AppStatusBadge status={detail.status} /></span>
             </div>
             <div className="flex shrink-0 flex-col gap-2">
               {running || starting ? (

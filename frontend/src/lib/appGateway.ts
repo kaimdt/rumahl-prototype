@@ -36,7 +36,7 @@ export const APP_LIFECYCLE = {
   UNHEALTHY: 'UNHEALTHY',
   NOT_FOUND: 'NOT_FOUND',
 } as const
-export type AppLifecycleState = (typeof APP_LIFECYCLE)[keyof typeof APP_LIFECYCLE]
+export type GatewayLifecycleState = (typeof APP_LIFECYCLE)[keyof typeof APP_LIFECYCLE]
 
 export type AppDisplayMode = 'embedded' | 'external'
 export type AppIsolationLevel = 'strict' | 'relaxed'
@@ -50,7 +50,7 @@ export interface AppDisplayConfig {
 
 export interface AppRuntimeInfo {
   app_id: string
-  state: AppLifecycleState
+  state: GatewayLifecycleState
   display?: AppDisplayConfig | null
   /** Public runtime URL served by the gateway (null while not running or
    * when subdomains are not configured — the runner then uses proxy_url). */

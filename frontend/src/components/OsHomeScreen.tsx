@@ -368,7 +368,7 @@ export function OsHomeScreen() {
     },
   }
 
-  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} />
+  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} installJobs={activeJobs} />
 
   return (
     <section

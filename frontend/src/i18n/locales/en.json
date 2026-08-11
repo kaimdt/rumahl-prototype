@@ -830,6 +830,14 @@
     "installing": "Installing",
     "error": "Error",
     "unhealthy": "Unhealthy",
+    "lifecycle": {
+      "running": "Running",
+      "starting": "Starting",
+      "stopped": "Stopped",
+      "failed": "Failed",
+      "unhealthy": "Health check failed",
+      "not_found": "Not installed"
+    },
     "uptime": "Uptime",
     "cpu": "CPU",
     "memory": "Memory",

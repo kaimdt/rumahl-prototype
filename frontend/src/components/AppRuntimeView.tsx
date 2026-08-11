@@ -10,7 +10,7 @@ import {
   iframeAllowFor,
   iframeSandboxFor,
   isLoopbackHostname,
-  type AppLifecycleState,
+  type GatewayLifecycleState,
   type AppRuntimeInfo,
 } from '@/lib/appGateway'
 import { isAppOpenExternal } from '@/lib/appOpenPrefs'
@@ -41,7 +41,7 @@ export function AppRuntimeView({ appId, name }: { appId: string; name?: string }
   const [busy, setBusy] = useState(false)
   const [appTitle, setAppTitle] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const lastStateRef = useRef<AppLifecycleState | null>(null)
+  const lastStateRef = useRef<GatewayLifecycleState | null>(null)
 
   // Public runtime URL: the gateway's canonical URL wins. It is rejected
   // only when it points at a loopback host the browser cannot resolve as a
