@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from 'react'
+import { createPortal } from 'react-dom'
 import '@/i18n'
 import { useTranslation } from 'react-i18next'
 import { getBackendUrl } from '@/lib/config'
@@ -203,10 +204,17 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
       : undefined)
   if (runtimeUrl) {
     const runner = <AppRuntimeView appId={pageId} name={getOsAppName(pageId)} />
-    // Full-page (desktop route `/app/<id>`): keep the historic overlay that
-    // escapes the padded main container. Inside a window: fill the window.
-    return opts?.inWindow ? runner : (
-      <div className="fixed inset-x-0 bottom-0 top-14 z-[60]">{runner}</div>
+    // Full-page (desktop route `/app/<id>`): render through a portal
+    // directly on <body>. The page containers apply transforms/filters for
+    // page transitions, and every such property turns them into the
+    // containing block of `position: fixed` descendants — `top-14`/`bottom-0`
+    // would then resolve against that container instead of the viewport,
+    // collapsing the runner overlay to a sliver. A portal escapes the
+    // transformed subtree entirely; the explicit dvh height keeps the
+    // overlay viewport-sized regardless of any future wrapper.
+    return opts?.inWindow ? runner : createPortal(
+      <div className="fixed inset-x-0 top-14 z-[60] h-[calc(100dvh-3.5rem)]">{runner}</div>,
+      document.body,
     )
   }
   switch (pageId) {

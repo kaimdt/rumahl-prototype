@@ -189,30 +189,27 @@ const nextcloudManifest = {
   },
 }
 
-const browserManifest = {
-  id: 'webbrowser',
-  name: 'IORA Browser',
-  version: '1.0.0',
+const oraBrowserManifest = {
+  id: 'ora-browser',
+  name: 'ORA Browser',
+  version: '0.1.0',
   developer: 'IORA OS',
-  description: 'Ein vollwertiger Firefox-Browser, der als Container auf deinem IORA OS läuft — mit Web-Oberfläche erreichbar, inklusive KasmVNC-Fernzugriff.',
+  description: 'Der ORA Browser — ein echter Browser als ORA-Systemdienst. Die Seiten laufen in Chromium auf dem ORA-Server (nicht als eingebettete Seite): keine X-Frame-Options-/CSP-Probleme, Tabs und Sessions gehören ORA.',
   type: 'app',
   icon: 'browser',
   permissions: ['NetworkLocalAccess'],
-  // The embedded VNC viewer needs clipboard + fullscreen + pointer lock.
+  // The browser UI embeds the remote Chromium surface (canvas + WS),
+  // not a website — no iframe sandbox needed. The local app lifecycle
+  // uses these loopback hooks: start opens a fresh tab, stop closes all
+  // tabs (the global engine keeps running for other apps).
+  ports: [
+    { external: 8102, protocol: 'tcp', internal: 8102 },
+  ],
+  start_endpoint: 'http://127.0.0.1:8102/api/tabs',
+  stop_endpoint: 'http://127.0.0.1:8102/api/shutdown',
   display: {
     mode: 'embedded',
-    isolation: 'strict',
     permissions: ['clipboard-read', 'clipboard-write', 'fullscreen'],
-  },
-  docker: {
-    auto_build: false,
-    image: 'jlesage/firefox:latest',
-    internal_ports: [
-      { port: 5800, protocol: 'tcp', external: 8580 },
-      { port: 5900, protocol: 'tcp', external: 8590 },
-    ],
-    volumes: ['firefox_config:/config', '/dev/shm:/dev/shm'],
-    restart: 'unless-stopped',
   },
 }
 
@@ -291,16 +288,16 @@ export const STORE_CATALOG: CatalogAppDefinition[] = [
     buildZip: () => buildZipFor(nextcloudManifest),
   },
   {
-    id: 'webbrowser',
-    name: 'IORA Browser',
+    id: 'ora-browser',
+    name: 'ORA Browser',
     developer: 'IORA OS',
-    description: 'Vollwertiger Firefox im Container auf deinem Server — öffne ihn im Browser-Fenster und surfe wie auf einem eigenen Rechner. Läuft auch dann weiter, wenn du die Seite schließt.',
-    version: '1.0.0',
+    description: 'Der ORA Browser — ein echter Browser als ORA-Systemdienst. Seiten laufen in Chromium auf deinem ORA-Server, nicht als eingebettete Seite: X-Frame-Options und CSP sind egal, Tabs & Sessions gehören ORA.',
+    version: '0.1.0',
     category: 'Browser',
     permissions: ['NetworkLocalAccess'],
-    openPort: 8580,
+    openPort: 8102,
     iconUrl: globeSvg(),
-    buildZip: () => buildZipFor(browserManifest),
+    buildZip: () => buildZipFor(oraBrowserManifest),
   },
   dockerCatalogApp({
     id: 'jellyfin', name: 'Jellyfin', developer: 'Jellyfin Team', category: 'Media',

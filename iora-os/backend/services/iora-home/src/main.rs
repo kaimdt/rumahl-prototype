@@ -2254,10 +2254,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/apps/pages", get(app_pages_list))
         // Live App-Status (Docker-realer Container-State) als SSE-Stream.
         .route("/api/apps/status/stream", get(apps_status_stream))
-        // App content proxy — forwards requests to installed app containers.
-        // Both spellings are registered: the iframe URL ends with "/" and the
-        // wildcard route alone would 404 on an empty remainder.
-        .route("/api/apps/:app_id/proxy/*path", get(app_proxy_handler))
+        // App content proxy is PUBLIC (registered on the outer router): the
+        // embedded app loads its HTML, CSS, JS and other assets from this
+        // same-origin path, and browsers never attach the desktop
+        // Authorization header to those requests. The exact "/proxy" and
+        // "/proxy/" spellings (empty wildcard remainder) are delegated from
+        // spa_fallback below.
         // App Embedding Gateway runtime info — the App Runner uses this to
         // resolve the public runtime URL, lifecycle state and display metadata
         // for the embedded iframe (never internal ports/addresses).
@@ -2508,6 +2510,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         // Version endpoint (public, never cached – desktop client uses this to detect updates)
         .route("/api/version", get(get_version))
+        // App content proxy — forwards requests to installed app containers.
+        // Public (no desktop auth): the embedded app loads its HTML, CSS, JS
+        // and other assets from this same-origin path and browsers never
+        // attach the desktop Authorization header to those requests. The
+        // management endpoints under /api/apps/<id>/* stay behind
+        // require_authenticated; the exact "/proxy" and "/proxy/" spellings
+        // (empty wildcard remainder) are delegated from spa_fallback.
+        .route("/api/apps/:app_id/proxy/*path", any(app_proxy_handler))
         // Maintenance status (public – frontend needs this before auth)
         .route("/api/maintenance/status", get(public_maintenance_status))
         .route(
@@ -3613,13 +3623,8 @@ async fn spa_fallback(
     // remainder, so "/api/apps/<id>/proxy" and "/proxy/" land here. Delegate
     // them to the proxy handler (covers the iframe URL exactly).
     if let Some(rest) = path.strip_prefix("/api/apps/") {
-        if let Some((app_id, _)) = rest.split_once("/proxy") {
-            return app_proxy_handler(
-                State(state.clone()),
-                axum::extract::Path(app_id.to_string()),
-                request,
-            )
-            .await;
+        if let Some((_app_id, _)) = rest.split_once("/proxy") {
+            return app_proxy_handler(State(state.clone()), request).await;
         }
     }
     if path.starts_with("/api/") || path.starts_with("/ws/") {
@@ -7879,6 +7884,41 @@ async fn supervisor_apps_start(
 
     let _ = state.local_appstore.set_status(&app_id, "starting").await;
 
+    // Local app: optional start hook (manifest `start_endpoint`, loopback
+    // only) — e.g. the ORA Browser opens a fresh tab. Then a quick port
+    // health check so the UI reports a real failure instead of a blind
+    // "running".
+    if !needs_docker {
+        if let Some(msg) = invoke_local_app_hook(&app_meta, "start_endpoint", json!({ "url": "about:blank" })).await {
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "INFO".to_string(),
+                    message: msg,
+                    source: "app-runtime".to_string(),
+                },
+            );
+        }
+        if let Some(port) = app_meta.ports.first() {
+            let mut reachable = false;
+            for _ in 0..4 {
+                if tokio::net::TcpStream::connect(("127.0.0.1", port.external)).await.is_ok() {
+                    reachable = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            if !reachable {
+                let _ = state.local_appstore.set_status(&app_id, "failed").await;
+                return Err(ErrorResponse::bad_gateway(format!(
+                    "App '{}' ist auf Port {} nicht erreichbar — Dienst läuft nicht.",
+                    app_id, port.external
+                )));
+            }
+        }
+    }
+
     // Mark as starting immediately so the UI shows status without waiting
     // for the (potentially long-running) docker compose pull/up.
     state.local_appstore.append_log(
@@ -8022,11 +8062,11 @@ async fn supervisor_apps_stop(
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
 
-    // Try to stop Docker container
+    // Try to stop Docker container (or invoke the local stop hook).
     let docker_result = if needs_docker {
         try_docker_compose_down(&app_id).await
     } else {
-        None
+        invoke_local_app_hook(&app, "stop_endpoint", json!({})).await
     };
 
     state.local_appstore.append_log(
@@ -8052,6 +8092,34 @@ async fn supervisor_apps_stop(
         "docker": docker_result,
         "message": format!("App '{}' gestoppt.", app.name),
     })))
+}
+
+/// Best-effort invocation of an optional manifest hook endpoint
+/// (`start_endpoint` / `stop_endpoint`) for LOCAL (non-Docker) apps — e.g.
+/// the ORA Browser opens a fresh tab on start and closes all tabs on stop.
+/// Only loopback URLs are allowed: the endpoint comes from the installed
+/// manifest, which the admin chose, but it must never reach into the
+/// network.
+async fn invoke_local_app_hook(
+    app: &local_appstore::InstalledApp,
+    key: &str,
+    body: serde_json::Value,
+) -> Option<String> {
+    let url = app.manifest.extra.get(key)?.as_str()?;
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if !(host == "127.0.0.1" || host == "localhost" || host == "::1") {
+        return None;
+    }
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(parsed)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await
+        .ok()?;
+    Some(format!("{key} → HTTP {}", resp.status()))
 }
 
 async fn docker_compose_control(app_id: &str, action: &str) -> Option<Result<String, String>> {
@@ -8312,9 +8380,21 @@ async fn ensure_app_stopped_for_uninstall(state: &AppState, app_id: &str) -> Res
         None => return Err(ErrorResponse::service_unavailable(format!("Docker is unavailable; cannot verify shutdown of '{app_id}'"))),
     }
     if let Some(status) = app_lifecycle::docker_compose_status(app_id).await {
-        if status.total > 0 {
+        // A failed supervisor status probe is reported as a synthetic
+        // "iora-supervisor" service (total 1) — that is NOT a running
+        // container and must not block the uninstall (docker compose is
+        // unavailable inside the supervisor for local apps / compose
+        // failures). Only real compose containers block.
+        let real_services: Vec<&String> = status
+            .services
+            .keys()
+            .filter(|name| name.as_str() != "iora-supervisor")
+            .collect();
+        let real_total = real_services.len();
+        if real_total > 0 || (status.total > 0 && status.services.is_empty()) {
             return Err(ErrorResponse::bad_gateway(format!(
-                "app '{app_id}' still has {} Compose containers after shutdown: {:?}", status.total, status.services
+                "app '{app_id}' still has {real_total} Compose containers after shutdown: {:?}",
+                real_services
             )));
         }
     }
@@ -9725,13 +9805,272 @@ async fn app_host_port(app_id: &str) -> Option<u16> {
     None
 }
 
+/// Rewrite HTML from an embedded app served through the same-origin proxy
+/// so root-absolute asset URLs (`/dist/app.js`, `/core/css/x.css`) keep
+/// working under the proxy prefix (`/api/apps/<id>/proxy/`):
+/// - `src`/`href`/`action`/`poster`/`srcset` attribute values that start
+///   with `/` (but not `//`) are prefixed with the proxy prefix,
+/// - a `<base href="<prefix>">` is injected into `<head>` so relative URLs
+///   resolve against the proxy prefix as well.
+/// External (`http(s)`, `mailto:`), protocol-relative (`//`), `data:`,
+/// `blob:`, `javascript:` and fragment (`#`) URLs are left untouched.
+fn rewrite_app_html(html: &str, prefix: &str) -> String {
+    let rewritten = rewrite_html_attrs(html, prefix);
+    let base = format!("<base href=\"{prefix}\">");
+    if let Some(head_start) = rewritten.find("<head") {
+        let after_tag = rewritten[head_start..]
+            .find('>')
+            .map(|i| head_start + i + 1)
+            .unwrap_or(rewritten.len());
+        let mut out = String::with_capacity(rewritten.len() + base.len());
+        out.push_str(&rewritten[..after_tag]);
+        out.push_str(&base);
+        out.push_str(&rewritten[after_tag..]);
+        out
+    } else {
+        format!("{base}{rewritten}")
+    }
+}
+
+const HTML_URL_ATTRS: [&str; 5] = ["src=", "href=", "action=", "poster=", "srcset="];
+
+/// Rewrite the URL-bearing attributes of an HTML document (quoted values
+/// only). `srcset` values are comma-separated `url descriptor` pairs and
+/// are rewritten per candidate.
+fn rewrite_html_attrs(html: &str, prefix: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    'scan: while !rest.is_empty() {
+        let mut earliest: Option<(usize, &str)> = None;
+        for attr in HTML_URL_ATTRS {
+            if let Some(pos) = rest.find(attr) {
+                if earliest.map_or(true, |(p, _)| pos < p) {
+                    earliest = Some((pos, attr));
+                }
+            }
+        }
+        let Some((pos, attr)) = earliest else {
+            out.push_str(rest);
+            break;
+        };
+        out.push_str(&rest[..pos + attr.len()]);
+        rest = &rest[pos + attr.len()..];
+        let quote = match rest.chars().next() {
+            Some('\"') => '\"',
+            Some('\'') => '\'',
+            _ => continue 'scan, // unquoted attribute value — leave as-is
+        };
+        out.push(quote);
+        rest = &rest[1..];
+        let end = rest.find(quote).unwrap_or(rest.len());
+        let value = &rest[..end];
+        if attr == "srcset=" {
+            let rewritten = value
+                .split(',')
+                .map(|candidate| {
+                    let candidate = candidate.trim();
+                    let mut words = candidate.splitn(2, char::is_whitespace);
+                    let url = words.next().unwrap_or("");
+                    let descriptor = words.next().unwrap_or("");
+                    let url = rewrite_html_url(url, prefix);
+                    if descriptor.is_empty() {
+                        url
+                    } else {
+                        format!("{url} {descriptor}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&rewritten);
+        } else {
+            out.push_str(&rewrite_html_url(value, prefix));
+        }
+        out.push(quote);
+        rest = &rest[end..];
+    }
+    out
+}
+
+/// Prefix a single root-absolute URL with the proxy prefix. Everything else
+/// (relative URLs — handled by the injected `<base>`, external, data: etc.)
+/// is returned unchanged.
+fn rewrite_html_url(value: &str, prefix: &str) -> String {
+    let value = value.trim();
+    if !value.starts_with('/')
+        || value.starts_with("//")
+        || value.starts_with("#")
+        || value.starts_with("data:")
+        || value.starts_with("blob:")
+        || value.starts_with("http:")
+        || value.starts_with("https:")
+        || value.starts_with("mailto:")
+        || value.starts_with("javascript:")
+    {
+        return value.to_string();
+    }
+    format!("{prefix}{}", &value[1..])
+}
+
+#[cfg(test)]
+mod app_html_rewrite_tests {
+    use super::*;
+
+    const PREFIX: &str = "/api/apps/nextcloud/proxy/";
+
+    #[test]
+    fn rewrites_root_absolute_assets() {
+        let html = r#"<html><head><title>NC</title></head><body>
+<script src="/dist/core-common.js?v=1"></script>
+<link rel="stylesheet" href="/core/css/guest.css">
+<a href="/apps/files/">Files</a>
+</body></html>"#;
+        let out = rewrite_app_html(html, PREFIX);
+        assert!(out.contains("src=\"/api/apps/nextcloud/proxy/dist/core-common.js?v=1\""));
+        assert!(out.contains("href=\"/api/apps/nextcloud/proxy/core/css/guest.css\""));
+        assert!(out.contains("href=\"/api/apps/nextcloud/proxy/apps/files/\""));
+    }
+
+    #[test]
+    fn injects_base_after_head() {
+        let html = "<html><head data-x=\"1\"><meta charset=\"utf-8\"></head><body><img src=\"logo.png\"></body></html>";
+        let out = rewrite_app_html(html, PREFIX);
+        assert!(out.contains("<head data-x=\"1\"><base href=\"/api/apps/nextcloud/proxy/\">"));
+    }
+
+    #[test]
+    fn leaves_external_and_special_urls_alone() {
+        let html = r#"<img src="data:image/png;base64,AAA"><a href="https://example.com">x</a><a href="//cdn.example.com/x.js">y</a><a href="/login">l</a>"#;
+        let out = rewrite_app_html(html, PREFIX);
+        assert!(out.contains("src=\"data:image/png;base64,AAA\""));
+        assert!(out.contains("href=\"https://example.com\""));
+        assert!(out.contains("href=\"//cdn.example.com/x.js\""));
+        assert!(out.contains("href=\"/api/apps/nextcloud/proxy/login\""));
+    }
+
+    #[test]
+    fn rewrites_srcset_candidates() {
+        let html = r#"<img srcset="/img/a.png 1x, /img/b.png 2x">"#;
+        let out = rewrite_app_html(html, PREFIX);
+        assert!(out.contains("srcset=\"/api/apps/nextcloud/proxy/img/a.png 1x, /api/apps/nextcloud/proxy/img/b.png 2x\""));
+    }
+
+    #[test]
+    fn handles_single_quoted_attributes() {
+        let html = "<img src='/logo.svg'><a href='/login'>l</a>";
+        let out = rewrite_app_html(html, PREFIX);
+        assert!(out.contains("src='/api/apps/nextcloud/proxy/logo.svg'"));
+        assert!(out.contains("href='/api/apps/nextcloud/proxy/login'"));
+    }
+}
+
+/// True when the request carries an HTTP upgrade (WebSocket) header.
+fn is_ws_upgrade(req: &axum::extract::Request) -> bool {
+    req.headers()
+        .get(axum::http::header::CONNECTION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .split(',')
+        .any(|token| token.trim() == "upgrade")
+}
+
+/// Transparent WebSocket tunnel from the ORA desktop client to the app
+/// service: the same-origin proxy cannot relay HTTP upgrades with reqwest,
+/// so the client socket is upgraded by axum and frames are forwarded
+/// bidirectionally (the ORA Browser UI streams its screencast/WebRTC
+/// signaling over /ws).
+async fn ws_tunnel(
+    client: axum::extract::ws::WebSocket,
+    base_url: String,
+    sub_path: String,
+) {
+    use axum::extract::ws::Message as WsMessage;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as TungMessage;
+
+    let host_port = base_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_end_matches('/')
+        .to_string();
+    let path = if sub_path.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{sub_path}")
+    };
+    let url = format!("ws://{host_port}{path}");
+    let Ok((upstream, _)) = tokio_tungstenite::connect_async(&url).await else {
+        return;
+    };
+    let (mut client_tx, mut client_rx) = client.split();
+    let (mut up_tx, mut up_rx) = upstream.split();
+
+    let client_to_upstream = async {
+        while let Some(Ok(message)) = client_rx.next().await {
+            let out = match message {
+                WsMessage::Text(text) => TungMessage::Text(text),
+                WsMessage::Binary(bytes) => TungMessage::Binary(bytes),
+                WsMessage::Ping(payload) => TungMessage::Ping(payload),
+                WsMessage::Pong(payload) => TungMessage::Pong(payload),
+                WsMessage::Close(frame) => {
+                    let close = frame.map(|f| {
+                        tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                            code: f.code.into(),
+                            reason: f.reason.into(),
+                        }
+                    });
+                    let _ = up_tx.send(TungMessage::Close(close)).await;
+                    break;
+                }
+            };
+            if up_tx.send(out).await.is_err() {
+                break;
+            }
+        }
+        let _ = up_tx.close().await;
+    };
+    let upstream_to_client = async {
+        while let Some(Ok(message)) = up_rx.next().await {
+            let out = match message {
+                TungMessage::Text(text) => WsMessage::Text(text),
+                TungMessage::Binary(bytes) => WsMessage::Binary(bytes),
+                TungMessage::Ping(payload) => WsMessage::Ping(payload),
+                TungMessage::Pong(payload) => WsMessage::Pong(payload),
+                TungMessage::Close(_) => {
+                    let _ = client_tx.send(WsMessage::Close(None)).await;
+                    break;
+                }
+                _ => continue,
+            };
+            if client_tx.send(out).await.is_err() {
+                break;
+            }
+        }
+        let _ = client_tx.close().await;
+    };
+    let _ = tokio::join!(client_to_upstream, upstream_to_client);
+}
+
 async fn app_proxy_handler(
     State(state): State<AppState>,
-    axum::extract::Path(app_id): axum::extract::Path<String>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
     use axum::body::Body;
+    use axum::extract::FromRequestParts;
     use axum::http::{Response, StatusCode};
+
+    // The app id is parsed from the path instead of the axum Path
+    // extractor: for `:app_id/proxy/*path` the extractor cannot separate
+    // the two captures (it returns a joined string or rejects the request
+    // with a 500 before this handler runs), which made every asset request
+    // under /proxy/ fail while the bare /proxy/ page worked.
+    let app_id = req
+        .uri()
+        .path()
+        .strip_prefix("/api/apps/")
+        .and_then(|rest| rest.split("/proxy").next())
+        .unwrap_or("")
+        .to_string();
 
     // Look up the app
     let installed = state.local_appstore.list().await;
@@ -9769,11 +10108,11 @@ async fn app_proxy_handler(
                 Some(base_url) => {
                     // The remainder after "/proxy/" (may be empty for both
                     // "/proxy" and "/proxy/" — the wildcard can be empty).
-                    let full_uri = req.uri().path();
+                    let full_uri = req.uri().path().to_string();
                     let sub_path = full_uri
                         .split_once("/proxy/")
-                        .map(|(_, rest)| rest)
-                        .unwrap_or("");
+                        .map(|(_, rest)| rest.to_string())
+                        .unwrap_or_default();
                     // Build the full URL to proxy to (path + query string).
                     let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
                     let full_url = format!(
@@ -9782,6 +10121,38 @@ async fn app_proxy_handler(
                         sub_path.trim_start_matches('/'),
                         query
                     );
+
+                    // WebSocket upgrade → transparent tunnel to the app
+                    // service (the ORA Browser UI streams frames + WebRTC
+                    // signaling over /ws; reqwest cannot relay upgrades).
+                    if is_ws_upgrade(&req) {
+                        let (mut parts, _body) = req.into_parts();
+                        let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
+                            Ok(upgrade) => upgrade,
+                            Err(_) => {
+                                // Log the actual headers so a broken relay
+                                // (proxy stripping Upgrade/Sec-WebSocket-*)
+                                // is diagnosable from the journal.
+                                tracing::warn!(
+                                    path = %parts.uri.path(),
+                                    connection = ?parts.headers.get(axum::http::header::CONNECTION),
+                                    upgrade_hdr = ?parts.headers.get(axum::http::header::UPGRADE),
+                                    ws_key = parts.headers.get("sec-websocket-key").is_some(),
+                                    ws_version = ?parts.headers.get("sec-websocket-version"),
+                                    "websocket upgrade rejected by axum",
+                                );
+                                return Response::builder()
+                                    .status(StatusCode::BAD_REQUEST)
+                                    .body(Body::from("websocket upgrade required"))
+                                    .unwrap_or_else(|_| Response::new(Body::empty()));
+                            }
+                        };
+                        let base_url = base_url.clone();
+                        let sub_path = sub_path.to_string();
+                        return upgrade
+                            .on_upgrade(move |socket| ws_tunnel(socket, base_url, sub_path))
+                            .into_response();
+                    }
 
                     // Try to proxy the request (forward the browser's cookies
                     // so the embedded app keeps its session).
@@ -9796,8 +10167,27 @@ async fn app_proxy_handler(
                     match request_builder.send().await {
                         Ok(resp) => {
                             let status = resp.status();
-                            let headers = resp.headers().clone();
-                            let body = resp.bytes().await.unwrap_or_default();
+                            let mut headers = resp.headers().clone();
+                            let mut body = resp.bytes().await.unwrap_or_default();
+
+                            // Same-origin embedding: rewrite HTML so
+                            // root-absolute asset URLs keep working under
+                            // the proxy prefix (apps that cannot run under
+                            // a base path otherwise render unstyled).
+                            let is_html = headers
+                                .get("content-type")
+                                .and_then(|v| v.to_str().ok())
+                                .map(|ct| ct.to_ascii_lowercase().contains("text/html"))
+                                .unwrap_or(false);
+                            if is_html && body.len() < 4 * 1024 * 1024 {
+                                if let Ok(html) = std::str::from_utf8(&body) {
+                                    let prefix = format!("/api/apps/{app_id}/proxy/");
+                                    body = rewrite_app_html(html, &prefix).into_bytes().into();
+                                    // The rewritten body no longer matches the
+                                    // upstream content-length.
+                                    headers.remove("content-length");
+                                }
+                            }
 
                             let axum_status = axum::http::StatusCode::from_u16(status.as_u16())
                                 .unwrap_or(axum::http::StatusCode::BAD_GATEWAY);

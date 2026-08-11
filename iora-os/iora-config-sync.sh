@@ -116,14 +116,14 @@ success "Service environment: /etc/iora/service.env"
 # 401. Publish the DB secret into the global service.env (this script runs
 # as root AFTER iora-home, see iora-config-sync.service) so all services
 # resolve the same IORA_JWT_SECRET.
-if ! grep -q '^IORA_JWT_SECRET=' /etc/iora/service.env; then
-    DB_SECRET=$(su - postgres -c "psql -d iora_home -tAc \"SELECT preference_value FROM system_preferences WHERE preference_key='jwt_secret'\"" 2>/dev/null | tr -d '\"' | tr -d '\n')
-    if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ]; then
-        echo "IORA_JWT_SECRET=$DB_SECRET" >> /etc/iora/service.env
-        success "Published shared JWT secret to service.env (${#DB_SECRET} chars)"
-    else
-        warn "JWT secret not found in DB yet (iora-home may still be starting)"
-    fi
+DB_SECRET=$(su - postgres -c "psql -d iora_home -tAc \"SELECT preference_value FROM system_preferences WHERE preference_key='jwt_secret'\"" 2>/dev/null | tr -d '\"' | tr -d '\n')
+CURRENT_SECRET=$(sed -n 's/^IORA_JWT_SECRET=//p' /etc/iora/service.env 2>/dev/null | tail -1)
+if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ] && [ "$CURRENT_SECRET" != "$DB_SECRET" ]; then
+    sed -i '/^IORA_JWT_SECRET=/d' /etc/iora/service.env
+    echo "IORA_JWT_SECRET=$DB_SECRET" >> /etc/iora/service.env
+    success "Published shared JWT secret to service.env (${#DB_SECRET} chars)"
+elif [ -z "$DB_SECRET" ] || [ "${#DB_SECRET}" -lt 32 ]; then
+    warn "JWT secret not found in DB yet (iora-home may still be starting)"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════

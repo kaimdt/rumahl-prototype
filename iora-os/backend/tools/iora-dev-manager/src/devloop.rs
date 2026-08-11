@@ -57,19 +57,31 @@ pub fn spawn(
         let _ = ui_tx.send(DevEvent::Watching);
         // 100 % sync guarantee: full consistency pass at startup (covers
         // edits made while the daemon was down) + periodic drift check.
+        // The runtime state is reloaded on EVERY pass — a snapshot taken
+        // once while the VM was off would keep process_alive() false
+        // forever and silently skip every pass, including all edits made
+        // before the VM started. While the VM is off we poll every few
+        // seconds so a freshly started VM gets its consistency pass right
+        // away.
         {
             let repo = repo_root.clone();
             let os = os_root.clone();
             let state_path = state_path.clone();
             let events = ui_tx.clone();
             tokio::spawn(async move {
-                let state = RuntimeState::load(&state_path);
-                verify_and_sync(&repo, &os, &state, &events).await;
-                let mut interval = tokio::time::interval(Duration::from_secs(45));
-                interval.tick().await; // first tick fires immediately — consume it
                 loop {
-                    interval.tick().await;
-                    verify_and_sync(&repo, &os, &state, &events).await;
+                    let state = RuntimeState::load(&state_path);
+                    if !state.process_alive() {
+                        tokio::time::sleep(Duration::from_secs(4)).await;
+                        continue;
+                    }
+                    let reachable = verify_and_sync(&repo, &os, &state, &events).await;
+                    if reachable {
+                        tokio::time::sleep(Duration::from_secs(45)).await;
+                    } else {
+                        // Guest not reachable yet (still booting): retry soon.
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
                 }
             });
         }
@@ -113,6 +125,15 @@ fn relevant(path: &Path) -> bool {
     }) {
         return false;
     }
+    // buildroot-* trees are host-only build artifacts (dev-sync.sh excludes
+    // them the same way) — never mirror them into the guest.
+    if path.components().any(|part| {
+        part.as_os_str()
+            .to_str()
+            .is_some_and(|name| name.starts_with("buildroot"))
+    }) {
+        return false;
+    }
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
         Some("ts" | "tsx" | "css" | "rs" | "sql" | "json" | "service" | "html" | "js" | "yaml" | "yml")
@@ -125,7 +146,11 @@ fn relevant(path: &Path) -> bool {
 static SYNC_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 /// Collect every managed file under `repo` (relative paths, `/`-separated).
-fn collect_local_files(repo: &Path) -> Vec<(String, f64)> {
+/// Each entry carries the local mtime (epoch seconds) and byte size; both
+/// are compared against the guest copy so edits are detected even when a
+/// bare mtime comparison would be ambiguous (e.g. after the guest-side
+/// `touch` in `bulk_sync` bumps guest mtimes to guest-now).
+fn collect_local_files(repo: &Path) -> Vec<(String, f64, u64)> {
     let mut files = Vec::new();
     let mut stack = vec![repo.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -133,10 +158,12 @@ fn collect_local_files(repo: &Path) -> Vec<(String, f64)> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
+                let name = path.file_name().and_then(|name| name.to_str());
                 if !matches!(
-                    path.file_name().and_then(|name| name.to_str()),
+                    name,
                     Some(".git" | "target" | "node_modules" | ".cache" | "dist" | "dist_new" | "src_new")
-                ) {
+                ) && !name.is_some_and(|name| name.starts_with("buildroot"))
+                {
                     stack.push(path);
                 }
             } else if relevant(&path) {
@@ -146,60 +173,90 @@ fn collect_local_files(repo: &Path) -> Vec<(String, f64)> {
                     .map(|part| part.as_os_str().to_string_lossy())
                     .collect::<Vec<_>>()
                     .join("/");
-                let modified = std::fs::metadata(&path)
-                    .and_then(|meta| meta.modified())
+                let metadata = std::fs::metadata(&path);
+                let modified = metadata
+                    .as_ref()
                     .ok()
+                    .and_then(|meta| meta.modified().ok())
                     .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|duration| duration.as_secs_f64())
                     .unwrap_or(0.0);
-                files.push((relative, modified));
+                let size = metadata.as_ref().ok().map(|meta| meta.len()).unwrap_or(0);
+                files.push((relative, modified, size));
             }
         }
     }
     files
 }
 
-/// Guest-side modification times (`find -printf '%T@ %p'`), one QGA call.
-async fn remote_timestamps(os_root: &Path, state: &RuntimeState) -> Result<HashMap<String, f64>> {
-    let command = "cd /home/iora/iora && find frontend iora-os/backend/services iora-os/backend/shared iora-os/backend/tools custom_components -type f \\( -name '*.ts' -o -name '*.tsx' -o -name '*.css' -o -name '*.rs' -o -name '*.sql' -o -name '*.json' -o -name '*.service' -o -name '*.html' -o -name '*.js' -o -name '*.yaml' -o -name '*.yml' -o -name 'Cargo.toml' -o -name 'vite.config.ts' -o -name 'vite.config.js' \\) -printf '%T@ %p\\n' 2>/dev/null";
+/// Guest-side modification times and byte sizes (`find -printf '%T@ %s %p'`),
+/// one SSH call.
+async fn remote_timestamps(os_root: &Path, state: &RuntimeState) -> Result<HashMap<String, (f64, u64)>> {
+    let command = "cd /home/iora/iora && find frontend iora-os/backend/services iora-os/backend/shared iora-os/backend/tools custom_components -type f \\( -name '*.ts' -o -name '*.tsx' -o -name '*.css' -o -name '*.rs' -o -name '*.sql' -o -name '*.json' -o -name '*.service' -o -name '*.html' -o -name '*.js' -o -name '*.yaml' -o -name '*.yml' -o -name 'Cargo.toml' -o -name 'vite.config.ts' -o -name 'vite.config.js' \\) -printf '%T@ %s %p\\n' 2>/dev/null";
     let output = ssh_run(state, os_root, command).await?;
     let mut map = HashMap::new();
     for line in output.lines() {
-        let mut parts = line.splitn(2, ' ');
-        if let (Some(seconds), Some(path)) = (parts.next(), parts.next()) {
+        let mut parts = line.splitn(3, ' ');
+        if let (Some(seconds), Some(size), Some(path)) = (parts.next(), parts.next(), parts.next()) {
             let path = path.trim_start_matches("./").trim();
             if !path.is_empty() {
                 let Ok(secs) = seconds.trim().parse::<f64>() else { continue };
-                map.insert(path.to_string(), secs);
+                let Ok(len) = size.trim().parse::<u64>() else { continue };
+                map.insert(path.to_string(), (secs, len));
             }
         }
     }
     Ok(map)
 }
 
+/// A file is in sync when the guest has it, the sizes match and the local
+/// copy is not newer than the guest copy (a 1s tolerance absorbs
+/// clock/fat-granularity differences). The size check catches edits even
+/// when the guest mtime was bumped forward by the post-sync `touch` in
+/// `bulk_sync` (or by guest clock skew), which would otherwise mask a
+/// newer local mtime.
+fn file_in_sync(local_mtime: f64, local_size: u64, remote: Option<(f64, u64)>) -> bool {
+    match remote {
+        Some((remote_secs, remote_size)) => {
+            local_mtime <= remote_secs + 1.0 && local_size == remote_size
+        }
+        // File missing on the guest entirely → must be pushed.
+        None => false,
+    }
+}
+
 /// 100 % guarantee: verify local↔guest consistency and re-sync every drifted
 /// file. Runs once at daemon start (covers edits made while the daemon was
 /// down) and repeats periodically (covers watcher misses). A file is stale
-/// when its local mtime is newer than the guest's.
+/// when its local mtime is newer than the guest's or the sizes differ.
+///
+/// Returns `true` when the guest was reachable and the pass completed;
+/// `false` when the VM is not running or SSH is not up yet — the caller
+/// then retries sooner than the normal drift interval.
 async fn verify_and_sync(
     repo: &Path,
     os_root: &Path,
     state: &RuntimeState,
     events: &mpsc::UnboundedSender<DevEvent>,
-) {
+) -> bool {
     // Never try to sync into a VM that is not running: each SSH attempt to a
     // dead guest blocks ~10s (ConnectTimeout) and starves the runtime while
     // the VM is booting or provisioning.
     if !state.process_alive() {
-        return;
+        return false;
     }
     if SYNC_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        return;
+        return true;
     }
     let result = verify_and_sync_inner(repo, os_root, state, events).await;
     SYNC_IN_PROGRESS.store(false, Ordering::SeqCst);
-    if let Err(error) = result {
-        let _ = events.send(DevEvent::Error(format!("full sync failed: {error:#}")));
+    match result {
+        // Ok(true): pass completed. Ok(false): guest not reachable yet.
+        Ok(reachable) => reachable,
+        Err(error) => {
+            let _ = events.send(DevEvent::Error(format!("full sync failed: {error:#}")));
+            false
+        }
     }
 }
 
@@ -208,30 +265,22 @@ async fn verify_and_sync_inner(
     os_root: &Path,
     state: &RuntimeState,
     events: &mpsc::UnboundedSender<DevEvent>,
-) -> Result<()> {
+) -> Result<bool> {
     let remote = match remote_timestamps(os_root, state).await {
         Ok(map) => map,
-        // QGA temporarily unavailable — the incremental watcher keeps
-        // working, the next periodic pass retries.
+        // Guest not reachable (VM still booting, SSH down) — the
+        // incremental watcher keeps working, the caller retries soon.
         Err(error) => {
             let _ = events.send(DevEvent::Error(format!(
-                "full sync skipped (QGA unavailable): {error:#}"
+                "full sync skipped (guest not reachable): {error:#}"
             )));
-            return Ok(());
+            return Ok(false);
         }
     };
 
     let mut stale: Vec<PathBuf> = Vec::new();
-    for (relative, local_mtime) in collect_local_files(repo) {
-        let remote_mtime = remote.get(&relative).copied();
-        let in_sync = match remote_mtime {
-            // Local file not newer than the guest copy → in sync. A 1s
-            // tolerance absorbs clock/fat-granularity differences.
-            Some(remote_secs) => local_mtime <= remote_secs + 1.0,
-            // File missing on the guest entirely → must be pushed.
-            None => false,
-        };
-        if !in_sync {
+    for (relative, local_mtime, local_size) in collect_local_files(repo) {
+        if !file_in_sync(local_mtime, local_size, remote.get(&relative).copied()) {
             let mut path = repo.to_path_buf();
             for part in relative.split('/') {
                 path.push(part);
@@ -242,7 +291,7 @@ async fn verify_and_sync_inner(
 
     if stale.is_empty() {
         let _ = events.send(DevEvent::Ready("Full sync: all files in sync".into()));
-        return Ok(());
+        return Ok(true);
     }
     let _ = events.send(DevEvent::Syncing(stale.len()));
     // Bulk tar stream — dozens of individual scp calls would take minutes.
@@ -263,7 +312,7 @@ async fn verify_and_sync_inner(
         "Full sync: {} file(s) synchronized",
         stale_set.len()
     )));
-    Ok(())
+    Ok(true)
 }
 
 async fn apply_changes(
@@ -687,10 +736,43 @@ mod tests {
         assert!(relevant(Path::new("frontend/src/App.tsx")));
     }
     #[test]
+    fn ignores_buildroot_trees() {
+        // buildroot-* contains „tools“ path components that would otherwise
+        // match the watch roots — it must never be mirrored into the guest.
+        assert!(!relevant(Path::new(
+            "iora-os/buildroot-2024.02/output/build/linux-headers-6.6.15/tools/perf/pmu-events/others.json"
+        )));
+        assert!(!relevant(Path::new(
+            "iora-os/buildroot-2024.02/output/build/linux-headers-6.6.15/tools/arch/powerpc/Makefile"
+        )));
+    }
+    #[test]
     fn generated_service_unit_runs_like_iora_os_under_systemd() {
         let unit = native_unit("iora-example");
         assert!(unit.contains("User=iora"));
         assert!(unit.contains("After=network-online.target postgresql.service"));
         assert!(unit.contains("target/debug/iora-example"));
+    }
+    #[test]
+    fn newer_local_edit_is_stale() {
+        assert!(!file_in_sync(200.0, 100, Some((100.0, 100))));
+    }
+    #[test]
+    fn tolerates_one_second_clock_granularity() {
+        assert!(file_in_sync(100.5, 100, Some((100.0, 100))));
+    }
+    #[test]
+    fn size_change_is_stale_even_with_newer_guest_mtime() {
+        // Guest mtime was bumped forward (post-sync touch / clock skew),
+        // but the size differs — the edit must still be pushed.
+        assert!(!file_in_sync(100.0, 101, Some((150.0, 100))));
+    }
+    #[test]
+    fn identical_copy_is_in_sync() {
+        assert!(file_in_sync(100.0, 100, Some((100.0, 100))));
+    }
+    #[test]
+    fn missing_on_guest_is_stale() {
+        assert!(!file_in_sync(100.0, 100, None));
     }
 }

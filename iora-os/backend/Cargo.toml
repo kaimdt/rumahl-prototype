@@ -37,6 +37,7 @@ members = [
     "services/iora-intelligence",
     "services/iora-updater",
     "services/iora-backup",
+    "services/iora-browserd",
 
     # system apps
     "apps/system/iora-developer-app",

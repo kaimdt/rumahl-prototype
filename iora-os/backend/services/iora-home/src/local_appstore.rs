@@ -346,6 +346,18 @@ impl LocalAppStore {
                         changed = true;
                     }
                 }
+                // Local (non-Docker) apps declare their service port in the
+                // manifest — extract it so the gateway can resolve the
+                // proxy target ("Keine konfigurierte URL für diese App").
+                if a.ports.is_empty() {
+                    if let Some(ports) = a.manifest.extra.get("ports") {
+                        if let Ok(parsed) = serde_json::from_value::<Vec<PortMapping>>(ports.clone())
+                        {
+                            a.ports = parsed;
+                            changed = true;
+                        }
+                    }
+                }
                 if !a.is_bundle && a.bundle_config.is_none() {
                     if let Some(bundle) = a.manifest.extra.get("bundle") {
                         a.is_bundle = true;
