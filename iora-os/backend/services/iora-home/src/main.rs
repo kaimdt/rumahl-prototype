@@ -10022,13 +10022,33 @@ mod app_html_rewrite_tests {
 
 /// True when the request carries an HTTP upgrade (WebSocket) header.
 fn is_ws_upgrade(req: &axum::extract::Request) -> bool {
-    req.headers()
+    // Canonical check: `Connection: upgrade`. Some proxies strip exactly
+    // this header (nginx 'Connection ""') while keeping Upgrade +
+    // Sec-WebSocket-* - recognize those as upgrade requests too, the
+    // handler repairs the missing Connection header before the handshake.
+    let connection_upgrade = req
+        .headers()
         .get(axum::http::header::CONNECTION)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_ascii_lowercase()
         .split(',')
-        .any(|token| token.trim() == "upgrade")
+        .any(|token| token.trim() == "upgrade");
+    if connection_upgrade {
+        return true;
+    }
+    let upgrade_websocket = req
+        .headers()
+        .get(axum::http::header::UPGRADE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .contains("websocket");
+    let has_key = req
+        .headers()
+        .get("sec-websocket-key")
+        .is_some_and(|value| !value.is_empty());
+    upgrade_websocket && has_key
 }
 
 /// Transparent WebSocket tunnel from the ORA desktop client to the app
@@ -10206,6 +10226,22 @@ async fn app_proxy_handler(
                     // signaling over /ws; reqwest cannot relay upgrades).
                     if is_ws_upgrade(&req) {
                         let (mut parts, _body) = req.into_parts();
+                        // Some proxies (nginx with 'Connection ""') strip the
+                        // Connection header while keeping Upgrade +
+                        // Sec-WebSocket-* - repair it so axum accepts the
+                        // handshake and the tunnel can be established.
+                        if parts.headers.get(axum::http::header::CONNECTION).is_none()
+                            && parts.headers.get(axum::http::header::UPGRADE).is_some()
+                        {
+                            parts.headers.insert(
+                                axum::http::header::CONNECTION,
+                                axum::http::HeaderValue::from_static("upgrade"),
+                            );
+                            tracing::info!(
+                                path = %parts.uri.path(),
+                                "websocket upgrade: repaired missing Connection header"
+                            );
+                        }
                         let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
                             Ok(upgrade) => upgrade,
                             Err(_) => {
