@@ -303,6 +303,14 @@
       <p class="foot">Push EVERY source file into the guest and rebuild + restart the affected IORA services (repairs missed watcher events / mtime skew).</p>
       <div style="height:10px"></div>
       <button id="force-sync-button" class="primary" onclick="forceSyncRebuild()">Force Sync &amp; Rebuild</button>
+      <div id="sync-progress" style="display:none;margin-top:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+        <div class="foot" id="sync-phase" style="margin-bottom:6px">-</div>
+        <div style="background:#2a2f3a;border-radius:4px;height:12px;overflow:hidden">
+          <div id="sync-bar" style="background:linear-gradient(90deg,#6366f1,#22d3ee);height:12px;width:0%;border-radius:4px;transition:width .6s ease"></div>
+        </div>
+        <div class="foot" id="sync-message" style="margin-top:6px">-</div>
+      </div>
+    </div>
     </div>
     <div class="panel">
       <h2>Coverage</h2>
@@ -979,20 +987,67 @@
     const button = document.getElementById('force-sync-button');
     if (!confirm('Force Sync & Rebuild?\n\nPushes EVERY source file into the VM and rebuilds + restarts all affected IORA services. This can take several minutes while the guest compiles.')) return;
     button.disabled = true;
-    button.textContent = 'Syncing + rebuilding...';
+    button.textContent = 'Starting...';
     try {
       const response = await fetch('/api/maintenance/force-sync', { method: 'POST' });
       const result = await response.json();
-      if (!result.ok) throw new Error(result.message || 'force sync failed');
+      if (!result.ok) {
+        // Already running (or another error): show the live progress instead.
+        message.textContent = result.message || 'force sync failed';
+        loadSyncStatus();
+        return;
+      }
       message.textContent = result.message || 'Force sync started.';
-      // Show progress in the log stream automatically.
-      switchTab('logs');
+      loadSyncStatus();
     } catch (error) {
       errorText.textContent = 'Force sync failed: ' + error;
       banner.style.display = 'block';
     } finally {
       button.disabled = false;
       button.textContent = 'Force Sync & Rebuild';
+    }
+  }
+
+  let syncPollTimer = null
+  async function loadSyncStatus() {
+    const box = document.getElementById('sync-progress');
+    const bar = document.getElementById('sync-bar');
+    const phaseEl = document.getElementById('sync-phase');
+    const msgEl = document.getElementById('sync-message');
+    const button = document.getElementById('force-sync-button');
+    try {
+      const response = await fetch('/api/maintenance/force-sync/status');
+      const result = await response.json();
+      const status = (result && result.status) || {};
+      const running = status.running === true || (status.phase !== 'idle' && status.phase !== 'done' && status.phase !== 'error');
+      if (!running) {
+        box.style.display = 'none';
+        button.disabled = false;
+        button.textContent = 'Force Sync & Rebuild';
+        if (syncPollTimer) { clearInterval(syncPollTimer); syncPollTimer = null; }
+        if (status.phase === 'done' || status.phase === 'error') {
+          message.textContent = status.message || '';
+        }
+        return;
+      }
+      // Running: show live progress + keep the button disabled.
+      box.style.display = 'block';
+      button.disabled = true;
+      button.textContent = 'Running...';
+      const phaseLabel = {
+        sync: 'Synchronisieren', build: 'Build im Guest', restart: 'Neustart',
+      }[status.phase] || status.phase;
+      const pct = status.percent != null ? status.percent : 0;
+      phaseEl.textContent = phaseLabel + (pct > 0 ? ' · ' + pct + '%' : ' · läuft…');
+      bar.style.width = (status.percent != null ? Math.min(100, status.percent) : 15) + '%';
+      // During the build phase the message is the crate cargo is compiling.
+      msgEl.textContent = status.message || '';
+      if (!syncPollTimer) {
+        syncPollTimer = setInterval(loadSyncStatus, 2000);
+      }
+    } catch (error) {
+      // Endpoint not reachable - keep polling lightly.
+      if (!syncPollTimer) syncPollTimer = setInterval(loadSyncStatus, 5000);
     }
   }
 
@@ -1171,6 +1226,7 @@
   loadDisk();
   setInterval(loadDisk, 30000);
   loadSettings();
+  loadSyncStatus();
   setInterval(function () {
     if (document.getElementById('page-monitoring').classList.contains('active')) loadMonitoring();
   }, 10000);

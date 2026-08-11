@@ -48,6 +48,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/maintenance/config-sync", post(config_sync))
         .route("/api/maintenance/docker-compose", post(install_docker_compose))
         .route("/api/maintenance/force-sync", post(force_sync))
+        .route("/api/maintenance/force-sync/status", get(force_sync_status))
         .route("/api/guest", post(guest))
         .route("/api/ssh", post(ssh_open))
         .route("/api/logs", get(logs))
@@ -372,8 +373,17 @@ async fn disk_info(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
 
 /// Force Sync & Rebuild: push every source file into the guest and rebuild
 /// the affected IORA services. Runs detached - the response returns right
-/// away, progress appears in the live log stream.
+/// away, progress appears in the live log stream and under
+/// /api/maintenance/force-sync/status. A second invocation while one is
+/// already running is rejected (parallel guest builds would block each
+/// other on the cargo lock).
 async fn force_sync(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    if daemon.force_sync_status()["running"] == serde_json::Value::Bool(true) {
+        return Json(json!({
+            "ok": false,
+            "message": "Force Sync & Rebuild läuft bereits — Fortschritt siehe unten im Monitoring-Bereich. Warte auf den Abschluss, bevor du erneut klickst.",
+        }));
+    }
     let worker = daemon.clone();
     tokio::spawn(async move {
         match worker.force_sync_and_rebuild().await {
@@ -383,8 +393,13 @@ async fn force_sync(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
     });
     Json(json!({
         "ok": true,
-        "message": "Force Sync & Rebuild gestartet — Fortschritt im Log (unten rechts / Logs-Tab).",
+        "message": "Force Sync & Rebuild gestartet — Fortschritt im Monitoring-Bereich und im Log.",
     }))
+}
+
+/// Live progress of the running Force Sync & Rebuild.
+async fn force_sync_status(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    Json(json!({"ok": true, "status": daemon.force_sync_status()}))
 }
 
 #[derive(Deserialize)]

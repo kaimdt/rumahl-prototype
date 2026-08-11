@@ -1,15 +1,63 @@
 use crate::{channels, state::RuntimeState};
 use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
     sync::atomic::{AtomicBool, Ordering},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{process::Command, sync::mpsc};
+
+/// Live progress of a running "Force Sync & Rebuild" (shared between the
+/// devloop worker and the dashboard via /api/maintenance/force-sync/status).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SyncProgressState {
+    pub running: bool,
+    /// "sync" | "build" | "restart" | "done" | "error"
+    pub phase: String,
+    pub message: String,
+    pub percent: Option<u8>,
+    pub started_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// Services that were rebuilt (filled at the end).
+    pub services: Vec<String>,
+    /// Files pushed in the sync phase.
+    pub files_pushed: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SyncProgress {
+    pub inner: Arc<Mutex<SyncProgressState>>,
+}
+
+impl SyncProgress {
+    pub fn update(&self, phase: &str, message: impl Into<String>, percent: Option<u8>) {
+        let mut state = self.inner.lock().unwrap();
+        state.phase = phase.to_string();
+        state.message = message.into();
+        state.percent = percent;
+        state.updated_at = Some(now_iso());
+        if state.started_at.is_none() {
+            state.started_at = Some(now_iso());
+        }
+    }
+    pub fn snapshot(&self) -> SyncProgressState {
+        self.inner.lock().unwrap().clone()
+    }
+}
+
+pub fn now_iso() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_default()
+}
 
 #[derive(Debug, Clone)]
 pub enum DevEvent {
@@ -364,7 +412,7 @@ async fn apply_changes(
         let _ = events.send(DevEvent::Building(services.join(", ")));
         // Detached build + poll: survives SSH connection resets during long
         // compiles (QEMU slirp drops idle sessions).
-        let _ = run_guest_build(state, os_root, &services).await?;
+        let _ = run_guest_build(state, os_root, &services, None).await?;
         for service in services {
             let unit = native_unit(&service);
             let command = format!(
@@ -659,9 +707,16 @@ pub async fn force_full_sync(
     repo: &Path,
     os_root: &Path,
     state: &RuntimeState,
+    progress: Option<&SyncProgress>,
 ) -> Result<String> {
     let started = std::time::Instant::now();
+    if let Some(progress) = progress {
+        progress.update("sync", "Sammle Quelldateien…", Some(2));
+    }
     if !state.process_alive() {
+        if let Some(progress) = progress {
+            progress.update("error", "VM läuft nicht — zuerst starten.", None);
+        }
         anyhow::bail!("VM is not running - start it before forcing a sync");
     }
     // 1) Push EVERY relevant file (not just the drift set).
@@ -673,6 +728,13 @@ pub async fn force_full_sync(
     if paths.is_empty() {
         anyhow::bail!("no synchronizable files found in {}", repo.display());
     }
+    if let Some(progress) = progress {
+        progress.update(
+            "sync",
+            format!("Übertrage {} Dateien in die VM…", paths.len()),
+            Some(10),
+        );
+    }
     bulk_sync(repo, os_root, state, &paths).await?;
     // 2) Rebuild every service whose sources just arrived (cargo metadata
     //    resolves the workspace + reverse dependencies). Built detached so
@@ -681,12 +743,26 @@ pub async fn force_full_sync(
     let services = affected_services(&backend, &paths).await?;
     let mut rebuilt: Vec<String> = Vec::new();
     if !services.is_empty() {
-        let _ = run_guest_build(state, os_root, &services).await?;
+        if let Some(progress) = progress {
+            progress.update(
+                "build",
+                format!("Starte Build für {} Service(s)…", services.len()),
+                Some(40),
+            );
+        }
+        let _ = run_guest_build(state, os_root, &services, progress).await?;
         rebuilt = services;
     }
     // 3) Restart the rebuilt services - the unit file is ALWAYS rewritten
     //    so environment/unit changes (e.g. iora-nginx NGINX_TEMPLATE_PATH)
     //    take effect on an existing unit too.
+    if let Some(progress) = progress {
+        progress.update(
+            "restart",
+            format!("Starte {} Service(s) neu…", rebuilt.len()),
+            Some(90),
+        );
+    }
     for service in &rebuilt {
         let unit = format!("{service}.service");
         let restart = format!(
@@ -706,13 +782,25 @@ pub async fn force_full_sync(
         "systemctl restart iora-frontend-dev 2>/dev/null || true",
     )
     .await;
-    Ok(format!(
+    let summary = format!(
         "Force sync: {} file(s) pushed, {} service(s) rebuilt & restarted ({}) in {:.0}s",
         paths.len(),
         rebuilt.len(),
         rebuilt.join(", "),
         started.elapsed().as_secs_f64()
-    ))
+    );
+    if let Some(progress) = progress {
+        let mut snapshot = progress.snapshot();
+        snapshot.running = false;
+        snapshot.phase = "done".into();
+        snapshot.message = summary.clone();
+        snapshot.percent = Some(100);
+        snapshot.services = rebuilt;
+        snapshot.files_pushed = Some(paths.len() as u64);
+        snapshot.updated_at = Some(now_iso());
+        *progress.inner.lock().unwrap() = snapshot;
+    }
+    Ok(summary)
 }
 
 /// Run a cargo build for the given services in the guest DETACHED (nohup)
@@ -724,9 +812,21 @@ async fn run_guest_build(
     state: &RuntimeState,
     os_root: &Path,
     services: &[String],
+    progress: Option<&SyncProgress>,
 ) -> Result<String> {
     if services.is_empty() {
         return Ok(String::new());
+    }
+    if let Some(progress) = progress {
+        progress.update(
+            "build",
+            format!(
+                "Baue {} Service(s): {} …",
+                services.len(),
+                services.join(", ")
+            ),
+            Some(45),
+        );
     }
     let packages: Vec<String> = services
         .iter()
@@ -745,9 +845,26 @@ async fn run_guest_build(
     )
     .await?;
     // Poll with short SSH calls (up to 60 min for cold workspace builds).
+    // While waiting, surface the live build log tail so the dashboard can
+    // show what cargo is currently compiling.
     let mut finished = false;
+    let mut last_tail_at = std::time::Instant::now();
     for _ in 0..720 {
         tokio::time::sleep(Duration::from_secs(5)).await;
+        if progress.is_some() && last_tail_at.elapsed() >= Duration::from_secs(15) {
+            last_tail_at = std::time::Instant::now();
+            if let Ok(tail) = ssh_run(state, os_root, &format!("tail -c 2000 {log}")).await {
+                let last_line = tail
+                    .lines()
+                    .rev()
+                    .find(|line| line.contains("Compiling"))
+                    .or_else(|| tail.lines().rev().find(|line| !line.trim().is_empty()))
+                    .unwrap_or("Build läuft…");
+                if let Some(progress) = progress {
+                    progress.update("build", last_line.trim().to_string(), None);
+                }
+            }
+        }
         let running = ssh_run(
             state,
             os_root,
@@ -769,6 +886,13 @@ async fn run_guest_build(
         line.starts_with("error") || line.starts_with("error[")
     });
     if failed {
+        if let Some(progress) = progress {
+            progress.update(
+                "error",
+                format!("Guest-Build fehlgeschlagen:\n{}", tail.chars().take(300).collect::<String>()),
+                None,
+            );
+        }
         anyhow::bail!("guest build failed:\n{tail}");
     }
     Ok(tail)

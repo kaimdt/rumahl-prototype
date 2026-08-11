@@ -101,6 +101,8 @@ pub struct Daemon {
     /// One-shot per VM start: grow the guest root filesystem when the disk
     /// was expanded while the VM was stopped (qemu-img resize).
     disk_grow_done: Mutex<bool>,
+    /// Live progress of a running Force Sync & Rebuild (None when idle).
+    force_sync_progress: Mutex<Option<devloop::SyncProgress>>,
 }
 
 impl Daemon {
@@ -151,6 +153,7 @@ impl Daemon {
             download_progress: Mutex::new(DownloadProgress::default()),
             vms_cache: Mutex::new(json!({"vms": []})),
             disk_grow_done: Mutex::new(false),
+            force_sync_progress: Mutex::new(None),
         })
     }
 
@@ -390,8 +393,19 @@ impl Daemon {
 
     /// Explicit "Force Sync & Rebuild": push every source file into the
     /// guest and rebuild/restart the affected IORA services. Runs detached
-    /// so the dashboard stays responsive; progress is emitted as events.
+    /// so the dashboard stays responsive; progress is emitted as events and
+    /// tracked in `force_sync_progress` for the status endpoint. Refuses to
+    /// start a second run while one is already in flight (parallel cargo
+    /// builds in the guest would block each other on the build lock).
     pub async fn force_sync_and_rebuild(&self) -> Result<String> {
+        {
+            let guard = self.force_sync_progress.lock().unwrap();
+            if let Some(progress) = guard.as_ref() {
+                if progress.snapshot().running {
+                    anyhow::bail!("Force Sync & Rebuild läuft bereits — bitte den Abschluss im Log abwarten.");
+                }
+            }
+        }
         let (repository, os_root, state) = {
             let manager = self.manager.lock().await;
             (
@@ -400,13 +414,46 @@ impl Daemon {
                 manager.state.clone(),
             )
         };
+        let progress = devloop::SyncProgress::default();
+        {
+            let mut snapshot = progress.snapshot();
+            snapshot.running = true;
+            snapshot.phase = "sync".into();
+            snapshot.message = "Wird gestartet…".into();
+            snapshot.percent = Some(0);
+            snapshot.started_at = Some(devloop::now_iso());
+            *progress.inner.lock().unwrap() = snapshot;
+        }
+        *self.force_sync_progress.lock().unwrap() = Some(progress.clone());
         self.emit("status", "Force sync: pushing all sources to the guest…");
-        let result = devloop::force_full_sync(&repository, &os_root, &state).await;
+        let result = devloop::force_full_sync(&repository, &os_root, &state, Some(&progress)).await;
         match &result {
             Ok(summary) => self.emit("status", summary.clone()),
-            Err(error) => self.emit("error", format!("Force sync failed: {error:#}")),
+            Err(error) => {
+                let mut snapshot = progress.snapshot();
+                snapshot.running = false;
+                snapshot.phase = "error".into();
+                snapshot.message = format!("Force sync fehlgeschlagen: {error:#}");
+                snapshot.updated_at = Some(devloop::now_iso());
+                *progress.inner.lock().unwrap() = snapshot;
+                self.emit("error", format!("Force sync failed: {error:#}"));
+            }
         }
         result
+    }
+
+    /// Snapshot of the running force-sync progress (idle state when none).
+    pub fn force_sync_status(&self) -> Value {
+        let guard = self.force_sync_progress.lock().unwrap();
+        match guard.as_ref() {
+            Some(progress) => serde_json::to_value(progress.snapshot()).unwrap_or(Value::Null),
+            None => serde_json::json!({
+                "running": false,
+                "phase": "idle",
+                "message": "Kein Force Sync aktiv.",
+                "percent": null,
+            }),
+        }
     }
 
     /// All running QEMU processes with their parsed details; `isManaged`
