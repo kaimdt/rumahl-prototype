@@ -59,6 +59,13 @@ restarts only `iora-home`, `iora-files`, and `iora-supervisor`. This is the
 manual recovery action for cross-service 401 errors; its result is immediately
 reflected in the monitoring table.
 
+**Install Docker Compose** repairs development guests that have Docker Engine
+but neither the Compose v2 plugin nor the standalone `docker-compose` command.
+It selects the first compatible package exposed by the guest's APT repositories,
+verifies the command, and restarts `iora-supervisor`. Newly provisioned Linux
+and Windows-hosted development VMs install `docker-compose` with Docker Engine,
+so the recovery action is primarily intended for existing VMs.
+
 ## Independent VM control plane
 
 The Rust VM view exposes start, pause, resume, reset, graceful guest shutdown, hard process stop, SSH, browser launch, and the QGA rescue prompt. Hypervisor actions go directly through QMP rather than being inferred from SSH.

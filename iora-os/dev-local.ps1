@@ -1804,7 +1804,7 @@ apt-get update -qq
 # --no-install-recommends + retries: smaller download, faster provisioning
 apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
     curl git ca-certificates build-essential pkg-config libssl-dev \
-    nodejs npm docker.io postgresql postgresql-client rsync \
+    nodejs npm docker.io docker-compose postgresql postgresql-client rsync \
     python3 python3-pip htop vim mold nginx openssl socat \
     sudo systemd-container
 systemctl enable --now docker postgresql nginx 2>/dev/null || true
@@ -2011,6 +2011,30 @@ fi
     # self-heal kicks in and re-marks SeaBIOS - the system self-corrects.
     Remove-Item $BOOT_FIRMWARE_MARKER -Force -ErrorAction SilentlyContinue
     Write-Success "Provisioning complete"
+}
+
+# Existing development VMs may carry the provisioned marker from before
+# Compose was part of the base package set. Repair that capability in place.
+Invoke-SSH '(docker compose version || docker-compose version) >/dev/null 2>&1' | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Info "Docker Compose is missing in the existing VM - installing it..."
+    $composeInstallScript = @'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+    apt-get install -y -qq --no-install-recommends docker-compose-plugin
+elif apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+    apt-get install -y -qq --no-install-recommends docker-compose-v2
+else
+    apt-get install -y -qq --no-install-recommends docker-compose
+fi
+docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1
+'@
+    Invoke-SSHStdin $composeInstallScript | Select-Object -Last 5
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "Docker Compose installation failed in VM."
+    }
 }
 
 # -- Step 7: DB init + service enablement (always run; safe to repeat) ------

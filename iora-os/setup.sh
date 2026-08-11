@@ -280,9 +280,39 @@ wsl_tweaks() {
 # embedded into the OS image.  Without Docker on the host the service
 # binaries are skipped and iora-build-images.service on the device has
 # nothing to build from.
+install_docker_compose() {
+    if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+        ok "Docker Compose is available"
+        return 0
+    fi
+
+    info "Docker Compose not found – installing..."
+    case "$PM" in
+        apt)
+            $SUDO apt-get update -qq
+            if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+                $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
+            elif apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+                $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2
+            else
+                $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose
+            fi
+            ;;
+        dnf) $SUDO dnf install -y docker-compose-plugin ;;
+        pacman) $SUDO pacman -Sy --noconfirm --needed docker-compose ;;
+        zypper) $SUDO zypper --non-interactive install docker-compose ;;
+        apk) $SUDO apk add --no-cache docker-compose ;;
+        *)
+            warn "Cannot install Docker Compose automatically for package manager: $PM"
+            return 0
+            ;;
+    esac
+}
+
 install_docker() {
     if command -v docker >/dev/null 2>&1; then
         ok "Docker already installed: $(docker --version)"
+        install_docker_compose
         return 0
     fi
 
@@ -331,6 +361,8 @@ install_docker() {
             return 0
             ;;
     esac
+
+    install_docker_compose
 
     # Add the invoking user to the docker group so they can run docker without sudo.
     local real_user="${SUDO_USER:-${USER:-}}"

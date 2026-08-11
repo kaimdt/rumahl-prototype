@@ -46,6 +46,7 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/network/reset", post(network_reset))
         .route("/api/monitoring", get(monitoring))
         .route("/api/maintenance/config-sync", post(config_sync))
+        .route("/api/maintenance/docker-compose", post(install_docker_compose))
         .route("/api/guest", post(guest))
         .route("/api/ssh", post(ssh_open))
         .route("/api/logs", get(logs))
@@ -267,6 +268,40 @@ test -s /etc/iora/jwt-secret
 systemctl daemon-reload
 systemctl restart iora-home iora-files iora-supervisor
 printf 'Config synchronized; JWT file verified; services restarted.'
+"#;
+    match daemon.guest(command.to_string()).await {
+        Ok(output) => Json(json!({"ok": true, "output": output})),
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+/// Install the Compose implementation supported by the guest's configured
+/// APT repositories. This is intentionally an explicit recovery action rather
+/// than an automatic background mutation of a running development VM.
+async fn install_docker_compose(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    let command = r#"
+set -eu
+if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+    printf 'Docker Compose is already available.'
+    exit 0
+fi
+command -v apt-get >/dev/null 2>&1 || { printf 'Automatic Compose recovery requires an APT-based guest.' >&2; exit 1; }
+export DEBIAN_FRONTEND=noninteractive
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+    sleep 3
+done
+apt-get update -qq
+if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+    apt-get install -y -qq --no-install-recommends docker-compose-plugin
+elif apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+    apt-get install -y -qq --no-install-recommends docker-compose-v2
+else
+    apt-get install -y -qq --no-install-recommends docker-compose
+fi
+docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1
+systemctl restart iora-supervisor
+printf 'Docker Compose installed and iora-supervisor restarted.'
 "#;
     match daemon.guest(command.to_string()).await {
         Ok(output) => Json(json!({"ok": true, "output": output})),

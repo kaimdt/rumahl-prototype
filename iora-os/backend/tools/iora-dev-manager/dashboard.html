@@ -276,6 +276,10 @@
       <p class="foot">Re-publish Global Config, create <span class="f">/etc/iora/jwt-secret</span>, reload systemd and restart Home, Files and Supervisor.</p>
       <div style="height:10px"></div>
       <button id="config-sync-button" class="primary" onclick="runConfigSync()">Synchronize config &amp; JWT</button>
+      <div style="height:10px"></div>
+      <p class="foot">Install a compatible Compose package when the Docker Engine exists but neither Compose v2 nor <span class="f">docker-compose</span> is available.</p>
+      <div style="height:10px"></div>
+      <button id="compose-install-button" onclick="installDockerCompose()">Install Docker Compose</button>
     </div>
     <div class="panel">
       <h2>Coverage</h2>
@@ -739,6 +743,26 @@
     } finally {
       button.disabled = false;
       button.textContent = 'Synchronize config & JWT';
+    }
+  }
+
+  async function installDockerCompose() {
+    const button = document.getElementById('compose-install-button');
+    if (!confirm('Install Docker Compose in the guest and restart Supervisor?')) return;
+    button.disabled = true;
+    button.textContent = 'Installing Compose...';
+    try {
+      const response = await fetch('/api/maintenance/docker-compose', { method: 'POST' });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'Compose installation failed');
+      message.textContent = result.output || 'Docker Compose installed.';
+      await loadMonitoring();
+    } catch (error) {
+      errorText.textContent = 'Compose installation failed: ' + error;
+      banner.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Install Docker Compose';
     }
   }
 
