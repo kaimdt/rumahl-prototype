@@ -10022,21 +10022,12 @@ mod app_html_rewrite_tests {
 
 /// True when the request carries an HTTP upgrade (WebSocket) header.
 fn is_ws_upgrade(req: &axum::extract::Request) -> bool {
-    // Canonical check: `Connection: upgrade`. Some proxies strip exactly
-    // this header (nginx 'Connection ""') while keeping Upgrade +
-    // Sec-WebSocket-* - recognize those as upgrade requests too, the
-    // handler repairs the missing Connection header before the handshake.
-    let connection_upgrade = req
-        .headers()
-        .get(axum::http::header::CONNECTION)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .split(',')
-        .any(|token| token.trim() == "upgrade");
-    if connection_upgrade {
-        return true;
-    }
+    // A request is a WebSocket upgrade ONLY when it carries real WS markers:
+    // `Upgrade: websocket` plus a `Sec-WebSocket-Key` (the browser always
+    // sends both). The `Connection: upgrade` header alone is NOT sufficient -
+    // older nginx configs set `Connection: 'upgrade'` unconditionally on
+    // EVERY request, which would otherwise misclassify plain GETs (the app
+    // iframe load) as upgrades and answer them with 400.
     let upgrade_websocket = req
         .headers()
         .get(axum::http::header::UPGRADE)
@@ -10227,12 +10218,11 @@ async fn app_proxy_handler(
                     if is_ws_upgrade(&req) {
                         let (mut parts, _body) = req.into_parts();
                         // Some proxies (nginx with 'Connection ""') strip the
-                        // Connection header while keeping Upgrade +
-                        // Sec-WebSocket-* - repair it so axum accepts the
-                        // handshake and the tunnel can be established.
-                        if parts.headers.get(axum::http::header::CONNECTION).is_none()
-                            && parts.headers.get(axum::http::header::UPGRADE).is_some()
-                        {
+                        // Connection / Sec-WebSocket-Version headers while
+                        // keeping Upgrade + Sec-WebSocket-Key - repair them so
+                        // axum accepts the handshake and the tunnel can be
+                        // established.
+                        if parts.headers.get(axum::http::header::CONNECTION).is_none() {
                             parts.headers.insert(
                                 axum::http::header::CONNECTION,
                                 axum::http::HeaderValue::from_static("upgrade"),
@@ -10240,6 +10230,16 @@ async fn app_proxy_handler(
                             tracing::info!(
                                 path = %parts.uri.path(),
                                 "websocket upgrade: repaired missing Connection header"
+                            );
+                        }
+                        if parts.headers.get("sec-websocket-version").is_none() {
+                            parts.headers.insert(
+                                axum::http::HeaderName::from_static("sec-websocket-version"),
+                                axum::http::HeaderValue::from_static("13"),
+                            );
+                            tracing::info!(
+                                path = %parts.uri.path(),
+                                "websocket upgrade: repaired missing Sec-WebSocket-Version"
                             );
                         }
                         let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
