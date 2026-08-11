@@ -12,6 +12,7 @@ import { adminFetch, InlineSpinner } from './AdminPanel'
 import { toast } from 'sonner'
 import { getBackendUrl } from '@/lib/config'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
+import { STORE_CATALOG } from '@/lib/storeCatalog'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -136,6 +137,19 @@ interface AppDetailDialogProps {
 
 const DEFAULT_ICON = '/default-app-icon.svg'
 
+/** Backend sends ports as "external:internal/protocol" strings — parse both shapes. */
+function dialogPort(ports: unknown): number | undefined {
+  const entry = Array.isArray(ports) ? ports[0] : undefined
+  if (typeof entry === 'string') {
+    const m = entry.match(/^(\d+):/)
+    return m ? Number(m[1]) : undefined
+  }
+  if (entry && typeof entry === 'object' && 'external' in (entry as object)) {
+    return Number((entry as { external: unknown }).external)
+  }
+  return undefined
+}
+
 export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDialogProps) {
   const { t, i18n } = useTranslation()
   const locale = i18n.language?.startsWith('de') ? 'de-DE' : 'en-US'
@@ -215,10 +229,17 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
         const firstService = typeof data.services?.[0]?.name === 'string' ? data.services[0].name : ''
         setSelectedTerminalService(firstService)
         const notes: string[] = []
+        // Runtime-audit and secrets require app-manifest permissions
+        // (AppRuntimeAuditRead / AppSecretsRead). Apps that don't declare
+        // them return 403 - that is expected, not an error: keep the tabs
+        // empty and stay quiet instead of surfacing a failure.
+        const silent = async (url: string): Promise<unknown> => {
+          try { return await adminFetch(url, token) } catch { return null }
+        }
         const [jobs, audit, secrets] = await Promise.all([
           adminFetch(`/api/apps/${appId}/jobs`, token).catch((e) => { notes.push(`Jobs: ${(e as Error).message}`); return null }),
-          adminFetch(`/api/apps/${appId}/audit`, token).catch((e) => { notes.push(`Audit: ${(e as Error).message}`); return null }),
-          adminFetch(`/api/apps/${appId}/secrets`, token).catch((e) => { notes.push(`Secrets: ${(e as Error).message}`); return null }),
+          silent(`/api/apps/${appId}/audit`),
+          silent(`/api/apps/${appId}/secrets`),
         ])
         setRuntimeJobs(((jobs as any)?.jobs || []).slice(-12))
         setRuntimeAudit(((audit as any)?.events || []).slice(-20))
@@ -447,8 +468,20 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
       window.location.href = detail.open_url
     } else if (detail?.custom_pages?.[0]) {
       window.location.href = `/page/${detail.custom_pages[0].id}`
+    } else {
+      // Docker app: open the assigned host port (catalog hint as fallback).
+      const port = dialogPort(detail?.ports) ?? STORE_CATALOG.find((def) => def.id === appId)?.openPort
+      if (port) window.open(`http://127.0.0.1:${port}`, '_blank')
     }
   }
+
+  /** Whether an "Open" action is available for this app. */
+  const canOpenApp = Boolean(
+    detail?.open_url ||
+    detail?.custom_pages?.[0] ||
+    dialogPort(detail?.ports) ||
+    STORE_CATALOG.some((def) => def.id === appId),
+  )
 
   const openSettings = () => {
     if (!appId) return
@@ -590,7 +623,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                     {actionLoading === 'start' ? <InlineSpinner size={12} /> : <Play size={12} />} Starten
                   </button>
                 )}
-                {detail.open_url && (
+                {canOpenApp && (
                   <button onClick={openApp}
                     className="flex items-center gap-1 px-2.5 py-1.5 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors">
                     <Globe size={12} /> Öffnen

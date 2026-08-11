@@ -5,6 +5,13 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { useCurrentBackground } from '@/contexts/CurrentBackgroundContext'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
+import { useResolvedUrl } from '@/hooks/useResolvedUrl'
+
+function normalizeBackgroundInput(raw: unknown): string {
+  return typeof raw === 'string' && raw.trim().length > 0
+    ? raw
+    : DEFAULT_DASHBOARD_BACKGROUND_URL
+}
 
 function normalizePosition(raw: unknown): string {
   const value = String(raw ?? 'center').toLowerCase()
@@ -120,9 +127,7 @@ function StaticBackground({ config, onImageUrl }: { config: any; onImageUrl: (ur
   const size = normalizeSize(config.size)
   const fixed = config.fixed !== false
 
-  const url = typeof config.url === 'string' && config.url.trim().length > 0
-    ? config.url
-    : DEFAULT_DASHBOARD_BACKGROUND_URL
+  const url = useResolvedUrl(normalizeBackgroundInput(config.url))
 
   // Notify accent system of current image
   useEffect(() => {
@@ -147,7 +152,7 @@ function StaticBackground({ config, onImageUrl }: { config: any; onImageUrl: (ur
 
 function SlideshowBackground({ config, onImageUrl }: { config: any; onImageUrl: (url: string) => void }) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const urls = config.urls || []
+  const urls = (config.urls || []).map(normalizeBackgroundInput).map(useResolvedUrl)
   const interval = (config.interval || 5) * 1000
 
   useEffect(() => {
@@ -195,9 +200,7 @@ function SlideshowBackground({ config, onImageUrl }: { config: any; onImageUrl: 
 }
 
 function VideoBackground({ config, onImageUrl }: { config: any; onImageUrl: (url: string) => void }) {
-  const videoUrl = typeof config.url === 'string' && config.url.trim().length > 0
-    ? config.url
-    : DEFAULT_DASHBOARD_BACKGROUND_URL
+  const videoUrl = useResolvedUrl(normalizeBackgroundInput(config.url))
 
   useEffect(() => {
     onImageUrl(videoUrl)

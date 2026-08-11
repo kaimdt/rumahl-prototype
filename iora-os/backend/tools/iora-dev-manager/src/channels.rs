@@ -8,6 +8,12 @@ use tokio::{
     net::TcpStream,
     time::{sleep, timeout, Duration},
 };
+use std::sync::OnceLock;
+
+// The QEMU Guest Agent accepts only one request at a time reliably. The
+// watcher, watchdog, health probe and port scanner all share the channel, so
+// every QGA request has to pass through this single gate.
+static QGA_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 async fn exchange<S>(stream: S, messages: &[Value], qmp: bool) -> Result<Value>
 where
@@ -95,19 +101,31 @@ pub async fn qmp_command(
     )
     .await
 }
-pub async fn qga(port: u16, socket: &Path, value: Value) -> Result<Value> {
+async fn qga_unlocked(port: u16, socket: &Path, value: Value) -> Result<Value> {
     request(port, socket, &[value], false).await
 }
 
+pub async fn qga(port: u16, socket: &Path, value: Value) -> Result<Value> {
+    let _guard = QGA_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+    qga_unlocked(port, socket, value).await
+}
+
 pub async fn guest_exec(port: u16, socket: &Path, command: &str) -> Result<String> {
-    let started = qga(port, socket, json!({"execute":"guest-exec","arguments":{"path":"/bin/sh","arg":["-c",command],"capture-output":true}})).await?;
+    let _guard = QGA_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+    let started = qga_unlocked(port, socket, json!({"execute":"guest-exec","arguments":{"path":"/bin/sh","arg":["-c",command],"capture-output":true}})).await?;
     let pid = started
         .pointer("/return/pid")
         .and_then(Value::as_i64)
         .context("QGA returned no guest PID")?;
     for _ in 0..120 {
         sleep(Duration::from_millis(250)).await;
-        let status = qga(
+        let status = qga_unlocked(
             port,
             socket,
             json!({"execute":"guest-exec-status","arguments":{"pid":pid}}),

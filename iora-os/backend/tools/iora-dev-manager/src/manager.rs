@@ -198,19 +198,62 @@ impl Manager {
         } else {
             "q35"
         };
-        let acceleration = std::env::var("IORA_DEV_ACCEL").unwrap_or_else(|_| {
+        // Acceleration selection. On Windows try WHPX first (the fast path),
+        // then fall back to TCG with clamped resources when Hyper-V/WHP is
+        // unavailable or the process dies instantly — mirrors the proven
+        // dev-local.ps1 fallback so a machine without WHPX still boots.
+        let accel_override = std::env::var("IORA_DEV_ACCEL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let skip_whpx = std::env::var("IORA_DEV_SKIP_WHPX")
+            .ok()
+            .map(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false);
+        let default_accel = || -> String {
             if cfg!(windows) {
-                "whpx".into()
+                if skip_whpx {
+                    "tcg".to_string()
+                } else {
+                    "whpx".to_string()
+                }
             } else if cfg!(target_os = "macos") {
-                "hvf".into()
+                "hvf".to_string()
             } else if Path::new("/dev/kvm").exists() {
-                "kvm".into()
+                "kvm".to_string()
             } else {
-                "tcg".into()
+                "tcg".to_string()
             }
-        });
+        };
         let memory = std::env::var("IORA_DEV_RAM").unwrap_or_else(|_| "8G".into());
         let cpus = std::env::var("IORA_DEV_CPUS").unwrap_or_else(|_| "4".into());
+        let first_accel = accel_override.clone().unwrap_or_else(default_accel);
+        // TCG has no hardware acceleration: clamp RAM to 4-8 GB and vCPUs
+        // to 2-8 (dev-local.ps1 uses the same limits for its TCG fallback).
+        let tcg_ram = format!(
+            "{}G",
+            clamp_ram_gb(&memory).clamp(4, 8)
+        );
+        let tcg_cpus = cpus
+            .trim_end_matches(['C', 'c'])
+            .parse::<u32>()
+            .unwrap_or(4)
+            .clamp(2, 8)
+            .to_string();
+        let candidates: Vec<(String, String, String)> =
+            if cfg!(windows) && accel_override.is_none() {
+                vec![
+                    (first_accel.clone(), memory.clone(), cpus.clone()),
+                    ("tcg".to_string(), tcg_ram, tcg_cpus),
+                ]
+            } else {
+                vec![(first_accel.clone(), memory.clone(), cpus.clone())]
+            };
         let network = match mode {
             NetworkMode::Slirp => {
                 // Bind every rule to loopback: Windows Firewall silently drops
@@ -249,98 +292,137 @@ impl Manager {
                 )
             }
         };
-        let mut arguments = vec![
-            "-name".into(),
-            "IORA-Dev".into(),
-            "-m".into(),
-            memory,
-            "-smp".into(),
-            cpus,
-            "-machine".into(),
-            format!("{machine},accel={acceleration}"),
-            "-cpu".into(),
-            cpu_model(&acceleration),
-            "-drive".into(),
-            format!(
-                "file={},format=qcow2,if=virtio,cache=writeback",
-                disk.display()
-            ),
-            "-netdev".into(),
-            network,
-            "-device".into(),
-            if architecture == "aarch64" {
-                "virtio-net-device,netdev=n0".into()
-            } else {
-                "virtio-net-pci,netdev=n0".into()
-            },
-            "-device".into(),
-            if architecture == "aarch64" {
-                "virtio-serial-device".into()
-            } else {
-                "virtio-serial-pci".into()
-            },
-        ];
-        if architecture == "aarch64" {
+        // AArch64 firmware is resolved once; the argument builder reuses it.
+        let firmware = if architecture == "aarch64" {
             let firmware = find_aarch64_firmware().context(
                 "AArch64 QEMU firmware was not found; set IORA_DEV_FIRMWARE to its path",
             )?;
-            arguments.extend(["-bios".into(), firmware.display().to_string()]);
             self.state.firmware = Some(firmware.display().to_string());
-        }
-        let seed = cache.join("iora-dev-seed.iso");
-        if seed.exists() {
-            arguments.extend([
-                "-drive".into(),
-                format!("file={},format=raw,media=cdrom", seed.display()),
-            ]);
-        }
-        if cfg!(windows) {
-            arguments.extend([
-                "-chardev".into(),
-                format!(
-                    "socket,id=qga0,host=127.0.0.1,port={},server=on,wait=off",
-                    self.state.qga_port
-                ),
-                "-qmp".into(),
-                format!("tcp:127.0.0.1:{},server=on,wait=off", self.state.qmp_port),
-            ]);
+            Some(firmware)
         } else {
+            None
+        };
+        let seed = cache.join("iora-dev-seed.iso");
+        let build_args = |accel: &str, mem: &str, cpu: &str| -> Vec<String> {
+            let mut arguments = vec![
+                "-name".into(),
+                "IORA-Dev".into(),
+                "-m".into(),
+                mem.to_string(),
+                "-smp".into(),
+                cpu.to_string(),
+                "-machine".into(),
+                format!("{machine},accel={accel}"),
+                "-cpu".into(),
+                cpu_model(accel),
+                "-drive".into(),
+                format!(
+                    "file={},format=qcow2,if=virtio,cache=writeback",
+                    disk.display()
+                ),
+                "-netdev".into(),
+                network.clone(),
+                "-device".into(),
+                if architecture == "aarch64" {
+                    "virtio-net-device,netdev=n0".into()
+                } else {
+                    "virtio-net-pci,netdev=n0".into()
+                },
+                "-device".into(),
+                if architecture == "aarch64" {
+                    "virtio-serial-device".into()
+                } else {
+                    "virtio-serial-pci".into()
+                },
+            ];
+            if let Some(firmware) = &firmware {
+                arguments.extend(["-bios".into(), firmware.display().to_string()]);
+            }
+            if seed.exists() {
+                arguments.extend([
+                    "-drive".into(),
+                    format!("file={},format=raw,media=cdrom", seed.display()),
+                ]);
+            }
+            if cfg!(windows) {
+                arguments.extend([
+                    "-chardev".into(),
+                    format!(
+                        "socket,id=qga0,host=127.0.0.1,port={},server=on,wait=off",
+                        self.state.qga_port
+                    ),
+                    "-qmp".into(),
+                    format!("tcp:127.0.0.1:{},server=on,wait=off", self.state.qmp_port),
+                ]);
+            } else {
+                arguments.extend([
+                    "-chardev".into(),
+                    format!(
+                        "socket,id=qga0,path={},server=on,wait=off",
+                        cache.join("qga.sock").display()
+                    ),
+                    "-qmp".into(),
+                    format!(
+                        "unix:{},server=on,wait=off",
+                        cache.join("qmp.sock").display()
+                    ),
+                ]);
+            }
             arguments.extend([
-                "-chardev".into(),
+                "-device".into(),
+                "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0".into(),
+                "-serial".into(),
+                format!("file:{}", cache.join("qemu-serial.log").display()),
+                "-vnc".into(),
                 format!(
-                    "socket,id=qga0,path={},server=on,wait=off",
-                    cache.join("qga.sock").display()
+                    "127.0.0.1:{},websocket={}",
+                    display_number(),
+                    5700 + display_number()
                 ),
-                "-qmp".into(),
-                format!(
-                    "unix:{},server=on,wait=off",
-                    cache.join("qmp.sock").display()
-                ),
+                "-display".into(),
+                "none".into(),
             ]);
+            arguments
+        };
+
+        // Spawn with fallback: when a candidate dies within the grace window
+        // (e.g. WHPX unavailable), try the next one (TCG) before giving up.
+        let mut spawned_child: Option<std::process::Child> = None;
+        let mut spawn_error = String::new();
+        for (index, (accel, mem, cpu)) in candidates.iter().enumerate() {
+            let arguments = build_args(accel, mem, cpu);
+            let mut command = Command::new(&qemu);
+            command
+                .args(&arguments)
+                .stdin(Stdio::null())
+                .stdout(Stdio::from(log.try_clone()?))
+                .stderr(Stdio::from(log.try_clone()?));
+            let mut child = match command.spawn() {
+                Ok(child) => child,
+                Err(error) => {
+                    spawn_error = format!("failed to launch {qemu}: {error:#}");
+                    continue;
+                }
+            };
+            let has_fallback = index + 1 < candidates.len();
+            if has_fallback {
+                // Give the first candidate a short grace period: WHPX fails
+                // within milliseconds when Hyper-V/WHP is not available.
+                std::thread::sleep(Duration::from_secs(4));
+                if let Ok(Some(status)) = child.try_wait() {
+                    spawn_error = format!(
+                        "{accel} exited immediately ({status}); tail of dev-manager.log:\n{}",
+                        read_tail(&cache.join("dev-manager.log"), 12)
+                    );
+                    eprintln!("[dev-manager] {spawn_error}");
+                    continue;
+                }
+            }
+            spawned_child = Some(child);
+            self.state.acceleration = Some(accel.clone());
+            break;
         }
-        arguments.extend([
-            "-device".into(),
-            "virtserialport,chardev=qga0,id=qga0,name=org.qemu.guest_agent.0".into(),
-            "-serial".into(),
-            format!("file:{}", cache.join("qemu-serial.log").display()),
-            "-vnc".into(),
-            format!(
-                "127.0.0.1:{},websocket={}",
-                display_number(),
-                5700 + display_number()
-            ),
-            "-display".into(),
-            "none".into(),
-        ]);
-        let mut command = Command::new(&qemu);
-        command
-            .args(&arguments)
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log));
-        let child = command
-            .spawn()
-            .with_context(|| format!("failed to launch {qemu}"))?;
+        let child = spawned_child.ok_or_else(|| anyhow::anyhow!(spawn_error))?;
         self.state.pid = Some(child.id());
         self.state.lifecycle = "Starting".into();
         self.state.network_mode = mode;
@@ -350,7 +432,6 @@ impl Manager {
             String::new()
         };
         self.state.vm_disk = Some(disk);
-        self.state.acceleration = Some(acceleration);
         self.state.vnc_port = Some(5900 + display_number());
         self.state.vnc_ws_port = Some(5700 + display_number());
         // forwarded_ports / skipped_ports were already recorded by the Slirp
@@ -368,7 +449,36 @@ impl Manager {
                 self.root.join(".cache/iora-dev-vm.qcow2").display()
             );
         }
-        let shell = if cfg!(windows) { "powershell.exe" } else { "pwsh" };
+        // Remove the Mark-of-the-Web from every script under iora-os so
+        // PowerShell does not ask "Do you want to run this script?" for each
+        // module import (non-interactive bootstraps would silently decline
+        // and break the provision). This is the same as `Unblock-File`.
+        if cfg!(windows) {
+            let _ = std::process::Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-ChildItem -Path . -Recurse -Include *.ps1,*.psm1 -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue",
+                ])
+                .current_dir(&self.root)
+                .status();
+        }
+        // Prefer PowerShell 7 (correct UTF-8 parsing of the .ps1 files);
+        // Windows PowerShell 5.1 misreads UTF-8 and can break parsing.
+        let shell = if cfg!(windows) {
+            let pwsh_available = std::process::Command::new("pwsh")
+                .args(["-NoProfile", "-Command", "exit 0"])
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+            if pwsh_available {
+                "pwsh"
+            } else {
+                "powershell.exe"
+            }
+        } else {
+            "pwsh"
+        };
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -709,6 +819,91 @@ pub fn bootstrap_alive(root: &Path) -> bool {
     pid.is_some_and(crate::state::process_alive)
 }
 
+/// Environment self-diagnosis shown at daemon startup and by `doctor`.
+/// Returns human-readable notes; the caller decides how to present them.
+pub fn environment_notes(root: &Path) -> Vec<String> {
+    let mut notes: Vec<String> = Vec::new();
+
+    // QEMU binary present?
+    let qemu = resolve_qemu();
+    let qemu_ok = if cfg!(windows) {
+        windows_qemu_dir("qemu-system-x86_64.exe").is_some()
+            || std::env::var("IORA_DEV_QEMU").is_ok_and(|p| Path::new(&p).exists())
+    } else {
+        Path::new("/dev/kvm").exists() || {
+            std::process::Command::new(&qemu)
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        }
+    };
+    if !qemu_ok {
+        notes.push(format!(
+            "QEMU not found ({qemu}). Install it (winget install SoftwareFreedomConservancy.QEMU) or set IORA_DEV_QEMU."
+        ));
+    }
+
+    // WSL2 (needed on Windows for ISO/tar creation).
+    if cfg!(windows) {
+        let wsl_ok = std::process::Command::new("wsl.exe")
+            .args(["--status"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !wsl_ok {
+            notes.push(
+                "WSL2 not available (wsl --status failed). The bootstrap needs WSL for ISO/tar creation: run `wsl --install`."
+                    .to_string(),
+            );
+        }
+    }
+
+    // VM disk present? If not, the daemon provisions on first start.
+    let disk = root.join(".cache/iora-dev-vm.qcow2");
+    if !disk.exists() {
+        notes.push(format!(
+            "VM disk missing ({}): first start will download the Debian cloud image and provision (~400MB, one-time).",
+            disk.display()
+        ));
+    }
+
+    // Windows execution policy: unsigned .psm1 imports may be blocked.
+    if cfg!(windows) {
+        if let Some(policy) = execution_policy_name() {
+            let blocking = matches!(policy.as_str(), "Restricted" | "AllSigned" | "RemoteSigned");
+            if blocking {
+                notes.push(format!(
+                    "Windows PowerShell execution policy is '{policy}': unsigned module imports may be blocked. The daemon launches scripts with -ExecutionPolicy Bypass and dev-local.ps1 self-heals for its own session - no action needed."
+                ));
+            }
+        }
+    }
+
+    notes
+}
+
+/// Current Windows PowerShell execution policy (first defined scope).
+fn execution_policy_name() -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "(Get-ExecutionPolicy -List | Where-Object { $_.ExecutionPolicy -ne 'Undefined' } | Select-Object -First 1).ExecutionPolicy",
+        ])
+        .output()
+        .ok()?;
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
+}
+
 /// Find the VM disk path: start at the first `iora-dev-vm` occurrence and
 /// expand to the whole token (bounded by space/quote/comma).
 fn disk_after(input: &str) -> Option<String> {
@@ -948,6 +1143,21 @@ fn tap_available(_tap: &str) -> bool {
 
 /// WHPX rejects `host`/`max` CPU models on some QEMU builds
 /// ("WHPX: Unexpected VP exit code 4"); qemu64 is the reliable default there.
+/// Parse the RAM value ("8G", "8192M") into GB for TCG clamping.
+fn clamp_ram_gb(memory: &str) -> u32 {
+    let digits: String = memory
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if digits.is_empty() {
+        8
+    } else if memory.contains(['M', 'm']) {
+        digits.parse::<u32>().unwrap_or(8) / 1024
+    } else {
+        digits.parse::<u32>().unwrap_or(8)
+    }
+}
+
 fn cpu_model(acceleration: &str) -> String {
     std::env::var("IORA_DEV_CPU").unwrap_or_else(|_| {
         if acceleration == "tcg" {
@@ -1021,19 +1231,28 @@ pub fn open(url: &str) -> Result<()> {
 }
 
 pub fn read_tail(path: &Path, lines: usize) -> String {
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|s| {
-            s.lines()
-                .rev()
-                .take(lines)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_else(|| "No log available".into())
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return "No log available".into();
+    };
+    // Seek near the end instead of reading the whole (possibly multi-MB)
+    // log - keeps `doctor`, `logs` and the activity parser cheap.
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let window: u64 = 64 * 1024;
+    let start = size.saturating_sub(window);
+    let _ = file.seek(SeekFrom::Start(start));
+    let mut buf = String::new();
+    let _ = file.read_to_string(&mut buf);
+    let all: Vec<&str> = buf.lines().collect();
+    let slice = if all.len() > lines {
+        &all[all.len() - lines..]
+    } else {
+        &all[..]
+    };
+    if slice.is_empty() {
+        return "No log available".into();
+    }
+    slice.join("\n")
 }
 
 #[cfg(test)]

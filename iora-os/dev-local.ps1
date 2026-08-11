@@ -65,9 +65,72 @@ param(
 # explicitly where it matters.
 $ErrorActionPreference = "Continue"
 
+# ── Intelligent execution-policy handling ────────────────────────────────
+# A restrictive PowerShell policy (Restricted / AllSigned / RemoteSigned with
+# Mark-of-the-Web) blocks Import-Module of the unsigned .psm1 helpers and
+# breaks the bootstrap with "not digitally signed" errors. Fix it WITHOUT
+# touching the user/machine policy:
+#   1. only act when the effective policy would actually block module imports,
+#   2. prefer a process-scope Bypass for THIS session,
+#   3. if even that is locked down (Group Policy), re-launch this script in a
+#      child PowerShell with `-ExecutionPolicy Bypass` (no policy is changed).
+# Must run before the first Import-Module below.
+
+function Test-IoraModulesLoadable {
+    # Effective policy = first defined scope in Get-ExecutionPolicy -List.
+    $effective = $null
+    try {
+        $effective = Get-ExecutionPolicy -List |
+            Where-Object { $_.ExecutionPolicy -ne 'Undefined' } |
+            Select-Object -First 1
+    } catch { }
+    $policyName = if ($effective) { $effective.ExecutionPolicy.ToString() } else { 'Restricted' }
+    if ($policyName -in @('Bypass', 'Unrestricted')) { return $true }
+    if ($policyName -eq 'RemoteSigned') {
+        # RemoteSigned blocks only files carrying the Mark-of-the-Web.
+        try {
+            $marked = Get-ChildItem -Path $PSScriptRoot -Recurse -Include *.ps1, *.psm1 -ErrorAction SilentlyContinue |
+                Where-Object { Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue } |
+                Select-Object -First 1
+            if (-not $marked) { return $true }
+        } catch { }
+    }
+    return $false
+}
+
+if (-not (Test-IoraModulesLoadable)) {
+    $processBypass = $false
+    try {
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop
+        $processBypass = $true
+    } catch { }
+    if ($processBypass) {
+        Write-Host "[i] Execution policy '$policyName' blocks unsigned modules; " -ForegroundColor Yellow -NoNewline
+        Write-Host "bypassed for this session only (process scope, system policy unchanged)." -ForegroundColor Yellow
+    } else {
+        # Group Policy locked even the process scope -> re-launch this script
+        # in a child PowerShell that runs with -ExecutionPolicy Bypass.
+        Write-Host "[i] Execution policy is locked (Group Policy); re-launching with -ExecutionPolicy Bypass..." -ForegroundColor Yellow
+        $forward = @()
+        foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+            if ($entry.Value -is [switch]) {
+                if ($entry.Value) { $forward += "-$($entry.Key)" }
+            } elseif ($null -ne $entry.Value) {
+                $forward += "-$($entry.Key)"
+                $forward += "`"$($entry.Value)`""
+            }
+        }
+        $child = Start-Process -FilePath "powershell.exe" -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`""
+        ) + $forward -Wait -PassThru -NoNewWindow
+        exit $child.ExitCode
+    }
+}
+# ── /Execution policy -----------------------------------------------------
+
 # -- Version (Banner zeigt die laufende Version - erleichtert das Erkennen
 #    veralteter Kopien; bei Fragen/Fixes immer hier hochzaehlen) ------------
-$DEV_LOCAL_VERSION = "2.6.3"
+$DEV_LOCAL_VERSION = "2.6.6"
 
 # -- Friendly error for Linux-style double-dash arguments ------------------
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
@@ -376,7 +439,7 @@ $VM_BRIDGE = 8101
 # Forwarded dev ports (start arguments - runtime hostfwd_add rules can be
 # unreliable with QEMU slirp; rules in the command line always work). 5173
 # is the Vite dev server, 5355 an optional extra forward.
-$FWD_PORTS = @(80, 443, 3001, 5173, 5355, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098)
+$FWD_PORTS = @(80, 443, 3001, 5173, 5355, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098, 8180, 8580, 8590)
 
 # -- Helpers ----------------------------------------------------------------
 function ConvertTo-WslPath { param([string]$WinPath)
@@ -907,14 +970,35 @@ if (-not (Test-Path $IMG_CACHE)) {
         # .NET HttpWebRequest: Invoke-WebRequest errors would be written into
         # the dev-local transcript as "TerminatingError(...)" even when caught
         # (PS 5.1 quirk) - raw .NET exceptions stay silent.
+        # Progress is streamed as machine-readable "[DLP] <received> <total>"
+        # lines (Write-Host -> transcript -> dev-local.log), which the IORA
+        # Dev Manager parses to show percent + ETA in the dashboard.
         $req = [System.Net.HttpWebRequest]::Create($IMG_URL)
         $req.Timeout = 900000
         $req.UserAgent = "iora-dev-local/2.6"
         $dlResp = $req.GetResponse()
         try {
+            $total = $dlResp.ContentLength
             $inStream = $dlResp.GetResponseStream()
             $outStream = [System.IO.File]::Create("$IMG_CACHE.tmp")
-            try { $inStream.CopyTo($outStream) } finally { $outStream.Close() }
+            try {
+                $buffer = New-Object byte[] 262144
+                $received = [long]0
+                $lastPct = -1
+                while ($true) {
+                    $read = $inStream.Read($buffer, 0, $buffer.Length)
+                    if ($read -le 0) { break }
+                    $outStream.Write($buffer, 0, $read)
+                    $received += $read
+                    if ($total -gt 0) {
+                        $pct = [int](($received / $total) * 100)
+                        if (($pct -ge ($lastPct + 2)) -or ($received -eq $total)) {
+                            $lastPct = $pct
+                            Write-Host "[DLP] $received $total"
+                        }
+                    }
+                }
+            } finally { $outStream.Close() }
         } finally { $dlResp.Close() }
     } catch {
         Remove-Item "$IMG_CACHE.tmp" -Force -ErrorAction SilentlyContinue
@@ -1470,6 +1554,7 @@ $waited = 0
 $ready = $false
 $timeout = 900
 $lastDiag = 0
+$lastNetworkActivity = 0
 
 # -- Self-healing: UEFI shell trap detection ---------------------------------
 # The Debian cloud image has an EMPTY EFI System Partition: when OVMF finds
@@ -1532,13 +1617,22 @@ while ($waited -lt $timeout) {
 
     # Primaerer Kanal: QEMU-Guest-Agent (funktioniert OHNE IP); SSH als Alternative
     $bootReady = $false
-    $qgaOut = Invoke-QgaExec -Command 'test -f /var/lib/cloud/instance/boot-finished && echo READY' -TimeoutSec 10
+    $qgaOut = Invoke-QgaExec -Command 'if test -f /var/lib/cloud/instance/boot-finished; then echo READY; else awk ''{rx += $1} END {print "NET_RX=" rx}'' /sys/class/net/*/statistics/rx_bytes; awk ''{tx += $1} END {print "NET_TX=" tx}'' /sys/class/net/*/statistics/tx_bytes; fi' -TimeoutSec 10
     if ("$qgaOut" -match "READY") { $bootReady = $true }
     if (-not $bootReady) {
-        $result = Invoke-SSH 'test -f /var/lib/cloud/instance/boot-finished && echo READY'
+        $result = Invoke-SSH 'if test -f /var/lib/cloud/instance/boot-finished; then echo READY; else awk ''{rx += $1} END {print "NET_RX=" rx}'' /sys/class/net/*/statistics/rx_bytes; awk ''{tx += $1} END {print "NET_TX=" tx}'' /sys/class/net/*/statistics/tx_bytes; fi'
         if ("$result" -match "READY") { $bootReady = $true }
+        if (-not "$qgaOut" -and "$result" -match "NET_RX=") { $qgaOut = $result }
     }
     if ($bootReady) { $ready = $true; break }
+    $rxMatch = [regex]::Match("$qgaOut", "NET_RX=(\d+)")
+    $txMatch = [regex]::Match("$qgaOut", "NET_TX=(\d+)")
+    if (($waited - $lastNetworkActivity) -ge 10 -and $rxMatch.Success -and $txMatch.Success) {
+        $lastNetworkActivity = $waited
+        $downloaded = [Math]::Round([double]$rxMatch.Groups[1].Value / 1MB, 1)
+        $uploaded = [Math]::Round([double]$txMatch.Groups[1].Value / 1MB, 1)
+        Write-Info "Activity: downloaded ${downloaded} MB | uploaded ${uploaded} MB"
+    }
     # Every 90s without SSH progress: show what the VM console is doing so the
     # user can see whether it is still booting, stuck on login, or offline.
     if (($waited - $lastDiag) -ge 90) {
@@ -1970,13 +2064,22 @@ if [ -f "$envf" ] && ! grep -q '^SECURITY_DB_KEY=' "$envf"; then
     fi
 fi
 # -- Port collision avoidance: iora-developer-app and iora-intelligence both
-#    default to 8099 (iora-api's port). Pin them to free ports.
+#    default to 8099 (iora-api's port). Pin them to free ports. Use the
+#    service-specific {SERVICE}_PORT variable: the generic PORT= is the
+#    process' OWN port and system_config::service_url() falls back to it for
+#    EVERY service, making iora-home proxy /api/os/control/* and
+#    /api/files/* to itself (recursive loop, 503s, FD exhaustion).
 for pv in "iora-developer-app 8110" "iora-intelligence 8112"; do
     svc=${pv% *}; port=${pv#* }
     envf="/etc/iora/$svc.env"
-    if [ -f "$envf" ] && ! grep -q "^PORT=$port" "$envf" 2>/dev/null; then
-        echo "PORT=$port" >> "$envf"
+    var=$(printf '%s' "$svc" | tr '[:lower:]-' '[:upper:]_')
+    if [ -f "$envf" ] && ! grep -q "^${var}_PORT=$port" "$envf" 2>/dev/null; then
+        echo "${var}_PORT=$port" >> "$envf"
         echo "iora-db-init: pinned $svc to port $port"
+    fi
+    # Remove a legacy generic PORT= pin if present (breaks discovery)
+    if [ -f "$envf" ]; then
+        sed -i '/^PORT=[0-9]/d' "$envf" 2>/dev/null || true
     fi
 done
 mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data /var/lib/iora/iora-home
@@ -2127,6 +2230,9 @@ WorkingDirectory=/home/iora/iora/frontend
 ExecStart=/usr/bin/npm run dev -- --host 0.0.0.0 --port 5173
 Restart=always
 RestartSec=3
+# FD limit: Vite serves the SPA plus HMR websockets for every browser tab;
+# the systemd default (1024) triggers "accept error: Too many open files".
+LimitNOFILE=65536
 Environment=NODE_ENV=development
 StandardOutput=journal
 StandardError=journal

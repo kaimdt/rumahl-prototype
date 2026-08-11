@@ -61,6 +61,19 @@ struct SeedProgress {
     rate_mb_per_s: f64,
 }
 
+/// Live progress of the Debian cloud-image download, parsed from the
+/// dev-local transcript (`[DLP] <received> <total>` lines emitted by the
+/// provisioning script). Used for the "Preparing" phase with percent + ETA.
+#[derive(Default)]
+struct DownloadProgress {
+    received: u64,
+    total: u64,
+    last_bytes: Option<u64>,
+    last_at: Option<Instant>,
+    rate_bps: f64,
+    percent: u8,
+}
+
 pub struct Daemon {
     pub manager: AsyncMutex<Manager>,
     pub logs: Mutex<VecDeque<String>>,
@@ -74,11 +87,17 @@ pub struct Daemon {
     pub ports_opened: Mutex<bool>,
     pub mappings: Mutex<Vec<PortMapping>>,
     pub live_added: Mutex<HashSet<u16>>,
+    /// Host port -> SSH tunnel child PID (std::process::Child can't be stored
+    /// in a Mutex across awaits, so we keep the PID and re-attach by port).
+    pub tunnels: Mutex<HashMap<u16, u32>>,
     pub mappings_path: PathBuf,
     net_repair: Mutex<NetRepairState>,
     install_marker: Mutex<MarkerState>,
     seed_progress: Mutex<SeedProgress>,
     last_build_check: Mutex<Option<Instant>>,
+    last_provision_note: Mutex<Option<Instant>>,
+    download_progress: Mutex<DownloadProgress>,
+    vms_cache: Mutex<Value>,
 }
 
 impl Daemon {
@@ -90,6 +109,7 @@ impl Daemon {
             .and_then(|value| serde_json::from_str(&value).ok())
             .unwrap_or_default();
         Arc::new(Self {
+            tunnels: Mutex::new(HashMap::new()),
             manager: AsyncMutex::new(manager),
             logs: Mutex::new(VecDeque::new()),
             events,
@@ -124,6 +144,9 @@ impl Daemon {
                 rate_mb_per_s: 0.0,
             }),
             last_build_check: Mutex::new(None),
+            last_provision_note: Mutex::new(None),
+            download_progress: Mutex::new(DownloadProgress::default()),
+            vms_cache: Mutex::new(json!({"vms": []})),
         })
     }
 
@@ -172,14 +195,24 @@ impl Daemon {
         let probe = self.last_probe.lock().unwrap().clone();
         let desired = self.desired.lock().unwrap().clone();
         let bootstrap_alive = manager::bootstrap_alive(&root);
-        // While a reinstall (dev-local -Rebuild) runs, the VM is not
-        // "Stopped" - surface the real activity instead.
-        let lifecycle = if state.lifecycle == "Reinstalling" || bootstrap_alive {
-            "Reinstalling"
+        // While the bootstrap runs (first install or -Rebuild) there is no
+        // QEMU process yet, so the probe would say "Stopped" - surface the
+        // real activity instead.
+        let lifecycle = if bootstrap_alive {
+            if state.lifecycle == "Reinstalling" {
+                "Reinstalling"
+            } else {
+                "Provisioning"
+            }
         } else {
             probe.lifecycle()
         };
         let stats = self.stats_cache.lock().unwrap().clone();
+        let download = if bootstrap_alive || lifecycle == "Provisioning" {
+            self.download_progress_json(&root)
+        } else {
+            Value::Null
+        };
         *self.status_cache.lock().unwrap() = json!({
             "state": state,
             "probe": probe,
@@ -189,6 +222,7 @@ impl Daemon {
             "message": self.last_message.lock().unwrap().clone(),
             "logLines": self.logs.lock().unwrap().len(),
             "bootstrap": json!({ "alive": bootstrap_alive }),
+            "download": download,
             "activity": stats.get("activity").cloned().unwrap_or(Value::Null),
             "access": json!({
                 // Dev-VM defaults (same as the dev-local banner); SSH uses the
@@ -342,9 +376,25 @@ impl Daemon {
 
     /// All running QEMU processes with their parsed details; `isManaged`
     /// marks the VM this daemon currently controls.
+    ///
+    /// Serves a cached scan: the underlying discovery runs a synchronous
+    /// PowerShell CIM query on Windows which blocks a worker thread and made
+    /// the dashboard unresponsive during provisioning. The cache is refreshed
+    /// by a background task (see `spawn`) and on demand when stale.
     pub async fn qemu_vms(&self) -> Value {
+        self.vms_cache.lock().unwrap().clone()
+    }
+
+    /// Refresh the QEMU-process scan cache (background task). The underlying
+    /// discovery runs a slow, SYNCHRONOUS PowerShell CIM query on Windows -
+    /// it runs here via spawn_blocking so it never occupies an async worker
+    /// (which used to freeze the dashboard during provisioning).
+    pub async fn refresh_vms_cache(&self) {
         let managed = self.manager.lock().await.state.pid;
-        let vms = manager::discover_qemu_processes()
+        let processes = tokio::task::spawn_blocking(manager::discover_qemu_processes)
+            .await
+            .unwrap_or_default();
+        let vms = processes
             .into_iter()
             .map(|process| {
                 let mut value = serde_json::to_value(&process).unwrap_or(Value::Null);
@@ -354,7 +404,7 @@ impl Daemon {
                 value
             })
             .collect::<Vec<_>>();
-        json!({"vms": vms})
+        *self.vms_cache.lock().unwrap() = json!({"vms": vms});
     }
 
     /// Adopt a running foreign QEMU process as the managed VM.
@@ -725,6 +775,38 @@ impl Daemon {
         };
         *self.last_probe.lock().unwrap() = probe.clone();
         let lifecycle = probe.lifecycle().to_string();
+
+        // While the bootstrap provisions (first install / -Rebuild) there is
+        // no QEMU process, so the probe stays "Stopped". Emit a throttled
+        // progress note so the console + dashboard explain what is happening
+        // instead of appearing stuck.
+        if lifecycle == "Stopped" && manager::bootstrap_alive(&root) {
+            let note_due = self
+                .last_provision_note
+                .lock()
+                .unwrap()
+                .map_or(true, |last| last.elapsed() >= Duration::from_secs(20));
+            if note_due {
+                *self.last_provision_note.lock().unwrap() = Some(Instant::now());
+                let download = self.download_progress_json(&root);
+                let message = if let Some(percent) = download["percent"].as_u64() {
+                    format!(
+                        "Vorbereitung: Debian cloud image wird heruntergeladen - {percent}% ({} / {} MB, {} MB/s, ~{} min verbleibend)",
+                        download["receivedMb"].as_u64().unwrap_or(0),
+                        download["totalMb"].as_u64().unwrap_or(0),
+                        download["rateMbPerS"].as_f64().unwrap_or(0.0),
+                        download["etaSecs"].as_u64().unwrap_or(0) / 60,
+                    )
+                } else {
+                    "Vorbereitung: der erste Start lädt das Debian Cloud-Image (~400MB) herunter und installiert die IORA-Runtime (5-15 min). Das Dashboard bleibt erreichbar; die IORA-Web-UI erscheint, sobald die VM bereit ist."
+                        .to_string()
+                };
+                self.emit("status", message);
+            }
+        } else if lifecycle != "Stopped" {
+            *self.last_provision_note.lock().unwrap() = None;
+        }
+
         // Open forwarded ports only once the guest is fully up: the IORA
         // firewall service rebuilds the chains during boot and would flush
         // rules inserted too early.
@@ -848,6 +930,12 @@ impl Daemon {
                     }
                 }
             } else if lifecycle != "Stopped" {
+                RestartAction::None
+            } else if !desired.ever_ready && bootstrap_alive {
+                // A dev-local bootstrap is still provisioning (first install
+                // or rebuild): no QEMU process exists yet, so keep waiting
+                // instead of treating the missing process as a failed start.
+                desired.message = "Waiting for the VM bootstrap (provisioning)...".into();
                 RestartAction::None
             } else if !desired.ever_ready {
                 // The VM never became ready after a user start; retrying
@@ -1268,6 +1356,183 @@ impl Daemon {
         }
     }
 
+    /// SSH arguments for guest commands (the reliable channel; QGA sockets
+    /// are only present on daemon-started VMs).
+    fn ssh_args(&self, manager: &Manager) -> Vec<String> {
+        let key = manager.root.join(".cache/iora-dev-key");
+        vec![
+            "-o".into(),
+            "StrictHostKeyChecking=no".into(),
+            "-o".into(),
+            "UserKnownHostsFile=NUL".into(),
+            "-o".into(),
+            "BatchMode=yes".into(),
+            "-o".into(),
+            "ConnectTimeout=5".into(),
+            "-p".into(),
+            manager.state.ssh_port.to_string(),
+            "-i".into(),
+            key.display().to_string(),
+        ]
+    }
+
+    /// Run a command on the guest over SSH (fallback to QGA when the VM was
+    /// started by this daemon with a guest-agent chardev).
+    async fn guest_ssh(&self, command: &str) -> Result<String> {
+        let manager = self.manager.lock().await;
+        if manager.state.process_alive() {
+            let host = manager.state.vm_host.clone();
+            let args = self.ssh_args(&manager);
+            drop(manager);
+            let output = std::process::Command::new("ssh")
+                .args(&args)
+                .arg(format!("root@{host}"))
+                .arg(command)
+                .output()?;
+            if !output.status.success() {
+                anyhow::bail!(
+                    "ssh failed ({}): {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+        // VM not running — reuse the QGA path so the error message is clear.
+        let manager = self.manager.lock().await;
+        manager
+            .guest(command)
+            .await
+            .map_err(|error| anyhow::anyhow!("guest unavailable: {error}"))
+    }
+
+    /// Ensure every mapping has a live SSH tunnel from the host to the guest
+    /// (works without QMP hostfwd — the standard dev VM has none).
+    async fn sync_tunnels(&self) {
+        // No tunnels while the VM is down (SSH to a dead guest fails fast
+        // but pointless to re-spawn on every cycle).
+        if !self.manager.lock().await.state.process_alive() {
+            return;
+        }
+        // Collect everything before locking the tunnel registry so no
+        // non-Send guard is held across an await (breaks the axum handlers).
+        let (mappings, host, key, ssh_port) = {
+            let manager = self.manager.lock().await;
+            (
+                self.mappings.lock().unwrap().clone(),
+                manager.state.vm_host.clone(),
+                manager.root.join(".cache/iora-dev-key"),
+                manager.state.ssh_port,
+            )
+        };
+        let mut tunnels = self.tunnels.lock().unwrap();
+        for mapping in &mappings {
+            // Skip when the host port is already served (tunnel running).
+            if std::net::TcpListener::bind(("127.0.0.1", mapping.host)).is_err() {
+                continue;
+            }
+            let args = [
+                "-N",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=NUL",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-L",
+                &format!("{}:127.0.0.1:{}", mapping.host, mapping.guest),
+                "-p",
+                &ssh_port.to_string(),
+                "-i",
+                &key.display().to_string(),
+                &format!("root@{host}"),
+            ];
+            let child = match std::process::Command::new("ssh")
+                .args(&args)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(_) => continue,
+            };
+            // The child handle is dropped on purpose: the ssh process keeps
+            // running detached; we remember its PID for later cleanup.
+            tunnels.insert(mapping.host, child.id());
+        }
+    }
+
+    /// Auto-map the exposed ports of running Docker apps (the "automatic
+    /// port mapping"): every app port becomes reachable on the host.
+    async fn auto_map_app_ports(&self) {
+        // Nothing to map while the VM is down; the SSH probes below are
+        // synchronous and would block a worker for nothing.
+        if !self.manager.lock().await.state.process_alive() {
+            return;
+        }
+        // Docker socket permissions drift after daemon restarts — heal them
+        // so the guest-side port lookups keep working.
+        let _ = self
+            .guest_ssh("chgrp docker /var/run/docker.sock 2>/dev/null; chmod 660 /var/run/docker.sock 2>/dev/null; true")
+            .await;
+        let Ok(login) = self
+            .guest_ssh(
+                "curl -s -m 6 -X POST http://localhost:8126/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin1234\"}'",
+            )
+            .await
+        else {
+            return;
+        };
+        let Ok(token) = serde_json::from_str::<serde_json::Value>(&login)
+            .map(|value| value["token"].as_str().unwrap_or_default().to_string())
+        else {
+            return;
+        };
+        if token.is_empty() {
+            return;
+        }
+        let Ok(apps_json) = self
+            .guest_ssh(&format!(
+                "curl -s -m 8 -H 'Authorization: Bearer {token}' http://localhost:8126/api/supervisor/apps"
+            ))
+            .await
+        else {
+            return;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&apps_json) else {
+            return;
+        };
+        let Some(apps) = value["apps"].as_array() else { return };
+        for app in apps {
+            let Some(app_id) = app["id"].as_str() else { continue };
+            let Some(ports) = app["ports"].as_array() else { continue };
+            for port in ports {
+                let external = port
+                    .as_str()
+                    .and_then(|text| text.split(':').next())
+                    .and_then(|text| text.parse::<u16>().ok())
+                    .or_else(|| port["external"].as_u64().map(|value| value as u16));
+                let Some(external) = external else { continue };
+                if matches!(external, 2222 | 8126 | 3001 | 5173) {
+                    continue; // reserved host ports
+                }
+                let exists = self
+                    .mappings
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|mapping| mapping.guest == external || mapping.host == external);
+                if !exists {
+                    let _ = self
+                        .add_mapping(external, external, Some(format!("app:{app_id}")))
+                        .await;
+                }
+            }
+        }
+    }
+
     async fn apply_mapping_change(&self) {
         let manager = self.manager.lock().await;
         let alive = manager.state.process_alive();
@@ -1277,6 +1542,8 @@ impl Daemon {
         }
         self.open_guest_ports().await;
         self.sync_live_forwarding().await;
+        // SSH tunnels are the reliable channel on dev-local VMs (no QMP).
+        self.sync_tunnels().await;
     }
 
     fn append_named_log(&self, label: &str, path: &Path) {
@@ -1602,31 +1869,97 @@ impl Daemon {
         self.append_log_with_prefix("serial", path);
     }
 
-    fn append_log_with_prefix(&self, label: &str, path: &Path) {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return;
+    /// Read only the bytes appended to `path` since the last call (tracked
+    /// per file). Never reads the whole log, so a fast-growing transcript
+    /// (download progress, provisioning) cannot slow the daemon down.
+    fn read_tail_incremental(&self, path: &Path) -> String {
+        use std::io::{Read, Seek, SeekFrom};
+        let Ok(mut file) = std::fs::File::open(path) else {
+            return String::new();
         };
-        let bytes = text.len() as u64;
+        let size = file.metadata().map(|m| m.len()).unwrap_or(0);
         let mut offsets = self.log_offsets.lock().unwrap();
         let offset = offsets.entry(path.to_path_buf()).or_insert(0);
-        if bytes < *offset {
+        if size < *offset {
             *offset = 0; // the log was truncated; start over
         }
-        if bytes > *offset {
-            if let Some(added) = text.get(*offset as usize..) {
-                for line in added.lines().filter(|line| !line.trim().is_empty()) {
-                    // Serial console lines end with \r on Windows; SSE
-                    // payloads must not contain carriage returns or newlines.
-                    self.emit("log", format!("[{label}] {}", line.trim_end_matches('\r')));
-                }
+        if size == *offset {
+            return String::new();
+        }
+        let _ = file.seek(SeekFrom::Start(*offset));
+        let mut buf = Vec::with_capacity((size - *offset) as usize);
+        let _ = file.read_to_end(&mut buf);
+        *offset = size;
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    /// Parse the cloud-image download progress from the dev-local transcript.
+    /// The provisioning script emits `[DLP] <received> <total>` lines. Returns
+    /// None when no download is active.
+    fn parse_download_progress(&self, tail: &str) -> Option<(u64, u64)> {
+        parse_download_progress(tail)
+    }
+
+    /// Live download progress (percent, rate, ETA) for the "Preparing" phase.
+    fn download_progress_json(&self, root: &Path) -> Value {
+        // Bounded tail read (64KB window from the end): the incremental
+        // offset tracker is shared with the watchdog's log-event feed, which
+        // consumes the new bytes first. The progress lines always sit at the
+        // end of the transcript while a download is active.
+        let tail = manager::read_tail(&root.join(".cache/dev-local.log"), 400);
+        let Some((received, total)) = self.parse_download_progress(&tail) else {
+            self.download_progress.lock().unwrap().last_bytes = None;
+            return Value::Null;
+        };
+        let mut progress = self.download_progress.lock().unwrap();
+        let now = Instant::now();
+        if let (Some(last_bytes), Some(last_at)) = (progress.last_bytes, progress.last_at) {
+            let elapsed = now.duration_since(last_at).as_secs_f64();
+            if elapsed > 0.0 && received > last_bytes {
+                progress.rate_bps = (received - last_bytes) as f64 / elapsed;
             }
-            *offset = bytes;
+        }
+        progress.received = received;
+        progress.total = total;
+        progress.last_bytes = Some(received);
+        progress.last_at = Some(now);
+        progress.percent = if total > 0 {
+            ((received as f64 / total as f64) * 100.0).min(99.0) as u8
+        } else {
+            0
+        };
+        let rate_bps = progress.rate_bps;
+        let percent = progress.percent;
+        let remaining_secs = if rate_bps > 0.0 && received < total {
+            ((total - received) as f64 / rate_bps).ceil() as u64
+        } else {
+            0
+        };
+        json!({
+            "receivedMb": received / 1024 / 1024,
+            "totalMb": total / 1024 / 1024,
+            "percent": percent,
+            "rateMbPerS": (rate_bps / 1024.0 / 1024.0 * 10.0).round() / 10.0,
+            "etaSecs": remaining_secs,
+        })
+    }
+
+    fn append_log_with_prefix(&self, label: &str, path: &Path) {
+        let added = self.read_tail_incremental(path);
+        if added.is_empty() {
+            return;
+        }
+        for line in added.lines().filter(|line| !line.trim().is_empty()) {
+            // Serial console lines end with \r on Windows; SSE
+            // payloads must not contain carriage returns or newlines.
+            self.emit("log", format!("[{label}] {}", line.trim_end_matches('\r')));
         }
     }
 }
 
 pub fn spawn(daemon: Arc<Daemon>) {
     let stats_daemon = daemon.clone();
+    let port_daemon = daemon.clone();
     tokio::spawn(async move {
         let (repository, os_root, state_path) = {
             let manager = daemon.manager.lock().await;
@@ -1671,6 +2004,19 @@ pub fn spawn(daemon: Arc<Daemon>) {
             }
         });
 
+        // Background refresh of the QEMU-process scan (the synchronous
+        // PowerShell CIM query must never run in the web request path).
+        {
+            let vms_daemon = daemon.clone();
+            tokio::spawn(async move {
+                let mut tick = interval(Duration::from_secs(10));
+                loop {
+                    tick.tick().await;
+                    vms_daemon.refresh_vms_cache().await;
+                }
+            });
+        }
+
         // Initial probe so the first status response is already accurate.
         let mut last_lifecycle = {
             let mut manager = daemon.manager.lock().await;
@@ -1684,6 +2030,30 @@ pub fn spawn(daemon: Arc<Daemon>) {
         // Make sure the standard ports are mapped (3001 nginx, 5432 postgres,
         // 8101 bridge) - with conflict handling and frontend URL propagation.
         daemon.ensure_default_mappings().await;
+
+        // Auto-start: the dev manager is the entry point - when the daemon
+        // comes up and no VM is running, boot it (provisioning first if the
+        // disk is missing). Disable with IORA_DEV_NO_AUTOSTART=1.
+        let autostart_enabled = std::env::var("IORA_DEV_NO_AUTOSTART")
+            .ok()
+            .map(|value| {
+                !matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(true);
+        if autostart_enabled && last_lifecycle == "Stopped" {
+            let mut desired = daemon.desired.lock().unwrap();
+            if !desired.running {
+                desired.running = true;
+                desired.retries = 0;
+                desired.mode = crate::state::NetworkMode::Slirp;
+                desired.message = "Auto-start on daemon boot".into();
+                desired.ever_ready = false;
+                daemon.emit("status", "Auto-starting the VM (daemon boot)");
+            }
+        }
 
         // Watchdog: health probe, lifecycle transitions, auto-restart on crash.
         let mut tick = interval(Duration::from_secs(WATCHDOG_SECS));
@@ -1699,6 +2069,18 @@ pub fn spawn(daemon: Arc<Daemon>) {
         loop {
             tick.tick().await;
             stats_daemon.refresh_stats().await;
+        }
+    });
+
+    // Automatic app-port mapping + SSH tunnel upkeep.
+    tokio::spawn(async move {
+        // Restore tunnels for persisted mappings on startup.
+        port_daemon.sync_tunnels().await;
+        let mut tick = interval(Duration::from_secs(30));
+        loop {
+            tick.tick().await;
+            port_daemon.auto_map_app_ports().await;
+            port_daemon.sync_tunnels().await;
         }
     });
 }
@@ -1770,5 +2152,44 @@ mod tests {
         assert_eq!(services[0]["unit"], "iora-api.service");
         assert_eq!(services[0]["description"], "IORA API");
         assert!(services[1]["failed"].as_bool().unwrap());
+    }
+}
+
+/// Parse the cloud-image download progress from the dev-local transcript.
+/// The provisioning script emits `[DLP] <received> <total>` lines.
+fn parse_download_progress(tail: &str) -> Option<(u64, u64)> {
+    tail.lines().rev().find_map(|line| {
+        let line = line.trim();
+        let rest = line.strip_prefix("[DLP]")?;
+        let mut parts = rest.split_whitespace();
+        let received = parts.next()?.parse::<u64>().ok()?;
+        let total = parts.next()?.parse::<u64>().ok()?;
+        if total == 0 {
+            None
+        } else {
+            Some((received, total))
+        }
+    })
+}
+
+#[cfg(test)]
+mod download_progress_tests {
+    use super::parse_download_progress;
+
+    #[test]
+    fn parses_latest_progress_line() {
+        let tail = "[*] Downloading Debian cloud image (~400MB, one-time)...\n[DLP] 104857600 419430400\n[DLP] 209715200 419430400\n";
+        assert_eq!(parse_download_progress(tail), Some((209_715_200, 419_430_400)));
+    }
+
+    #[test]
+    fn ignores_lines_without_progress() {
+        assert_eq!(parse_download_progress("[*] Downloading..."), None);
+        assert_eq!(parse_download_progress(""), None);
+    }
+
+    #[test]
+    fn rejects_zero_total() {
+        assert_eq!(parse_download_progress("[DLP] 10 0"), None);
     }
 }

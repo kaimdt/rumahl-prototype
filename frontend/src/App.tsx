@@ -6,7 +6,7 @@ import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { ThemeIframeProvider } from '@/components/ThemeIframeProvider'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { setAutoContrastUser } from '@/lib/autoContrast'
-import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
+import { PageNavigationProvider, usePageNavigation, iconMap } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider, useConnection } from '@/contexts/ConnectionContext'
 import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
@@ -16,7 +16,20 @@ import { useEntityStore } from '@/hooks/useEntityStore'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { OsHomeScreen } from '@/components/OsHomeScreen'
 import { OsSystemShell } from '@/components/OsSystemShell'
-import { OsAppCloseButton } from '@/components/OsAppCloseButton'
+import { OsDock } from '@/components/OsDock'
+import { OsFullscreenBar } from '@/components/OsFullscreenBar'
+import { OsWindowActions } from '@/components/OsWindowActions'
+import { CommandPalette } from '@/components/CommandPalette'
+import { AppRuntimeView } from '@/components/AppRuntimeView'
+import { OsImagesApp } from '@/components/OsImagesApp'
+import { OsTooltipProvider } from '@/components/OsTooltip'
+import { appOpenUrl, appRuntimeUrls, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
+import { STORE_CATALOG } from '@/lib/storeCatalog'
+import { OsAppWindow } from '@/components/OsAppWindow'
+import { OsWindowOverlay } from '@/components/OsWindowOverlay'
+import { OsWindowProvider, useOsWindows } from '@/contexts/OsWindowContext'
+import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { OsSessionLock } from '@/components/OsSessionLock'
 import { OsSystemApp } from '@/components/OsSystemApp'
 import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
@@ -44,6 +57,7 @@ const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default
 const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
 const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
 const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
+const AppStoreTab = lazy(() => import('@/components/AppStoreTab').then(m => ({ default: m.AppStoreTab })))
 import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
@@ -55,7 +69,7 @@ import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity, MediaPlayerEntity } from '@/lib/types'
-import { Sparkle, ShieldCheck, Wrench } from '@phosphor-icons/react'
+import { Sparkle, ShieldCheck, Wrench, X } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Toaster } from '@/components/ui/sonner'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
@@ -64,7 +78,11 @@ import { toast } from 'sonner'
 import { installGlobalErrorHandlers } from '@/lib/errorReporter'
 import { startSystemEventListener } from '@/lib/systemEventListener'
 import { ORAAssistant } from '@/components/ORAAssistant'
-const CodingAgent = lazy(() => import('@/components/CodingAgent').then(m => ({ default: m.CodingAgent })))
+const CodingAgent = lazy(() =>
+  import('@/components/CodingAgent')
+    .then((m) => ({ default: m.CodingAgent }))
+    .catch(() => ({ default: (() => <></>) as unknown as typeof import('@/components/CodingAgent').CodingAgent })),
+)
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
@@ -121,6 +139,7 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile, token } = useAuth()
+  const { permissions } = useOsPermissions()
   // Bind per-user auto-contrast preferences when the active user changes.
   useEffect(() => {
     setAutoContrastUser(user?.id || null)
@@ -139,6 +158,123 @@ function DashboardContent() {
   const { entities, loading, refresh } = useEntityStore()
   const warningLevel = useWarningLevel()
   const { homeAssistant: haConnectionStatus, lastHACheck } = useConnection()
+  // Keeps deep-linked `/app/<id>` routes resolvable after a browser reload,
+  // without requiring the launcher to have been mounted first.
+  const { allApps: installedRuntimeApps } = useInstalledApps()
+  const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images']
+  // Deep-linked Docker apps (/app/<id>) also use the OS chrome (dock, no navbar).
+  const isOsAppPage = standaloneAppPageIds.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
+  const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
+  const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId)
+  const { windows, immersivePageId, setImmersive } = useOsWindows()
+
+  // OS app lookup used by the window manager (icons/names for windows + dock).
+  const osApps = useMemo(() => {
+    const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
+    return [...SYSTEM_OS_APPS, ...pageApps]
+      .filter((app) => !app.adminOnly || user?.isAdmin)
+      .filter((app) => !app.requiredPermission || (permissions && permissions[app.requiredPermission] === true))
+  }, [pages, user?.isAdmin, permissions])
+  const osAppByPageId = useMemo(() => new Map(osApps.map((app) => [app.pageId, app])), [osApps])
+  const getOsAppName = (pageId: string) => {
+    const app = osAppByPageId.get(pageId)
+    return app ? (app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName) : pageId
+  }
+  const getOsAppIcon = (pageId: string) => {
+    const app = osAppByPageId.get(pageId)
+    if (!app) return undefined
+    const Icon = app.icon
+    return <Icon size={15} weight="duotone" />
+  }
+
+// Raw app content (no window chrome) — used by the window manager.
+// `opts.inWindow` is set when rendered inside a floating/split window:
+// the App Runner then fills the window instead of the full-page overlay.
+const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): React.ReactNode => {
+  // Installed Docker apps embed their web UI in an iframe (CasaOS-style).
+  // A direct /app/<app-id> navigation does not mount the launcher first,
+  // therefore the runtime URL map has not been populated yet.  Resolve
+  // catalog apps here as well so bookmarks and deep links open their web UI.
+  const runtimeApp = installedAppsCache.find((app) => app.id === pageId)
+  const runtimeUrl = appRuntimeUrls.get(pageId) ?? (runtimeApp
+    ? runtimeApp.openUrl
+    : STORE_CATALOG.some((app) => app.id === pageId)
+      ? appOpenUrl({ id: pageId, name: pageId, version: '', ports: [] })
+      : undefined)
+  if (runtimeUrl) {
+    const runner = <AppRuntimeView appId={pageId} name={getOsAppName(pageId)} />
+    // Full-page (desktop route `/app/<id>`): keep the historic overlay that
+    // escapes the padded main container. Inside a window: fill the window.
+    return opts?.inWindow ? runner : (
+      <div className="fixed inset-x-0 bottom-0 top-14 z-[60]">{runner}</div>
+    )
+  }
+  switch (pageId) {
+    case 'launcher': return <OsHomeScreen />
+    case 'os-files': return <OsSystemApp kind="files" />
+    case 'os-images': return <OsImagesApp />
+    case 'os-network': return <OsSystemApp kind="network" />
+    case 'os-system': return <OsSystemApp kind="system" />
+    case 'os-updates': return <OsMaintenanceApp kind="updates" />
+    case 'os-backups': return <OsMaintenanceApp kind="backups" />
+    case 'app-store': return <AppStoreTab token={token || ''} />
+    case 'settings': return (
+      <SettingsPage
+        user={user}
+        userName={userName}
+        logout={logout}
+        updateProfile={updateProfile}
+        deviceLockMode={deviceLockMode}
+        lockLoading={lockLoading}
+        updateDeviceLockMode={updateDeviceLockMode}
+        pinHash={pinHash}
+        savePin={savePin}
+        pinCode={pinCode}
+        setPinCode={setPinCode}
+        pinConfirm={pinConfirm}
+        setPinConfirm={setPinConfirm}
+        isSavingProfile={isSavingProfile}
+        profileUsername={profileUsername}
+        setProfileUsername={setProfileUsername}
+        profileDisplayName={profileDisplayName}
+        setProfileDisplayName={setProfileDisplayName}
+        saveUserProfile={saveUserProfile}
+        aiEnabled={aiEnabled}
+        setAiEnabled={setAiEnabled}
+        accentColorSettings={accentColorSettings}
+        glassSettings={glassSettings}
+        nightModeSettings={nightModeSettings}
+        screensaverSettings={screensaverSettings}
+        setShowPageDesigner={setShowPageDesigner}
+        entities={entities}
+        theme={theme}
+      />
+    )
+    case 'admin': return user?.isAdmin ? <AdminPanel /> : null
+    case 'docs': return <DocsPage />
+    case 'share': return <SharePage />
+    case 'streaming': return <StreamSender />
+    case 'ai-agent': return <AgentTab token={token || ''} />
+    default: return null
+  }
+}
+
+// Fullscreen OS pages: embedded apps get an OS window chrome.
+const renderOsAppPage = (pageId: string): React.ReactNode => {
+  if (pageId === 'app-store') {
+    return <section className="ora-app-frame p-4 sm:p-6"><header className="mb-6 flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h1 className="mt-1 text-3xl font-semibold">{t('os.apps.appStore.name')}</h1><p className="mt-1 text-sm text-foreground/45">{t('os.apps.appStore.description')}</p></div><OsWindowActions pageId={pageId} /></header><AppStoreTab token={token || ''} /></section>
+  }
+  if (pageId === 'admin') {
+    return user?.isAdmin ? <OsAppWindow pageId={pageId} title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminPanel /></OsAppWindow> : null
+  }
+  if (pageId === 'docs') return <OsAppWindow pageId={pageId} title={t('navigation.docs')} icon={getOsAppIcon(pageId)}><DocsPage /></OsAppWindow>
+  if (pageId === 'share') return <OsAppWindow pageId={pageId} title={t('os.apps.share.name')} icon={getOsAppIcon(pageId)}><SharePage /></OsAppWindow>
+  if (pageId === 'streaming') return <OsAppWindow pageId={pageId} title={t('os.apps.streaming.name')} icon={getOsAppIcon(pageId)}><StreamSender /></OsAppWindow>
+  if (pageId === 'ai-agent') return <OsAppWindow pageId={pageId} title={t('os.apps.agent.name')} icon={getOsAppIcon(pageId)}><AgentTab token={token || ''} /></OsAppWindow>
+  return renderOsAppContent(pageId)
+}
+
+
 
   // Apply global card style class on <html> so it covers portals/modals/dialogs
   useEffect(() => {
@@ -477,6 +613,7 @@ function DashboardContent() {
       <div
         className={`min-h-screen relative theme-transition overflow-x-hidden font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
       >
+        <OsTooltipProvider />
         <Screensaver
           enabled={screensaverSettings.enabled}
           timeout={screensaverSettings.timeout}
@@ -559,12 +696,13 @@ function DashboardContent() {
             background: theme === 'sleep'
               ? 'black'
               : (theme === 'day' || theme === 'light')
-              ? 'linear-gradient(to bottom, rgba(255,255,255,0.50), rgba(255,255,255,0.30), rgba(255,255,255,0.55))'
-              : 'linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.2), rgba(0,0,0,0.6))',
+              ? 'radial-gradient(circle at 70% 18%, rgba(255,255,255,0.24), transparent 36%), linear-gradient(to bottom, rgba(235,244,255,0.36), rgba(255,255,255,0.16), rgba(225,236,248,0.44))'
+              : 'radial-gradient(circle at 18% 20%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 38%), radial-gradient(circle at 82% 12%, rgba(38,82,160,0.2), transparent 34%), linear-gradient(to bottom, rgba(4,9,18,0.36), rgba(5,9,17,0.18), rgba(2,5,12,0.68))',
             opacity: theme === 'sleep' ? 0.92 : hasActiveCustomBackground ? 0.5 : 1,
             transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
           }}
         />
+        <div className="fixed inset-0 z-10 pointer-events-none ora-wallpaper-vignette" />
         {nightModeSettings.isActive && (theme === 'night' || theme === 'sleep' || nightModeSettings.applyAlways) && (
           <div
             className="fixed inset-0 z-10 pointer-events-none"
@@ -596,34 +734,9 @@ function DashboardContent() {
             transition: 'filter var(--transition-duration) ease',
           }}
         >
-          <header
-            className="glass-header theme-transition"
-            style={{
-              ...(warningLevel === 'emergency' ? { background: 'linear-gradient(to right, rgba(127,29,29,0.95), rgba(153,27,27,0.95))', borderBottom: '1px solid rgba(248,113,113,0.4)' }
-                : warningLevel === 'critical' ? { background: 'linear-gradient(to right, rgba(154,52,18,0.85), rgba(185,28,28,0.85))', borderBottom: '1px solid rgba(248,113,113,0.3)' }
-                : warningLevel === 'warning' ? { background: 'linear-gradient(to right, rgba(180,83,9,0.75), rgba(194,65,12,0.75))', borderBottom: '1px solid rgba(251,191,36,0.3)' }
-                : {}),
-              transition: 'background 0.5s ease, border-bottom 0.5s ease',
-            }}
-          >
-            <div className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
-                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
-                <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
-                  {currentPageId === 'launcher' ? t('os.title') : currentPageId === 'settings' ? t('navigation.settings') : currentPageId === 'admin' ? t('navigation.admin') : currentPageId === 'docs' ? t('navigation.docs') : currentPageId === 'streaming' ? t('navigation.streaming') : t('navigation.home')}
-                </span>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-[11px] text-foreground/40 font-light tracking-wider hidden sm:block">
-                  {entities.length > 0 ? `${entities.length} ${t('dashboard.entities')}` : ''}
-                </span>
-                <HeaderClock />
-              </div>
-            </div>
-          </header>
+          
 
-          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
+          <main className={`${isOsAppPage ? 'max-w-[1700px]' : 'max-w-[1500px]'} mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32`} style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
           <Suspense fallback={<DashboardSkeleton />}>
           <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {
@@ -633,7 +746,7 @@ function DashboardContent() {
             }
 
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
-            const systemPageIds = ['launcher', 'settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+            const systemPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
 
             const resolvePageType = (): 'dashboard' | 'app' | 'system' | 'custom' => {
               if (currentPage?.pageType) return currentPage.pageType
@@ -657,67 +770,16 @@ function DashboardContent() {
 
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
-            const nonHAPages = ['launcher', 'settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
-            const isNonHAPage = nonHAPages.includes(currentPageId)
+            const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+            const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
-              return (
-                <Suspense fallback={null}>
-                  {currentPageId === 'launcher' && <OsHomeScreen />}
-                  {currentPageId === 'os-files' && <OsSystemApp kind="files" />}
-                  {currentPageId === 'os-network' && <OsSystemApp kind="network" />}
-                  {currentPageId === 'os-system' && <OsSystemApp kind="system" />}
-                  {currentPageId === 'os-updates' && <OsMaintenanceApp kind="updates" />}
-                  {currentPageId === 'os-backups' && <OsMaintenanceApp kind="backups" />}
-                  {currentPageId === 'settings' && (
-                    <SettingsPage
-                      user={user}
-                      userName={userName}
-                      logout={logout}
-                      updateProfile={updateProfile}
-                      deviceLockMode={deviceLockMode}
-                      lockLoading={lockLoading}
-                      updateDeviceLockMode={updateDeviceLockMode}
-                      pinHash={pinHash}
-                      savePin={savePin}
-                      pinCode={pinCode}
-                      setPinCode={setPinCode}
-                      pinConfirm={pinConfirm}
-                      setPinConfirm={setPinConfirm}
-                      isSavingProfile={isSavingProfile}
-                      profileUsername={profileUsername}
-                      setProfileUsername={setProfileUsername}
-                      profileDisplayName={profileDisplayName}
-                      setProfileDisplayName={setProfileDisplayName}
-                      saveUserProfile={saveUserProfile}
-                      aiEnabled={aiEnabled}
-                      setAiEnabled={setAiEnabled}
-                      accentColorSettings={accentColorSettings}
-                      glassSettings={glassSettings}
-                      nightModeSettings={nightModeSettings}
-                      screensaverSettings={screensaverSettings}
-                      setShowPageDesigner={setShowPageDesigner}
-                      entities={entities}
-                      theme={theme}
-                    />
-                  )}
-                  {currentPageId === 'admin' && user?.isAdmin && <AdminPanel />}
-                  {currentPageId === 'docs' && <DocsPage />}
-                  {currentPageId === 'share' && <SharePage />}
-                  {currentPageId === 'streaming' && <StreamSender />}
-                  {currentPageId === 'ai-agent' && (
-                    <div className="pb-28">
-                      <AgentTab token={token || ''} />
-                    </div>
-                  )}
-                </Suspense>
-              )
+              return <Suspense fallback={null}>{renderOsAppPage(currentPageId)}</Suspense>
             }
 
             // ── 404 for pages that nobody owns ──────────────────────
             // Built-in HA entity pages always exist; everything else needs a page record.
-            const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
             if (!currentPage && !builtinPageIds.includes(currentPageId)) {
               return (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-foreground/60">
@@ -974,9 +1036,30 @@ function DashboardContent() {
           )
         })()}
       </AnimatePresence>
-      <NavigationMenu hidden={showPageDesigner || currentPageId === 'launcher'} />
-      {!showPageDesigner && <OsAppCloseButton />}
-      {!showPageDesigner && <OsSystemShell />}
+      <NavigationMenu hidden={showPageDesigner || isOsAppPage || isNotFoundPage} />
+      {!showPageDesigner && !immersivePageId && <OsSystemShell />}
+      {/* Dock only on launcher & OS pages — it must never cover the navbar in apps */}
+      {!showPageDesigner && !immersivePageId && (isOsAppPage || isNotFoundPage) && <OsDock />}
+      {/* Slim OS status bar on every page (like the launcher). Window actions
+         only appear inside immersive (true fullscreen) apps. */}
+      {!showPageDesigner && (
+        <OsFullscreenBar
+          pageId={immersivePageId || currentPageId}
+          name={getOsAppName(immersivePageId || currentPageId)}
+          icon={getOsAppIcon(immersivePageId || currentPageId) ? (
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent/15 text-accent">{getOsAppIcon(immersivePageId || currentPageId)}</span>
+          ) : undefined}
+        />
+      )}
+      {currentPageId === 'launcher' && !showPageDesigner && !immersivePageId && (
+        <OsWindowOverlay
+          getApp={(pageId) => osAppByPageId.get(pageId)}
+          getName={getOsAppName}
+          renderContent={(pageId) => renderOsAppContent(pageId, { inWindow: true })}
+          onMaximize={(pageId) => setCurrentPageId(pageId)}
+        />
+      )}
+      <CommandPalette />
       <OsSessionLock />
       <ORAAssistant />
       {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}
@@ -1145,7 +1228,9 @@ function App() {
                 <DynamicOverviewProvider>
                   <NotificationProvider>
                     <SetupWizardOverlay>
-                      <DashboardContent />
+                      <OsWindowProvider>
+                        <DashboardContent />
+                      </OsWindowProvider>
                     </SetupWizardOverlay>
                   </NotificationProvider>
                   <Toaster />

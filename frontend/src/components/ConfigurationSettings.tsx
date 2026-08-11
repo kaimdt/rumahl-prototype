@@ -19,24 +19,15 @@ import {
   Check,
   UploadSimple,
   Globe,
-} from '@phosphor-icons/react'
+ FolderOpen } from '@phosphor-icons/react'
 import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS, DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { useLocalStorage } from '@/lib/storage'
 import { toast } from 'sonner'
+import { OsFileExplorer } from '@/components/OsFileExplorer'
+import { authFetch, getAuthToken } from '@/lib/authHelpers'
 
 interface ConfigurationSettingsProps {
   settingsLocked?: boolean
-}
-
-function getAuthToken(): string {
-  const raw = localStorage.getItem('ha-auth-token') ?? sessionStorage.getItem('ha-auth-token')
-  if (!raw) return ''
-  try {
-    const parsed = JSON.parse(raw)
-    return typeof parsed === 'string' ? parsed : ''
-  } catch {
-    return raw
-  }
 }
 
 export function ConfigurationSettings({ settingsLocked = false }: ConfigurationSettingsProps) {
@@ -312,6 +303,18 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
   const [blur, setBlur] = useState(existingConfig?.blur ?? 0)
   const [brightness, setBrightness] = useState(existingConfig?.brightness ?? 100)
   const [uploading, setUploading] = useState(false)
+  const [filePickerOpen, setFilePickerOpen] = useState(false)
+
+  /** Pick an image from the real IORA Files explorer and use it as the background. */
+  const handleFilePick = (files: Array<{ id: string; name: string; mimeType: string; size: number; path?: string }>) => {
+    setFilePickerOpen(false)
+    const file = files[0]
+    if (file?.path) {
+      setStaticUrl(file.path)
+      setBackgroundType('static')
+      toast.success('Bild aus Files übernommen')
+    }
+  }
 
   const canSave = useMemo(() => {
     if (backgroundType === 'static') return staticUrl.trim().length > 0
@@ -335,11 +338,8 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
 
     setUploading(true)
     try {
-      const response = await fetch('/api/uploads/background', {
+      const response = await authFetch('/api/uploads/background', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
         body: form,
       })
 
@@ -415,8 +415,14 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-[760px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl">
+    <>
+    <Dialog modal={false} open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        className="sm:max-w-[760px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl"
+        onInteractOutside={(event) => {
+          if ((event.target as HTMLElement).closest('.picker-overlay')) event.preventDefault()
+        }}
+      >
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10">
           <DialogTitle>Hintergrund konfigurieren</DialogTitle>
           <DialogDescription>
@@ -518,6 +524,15 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
                     Upload
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUpload(e, 'static')} disabled={settingsLocked || uploading} />
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setFilePickerOpen(true)}
+                    disabled={settingsLocked}
+                    className="px-3 py-2 rounded-lg bg-foreground/6 text-foreground/75 border border-foreground/10 text-sm inline-flex items-center gap-1.5 hover:bg-foreground/10 disabled:opacity-50"
+                  >
+                    <FolderOpen size={14} />
+                    Aus Files
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -655,5 +670,17 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
         </div>
       </DialogContent>
     </Dialog>
+    {filePickerOpen && (
+      <OsFileExplorer
+        pickerMode={{
+          accept: 'image/*',
+          includeData: false,
+          title: 'Hintergrund',
+          onCancel: () => setFilePickerOpen(false),
+          onComplete: handleFilePick,
+        }}
+      />
+    )}
+    </>
   )
 }

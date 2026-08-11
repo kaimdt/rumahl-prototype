@@ -54,6 +54,50 @@ struct ComposePsRow {
     state: String,
     #[serde(default, alias = "Health", alias = "health")]
     health: String,
+    #[serde(default, alias = "Publishers", alias = "publishers")]
+    publishers: Vec<ComposePublisher>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ComposePublisher {
+    #[serde(default, alias = "PublishedPort", alias = "published_port")]
+    published_port: u16,
+    #[serde(default, alias = "TargetPort", alias = "target_port")]
+    target_port: u16,
+    #[serde(default, alias = "Protocol", alias = "protocol")]
+    protocol: String,
+}
+
+/// Resolve the host ports Docker actually assigned to an app. This is kept
+/// separate from manifest ports because Compose may allocate dynamic ports.
+pub async fn docker_compose_ports(app_id: &str) -> Option<Vec<(u16, u16, String)>> {
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project = format!("{prefix}{app_id}");
+        let output = Command::new("docker")
+            .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
+            .output()
+            .await;
+        let output = match output {
+            Ok(output) if output.status.success() => output,
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(_) => continue,
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let trimmed = text.trim();
+        let rows: Vec<ComposePsRow> = if trimmed.starts_with('[') {
+            serde_json::from_str(trimmed).unwrap_or_default()
+        } else {
+            trimmed.lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
+        };
+        let ports = rows.into_iter().flat_map(|row| row.publishers).filter_map(|port| {
+            (port.published_port > 0 && port.target_port > 0).then(|| {
+                (port.published_port, port.target_port, if port.protocol.is_empty() { "tcp".to_string() } else { port.protocol })
+            })
+        }).collect::<Vec<_>>();
+        if !ports.is_empty() { return Some(ports); }
+    }
+    Some(Vec::new())
 }
 
 /// Liefert den realen Container-Status für eine App. Probiert beide Compose-Project-Prefixes
@@ -67,10 +111,18 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
 
     for prefix in ["iora-app-", "iora-bundle-"] {
         let project = format!("{prefix}{app_id}");
-        let out = Command::new("docker")
-            .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
-            .output()
-            .await;
+        let out = tokio::time::timeout(
+            std::time::Duration::from_secs(6),
+            Command::new("docker")
+                .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
+                .output(),
+        )
+        .await
+        .unwrap_or_else(|_| Ok(std::process::Output {
+            status: std::process::Command::new("false").status().unwrap_or(std::process::ExitStatus::default()),
+            stdout: Vec::new(),
+            stderr: b"timeout".to_vec(),
+        }));
 
         match out {
             Ok(o) if o.status.success() => {
@@ -133,7 +185,12 @@ async fn supervisor_compose_status(app_id: &str) -> Option<AppDockerStatus> {
         app_id
     );
 
-    let response = match reqwest::Client::new().get(url).send().await {
+    let response = match reqwest::Client::new()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
         Ok(response) => response,
         Err(_) => return None,
     };
@@ -293,12 +350,6 @@ pub async fn spawn_health_monitor(store: Arc<LocalAppStore>, base_dir: std::path
             if app.system {
                 continue;
             }
-            // Nur Apps überwachen, die der User auf "running" gesetzt hat
-            if app.status != "running" {
-                let mut t = trackers.write().await;
-                t.remove(&app.id); // Tracker reset, falls App manuell gestoppt
-                continue;
-            }
             let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
             if !needs_docker {
                 continue;
@@ -308,6 +359,23 @@ pub async fn spawn_health_monitor(store: Arc<LocalAppStore>, base_dir: std::path
                 Some(s) => s,
                 None => return, // Docker nicht da → Monitor beenden
             };
+
+            // Self-heal the status: an app whose containers exist must never
+            // stay stuck in "installing" (e.g. after VM reboots). Enabled apps
+            // with all containers running are reported as "running"; disabled
+            // apps that are up are reported as "stopped" (CasaOS semantics).
+            if app.status != "running" {
+                if status.all_running() {
+                    let _ = store
+                        .set_status(&app.id, if app.enabled { "running" } else { "stopped" })
+                        .await;
+                } else if app.status == "installing" && status.total > 0 {
+                    let _ = store.set_status(&app.id, "stopped").await;
+                }
+                let mut t = trackers.write().await;
+                t.remove(&app.id); // Tracker reset, falls App manuell gestoppt
+                continue;
+            }
 
             if status.all_running() {
                 // Stabil – Crash-Counter zurücksetzen

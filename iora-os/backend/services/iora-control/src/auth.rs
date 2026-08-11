@@ -9,23 +9,31 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct AuthState {
-    pub jwt_secret: String,
+pub struct AuthState {}
+
+impl AuthState {
+    pub fn new() -> Self {
+        Self {}
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String, // user ID
     pub username: String,
+    // role/iat are NOT emitted by iora-home's JWT generator; make them
+    // optional so tokens issued by /api/auth/login validate here.
+    #[serde(default)]
     pub role: String,
     pub is_admin: bool,
     pub exp: usize, // expiration time
+    #[serde(default)]
     pub iat: usize, // issued at
 }
 
 /// Extract and validate JWT token from Authorization header
 pub async fn auth_middleware(
-    State(state): State<Arc<AuthState>>,
+    State(_state): State<Arc<AuthState>>,
     headers: HeaderMap,
     mut request: Request,
     next: Next,
@@ -47,7 +55,7 @@ pub async fn auth_middleware(
 
     let token_data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &DecodingKey::from_secret(iora_shared_config::system_config::jwt_secret().as_bytes()),
         &validation,
     )
     .map_err(|e| {
@@ -73,7 +81,7 @@ pub async fn auth_middleware(
 /// Optional auth middleware that allows unauthenticated requests but extracts claims if present
 #[allow(dead_code)]
 pub async fn optional_auth_middleware(
-    State(state): State<Arc<AuthState>>,
+    State(_state): State<Arc<AuthState>>,
     headers: HeaderMap,
     mut request: Request,
     next: Next,
@@ -84,7 +92,7 @@ pub async fn optional_auth_middleware(
                 let validation = Validation::default();
                 if let Ok(token_data) = decode::<Claims>(
                     token,
-                    &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+                    &DecodingKey::from_secret(iora_shared_config::system_config::jwt_secret().as_bytes()),
                     &validation,
                 ) {
                     request.extensions_mut().insert(token_data.claims);

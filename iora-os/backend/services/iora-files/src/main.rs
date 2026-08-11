@@ -13,7 +13,7 @@
 
 use anyhow::Result;
 use axum::{
-    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, OriginalUri, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     middleware,
     response::{IntoResponse, Json},
@@ -40,7 +40,6 @@ mod middleware_auth;
 struct AppState {
     db: SqlitePool,
     storage_root: PathBuf,
-    jwt_secret: String,
     #[allow(dead_code)]
     max_file_size: usize, // bytes
     default_quota_bytes: i64, // per user
@@ -170,6 +169,11 @@ struct MoveFileRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CopyFileRequest {
+    target_folder_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct RenameFileRequest {
     new_name: String,
 }
@@ -230,7 +234,6 @@ async fn main() -> Result<()> {
 
     let database_url = system_config::database_url_for("iora-files");
     let storage_root = PathBuf::from(system_config::files_storage_dir());
-    let jwt_secret = system_config::jwt_secret();
     let port: u16 = system_config::service_port("iora-files", 8100);
     let max_file_size: usize = system_config::files_max_size_bytes();
     let default_quota: i64 = system_config::files_default_quota();
@@ -261,7 +264,6 @@ async fn main() -> Result<()> {
     let state = Arc::new(AppState {
         db,
         storage_root,
-        jwt_secret,
         max_file_size,
         default_quota_bytes: default_quota,
         base_url,
@@ -293,6 +295,7 @@ async fn main() -> Result<()> {
                 .route("/:file_id", delete(delete_file))
                 .route("/:file_id/download", get(download_file))
                 .route("/:file_id/move", put(move_file))
+                .route("/:file_id/copy", post(copy_file))
                 .route("/:file_id/rename", put(rename_file))
                 .route("/:file_id/restore", post(restore_file))
                 .route("/:file_id/versions", get(list_versions))
@@ -308,8 +311,36 @@ async fn main() -> Result<()> {
                 .route("/permissions/revoke/:perm_id", delete(revoke_permission))
                 // Quota
                 .route("/quota", get(get_quota))
+                .route("/resolve-path", get(resolve_path))
+                .route("/system-path", get(system_path))
+                .route("/network/shares", get(scan_network_shares))
+                .route("/network/mounts", get(net_mounts_list).post(net_mount_create))
+                .route("/network/mounts/:id", delete(net_mount_delete))
+                .route("/network/mounts/:id/files", get(net_mount_files))
+                .route("/network/mounts/:id/download", get(net_mount_download))
                 // Activity
                 .route("/activity/:file_id", get(get_activity))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware_auth::require_auth,
+                )),
+        )
+        // axum 0.7 quirk: `nest("/api/files", …)` matches `/api/files` but NOT
+        // `/api/files/` (trailing slash) — the form the frontend actually calls.
+        // Mount a second, auth-protected nest so both spellings work.
+        // The `/user/:username/*path` wildcard route is registered top-level:
+        // axum 0.7 nested routers do not match wildcard routes reliably.
+        .route(
+            "/api/files/user/:username/*path",
+            get(download_user_path).layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                middleware_auth::require_auth,
+            )),
+        )
+        .nest(
+            "/api/files/",
+            Router::new()
+                .route("/", get(list_files))
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     middleware_auth::require_auth,
@@ -350,7 +381,7 @@ async fn upload_file(
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     // Check quota
     ensure_quota(&state, &user_id, 0).await?;
@@ -506,7 +537,7 @@ async fn list_files(
     headers: HeaderMap,
     Query(query): Query<ListFilesQuery>,
 ) -> Result<Json<FileListResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let files: Vec<FileRecord> = if let Some(ref search) = query.search {
         let pattern = format!("%{}%", search);
@@ -559,7 +590,7 @@ async fn get_file_info(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<FileRecord>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
     Ok(Json(file))
 }
@@ -569,9 +600,13 @@ async fn get_file_info(
 async fn download_file(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path(file_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    // Accept `?token=` as well as the Authorization header: CSS backgrounds
+    // and <img> tags cannot send headers, so the frontend appends the token
+    // to the query string for them.
+    let user_id = extract_user_id_with_query(&headers, uri.query())?;
     let file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     if file.is_folder {
@@ -601,6 +636,60 @@ async fn download_file(
     Ok((headers, data))
 }
 
+/// Download a file through its stable, user-visible virtual path.
+/// The path is always scoped to the authenticated JWT username and owner ID.
+async fn download_user_path(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Path((username, path)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let claims = extract_claims(&headers, uri.query())?;
+    if username != claims.username {
+        return Err((StatusCode::FORBIDDEN, "User path is private".to_string()));
+    }
+
+    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
+    if segments.is_empty() || segments.iter().any(|segment| *segment == "." || *segment == "..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid user path".to_string()));
+    }
+
+    let mut parent_id: Option<String> = None;
+    let mut file: Option<FileRecord> = None;
+    for (index, segment) in segments.iter().enumerate() {
+        let is_folder = index + 1 < segments.len();
+        file = sqlx::query_as::<_, FileRecord>(
+            "SELECT * FROM files WHERE owner_id = ? AND original_name = ? AND parent_folder_id IS ? AND is_folder = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+        )
+        .bind(&claims.sub)
+        .bind(*segment)
+        .bind(&parent_id)
+        .bind(is_folder)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+        let Some(current) = file.as_ref() else {
+            return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
+        };
+        parent_id = Some(current.id.clone());
+    }
+
+    let file = file.ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
+    if file.is_folder {
+        return Err((StatusCode::BAD_REQUEST, "Cannot download a folder directly".to_string()));
+    }
+
+    let data = fs::read(state.storage_root.join(&file.storage_path)).await.map_err(|error| {
+        (StatusCode::NOT_FOUND, format!("File not found on disk: {error}"))
+    })?;
+    log_activity(&state, &file.id, &claims.sub, "download", None).await;
+    Ok(([
+        (header::CONTENT_TYPE, file.mime_type),
+        (header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", file.original_name)),
+    ], data))
+}
+
 // ─── Delete File (soft) ─────────────────────────────────────────────────────
 
 async fn delete_file(
@@ -608,7 +697,7 @@ async fn delete_file(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let file = get_file_with_access(&state, &file_id, &user_id, "write").await?;
 
     let now = Utc::now().to_rfc3339();
@@ -642,7 +731,7 @@ async fn restore_file(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let file: FileRecord = sqlx::query_as("SELECT * FROM files WHERE id = ? AND owner_id = ?")
         .bind(&file_id)
@@ -685,7 +774,7 @@ async fn move_file(
     Path(file_id): Path<String>,
     Json(body): Json<MoveFileRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "write").await?;
 
     // Validate target folder exists and belongs to user
@@ -723,6 +812,231 @@ async fn move_file(
     Ok(Json(serde_json::json!({ "moved": true })))
 }
 
+// ─── Copy File / Folder ────────────────────────────────────────────────────
+
+async fn copy_file(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(file_id): Path<String>,
+    Json(body): Json<CopyFileRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user_id = extract_user_id(&headers)?;
+    let source = get_file_with_access(&state, &file_id, &user_id, "write").await?;
+
+    // Validate target folder exists and belongs to user
+    if let Some(ref target_id) = body.target_folder_id {
+        let folder: Option<FileRecord> = sqlx::query_as(
+            "SELECT * FROM files WHERE id = ? AND owner_id = ? AND is_folder = 1 AND deleted_at IS NULL"
+        )
+        .bind(target_id)
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if folder.is_none() {
+            return Err((StatusCode::NOT_FOUND, "Target folder not found".to_string()));
+        }
+    }
+
+    // Prevent copying a folder into itself or one of its own subfolders (cycles)
+    if source.is_folder {
+        if let Some(ref target_id) = body.target_folder_id {
+            if target_id == &source.id || is_descendant_of(&state, target_id, &source.id).await {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Cannot copy a folder into itself or its own subfolder".to_string(),
+                ));
+            }
+        }
+    }
+
+    // Pre-check quota for the whole subtree before writing anything
+    let additional_size = if source.is_folder {
+        compute_subtree_size(&state, &source.id).await?
+    } else {
+        source.size_bytes
+    };
+    ensure_quota(&state, &user_id, additional_size).await?;
+
+    let (new_id, _added) = copy_entry_recursive(&state, &source, body.target_folder_id.clone(), &user_id).await?;
+
+    // Update quota
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO storage_quotas (user_id, quota_bytes, used_bytes, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET used_bytes = used_bytes + ?, updated_at = ?"
+    )
+    .bind(&user_id)
+    .bind(state.default_quota_bytes)
+    .bind(additional_size)
+    .bind(&now)
+    .bind(additional_size)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Quota update error: {}", e)))?;
+
+    log_activity(
+        &state,
+        &source.id,
+        &user_id,
+        "copy",
+        Some(serde_json::json!({"target": body.target_folder_id, "new_id": new_id})),
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({ "copied": true, "id": new_id })))
+}
+
+/// Returns true if `folder_id` equals `ancestor_id` or is nested below it.
+async fn is_descendant_of(state: &AppState, folder_id: &str, ancestor_id: &str) -> bool {
+    let mut current: Option<String> = Some(folder_id.to_string());
+    let mut hops = 0;
+    while let Some(fid) = current {
+        if fid == ancestor_id {
+            return true;
+        }
+        hops += 1;
+        if hops > 200 {
+            break; // safety valve against corrupt parent chains
+        }
+        let row: Option<FileRecord> = sqlx::query_as("SELECT * FROM files WHERE id = ?")
+            .bind(&fid)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+        current = row.and_then(|r| r.parent_folder_id);
+    }
+    false
+}
+
+/// Total size in bytes of every file below `folder_id` (folders themselves are free).
+fn compute_subtree_size<'a>(
+    state: &'a AppState,
+    folder_id: &'a str,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<i64, (StatusCode, String)>> + Send + 'a>> {
+    Box::pin(async move {
+    let children: Vec<FileRecord> =
+        sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
+            .bind(folder_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut total = 0i64;
+    for child in children {
+        if child.is_folder {
+            total += compute_subtree_size(state, &child.id).await?;
+        } else {
+            total += child.size_bytes;
+        }
+    }
+    Ok(total)
+    })
+}
+
+/// Deep-copies `source` (file or folder tree) into `target_parent_id`.
+/// Returns the new record id and the number of file bytes added.
+fn copy_entry_recursive<'a>(
+    state: &'a AppState,
+    source: &'a FileRecord,
+    target_parent_id: Option<String>,
+    user_id: &'a str,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(String, i64), (StatusCode, String)>> + Send + 'a>> {
+    Box::pin(async move {
+    let now = Utc::now().to_rfc3339();
+    let new_id = Uuid::new_v4().to_string();
+
+    if source.is_folder {
+        let new_name = copy_display_name(&source.original_name);
+        sqlx::query(
+            "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'inode/directory', 0, '', '', ?, 1, ?, ?, ?)"
+        )
+        .bind(&new_id)
+        .bind(user_id)
+        .bind(&new_name)
+        .bind(&new_name)
+        .bind(&target_parent_id)
+        .bind(&source.description)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
+
+        // Recurse into children
+        let children: Vec<FileRecord> =
+            sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
+                .bind(&source.id)
+                .fetch_all(&state.db)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut added = 0i64;
+        for child in children {
+            let (_child_id, child_added) =
+                copy_entry_recursive(state, &child, Some(new_id.clone()), user_id).await?;
+            added += child_added;
+        }
+        Ok((new_id, added))
+    } else {
+        // Physical blob copy
+        let source_abs = state.storage_root.join(&source.storage_path);
+        let data = fs::read(&source_abs)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e)))?;
+
+        let ext = std::path::Path::new(&source.filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin");
+        let storage_filename = format!("{}.{}", new_id, ext);
+        let user_dir = state.storage_root.join(user_id);
+        fs::create_dir_all(&user_dir).await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e))
+        })?;
+        let new_abs = user_dir.join(&storage_filename);
+        iora_shared_upload::atomic_write_async(&new_abs, &data)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {}", e)))?;
+
+        let new_name = copy_display_name(&source.original_name);
+        let storage_rel = format!("{}/{}", user_id, storage_filename);
+        sqlx::query(
+            "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+        )
+        .bind(&new_id)
+        .bind(user_id)
+        .bind(&storage_filename)
+        .bind(&new_name)
+        .bind(&source.mime_type)
+        .bind(source.size_bytes)
+        .bind(&source.sha256_hash)
+        .bind(&storage_rel)
+        .bind(&target_parent_id)
+        .bind(&source.description)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
+
+        Ok((new_id, source.size_bytes))
+    }
+    })
+}
+
+/// "report.pdf" -> "report (copy).pdf", "notes (copy).md" -> "notes (copy).md"
+fn copy_display_name(name: &str) -> String {
+    let (stem, ext) = match name.rfind('.') {
+        Some(idx) if idx > 0 => name.split_at(idx),
+        _ => (name, ""),
+    };
+    let clean = stem.strip_suffix(" (copy)").unwrap_or(stem);
+    format!("{clean} (copy){ext}")
+}
+
 // ─── Rename File ────────────────────────────────────────────────────────────
 
 async fn rename_file(
@@ -731,7 +1045,7 @@ async fn rename_file(
     Path(file_id): Path<String>,
     Json(body): Json<RenameFileRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "write").await?;
 
     let safe_name = sanitize_filename(&body.new_name);
@@ -768,7 +1082,7 @@ async fn list_versions(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<Vec<FileVersion>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let versions: Vec<FileVersion> = sqlx::query_as(
@@ -789,7 +1103,7 @@ async fn create_folder(
     headers: HeaderMap,
     Json(body): Json<CreateFolderRequest>,
 ) -> Result<Json<FileRecord>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let folder_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -844,7 +1158,7 @@ async fn create_share_link(
     headers: HeaderMap,
     Json(body): Json<CreateShareLinkRequest>,
 ) -> Result<Json<ShareLinkResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &body.file_id, &user_id, "write").await?;
 
     let share_id = Uuid::new_v4().to_string();
@@ -904,7 +1218,7 @@ async fn list_share_links(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ShareLink>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let links: Vec<ShareLink> = sqlx::query_as(
         "SELECT * FROM share_links WHERE created_by = ? AND is_active = 1 ORDER BY created_at DESC",
@@ -922,7 +1236,7 @@ async fn revoke_share_link(
     headers: HeaderMap,
     Path(share_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     sqlx::query("UPDATE share_links SET is_active = 0 WHERE id = ? AND created_by = ?")
         .bind(&share_id)
@@ -1036,7 +1350,7 @@ async fn set_permission(
     headers: HeaderMap,
     Json(body): Json<SetPermissionRequest>,
 ) -> Result<Json<FilePermission>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &body.file_id, &user_id, "admin").await?;
 
     if !["read", "write", "admin"].contains(&body.permission.as_str()) {
@@ -1096,7 +1410,7 @@ async fn list_permissions(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<Vec<FilePermission>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let perms: Vec<FilePermission> =
@@ -1114,7 +1428,7 @@ async fn revoke_permission(
     headers: HeaderMap,
     Path(perm_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     // Verify user owns the file this permission belongs to
     let perm: Option<FilePermission> =
@@ -1138,11 +1452,65 @@ async fn revoke_permission(
 
 // ─── Quota ──────────────────────────────────────────────────────────────────
 
+mod network_scan;
+mod smb_mount;
+
+async fn scan_network_shares() -> Json<serde_json::Value> {
+    let hosts = network_scan::scan_network_shares().await;
+    Json(serde_json::json!({ "hosts": hosts }))
+}
+
+#[derive(serde::Deserialize)]
+struct MountCreateRequest {
+    ip: String,
+    share: String,
+    #[serde(default)]
+    username: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+}
+
+async fn net_mounts_list() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "mounts": smb_mount::list_mounts().await }))
+}
+
+async fn net_mount_create(Json(body): Json<MountCreateRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    match smb_mount::mount_share(&body.ip, &body.share, body.username.as_deref(), body.password.as_deref()).await {
+        Ok(record) => Ok(Json(serde_json::json!({ "mount": record }))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn net_mount_delete(Path(id): Path<String>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    smb_mount::unmount_mount(&id)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
+async fn net_mount_files(Path(id): Path<String>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let files = smb_mount::list_mount_files(&id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "files": files })))
+}
+
+async fn net_mount_download(
+    Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let path = query.get("path").cloned().unwrap_or_default();
+    let bytes = smb_mount::read_mount_file(&id, &path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        bytes,
+    ).into_response())
+}
+
 async fn get_quota(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<QuotaResponse>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
 
     let quota: Option<StorageQuota> =
         sqlx::query_as("SELECT * FROM storage_quotas WHERE user_id = ?")
@@ -1178,7 +1546,7 @@ async fn get_activity(
     headers: HeaderMap,
     Path(file_id): Path<String>,
 ) -> Result<Json<Vec<FileActivity>>, (StatusCode, String)> {
-    let user_id = extract_user_id(&headers, &state.jwt_secret)?;
+    let user_id = extract_user_id(&headers)?;
     let _file = get_file_with_access(&state, &file_id, &user_id, "read").await?;
 
     let activity: Vec<FileActivity> = sqlx::query_as(
@@ -1194,7 +1562,134 @@ async fn get_activity(
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, (StatusCode, String)> {
+/// Resolve an IORA path (`/icons`, `/Photos/x.jpg`, …) against the current
+/// user's file tree. `found:false` means the path is NOT an IORA path — the
+/// frontend then treats it as a web path. This resolves the ambiguity between
+/// web namespaces (e.g. `/icons/` from `public/icons`) and user-created root
+/// folders that share the same name.
+async fn resolve_path(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user_id = extract_user_id(&headers)?;
+    let path = query.get("path").cloned().unwrap_or_default();
+    let segments: Vec<&str> = path.split('/').filter(|seg| !seg.is_empty()).collect();
+    if segments.is_empty() || segments.iter().any(|seg| *seg == "." || *seg == "..") {
+        return Ok(Json(serde_json::json!({ "found": false })));
+    }
+    let mut parent_id: Option<String> = None;
+    let mut file: Option<FileRecord> = None;
+    for (index, segment) in segments.iter().enumerate() {
+        let is_last = index + 1 == segments.len();
+        let query_segment = |is_folder: bool| {
+            sqlx::query_as::<_, FileRecord>(
+                "SELECT * FROM files WHERE owner_id = ? AND original_name = ? AND parent_folder_id IS ? AND is_folder = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+            )
+            .bind(&user_id)
+            .bind(segment)
+            .bind(&parent_id)
+            .bind(is_folder)
+            .fetch_optional(&state.db)
+        };
+        // Intermediate segments must be folders; the last segment may be a
+        // folder OR a file (a path like `/icons` can point to a folder).
+        if is_last {
+            file = query_segment(true)
+                .await
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                .or_else(|| None);
+            if file.is_none() {
+                file = query_segment(false)
+                    .await
+                    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            }
+        } else {
+            file = query_segment(true)
+                .await
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        }
+        match &file {
+            Some(found) => parent_id = Some(found.id.clone()),
+            None => return Ok(Json(serde_json::json!({ "found": false }))),
+        }
+    }
+    match file {
+        Some(found) => Ok(Json(serde_json::json!({
+            "found": true,
+            "file_id": found.id,
+            "is_folder": found.is_folder,
+            "name": found.original_name,
+        }))),
+        None => Ok(Json(serde_json::json!({ "found": false }))),
+    }
+}
+
+/// Read a file from the host filesystem (absolute paths like `/var/lib/iora/…`).
+/// Access is limited to IORA data roots, files only, with a size limit.
+async fn system_path(
+    State(_state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let _user_id = extract_user_id(&headers)?;
+    let raw = query.get("path").cloned().unwrap_or_default();
+    const ALLOWED_ROOTS: [&str; 4] = ["/opt/iora", "/var/lib/iora", "/home/iora/iora", "/tmp"];
+    if !ALLOWED_ROOTS.iter().any(|root| raw.starts_with(root)) {
+        return Err((StatusCode::FORBIDDEN, "Path is outside the allowed roots".to_string()));
+    }
+    let canonical = std::fs::canonicalize(&raw)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Path does not exist".to_string()))?;
+    let meta = tokio::fs::metadata(&canonical)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Path does not exist".to_string()))?;
+    if !meta.is_file() {
+        return Err((StatusCode::BAD_REQUEST, "Only files can be read".to_string()));
+    }
+    if meta.len() > 25 * 1024 * 1024 {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "File is too large".to_string()));
+    }
+    let bytes = tokio::fs::read(&canonical)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let mime = mime_guess::from_path(&canonical).first_or_octet_stream();
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, mime.as_ref().to_string())],
+        bytes,
+    ))
+}
+
+/// Like `extract_user_id` but also accepts the token via `?token=` in the
+/// query string (used by native browser elements that cannot send headers).
+fn extract_user_id_with_query(
+    headers: &HeaderMap,
+    query: Option<&str>,
+) -> Result<String, (StatusCode, String)> {
+    // Read the shared JWT secret fresh so a late-appearing shared file is
+    // picked up without a restart (all services must validate with the same
+    // secret that iora-home persists to /etc/iora/jwt-secret).
+    let jwt_secret = system_config::jwt_secret();
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .or_else(|| {
+            query.and_then(|q| {
+                q.split('&').find_map(|part| {
+                    let (key, value) = part.split_once('=')?;
+                    (key == "token").then_some(value)
+                })
+            })
+        })
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication".to_string()))?;
+    match crate::auth::verify_token(token, &jwt_secret) {
+        Ok(user_id) => Ok(user_id),
+        Err(_) => Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string())),
+    }
+}
+
+fn extract_user_id(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    let jwt_secret = system_config::jwt_secret();
     let auth_header = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -1212,8 +1707,31 @@ fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, (Sta
         )
     })?;
 
-    auth::verify_token(token, jwt_secret)
+    auth::verify_token(token, &jwt_secret)
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)))
+}
+
+fn extract_claims(
+    headers: &HeaderMap,
+    query: Option<&str>,
+) -> Result<auth::Claims, (StatusCode, String)> {
+    let jwt_secret = system_config::jwt_secret();
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .or_else(|| {
+            query.and_then(|value| {
+                value.split('&').find_map(|part| {
+                    let (key, token) = part.split_once('=')?;
+                    (key == "token").then_some(token)
+                })
+            })
+        })
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication token".to_string()))?;
+
+    auth::verify_claims(token, &jwt_secret)
+        .map_err(|error| (StatusCode::UNAUTHORIZED, format!("Invalid token: {error}")))
 }
 
 async fn get_file_with_access(

@@ -98,15 +98,33 @@ IORA_CORE_URL=http://127.0.0.1:8090
 IORA_ENV=development
 IORA_OS_DEV=1
 
-# Enable detailed logging in dev mode
-RUST_LOG=${RUST_LOG:-info}
+# Enable detailed logging in dev mode (concrete value – systemd does NOT
+# expand ${...} substitutions in EnvironmentFile, the literal string would
+# break every service that reads RUST_LOG).
+RUST_LOG=info
 RUST_BACKTRACE=1
-
-# Database (for services that need it)
-DATABASE_URL=${DATABASE_URL:-postgres://root:iora@localhost/iora_home}
 EOF
 
 success "Service environment: /etc/iora/service.env"
+
+# ── JWT secret distribution ──────────────────────────────────────────────
+# iora-home persists a JWT secret in the system_preferences table (and uses
+# it to sign login tokens). Microservices that validate those tokens
+# (iora-control, iora-files, iora-api, ...) must use the SAME secret, but
+# their process-local settings cache is empty. Without a shared value they
+# fall back to a random per-process UUID and every proxied request ends in
+# 401. Publish the DB secret into the global service.env (this script runs
+# as root AFTER iora-home, see iora-config-sync.service) so all services
+# resolve the same IORA_JWT_SECRET.
+if ! grep -q '^IORA_JWT_SECRET=' /etc/iora/service.env; then
+    DB_SECRET=$(su - postgres -c "psql -d iora_home -tAc \"SELECT preference_value FROM system_preferences WHERE preference_key='jwt_secret'\"" 2>/dev/null | tr -d '\"' | tr -d '\n')
+    if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ]; then
+        echo "IORA_JWT_SECRET=$DB_SECRET" >> /etc/iora/service.env
+        success "Published shared JWT secret to service.env (${#DB_SECRET} chars)"
+    else
+        warn "JWT secret not found in DB yet (iora-home may still be starting)"
+    fi
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. Update all service units to load global environment

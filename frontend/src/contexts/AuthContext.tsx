@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react'
 import { getBackendUrl } from '@/lib/config'
-import { parseStoredToken } from '@/lib/authHelpers'
+import { clearAuthSession, getAuthToken, persistAuthSession, refreshAccessToken } from '@/lib/authHelpers'
 import { wsReauthenticate, wsReconnect } from '@/lib/wsConnection'
 
 interface User {
@@ -58,25 +58,18 @@ function deleteCookie(name: string) {
 }
 
 function readPersistedToken(): string | null {
-  // 1. Cookie (survives page reloads, theme changes)
-  const cookieToken = getCookie('iora_token')
-  if (cookieToken) return cookieToken
-  // 2. localStorage (legacy fallback)
-  return parseStoredToken(localStorage.getItem('ha-auth-token'))
-    ?? parseStoredToken(sessionStorage.getItem('ha-auth-token'))
+  return getAuthToken() || null
 }
 
-function writePersistedToken(token: string | null, _rememberMe: boolean) {
+function writePersistedToken(token: string | null, refreshToken?: string) {
   if (!token) {
     deleteCookie('iora_token')
-    localStorage.removeItem('ha-auth-token')
-    sessionStorage.removeItem('ha-auth-token')
+    clearAuthSession()
     return
   }
-  // Always store as cookie (survives F5, theme changes)
+  if (refreshToken) persistAuthSession(token, refreshToken)
+  // Keep the legacy cookie in sync for embedded clients.
   setCookie('iora_token', token, 30)
-  // Also store in localStorage as fallback
-  localStorage.setItem('ha-auth-token', JSON.stringify(token))
 }
 
 const apiBase = () => getBackendUrl() || ''
@@ -85,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(() => readPersistedToken())
   const [isLoading, setIsLoading] = useState(true)
+  const sessionRestoreAttempted = useRef(false)
 
   // Verify token on mount
   useEffect(() => {
@@ -95,32 +89,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const response = await fetch(`${apiBase()}/api/auth/verify`, {
+        // Refresh before the first protected request. This also restores a
+        // session after iora-home restarts with a newly loaded JWT secret.
+        const restoredToken = sessionRestoreAttempted.current ? null : await refreshAccessToken()
+        sessionRestoreAttempted.current = true
+        const activeToken = restoredToken || token
+        if (restoredToken) setToken(restoredToken)
+
+        let response = await fetch(`${apiBase()}/api/auth/verify`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${activeToken}`,
           },
         })
+
+        if (response.status === 401 && !restoredToken) {
+          const freshToken = await refreshAccessToken()
+          if (freshToken) {
+            setToken(freshToken)
+            response = await fetch(`${apiBase()}/api/auth/verify`, {
+              headers: { 'Authorization': `Bearer ${freshToken}` },
+            })
+          }
+        }
 
         if (response.ok) {
           const userData = await response.json() as ApiUser & { refreshed_token?: string }
           // If the backend issued a fresh token (e.g. admin status changed), update it
           if (userData.refreshed_token) {
             const fresh = userData.refreshed_token
-            writePersistedToken(fresh, !!localStorage.getItem('ha-auth-token'))
+            writePersistedToken(fresh)
             setToken(fresh)
+          } else if (!localStorage.getItem('ha-auth-token')) {
+            // Session came from the cookie only (e.g. after a cache clear) —
+            // mirror it into localStorage so every request helper finds it.
+            writePersistedToken(activeToken)
           }
           const mapped = mapApiUser(userData)
           setUser(mapped)
           localStorage.setItem('ha-username', mapped.username)
         } else {
           // Token invalid, clear it
-          writePersistedToken(null, false)
+          writePersistedToken(null)
           setToken(null)
           setUser(null)
         }
       } catch (error) {
         console.error('Token verification failed:', error)
-        writePersistedToken(null, false)
+        writePersistedToken(null)
         setToken(null)
         setUser(null)
       } finally {
@@ -129,6 +144,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     verifyToken()
+  }, [token])
+
+  useEffect(() => {
+    const onTokenRefreshed = (event: Event) => {
+      const refreshed = (event as CustomEvent<{ token?: unknown }>).detail?.token
+      if (typeof refreshed === 'string') setToken(refreshed)
+    }
+    window.addEventListener('iora:auth-token-refreshed', onTokenRefreshed)
+    return () => window.removeEventListener('iora:auth-token-refreshed', onTokenRefreshed)
+  }, [])
+
+  // Keep the one-hour access JWT fresh while the dashboard stays open. The
+  // refresh token is rotated atomically and remains valid across restarts.
+  useEffect(() => {
+    if (!token) return
+    const interval = window.setInterval(() => { void refreshAccessToken() }, 50 * 60 * 1000)
+    return () => window.clearInterval(interval)
   }, [token])
 
   // Whenever the token changes (login, refresh, restore-from-storage),
@@ -142,86 +174,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   const login = useCallback(async (username: string, password: string, rememberMe = true) => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(`${apiBase()}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password, remember_me: rememberMe }),
-      })
+    const response = await fetch(`${apiBase()}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password, remember_me: rememberMe }),
+    })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Login failed')
-      }
-
-      const data = await response.json()
-      writePersistedToken(data.token, rememberMe)
-      setToken(data.token)
-      const mapped = mapApiUser(data.user as ApiUser)
-      setUser(mapped)
-      localStorage.setItem('ha-username', mapped.username)
-      localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
-    } finally {
-      setIsLoading(false)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Login failed')
     }
+
+    const data = await response.json()
+    writePersistedToken(data.token, data.refresh_token)
+    setToken(data.token)
+    const mapped = mapApiUser(data.user as ApiUser)
+    setUser(mapped)
+    localStorage.setItem('ha-username', mapped.username)
+    localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
   }, [])
 
   const loginWithPin = useCallback(async (userId: string, pin: string) => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(`${apiBase()}/api/auth/pin-login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user_id: userId, pin }),
-      })
+    const response = await fetch(`${apiBase()}/api/auth/pin-login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ user_id: userId, pin }),
+    })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'PIN login failed')
-      }
-
-      const data = await response.json()
-      writePersistedToken(data.token, true)
-      setToken(data.token)
-      const mapped = mapApiUser(data.user as ApiUser)
-      setUser(mapped)
-      localStorage.setItem('ha-username', mapped.username)
-      localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
-    } finally {
-      setIsLoading(false)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'PIN login failed')
     }
+
+    const data = await response.json()
+    writePersistedToken(data.token, data.refresh_token)
+    setToken(data.token)
+    const mapped = mapApiUser(data.user as ApiUser)
+    setUser(mapped)
+    localStorage.setItem('ha-username', mapped.username)
+    localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
   }, [])
 
   const register = useCallback(async (username: string, password: string, displayName?: string) => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(`${apiBase()}/api/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password, display_name: displayName }),
-      })
+    const response = await fetch(`${apiBase()}/api/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password, display_name: displayName }),
+    })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Registration failed')
-      }
-
-      const data = await response.json()
-      writePersistedToken(data.token, true)
-      setToken(data.token)
-      const mapped = mapApiUser(data.user as ApiUser)
-      setUser(mapped)
-      localStorage.setItem('ha-username', mapped.username)
-    } finally {
-      setIsLoading(false)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Registration failed')
     }
+
+    const data = await response.json()
+    writePersistedToken(data.token, data.refresh_token)
+    setToken(data.token)
+    const mapped = mapApiUser(data.user as ApiUser)
+    setUser(mapped)
+    localStorage.setItem('ha-username', mapped.username)
   }, [])
 
   const updateProfile = useCallback(async ({ username, displayName }: { username?: string; displayName?: string }) => {
@@ -252,7 +269,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, token])
 
   const logout = useCallback(() => {
-    writePersistedToken(null, false)
+    writePersistedToken(null)
     setToken(null)
     setUser(null)
     localStorage.removeItem('ha-username')
@@ -261,6 +278,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const isAuthenticated = !!user
+
+  // Session-expiry handling: when any authenticated request returns 401 the
+  // backend session is gone. Log out cleanly (instead of every poller hammering
+  // the backend and flooding the logs with "not authenticated" warnings).
+  useEffect(() => {
+    const onUnauthorized = () => {
+      if (user) {
+        console.warn('[Auth] Session rejected by backend — logging out')
+        logout()
+      }
+    }
+    window.addEventListener('iora:auth-unauthorized', onUnauthorized)
+    return () => window.removeEventListener('iora:auth-unauthorized', onUnauthorized)
+  }, [user, logout])
 
   const contextValue = useMemo(() => ({
     user,

@@ -224,6 +224,10 @@ function patchElement(el: HTMLElement) {
     restore(el)
     return
   }
+  // Already patched: keep the choice stable. Re-checking every scan would
+  // flip elements back and forth between original and patched colors
+  // (visible flashing) whenever the contrast sits near the threshold.
+  if (el.hasAttribute(PATCHED_ATTR)) return
   const cs = getComputedStyle(el)
   if (cs.visibility === 'hidden' || cs.display === 'none') return
 
@@ -256,12 +260,22 @@ function restoreAll() {
 function scanAll() {
   refreshThemePoles()
   const all = document.body.querySelectorAll<HTMLElement>('*')
-  for (const el of Array.from(all)) patchElement(el)
+  suppressMutations = true
+  try {
+    for (const el of Array.from(all)) patchElement(el)
+  } finally {
+    suppressMutations = false
+  }
 }
 
 function scanVisible() {
   refreshThemePoles()
-  for (const el of Array.from(visibleElements)) patchElement(el)
+  suppressMutations = true
+  try {
+    for (const el of Array.from(visibleElements)) patchElement(el)
+  } finally {
+    suppressMutations = false
+  }
 }
 
 // ─────────────────── device-tier detection (auto mode) ───────────────────
@@ -285,11 +299,9 @@ function detectDeviceTier(): DeviceTier {
 
 function resolveMode(mode: AutoContrastMode): Exclude<AutoContrastMode, 'auto'> {
   if (mode !== 'auto') return mode
-  switch (detectedTier) {
-    case 'low': return 'light'
-    case 'high': return 'full'
-    default: return 'balanced'
-  }
+  // 'auto' now always maps to the observer-light 'balanced' strategy (the
+  // eager 'full' mode scans on every mutation and caused UI flashing).
+  return detectedTier === 'low' ? 'light' : 'balanced'
 }
 
 // ───────────────────────────── lifecycle ─────────────────────────────────
@@ -300,6 +312,10 @@ let currentUserId: string | null = null
 
 let mutationObserver: MutationObserver | null = null
 let intersectionObserver: IntersectionObserver | null = null
+// Set while we are applying patches — the mutation observer must ignore the
+// style/attribute writes we make ourselves, or every patch triggers a new
+// scan → infinite feedback loop at animation-frame rate.
+let suppressMutations = false
 const visibleElements = new Set<HTMLElement>()
 let debounceTimer: number | null = null
 let rafHandle: number | null = null
@@ -331,11 +347,18 @@ function teardownAll() {
 }
 
 function scheduleEager() {
-  if (rafHandle !== null) return
-  rafHandle = requestAnimationFrame(() => {
-    rafHandle = null
-    scanAll()
-  })
+  // Debounce mutation bursts (animations can write style every frame) into
+  // a single scan — scanning at 60fps would thrash every text element.
+  if (debounceTimer !== null) clearTimeout(debounceTimer)
+  debounceTimer = window.setTimeout(() => {
+    debounceTimer = null
+    suppressMutations = true
+    try {
+      scanAll()
+    } finally {
+      suppressMutations = false
+    }
+  }, 120)
 }
 
 function scheduleDebounced(delay: number, target: 'all' | 'visible') {
@@ -349,6 +372,7 @@ function scheduleDebounced(delay: number, target: 'all' | 'visible') {
 function buildMutationObserver(onMutation: () => void) {
   stopMutationObserver()
   mutationObserver = new MutationObserver((mutations) => {
+    if (suppressMutations) return
     for (const m of mutations) {
       if (
         m.type === 'attributes' &&
@@ -457,7 +481,7 @@ function effectiveStorageKey(): string {
 function loadMode(): AutoContrastMode {
   const perUser = currentUserId ? readStorageMode(`${USER_KEY_PREFIX}${currentUserId}`) : null
   if (perUser) return perUser
-  return readStorageMode(GLOBAL_KEY) ?? 'auto'
+  return readStorageMode(GLOBAL_KEY) ?? 'balanced'
 }
 
 // ───────────────────────────── public API ────────────────────────────────

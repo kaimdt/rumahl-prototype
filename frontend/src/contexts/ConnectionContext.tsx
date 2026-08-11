@@ -1,11 +1,14 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react'
 
 import { getBackendUrl, getDevBridgeUrl } from '@/lib/config'
+import { authFetch, getAuthToken } from '@/lib/authHelpers'
 const apiBase = () => getBackendUrl() || ''
 
 interface ConnectionStatus {
   backend: 'connected' | 'disconnected' | 'error'
   homeAssistant: 'connected' | 'disconnected' | 'error'
+  /** Whether Home Assistant is configured at all (null = not checked yet) */
+  haConfigured: boolean | null
   devBridge: 'connected' | 'disconnected' | 'error'
   lastBackendCheck: Date | null
   lastHACheck: Date | null
@@ -37,6 +40,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<ConnectionStatus>({
     backend: 'disconnected',
     homeAssistant: 'disconnected',
+    haConfigured: null,
     devBridge: 'disconnected',
     lastBackendCheck: null,
     lastHACheck: null,
@@ -48,6 +52,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   // ── Refs für Backoff & SSE ──────────────────────────────────
   const backendRetryRef = useRef(0)
   const devBridgeRetryRef = useRef(0)
+  const haConfiguredProbedRef = useRef(false)
   const sseRef = useRef<EventSource | null>(null)
   const heartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
@@ -171,10 +176,34 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         setStatus(prev => ({
           ...prev,
           backend: 'connected',
-          homeAssistant: data.ha_connected ? 'connected' : 'error',
+          // Fresh installs without HA must not be treated as an error.
+          haConfigured: typeof data.ha_configured === 'boolean' ? data.ha_configured : prev.haConfigured,
+          homeAssistant: data.ha_configured === false ? 'disconnected' : (data.ha_connected ? 'connected' : 'error'),
           lastBackendCheck: new Date(),
           lastHACheck: new Date(),
         }))
+        // Older backends don't report ha_configured in /health yet — probe the
+        // public config endpoint once so the UI can decide whether HA exists.
+        if (typeof data.ha_configured !== 'boolean' && !haConfiguredProbedRef.current) {
+          haConfiguredProbedRef.current = true
+          try {
+            const cfgRes = await fetch(`${apiBase()}/api/integration/ha/configured`, {
+              signal: AbortSignal.timeout(5_000),
+            })
+            if (cfgRes.ok) {
+              const cfg = await cfgRes.json() as { enabled?: boolean }
+              if (typeof cfg.enabled === 'boolean') {
+                setStatus(prev => ({
+                  ...prev,
+                  haConfigured: Boolean(cfg.enabled),
+                  homeAssistant: cfg.enabled ? prev.homeAssistant : 'disconnected',
+                }))
+              }
+            }
+          } catch {
+            // keep previous state — the banner stays hidden while unknown
+          }
+        }
       } else {
         throw new Error(`HTTP ${response.status}`)
       }
@@ -234,8 +263,15 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     const detectDevBridge = async () => {
+      // Authenticated endpoint — without a token this would 401-flood the
+      // backend on every boot. Bail out early (the dev bridge only exists on
+      // OS dev images, where a session is present).
+      if (!getAuthToken()) {
+        devBridgeAvailableRef.current = false
+        return
+      }
       try {
-        const response = await fetch(`${apiBase()}/api/admin/dev-image`, {
+        const response = await authFetch('/api/admin/dev-image', {
           signal: AbortSignal.timeout(5_000),
         })
         const data = response.ok ? await response.json() : null

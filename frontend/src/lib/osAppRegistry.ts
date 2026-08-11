@@ -9,7 +9,7 @@ import {
   House,
   Robot,
   ShareNetwork,
-  ShieldCheck,
+  Storefront,
   VideoCamera,
   WifiHigh,
 } from '@phosphor-icons/react'
@@ -29,6 +29,14 @@ export interface OsAppDefinition {
   requiredPermission?: 'os.files.read' | 'os.network.read' | 'os.system.read' | 'os.updates' | 'os.backups'
   accent: string
   order: number
+  /** Remote icon URL (installed Docker apps) — rendered as <img> when set. */
+  iconUrl?: string
+  /** Web UI to open on click (installed Docker apps without a page). */
+  openUrl?: string
+  /** Render the icon smaller (object-contain) so its corners aren't clipped. */
+  iconPad?: boolean
+  /** Runtime status for installed apps ("running" | "stopped" | …). */
+  runtimeStatus?: string
 }
 
 export const SYSTEM_OS_APPS: OsAppDefinition[] = [
@@ -41,19 +49,8 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     icon: House,
     kind: 'system',
     accent: 'oklch(0.68 0.17 155)',
+    iconUrl: '/icons/Home.png',
     order: 0,
-  },
-  {
-    id: 'iora-admin',
-    pageId: 'admin',
-    nameKey: 'os.apps.admin.name',
-    fallbackName: 'Control Center',
-    descriptionKey: 'os.apps.admin.description',
-    icon: ShieldCheck,
-    kind: 'system',
-    requiredPermission: 'os.network.read',
-    accent: 'oklch(0.62 0.19 260)',
-    order: 10,
   },
   {
     id: 'iora-settings',
@@ -64,7 +61,20 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     icon: Gear,
     kind: 'system',
     accent: 'oklch(0.64 0.08 245)',
+    iconUrl: '/icons/Settings.png',
     order: 20,
+  },
+  {
+    id: 'iora-images',
+    pageId: 'os-images',
+    nameKey: 'os.apps.images.name',
+    fallbackName: 'Bilder',
+    descriptionKey: 'os.apps.images.description',
+    icon: House,
+    kind: 'system',
+    accent: 'oklch(0.62 0.15 260)',
+    iconUrl: '/icons/Images.png',
+    order: 22,
   },
   {
     id: 'iora-files',
@@ -75,7 +85,22 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     icon: FolderOpen,
     kind: 'system',
     accent: 'oklch(0.68 0.16 80)',
+    iconUrl: '/icons/folder.png',
+    iconPad: true,
     order: 21,
+  },
+  {
+    id: 'iora-app-store',
+    pageId: 'app-store',
+    nameKey: 'os.apps.appStore.name',
+    fallbackName: 'App Store',
+    descriptionKey: 'os.apps.appStore.description',
+    icon: Storefront,
+    kind: 'system',
+    accent: 'oklch(0.65 0.2 285)',
+    iconUrl: '/icons/appstore.png',
+    iconPad: true,
+    order: 22,
   },
   {
     id: 'iora-network',
@@ -87,7 +112,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     kind: 'system',
     requiredPermission: 'os.system.read',
     accent: 'oklch(0.67 0.16 205)',
-    order: 22,
+    order: 23,
   },
   {
     id: 'iora-system',

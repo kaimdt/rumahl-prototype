@@ -2,6 +2,7 @@ import type { EntityState } from '@/lib/types'
 import { wsSend } from '@/lib/wsConnection'
 
 import { getBackendUrl } from '@/lib/config'
+import { getAuthToken } from '@/lib/authHelpers'
 const apiBase = () => getBackendUrl() || ''
 
 class HomeAssistantService {
@@ -10,15 +11,7 @@ class HomeAssistantService {
   }
 
   private getToken(): string {
-    const raw = localStorage.getItem('ha-auth-token') ?? sessionStorage.getItem('ha-auth-token')
-    if (!raw) return ''
-    try {
-      // useLocalStorage stores values via JSON.stringify, so parse to unwrap quotes
-      const parsed = JSON.parse(raw)
-      return typeof parsed === 'string' ? parsed : ''
-    } catch {
-      return raw
-    }
+    return getAuthToken()
   }
 
   async getStates(): Promise<EntityState[]> {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ArrowClockwise,
   Cpu,
@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { authFetch } from '@/lib/authHelpers'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { OsFileExplorer } from '@/components/OsFileExplorer'
+import { OsWindowActions } from '@/components/OsWindowActions'
 
 interface NetworkInterface {
   name: string
@@ -55,7 +56,7 @@ function formatBytes(value = 0) {
   return `${size.toFixed(unit ? 1 : 0)} ${units[unit]}`
 }
 
-function AppHeader({ title, subtitle, loading, refresh }: { title: string; subtitle: string; loading: boolean; refresh: () => void }) {
+function AppHeader({ pageId, title, subtitle, loading, refresh }: { pageId: string; title: string; subtitle: string; loading: boolean; refresh: () => void }) {
   return (
     <header className="mb-6 flex items-end justify-between gap-4">
       <div>
@@ -63,15 +64,25 @@ function AppHeader({ title, subtitle, loading, refresh }: { title: string; subti
         <h1 className="mt-1 text-3xl font-semibold text-foreground">{title}</h1>
         <p className="mt-1 text-sm text-foreground/45">{subtitle}</p>
       </div>
-      <button type="button" onClick={refresh} disabled={loading} className="glass-card rounded-full p-3 text-foreground/60 hover:text-foreground disabled:opacity-40">
-        <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={refresh} disabled={loading} className="glass-card rounded-full p-3 text-foreground/60 hover:text-foreground disabled:opacity-40">
+          <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
+        </button>
+        <OsWindowActions pageId={pageId} />
+      </div>
     </header>
   )
 }
 
 export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) {
+  if (kind === 'files') return <OsFileExplorer />
+  return <OsSystemDataApp kind={kind} pageId={`os-${kind}`} />
+}
+
+function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId: string }) {
   const { t } = useTranslation()
+  const tRef = useRef(t)
+  useEffect(() => { tRef.current = t }, [t])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
@@ -86,9 +97,7 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
     setLoading(true)
     setError('')
     try {
-      if (kind === 'files') {
-        return
-      } else if (kind === 'network') {
+      if (kind === 'network') {
         const response = await authFetch('/api/os/control/os/network')
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const data = await response.json()
@@ -105,11 +114,11 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
         setProcesses(processesResponse.ok ? (await processesResponse.json()).processes || [] : [])
       }
     } catch {
-      setError(t('os.systemApps.unavailable'))
+      setError(tRef.current('os.systemApps.unavailable'))
     } finally {
       setLoading(false)
     }
-  }, [kind, t])
+  }, [kind])
 
   useEffect(() => {
     load()
@@ -142,13 +151,9 @@ export function OsSystemApp({ kind }: { kind: 'files' | 'network' | 'system' }) 
   const subtitle = t(`os.apps.${kind}.description`)
 
   return (
-    <section className="mx-auto min-h-[calc(100vh-11rem)] max-w-6xl pb-10">
-      <AppHeader title={title} subtitle={subtitle} loading={loading} refresh={load} />
+    <section className="ora-app-frame mx-auto max-w-6xl p-4 pb-10 sm:p-6">
+      <AppHeader pageId={pageId} title={title} subtitle={subtitle} loading={loading} refresh={load} />
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
-
-      {kind === 'files' && (
-        <OsFileExplorer />
-      )}
 
       {kind === 'network' && (
         <>

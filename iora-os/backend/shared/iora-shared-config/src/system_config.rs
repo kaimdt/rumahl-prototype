@@ -113,6 +113,46 @@ static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
 /// 1. `IORA_JWT_SECRET` environment variable
 /// 2. Settings cache key `jwt_secret` (populated from system_preferences table)
 /// 3. Auto-generated random secret (set by `persist_jwt_secret` or UUID v4 fallback)
+/// Shared JWT-secret file: iora-home persists the canonical secret here so
+/// EVERY microservice on the host (iora-control, iora-files, iora-security,
+/// ...) validates with the SAME secret. Without this, each process falls
+/// back to a per-process random secret and cross-service JWT checks fail
+/// with "InvalidSignature". Path is overridable for dev/tests.
+///
+/// Lives under /var/lib/iora (NOT /etc/iora): the iora-* services run as
+/// the unprivileged `iora` user, and /var/lib/iora is the chowned,
+/// ReadWritePaths-permitted data directory. A write to root-owned /etc/iora
+/// would fail silently and the shared secret would never materialize.
+pub fn jwt_secret_file() -> std::path::PathBuf {
+    std::env::var_os("IORA_JWT_SECRET_FILE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/iora/jwt-secret"))
+}
+
+fn read_jwt_secret_file() -> Option<String> {
+    let value = std::fs::read_to_string(jwt_secret_file()).ok()?;
+    let secret = value.trim().to_string();
+    if secret.is_empty() || secret.len() < 16 {
+        return None;
+    }
+    Some(secret)
+}
+
+fn write_jwt_secret_file(secret: &str) {
+    let path = jwt_secret_file();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(error) = std::fs::write(&path, secret.as_bytes()) {
+        // Visible in journald so a missing shared secret can never hide
+        // again (previously the error was swallowed -> cross-service 401s).
+        eprintln!(
+            "[iora-shared-config] WARNING: could not persist shared JWT secret to {}: {error}",
+            path.display()
+        );
+    }
+}
+
 pub fn jwt_secret() -> String {
     // 1. Env var (highest priority, for explicit override)
     if let Some(secret) = env_optional("IORA_JWT_SECRET") {
@@ -122,20 +162,30 @@ pub fn jwt_secret() -> String {
     if let Some(secret) = get_cached_setting("jwt_secret") {
         return secret;
     }
-    // 3. Auto-generated fallback (UUID v4 is cryptographically random)
+    // 3. Shared secret file — the cross-service source of truth. Checked
+    // before the fallback so a late-appearing file always wins (services
+    // that start before iora-home persists the secret pick it up on the
+    // next call instead of being stuck with a per-process random value).
+    if let Some(secret) = read_jwt_secret_file() {
+        return secret;
+    }
+    // 4. Auto-generated fallback (UUID v4 is cryptographically random) —
+    //    only used when no shared secret exists yet.
     AUTO_JWT_SECRET
         .get_or_init(|| uuid::Uuid::new_v4().to_string())
         .clone()
 }
 
 /// Persist a generated JWT secret — called by iora-home after writing to the DB.
-/// Updates both the settings cache and the auto-generated fallback so all callers
-/// see the same secret.
+/// Updates the settings cache, the auto-generated fallback AND the shared
+/// secret file, so every service on the host uses the same secret.
 pub fn persist_jwt_secret(secret: &str) {
     update_cached_setting("jwt_secret".to_string(), secret.to_string());
     // Also update the auto-generated fallback to match the persisted value.
     // If the OnceLock is already initialized, force-set it (best-effort).
     let _ = AUTO_JWT_SECRET.set(secret.to_string());
+    // Share with all services on this host.
+    write_jwt_secret_file(secret);
 }
 
 /// Master encryption key for the secrets service.
@@ -157,15 +207,34 @@ pub fn security_db_key() -> String {
 /// 2. `PORT` env var (generic fallback)
 /// 3. Default port from the IORA OS port map
 pub fn service_port(service: &str, default: u16) -> u16 {
+    service_port_inner(service, default, true)
+}
+
+/// Like [`service_port`] but NEVER falls back to the generic `PORT` env var.
+///
+/// Used for cross-service discovery. `PORT` conventionally holds the
+/// *caller's own* port (Docker containers, dev-VM systemd units), so using it
+/// while resolving ANOTHER service resolves every service to the caller
+/// itself — e.g. iora-home (PORT=8126) would proxy /api/files/* to
+/// http://127.0.0.1:8126 (itself), causing recursive self-proxy loops (503
+/// timeouts), 404s for /api/os/control/* and FD exhaustion. Only the
+/// service-specific variable and the canonical port map are consulted here.
+pub fn service_port_discovery(service: &str, default: u16) -> u16 {
+    service_port_inner(service, default, false)
+}
+
+fn service_port_inner(service: &str, default: u16, allow_generic_port: bool) -> u16 {
     let specific_key = format!("{}_PORT", service.to_uppercase().replace('-', "_"));
     if let Ok(val) = std::env::var(&specific_key) {
         if let Ok(p) = val.parse() {
             return p;
         }
     }
-    if let Ok(val) = std::env::var("PORT") {
-        if let Ok(p) = val.parse() {
-            return p;
+    if allow_generic_port {
+        if let Ok(val) = std::env::var("PORT") {
+            if let Ok(p) = val.parse() {
+                return p;
+            }
         }
     }
     // Look up default from the port map
@@ -190,7 +259,7 @@ pub fn service_url(service: &str, default_port: u16) -> String {
         return url;
     }
 
-    let port = service_port(service, default_port);
+    let port = service_port_discovery(service, default_port);
     if std::env::var("IORA_SERVICE_DNS").ok().as_deref() == Some("1")
         || std::env::var("IORA_CONTAINER_MODE").ok().as_deref() == Some("1")
         || std::path::Path::new("/.dockerenv").exists()

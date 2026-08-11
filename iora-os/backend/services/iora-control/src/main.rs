@@ -54,9 +54,11 @@ struct AppState {
 
 impl AppState {
     fn new() -> Self {
-        let jwt_secret = std::env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "dev-secret-change-in-production".to_string());
-
+        // Use the shared IORA JWT secret (same source as iora-home) so tokens
+        // issued by iora-home's /api/auth/login are accepted here. The generic
+        // `JWT_SECRET` env var with a hardcoded fallback never matched the
+        // dashboard's secret, which made every proxied request 401.
+    
         Self {
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -71,7 +73,7 @@ impl AppState {
             started_at: Arc::new(Instant::now()),
             cache: Cache::new(),
             ws_state: Arc::new(WsState::new()),
-            auth_state: Arc::new(AuthState { jwt_secret }),
+            auth_state: Arc::new(AuthState::new()),
         }
     }
 }

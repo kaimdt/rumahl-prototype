@@ -104,7 +104,14 @@ struct VmPidBody {
 /// List all running QEMU processes; IORA Dev VMs can be attached or
 /// stopped from the dashboard even when they were started by dev-local.
 async fn vms(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
-    Json(daemon.qemu_vms().await)
+    let result = daemon.qemu_vms().await;
+    // Never block the request on the slow process scan: kick a background
+    // refresh when the cache is empty; the periodic task keeps it warm.
+    if result["vms"].as_array().map(|a| a.is_empty()).unwrap_or(true) {
+        let refresh = daemon.clone();
+        tokio::spawn(async move { refresh.refresh_vms_cache().await });
+    }
+    Json(result)
 }
 
 async fn vms_attach(State(daemon): State<Arc<Daemon>>, Json(body): Json<VmPidBody>) -> Json<Value> {

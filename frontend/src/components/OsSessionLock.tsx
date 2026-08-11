@@ -78,7 +78,7 @@ export function OsSessionLock() {
 
   return (
     <motion.div
-      className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden bg-background p-5"
+      className="fixed inset-0 z-[300] flex items-center justify-center overflow-hidden bg-background p-5"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >
