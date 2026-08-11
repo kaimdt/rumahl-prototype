@@ -60,7 +60,7 @@ impl CdpTab {
                 "deviceScaleFactor": 1.0, "mobile": false
             }}),
             json!({"id": 3, "method": "Page.startScreencast", "params": {
-                "format": "jpeg", "quality": 60, "everyNthFrame": 1
+                "format": "jpeg", "quality": 40, "everyNthFrame": 1
             }}),
             json!({"id": 4, "method": "Page.getNavigationHistory", "params": {}}),
         ];

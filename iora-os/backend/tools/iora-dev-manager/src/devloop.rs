@@ -1018,10 +1018,17 @@ fn native_unit(service: &str) -> String {
     // nginx-config/), NOT the stale /usr/share image snapshot - otherwise
     // the WebSocket upgrade headers (Connection/Upgrade relay) are missing
     // and app proxy tunnels fail with 'websocket upgrade required'.
-    let environment = if service == "iora-nginx" {
-        "\nEnvironment=NGINX_TEMPLATE_PATH=/home/iora/iora/iora-os/backend/services/iora-nginx/nginx-config/nginx.conf.template"
-    } else {
-        ""
+    let environment = match service {
+        "iora-nginx" => {
+            "\nEnvironment=NGINX_TEMPLATE_PATH=/home/iora/iora/iora-os/backend/services/iora-nginx/nginx-config/nginx.conf.template"
+        }
+        // iora-browserd WebRTC in the dev VM: the guest IP is unreachable
+        // from the host browser, so ICE candidates must be rewritten to
+        // 127.0.0.1:40000 (QEMU UDP forward + socat hop in the guest).
+        // Without this the WebRTC session never connects and only the
+        // canvas fallback remains.
+        "iora-browserd" => "\nEnvironment=IORA_WEBRTC_CANDIDATE_HOST=127.0.0.1",
+        _ => "",
     };
     format!(
         "[Unit]\nDescription=IORA development service {service}\nAfter=network-online.target postgresql.service\nWants=network-online.target\n\n[Service]\nType=simple\nUser=iora\nWorkingDirectory=/home/iora/iora/iora-os/backend{environment}\nEnvironment=IORA_ENV=development\nExecStart=/home/iora/iora/iora-os/backend/target/debug/{service}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n"
