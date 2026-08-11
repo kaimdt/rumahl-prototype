@@ -998,9 +998,11 @@ async fn proxy_websocket(
             Ok(client_upgraded) => {
                 let mut client = hyper_util::rt::TokioIo::new(client_upgraded);
                 let mut upstream = upstream;
-                // Flush any bytes read past the 101 head into the tunnel.
+                // Bytes read past the 101 head are CLIENT-bound (the server
+                // already sent the first frames) - deliver them to the client
+                // before splicing, never back into the upstream.
                 if !extra.is_empty() {
-                    let _ = upstream.write_all(&extra).await;
+                    let _ = client.write_all(&extra).await;
                 }
                 let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
             }

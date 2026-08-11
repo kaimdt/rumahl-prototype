@@ -909,7 +909,7 @@ async fn create_pairing_token(
     headers: HeaderMap,
     Json(body): Json<CreatePairingTokenRequest>,
 ) -> Result<Json<PairingTokenResponse>, (StatusCode, String)> {
-    let user_id = extract_admin_user(&headers, &state.jwt_secret)?;
+    let user_id = extract_admin_user(&headers, &iora_shared_config::system_config::jwt_secret())?;
 
     let token_id = Uuid::new_v4().to_string();
     let raw_token = format!(
@@ -999,7 +999,7 @@ async fn get_access_log(
 // ─── Middleware ─────────────────────────────────────────────────────────────
 
 async fn admin_auth_middleware(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
@@ -1010,7 +1010,7 @@ async fn admin_auth_middleware(
         .and_then(|h| h.strip_prefix("Bearer "))
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    verify_admin_jwt(token, &state.jwt_secret)?;
+    verify_admin_jwt(token, &iora_shared_config::system_config::jwt_secret())?;
     Ok(next.run(request).await)
 }
 
