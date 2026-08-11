@@ -10152,11 +10152,14 @@ async fn app_proxy_handler(
                         .map(|port| format!("http://localhost:{}", port.external))
                 })
                 .or_else(|| {
-                    app.manifest
-                        .extra
-                        .get("ports")
-                        .and_then(|ports| ports.as_array())
-                        .and_then(|ports| ports.first())
+                    // Accept both the array form ([{external: 8102, ...}]) and
+                    // a single object form from older manifests.
+                    let ports = app.manifest.extra.get("ports");
+                    let first = ports
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first());
+                    let candidate = first.or(ports.filter(|v| v.is_object()));
+                    candidate
                         .and_then(|port| port.get("external").and_then(|v| v.as_u64()))
                         .map(|external| format!("http://localhost:{external}"))
                 });
@@ -10167,6 +10170,18 @@ async fn app_proxy_handler(
                     .await
                     .map(|host| format!("http://localhost:{host}"))
             };
+            if proxy_url.is_none() {
+                // Diagnosable failure: log exactly why no URL could be
+                // resolved so a stale guest binary / malformed manifest is
+                // identifiable from the journal instead of a bare 404.
+                tracing::warn!(
+                    app_id = %app_id,
+                    stored_ports = ?app.ports.iter().map(|p| p.external).collect::<Vec<_>>(),
+                    manifest_port_keys = ?app.manifest.extra.get("ports").map(|v| v.to_string()),
+                    has_custom_pages = !app.custom_pages.is_empty(),
+                    "app proxy: no URL configured for app"
+                );
+            }
 
             match proxy_url {
                 Some(base_url) => {
@@ -10359,7 +10374,9 @@ parent.postMessage({{type:'event',event:{{type:'app.proxy.status',data:{{app_id:
                 }
                 None => Response::builder()
                     .status(StatusCode::NOT_FOUND)
-                    .body(Body::from("Keine konfigurierte URL für diese App"))
+                    .body(Body::from(
+                        "Keine konfigurierte URL für diese App — der Service-Port fehlt im Manifest oder die App wurde mit einem älteren Build installiert. Starte die App neu (Admin → Apps → Start) oder führe im Dev Manager 'Force Sync & Rebuild' aus.",
+                    ))
                     .unwrap_or_else(|_| Response::new(Body::empty())),
             }
         }
