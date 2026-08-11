@@ -3,7 +3,7 @@ import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
-  Cube, Lightning, Plus, Play, Pause, TrashSimple, ShieldCheck,
+  Cube, Lightning, Plus, Play, Pause, Stop, TrashSimple, ShieldCheck,
   DownloadSimple, Upload, MagnifyingGlass, Gear, Check, X,
   ShieldWarning, Package, ArrowClockwise, Info, Warning,
   Stack, CubeFocus, Sparkle, PuzzlePiece, MusicNotes, ChartBar,
@@ -20,6 +20,7 @@ import { authFetch } from '@/lib/authHelpers'
 import { supportedLngs } from '@/i18n'
 import { consumeAppDetail, consumeAppInStore } from '@/lib/appStoreHandoff'
 import { AppInstallProgress } from '@/components/app/AppInstallProgress'
+import { AppStatusBadge } from '@/components/app/AppStatusBadge'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -437,454 +438,172 @@ function InstalledAppsView({
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | 'app' | 'plugin' | 'system'>('all')
   const [installedSearch, setInstalledSearch] = useState('')
-  const integrationsByApp = new Map(integrations.map(integration => [integration.id, integration]))
-  const filteredApps = apps.filter(app => {
+  const integrationsByApp = useMemo(
+    () => new Map(integrations.map((integration) => [integration.id, integration])),
+    [integrations],
+  )
+  const filteredApps = useMemo(() => apps.filter((app) => {
     const matchesKind = kindFilter === 'all' || (app.kind || 'app') === kindFilter
     const query = installedSearch.trim().toLowerCase()
-    const matchesSearch = !query || [app.name, app.id, app.developer, app.description, app.kind]
+    return matchesKind && (!query || [app.name, app.id, app.developer, app.description, app.kind]
       .filter(Boolean)
-      .some(value => String(value).toLowerCase().includes(query))
-    return matchesKind && matchesSearch
-  })
-  const runningCount = apps.filter(app => app.status === 'running').length
-  const pluginCount = apps.filter(app => app.kind === 'plugin').length
-  const integrationCount = integrations.length
+      .some((value) => String(value).toLowerCase().includes(query)))
+  }), [apps, installedSearch, kindFilter])
 
-  const startApp = async (appId: string) => {
-    setActionLoading(`start-${appId}`)
+  const runningCount = apps.filter((app) => app.status === 'running').length
+  const attentionCount = apps.filter((app) => ['error', 'failed', 'crashed', 'unhealthy'].includes(app.status || '')).length
+  const updateCount = apps.filter((app) => Boolean((app as AppInfo & { update_available?: boolean }).update_available)).length
+
+  const runAction = async (app: AppInfo, action: 'start' | 'stop' | 'restart' | 'pause' | 'enable' | 'disable') => {
+    const key = `${action}-${app.id}`
+    setActionLoading(key)
     try {
-      await adminFetch(`/api/supervisor/apps/${appId}/start`, token, { method: 'POST' })
-      toast.success('App gestartet')
+      const endpoint = action === 'enable' || action === 'disable'
+        ? `/api/appstore/apps/${app.id}/${action}`
+        : `/api/supervisor/apps/${app.id}/${action}`
+      await adminFetch(endpoint, token, { method: 'POST' })
+      toast.success(t(`apps.installedManagement.actionSuccess.${action}`, { name: app.name }))
       onReload()
-    } catch (e) {
-      toast.error((e as Error).message)
+    } catch (error) {
+      toast.error(t('apps.installedManagement.actionFailed', {
+        detail: error instanceof Error ? error.message : String(error),
+      }))
+    } finally {
+      setActionLoading(null)
     }
-    setActionLoading(null)
   }
 
-  const stopApp = async (appId: string) => {
-    setActionLoading(`stop-${appId}`)
+  const uninstallApp = async (app: AppInfo, force = false) => {
+    const confirmKey = force && app.system ? 'forceUninstallConfirm' : 'uninstallConfirm'
+    if (!window.confirm(t(`apps.installedManagement.${confirmKey}`, { name: app.name }))) return
+    setActionLoading(`uninstall-${app.id}`)
     try {
-      await adminFetch(`/api/supervisor/apps/${appId}/stop`, token, { method: 'POST' })
-      toast.success('App gestoppt')
+      await adminFetch(`/api/appstore/apps/${app.id}${force ? '?force=true' : ''}`, token, { method: 'DELETE' })
+      toast.success(t('apps.installedManagement.actionSuccess.uninstall', { name: app.name }))
       onReload()
-    } catch (e) {
-      toast.error((e as Error).message)
+    } catch (error) {
+      toast.error(t('apps.installedManagement.actionFailed', {
+        detail: error instanceof Error ? error.message : String(error),
+      }))
+    } finally {
+      setActionLoading(null)
     }
-    setActionLoading(null)
   }
 
-  const pauseApp = async (appId: string) => {
-    setActionLoading(`pause-${appId}`)
-    try {
-      await adminFetch(`/api/supervisor/apps/${appId}/pause`, token, { method: 'POST' })
-      toast.success('App pausiert')
-      onReload()
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-    setActionLoading(null)
-  }
-
-  const enableApp = async (appId: string) => {
-    setActionLoading(`enable-${appId}`)
-    try {
-      await adminFetch(`/api/appstore/apps/${appId}/enable`, token, { method: 'POST' })
-      toast.success('App aktiviert')
-      onReload()
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-    setActionLoading(null)
-  }
-
-  const disableApp = async (appId: string) => {
-    setActionLoading(`disable-${appId}`)
-    try {
-      await adminFetch(`/api/appstore/apps/${appId}/disable`, token, { method: 'POST' })
-      toast.success('App deaktiviert')
-      onReload()
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-    setActionLoading(null)
-  }
-
-  const uninstallApp = async (appId: string, force = false) => {
-    const isSystemApp = apps.find(a => a.id === appId)?.system
-    const prompt = force && isSystemApp
-      ? `System-App "${appId}" auf einem OS-DEV-Image deinstallieren? Das kann das System-Verhalten ändern.`
-      : 'App wirklich deinstallieren? Alle Daten gehen verloren.'
-    if (!confirm(prompt)) return
-    setActionLoading(appId)
-    try {
-      const url = force
-        ? `/api/appstore/apps/${appId}?force=true`
-        : `/api/appstore/apps/${appId}`
-      await adminFetch(url, token, { method: 'DELETE' })
-      toast.success('App deinstalliert')
-      onReload()
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-    setActionLoading(null)
-  }
-
-  const openApp = (appId: string) => {
-    // All installed apps open inside the ORA App Runner (`/app/<id>`): the
-    // runner resolves the gateway proxy_url and embeds the app's web UI —
-    // consistent with the launcher, no raw host ports in the address bar.
-    window.location.href = `/app/${encodeURIComponent(appId)}`
-  }
+  const filters = [
+    { id: 'all' as const, label: t('common.all') },
+    { id: 'app' as const, label: t('navigation.apps') },
+    { id: 'plugin' as const, label: t('navigation.plugins') },
+    { id: 'system' as const, label: t('admin.system') },
+  ]
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.installed')}</div>
-          <div className="text-lg font-semibold text-foreground">{apps.length}</div>
+    <section className="space-y-5" aria-labelledby="installed-apps-title">
+      <header className="flex flex-col gap-4 rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-foreground/[0.075] to-foreground/[0.025] p-5 shadow-xl shadow-black/10 backdrop-blur-2xl sm:flex-row sm:items-end sm:justify-between sm:p-6">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">{t('apps.installedManagement.eyebrow')}</p>
+          <h2 id="installed-apps-title" className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{t('apps.installedManagement.title')}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-foreground/50">{t('apps.installedManagement.description')}</p>
         </div>
-        <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.running')}</div>
-          <div className="text-lg font-semibold text-green-400">{runningCount}</div>
-        </div>
-        <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('navigation.plugins')}</div>
-          <div className="text-lg font-semibold text-accent">{pluginCount}</div>
-        </div>
-        <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.integrations')}</div>
-          <div className="text-lg font-semibold text-cyan-300">{integrationCount}</div>
-        </div>
+        <button type="button" onClick={onReload} className="ora-secondary-button self-start sm:self-auto">
+          <ArrowClockwise size={15} /> {t('common.refresh')}
+        </button>
+      </header>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: t('apps.overview.installed'), value: apps.length, tone: 'text-foreground' },
+          { label: t('apps.overview.running'), value: runningCount, tone: 'text-emerald-300' },
+          { label: t('apps.installedManagement.updates'), value: updateCount, tone: 'text-sky-300' },
+          { label: t('apps.installedManagement.needsAttention'), value: attentionCount, tone: attentionCount ? 'text-amber-300' : 'text-foreground/65' },
+        ].map((metric) => (
+          <div key={metric.label} className="rounded-2xl border border-white/10 bg-foreground/[0.035] p-4 shadow-lg shadow-black/5 backdrop-blur-xl">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/45">{metric.label}</p>
+            <p className={`mt-2 text-2xl font-semibold tabular-nums ${metric.tone}`}>{metric.value}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
-        <div className="relative flex-1">
-          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
-          <input
-            value={installedSearch}
-            onChange={(event) => setInstalledSearch(event.target.value)}
-            placeholder={t('apps.overview.searchInstalled')}
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
-          />
-        </div>
-        <div className="flex gap-1">
-          {(['all', 'app', 'plugin', 'system'] as const).map(kind => (
-            <button
-              key={kind}
-              onClick={() => setKindFilter(kind)}
-              className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors ${kindFilter === kind ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}
-            >
-              {kind === 'all' ? t('common.all') : kind === 'app' ? t('navigation.apps') : kind === 'plugin' ? t('navigation.plugins') : t('admin.system')}
+      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-foreground/[0.035] p-3 backdrop-blur-xl lg:flex-row lg:items-center">
+        <label className="ora-toolbar-search min-w-0 flex-1">
+          <MagnifyingGlass size={17} />
+          <span className="sr-only">{t('apps.overview.searchInstalled')}</span>
+          <input value={installedSearch} onChange={(event) => setInstalledSearch(event.target.value)} placeholder={t('apps.overview.searchInstalled')} />
+        </label>
+        <div className="flex gap-1 overflow-x-auto" role="group" aria-label={t('apps.installedManagement.filterLabel')}>
+          {filters.map((filter) => (
+            <button key={filter.id} type="button" onClick={() => setKindFilter(filter.id)} className={`min-h-10 whitespace-nowrap rounded-xl px-3 text-xs font-semibold transition-colors ${kindFilter === filter.id ? 'bg-accent text-white shadow-lg shadow-accent/20' : 'text-foreground/55 hover:bg-foreground/[0.07] hover:text-foreground'}`}>
+              {filter.label}
             </button>
           ))}
         </div>
       </div>
 
       {apps.length === 0 ? (
-        <div className="text-center py-16">
-          <div className="w-20 h-20 rounded-3xl bg-foreground/[0.04] flex items-center justify-center mx-auto mb-4">
-            <Package size={36} className="text-foreground/20" weight="thin" />
-          </div>
-          <p className="text-sm font-medium text-foreground/40 mb-1">Keine Apps installiert</p>
-          <p className="text-[11px] text-foreground/25">Apps aus dem Store oder per ZIP installieren</p>
+        <div className="flex min-h-72 flex-col items-center justify-center rounded-[1.75rem] border border-dashed border-foreground/15 bg-foreground/[0.025] p-8 text-center">
+          <span className="grid h-16 w-16 place-items-center rounded-2xl bg-foreground/[0.06]"><Package size={30} weight="duotone" className="text-foreground/30" /></span>
+          <h3 className="mt-4 text-base font-semibold">{t('apps.installedManagement.emptyTitle')}</h3>
+          <p className="mt-1 max-w-sm text-sm text-foreground/45">{t('apps.installedManagement.emptyDescription')}</p>
         </div>
+      ) : filteredApps.length === 0 ? (
+        <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.025] p-10 text-center text-sm text-foreground/45">{t('apps.overview.noFilteredEntries')}</div>
       ) : (
-        <div className="grid grid-cols-1 gap-2">
-          {filteredApps.map((app) => (
-            (() => {
-              const integration = integrationsByApp.get(app.id)
-              const surfaces = integration?.surfaces || []
-              return (
-            <div
-              key={app.id}
-              className="glass-card rounded-2xl p-4 hover:border-accent/20 transition-all cursor-pointer"
-              onClick={() => onAppClick(app.id)}
-            >
-              <div className="flex items-start gap-3 mb-3">
-                <div className="relative flex-shrink-0">
-                  {app.icon ? (
-                    <img src={app.icon} alt={app.name} className="w-11 h-11 rounded-xl object-cover" />
-                  ) : (
-                    <div className="w-11 h-11 rounded-xl bg-accent/20 flex items-center justify-center">
-                      <Cube size={22} className="text-accent" />
-                    </div>
-                  )}
-                  {/* Live status dot on the icon (like the launcher) */}
-                  <span
-                    className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
-                      app.status === 'running' ? 'bg-green-400' :
-                      app.status === 'starting' || app.status === 'installing' ? 'bg-amber-300 animate-pulse' :
-                      app.status === 'error' || app.status === 'crashed' || app.status === 'unhealthy' ? 'bg-red-400' :
-                      'bg-foreground/30'
-                    }`}
-                  />
+        <div className="grid gap-4 xl:grid-cols-2">
+          {filteredApps.map((app) => {
+            const integration = integrationsByApp.get(app.id)
+            const busy = actionLoading?.endsWith(`-${app.id}`) || actionLoading === `uninstall-${app.id}`
+            const running = app.status === 'running'
+            const portCount = app.ports?.length || 0
+            return (
+              <article key={app.id} className="group relative overflow-hidden rounded-[1.6rem] border border-white/10 bg-gradient-to-br from-foreground/[0.065] to-foreground/[0.025] p-5 shadow-xl shadow-black/10 backdrop-blur-2xl transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-2xl">
+                <button type="button" onClick={() => onAppClick(app.id)} className="flex w-full items-start gap-4 text-left focus-ring rounded-xl">
+                  <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-accent/35 to-accent/10 text-accent shadow-lg ring-1 ring-white/10">
+                    {app.icon ? <img src={app.icon} alt="" className="h-full w-full object-cover" /> : <Cube size={30} weight="duotone" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <strong className="truncate text-base font-semibold text-foreground">{app.name}</strong>
+                      <AppStatusBadge status={app.status} compact />
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-foreground/45">{t('apps.installedManagement.versionByDeveloper', { version: app.version, developer: app.developer || 'ORA OS' })}</span>
+                    <span className="mt-2 line-clamp-2 block text-xs leading-relaxed text-foreground/50">{app.description}</span>
+                  </span>
+                  <CaretRight size={18} className="mt-1 shrink-0 text-foreground/25 transition-transform group-hover:translate-x-0.5" />
+                </button>
+
+                <div className="mt-4 grid grid-cols-2 gap-2 border-y border-white/[0.07] py-3 sm:grid-cols-4">
+                  <div><p className="text-[9px] uppercase tracking-wider text-foreground/35">{t('apps.installedManagement.health')}</p><p className={`mt-1 text-xs font-semibold ${running ? 'text-emerald-300' : 'text-foreground/55'}`}>{running ? t('apps.installedManagement.healthy') : t('apps.installedManagement.inactive')}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wider text-foreground/35">{t('apps.ports')}</p><p className="mt-1 text-xs font-semibold tabular-nums text-foreground/65">{portCount}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wider text-foreground/35">{t('apps.cpu')}</p><p className="mt-1 text-xs font-semibold tabular-nums text-foreground/65">{app.docker?.cpu_percent === undefined ? '—' : `${app.docker.cpu_percent}%`}</p></div>
+                  <div><p className="text-[9px] uppercase tracking-wider text-foreground/35">{t('apps.memory')}</p><p className="mt-1 text-xs font-semibold tabular-nums text-foreground/65">{app.docker?.memory_mb === undefined ? '—' : `${app.docker.memory_mb} MB`}</p></div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-foreground truncate flex items-center gap-2">
-                        {app.name}
-                        {app.status === 'running' && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="text-[10px] text-foreground/40">{app.version} • {app.developer}</div>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
-                      {app.is_bundle && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-purple-500/15 text-purple-400 flex items-center gap-1">
-                          <Stack size={10} weight="fill" /> Bundle
-                        </span>
-                      )}
-                      {getTrustBadge(app.trust_level)}
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                        app.enabled ? 'bg-green-500/15 text-green-400' : 'bg-foreground/10 text-foreground/40'
-                      }`}>
-                        {app.enabled ? 'Aktiv' : 'Inaktiv'}
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-foreground/50 line-clamp-2">{app.description}</p>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-foreground/45">
+                  {getTrustBadge(app.trust_level)}
+                  {app.is_bundle && <span className="inline-flex items-center gap-1 rounded-full bg-violet-400/10 px-2 py-1 text-violet-300"><Stack size={11} />{t('apps.installedManagement.bundle')}</span>}
+                  {app.system && <span className="inline-flex items-center gap-1 rounded-full bg-sky-400/10 px-2 py-1 text-sky-300"><ShieldCheck size={11} />{t('apps.systemApp')}</span>}
+                  {(integration?.surfaces?.length || 0) > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-cyan-400/10 px-2 py-1 text-cyan-300"><Lightning size={11} />{integration?.surfaces?.length} {t('apps.overview.integrations')}</span>}
+                  <span className="ml-auto">{t('apps.overview.installedAt')}: {new Date(app.installed_at).toLocaleDateString(locale)}</span>
                 </div>
-              </div>
 
-              {/* Ports */}
-              {(app.ports?.length ?? 0) > 0 && (
-                <div className="mb-3 pt-2 border-t border-foreground/5">
-                  <div className="text-[10px] text-foreground/40 mb-1.5">Zugewiesene Ports:</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {app.ports!.map((port, j) => (
-                      <span key={j} className="text-[10px] px-2 py-1 rounded bg-accent/10 text-accent font-mono">
-                        {port.external}:{port.internal}/{port.protocol}
-                      </span>
-                    ))}
-                  </div>
+                <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                  {running && <button type="button" onClick={() => { window.location.href = `/app/${encodeURIComponent(app.id)}` }} className="ora-primary-button"><ArrowSquareOut size={14} />{t('apps.installedManagement.open')}</button>}
+                  {!app.system && (running
+                    ? <button type="button" disabled={busy} onClick={() => void runAction(app, 'stop')} className="ora-secondary-button">{actionLoading === `stop-${app.id}` ? <InlineSpinner size={13} /> : <Stop size={14} />}{t('apps.installedManagement.stop')}</button>
+                    : <button type="button" disabled={busy || app.status === 'starting' || app.status === 'installing'} onClick={() => void runAction(app, 'start')} className="ora-primary-button">{actionLoading === `start-${app.id}` ? <InlineSpinner size={13} /> : <Play size={14} />}{t('apps.installedManagement.start')}</button>)}
+                  {!app.system && running && <button type="button" disabled={busy} onClick={() => void runAction(app, 'restart')} className="ora-secondary-button">{actionLoading === `restart-${app.id}` ? <InlineSpinner size={13} /> : <ArrowClockwise size={14} />}{t('apps.installedManagement.restart')}</button>}
+                  {!app.system && running && (app.docker || app.docker_config || app.is_bundle) && <button type="button" disabled={busy} onClick={() => void runAction(app, 'pause')} className="ora-secondary-button">{actionLoading === `pause-${app.id}` ? <InlineSpinner size={13} /> : <Pause size={14} />}{t('apps.installedManagement.pause')}</button>}
+                  {!app.system && <button type="button" disabled={busy} onClick={() => void runAction(app, app.enabled ? 'disable' : 'enable')} className="ora-secondary-button">{actionLoading === `${app.enabled ? 'disable' : 'enable'}-${app.id}` ? <InlineSpinner size={13} /> : app.enabled ? <Pause size={14} /> : <Play size={14} />}{t(`apps.installedManagement.${app.enabled ? 'disable' : 'enable'}`)}</button>}
+                  <button type="button" onClick={() => { window.location.href = `/app-settings/${encodeURIComponent(app.id)}` }} className="ora-secondary-button"><Gear size={14} />{t('settings.title')}</button>
+                  {!app.system && <button type="button" disabled={busy} onClick={() => void uninstallApp(app)} className="inline-flex min-h-[2.65rem] items-center gap-2 rounded-xl border border-red-400/15 bg-red-400/[0.07] px-3 text-xs font-semibold text-red-300 transition hover:bg-red-400/15 disabled:opacity-40">{actionLoading === `uninstall-${app.id}` ? <InlineSpinner size={13} /> : <TrashSimple size={14} />}{t('apps.installedManagement.uninstall')}</button>}
+                  {app.system && isOsDev && <button type="button" disabled={busy} onClick={() => void uninstallApp(app, true)} className="inline-flex min-h-[2.65rem] items-center gap-2 rounded-xl border border-amber-400/15 bg-amber-400/[0.07] px-3 text-xs font-semibold text-amber-300 transition hover:bg-amber-400/15 disabled:opacity-40"><TrashSimple size={14} />{t('apps.installedManagement.forceUninstall')}</button>}
                 </div>
-              )}
-
-              {/* System app banner */}
-              {app.system && (
-                <div className="mb-3 pt-2 border-t border-foreground/5 text-[10px] text-blue-300/80 bg-blue-500/10 border border-blue-500/20 rounded-lg p-2">
-                  System-App — wird automatisch mit dem Developer-Modus aktiviert.
-                  {isOsDev
-                    ? ' OS-DEV-Image: Force-Deinstallation per "Erzwingen" möglich.'
-                    : ' Kann nicht manuell deinstalliert werden.'}
-                </div>
-              )}
-
-              {/* Status badge – enhanced with detailed info */}
-              <div className="mb-2 flex items-center gap-2 flex-wrap">
-                {app.status === 'running' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-green-500/15 text-green-400 rounded-lg text-[10px] font-semibold border border-green-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Läuft
-                  </span>
-                ) : app.status === 'starting' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/15 text-amber-300 rounded-lg text-[10px] font-semibold border border-amber-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-spin" /> Startet...
-                  </span>
-                ) : app.status === 'installing' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/15 text-blue-300 rounded-lg text-[10px] font-semibold border border-blue-500/20">
-                    <div className="animate-spin w-3 h-3 border-2 border-blue-300 border-t-transparent rounded-full" /> Wird installiert
-                  </span>
-                ) : app.status === 'error' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-red-500/15 text-red-300 rounded-lg text-[10px] font-semibold border border-red-500/20 cursor-help"
-                    title={app.error_message || 'Unbekannter Fehler'}>
-                    <Warning size={12} weight="fill" /> Fehler{app.error_message ? ': ' + app.error_message.substring(0, 60) + (app.error_message.length > 60 ? '...' : '') : ''}
-                  </span>
-                ) : app.status === 'crashed' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-red-500/20 text-red-400 rounded-lg text-[10px] font-semibold border border-red-500/30">
-                    <Warning size={12} weight="fill" /> Abgestürzt{app.restart_count ? ` (${app.restart_count}x)` : ''}
-                  </span>
-                ) : app.status === 'stopped' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-foreground/10 text-foreground/50 rounded-lg text-[10px] font-semibold border border-foreground/10">
-                    <span className="w-1.5 h-1.5 rounded-full bg-foreground/30" /> Gestoppt
-                  </span>
-                ) : app.status === 'paused' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/15 text-yellow-300 rounded-lg text-[10px] font-semibold border border-yellow-500/20">
-                    <Pause size={12} weight="fill" /> Pausiert
-                  </span>
-                ) : app.status === 'unhealthy' ? (
-                  <span className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/15 text-amber-400 rounded-lg text-[10px] font-semibold border border-amber-500/20">
-                    <Warning size={12} weight="fill" /> Unhealthy
-                  </span>
-                ) : null}
-
-                {/* Container uptime */}
-                {app.docker?.uptime && (
-                  <span className="text-[9px] text-foreground/30 font-mono" title="Container-Uptime">
-                    ⏱ {app.docker.uptime}
-                  </span>
-                )}
-
-                {/* Resource usage */}
-                {app.docker?.cpu_percent !== undefined && (
-                  <span className="text-[9px] text-foreground/30 font-mono" title="CPU-Auslastung">
-                    CPU {app.docker.cpu_percent}%
-                  </span>
-                )}
-                {app.docker?.memory_mb !== undefined && (
-                  <span className="text-[9px] text-foreground/30 font-mono" title="Speicher">
-                    RAM {app.docker.memory_mb}MB
-                  </span>
-                )}
-
-                {(app.custom_pages?.length ?? 0) > 0 && (
-                  <span className="text-[10px] text-foreground/40 ml-auto">
-                    {app.custom_pages!.length} Seite{(app.custom_pages!.length !== 1) ? 'n' : ''}
-                  </span>
-                )}
-                {surfaces.length > 0 && (
-                  <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" title={surfaces.join(', ')}>
-                    <Lightning size={11} weight="fill" /> {surfaces.length} Integration{surfaces.length !== 1 ? 'en' : ''}
-                  </span>
-                )}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                  app.autostart ?? app.enabled
-                    ? 'bg-blue-500/15 text-blue-300'
-                    : 'bg-foreground/10 text-foreground/40'
-                }`}>
-                  {app.autostart ?? app.enabled ? 'Autostart an' : 'Autostart aus'}
-                </span>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-2 flex-wrap pt-2.5 mt-1 border-t border-foreground/5" onClick={(e) => e.stopPropagation()}>
-                {/* Open — every running app opens in the App Runner */}
-                {app.status === 'running' && (
-                  <button
-                    onClick={() => openApp(app.id)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-accent text-white rounded-lg text-[10px] font-semibold hover:bg-accent/85 transition-colors shadow-sm"
-                  >
-                    <ArrowSquareOut size={12} weight="bold" /> Öffnen
-                  </button>
-                )}
-
-                {app.system ? (
-                  <span className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/15 text-blue-300 rounded text-[10px] font-semibold">
-                    <ShieldCheck size={12} weight="fill" /> System-App
-                  </span>
-                ) : (
-                  <>
-                    {app.status === 'running' ? (
-                      <>
-                        <button
-                          onClick={() => stopApp(app.id)}
-                          disabled={actionLoading === `stop-${app.id}`}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
-                        >
-                          {actionLoading === `stop-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
-                          Stoppen
-                        </button>
-                        {(app.docker || app.docker_config || app.is_bundle) && (
-                          <button
-                            onClick={() => pauseApp(app.id)}
-                            disabled={actionLoading === `pause-${app.id}`}
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-yellow-500/15 text-yellow-300 rounded text-[10px] font-semibold hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
-                          >
-                            {actionLoading === `pause-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
-                            Pausieren
-                          </button>
-                        )}
-                      </>
-                    ) : app.status === 'paused' ? (
-                      <button
-                        onClick={() => startApp(app.id)}
-                        disabled={actionLoading === `start-${app.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                      >
-                        {actionLoading === `start-${app.id}` ? <InlineSpinner size={12} /> : <Play size={12} />}
-                        Fortsetzen
-                      </button>
-                    ) : app.status === 'starting' || app.status === 'installing' ? (
-                      <button
-                        disabled
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/10 text-amber-300 rounded text-[10px] font-semibold opacity-80 cursor-default"
-                      >
-                        <InlineSpinner size={12} /> {app.status === 'installing' ? 'Vorbereiten…' : 'Startet…'}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => startApp(app.id)}
-                        disabled={actionLoading === `start-${app.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                      >
-                        {actionLoading === `start-${app.id}` ? <InlineSpinner size={12} /> : <Play size={12} />}
-                        Starten
-                      </button>
-                    )}
-                    {app.enabled ? (
-                      <button
-                        onClick={() => disableApp(app.id)}
-                        disabled={actionLoading === `disable-${app.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
-                      >
-                        {actionLoading === `disable-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
-                        Deaktivieren
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => enableApp(app.id)}
-                        disabled={actionLoading === `enable-${app.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                      >
-                        {actionLoading === `enable-${app.id}` ? <InlineSpinner size={12} /> : <Play size={12} />}
-                        Aktivieren
-                      </button>
-                    )}
-                    <button
-                      onClick={() => { window.location.href = `/app-settings/${app.id}` }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
-                    >
-                      <Gear size={12} /> {t('settings.title')}
-                    </button>
-                    <button
-                      onClick={() => uninstallApp(app.id)}
-                      disabled={actionLoading === app.id}
-                      className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/15 text-red-400 rounded text-[10px] font-semibold hover:bg-red-500/25 transition-colors disabled:opacity-40"
-                    >
-                      {actionLoading === app.id ? <InlineSpinner size={12} /> : <TrashSimple size={12} />}
-                      Deinstallieren
-                    </button>
-                  </>
-                )}
-                {app.system && isOsDev && (
-                  <button
-                    onClick={() => uninstallApp(app.id, true)}
-                    disabled={actionLoading === app.id}
-                    title="Nur auf OS-DEV-Images verfügbar"
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-yellow-500/15 text-yellow-400 rounded text-[10px] font-semibold hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
-                  >
-                    {actionLoading === app.id ? <InlineSpinner size={12} /> : <TrashSimple size={12} />}
-                    Erzwingen (DEV)
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-2 text-[10px] text-foreground/30">
-                {t('apps.overview.installedAt')}: {new Date(app.installed_at).toLocaleDateString(locale, {
-                  year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                })}
-                {app.last_started_at && (
-                  <span className="ml-2">
-                    · {t('apps.overview.lastStart')}: {new Date(app.last_started_at).toLocaleDateString(locale, {
-                      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                    })}
-                  </span>
-                )}
-              </div>
-            </div>
-              )
-            })()
-          ))}
-          {filteredApps.length === 0 && (
-            <div className="text-center py-10 text-xs text-foreground/45">
-              {t('apps.overview.noFilteredEntries')}
-            </div>
-          )}
+              </article>
+            )
+          })}
         </div>
       )}
-    </div>
+    </section>
   )
 }
 

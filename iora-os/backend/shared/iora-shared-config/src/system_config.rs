@@ -109,6 +109,26 @@ pub fn database_url_for(service: &str) -> String {
 /// Auto-generated JWT secret cache (lazy init, used as fallback before DB is available).
 static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
 
+/// Normalize secrets crossing JSON, shell and systemd EnvironmentFile
+/// boundaries. A JSON preference is commonly serialized as `"secret"`, while
+/// hand-written env files may use `'secret'` or `"secret"`. JWT signing and
+/// verification must use the raw bytes in every service.
+fn normalize_jwt_secret(value: &str) -> String {
+    let mut normalized = value.trim();
+    while normalized.len() >= 2 {
+        let bytes = normalized.as_bytes();
+        if matches!(
+            (bytes[0], bytes[normalized.len() - 1]),
+            (b'"', b'"') | (b'\'', b'\'')
+        ) {
+            normalized = normalized[1..normalized.len() - 1].trim();
+        } else {
+            break;
+        }
+    }
+    normalized.to_string()
+}
+
 /// Returns the JWT secret. Priority:
 /// 1. `IORA_JWT_SECRET` environment variable
 /// 2. Settings cache key `jwt_secret` (populated from system_preferences table)
@@ -131,7 +151,7 @@ pub fn jwt_secret_file() -> std::path::PathBuf {
 
 fn read_jwt_secret_file() -> Option<String> {
     let value = std::fs::read_to_string(jwt_secret_file()).ok()?;
-    let secret = value.trim().to_string();
+    let secret = normalize_jwt_secret(&value);
     if secret.is_empty() || secret.len() < 16 {
         return None;
     }
@@ -156,11 +176,11 @@ fn write_jwt_secret_file(secret: &str) {
 pub fn jwt_secret() -> String {
     // 1. Env var (highest priority, for explicit override)
     if let Some(secret) = env_optional("IORA_JWT_SECRET") {
-        return secret;
+        return normalize_jwt_secret(&secret);
     }
     // 2. Settings cache (populated by iora-home from system_preferences table)
     if let Some(secret) = get_cached_setting("jwt_secret") {
-        return secret;
+        return normalize_jwt_secret(&secret);
     }
     // 3. Shared secret file — the cross-service source of truth. Checked
     // before the fallback so a late-appearing file always wins (services
@@ -180,12 +200,26 @@ pub fn jwt_secret() -> String {
 /// Updates the settings cache, the auto-generated fallback AND the shared
 /// secret file, so every service on the host uses the same secret.
 pub fn persist_jwt_secret(secret: &str) {
-    update_cached_setting("jwt_secret".to_string(), secret.to_string());
+    let secret = normalize_jwt_secret(secret);
+    update_cached_setting("jwt_secret".to_string(), secret.clone());
     // Also update the auto-generated fallback to match the persisted value.
     // If the OnceLock is already initialized, force-set it (best-effort).
-    let _ = AUTO_JWT_SECRET.set(secret.to_string());
+    let _ = AUTO_JWT_SECRET.set(secret.clone());
     // Share with all services on this host.
-    write_jwt_secret_file(secret);
+    write_jwt_secret_file(&secret);
+}
+
+#[cfg(test)]
+mod jwt_secret_tests {
+    use super::normalize_jwt_secret;
+
+    #[test]
+    fn removes_json_and_environment_file_quotes() {
+        assert_eq!(normalize_jwt_secret(r#""shared-secret-value""#), "shared-secret-value");
+        assert_eq!(normalize_jwt_secret(r#"'shared-secret-value'"#), "shared-secret-value");
+        assert_eq!(normalize_jwt_secret("'shared-secret-value'"), "shared-secret-value");
+        assert_eq!(normalize_jwt_secret("  shared-secret-value\n"), "shared-secret-value");
+    }
 }
 
 /// Master encryption key for the secrets service.
