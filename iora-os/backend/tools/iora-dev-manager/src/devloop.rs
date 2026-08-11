@@ -368,9 +368,8 @@ async fn apply_changes(
         for service in services {
             let unit = native_unit(&service);
             let command = format!(
-                "if ! systemctl cat {} >/dev/null 2>&1; then printf %s {} > /etc/systemd/system/{}.service && systemctl daemon-reload && systemctl enable {}.service; fi && systemctl restart {} && systemctl is-active --quiet {}",
+                "printf %s {} > /etc/systemd/system/{}.service && systemctl daemon-reload && systemctl enable {}.service && systemctl restart {} && systemctl is-active --quiet {}",
                 shell_quote(&unit),
-                shell_quote(&service),
                 service,
                 service,
                 shell_quote(&service),
@@ -685,13 +684,13 @@ pub async fn force_full_sync(
         let _ = run_guest_build(state, os_root, &services).await?;
         rebuilt = services;
     }
-    // 3) Restart the rebuilt services (create the unit on demand, exactly
-    //    like the live-update path does).
+    // 3) Restart the rebuilt services - the unit file is ALWAYS rewritten
+    //    so environment/unit changes (e.g. iora-nginx NGINX_TEMPLATE_PATH)
+    //    take effect on an existing unit too.
     for service in &rebuilt {
         let unit = format!("{service}.service");
         let restart = format!(
-            "if ! systemctl cat {} >/dev/null 2>&1; then printf %s {} > /etc/systemd/system/{} && systemctl daemon-reload && systemctl enable {}; fi && systemctl restart {} && systemctl is-active --quiet {}",
-            shell_quote(&unit),
+            "printf %s {} > /etc/systemd/system/{} && systemctl daemon-reload && systemctl enable {} && systemctl restart {} && systemctl is-active --quiet {}",
             shell_quote(&native_unit(service)),
             shell_quote(&unit),
             shell_quote(&unit),
@@ -849,7 +848,19 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 fn native_unit(service: &str) -> String {
-    format!("[Unit]\nDescription=IORA development service {service}\nAfter=network-online.target postgresql.service\nWants=network-online.target\n\n[Service]\nType=simple\nUser=iora\nWorkingDirectory=/home/iora/iora/iora-os/backend\nEnvironment=IORA_ENV=development\nExecStart=/home/iora/iora/iora-os/backend/target/debug/{service}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n")
+    // iora-nginx renders /etc/nginx/nginx.conf from a template. In the dev
+    // VM the template must come from the synced sources (services/iora-nginx/
+    // nginx-config/), NOT the stale /usr/share image snapshot - otherwise
+    // the WebSocket upgrade headers (Connection/Upgrade relay) are missing
+    // and app proxy tunnels fail with 'websocket upgrade required'.
+    let environment = if service == "iora-nginx" {
+        "\nEnvironment=NGINX_TEMPLATE_PATH=/home/iora/iora/iora-os/backend/services/iora-nginx/nginx-config/nginx.conf.template"
+    } else {
+        ""
+    };
+    format!(
+        "[Unit]\nDescription=IORA development service {service}\nAfter=network-online.target postgresql.service\nWants=network-online.target\n\n[Service]\nType=simple\nUser=iora\nWorkingDirectory=/home/iora/iora/iora-os/backend{environment}\nEnvironment=IORA_ENV=development\nExecStart=/home/iora/iora/iora-os/backend/target/debug/{service}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n"
+    )
 }
 fn encode_base64(bytes: &[u8]) -> String {
     const MAP: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
