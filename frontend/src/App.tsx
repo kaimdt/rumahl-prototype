@@ -24,7 +24,7 @@ import { CommandPalette } from '@/components/CommandPalette'
 import { AppRuntimeView } from '@/components/AppRuntimeView'
 import { OsImagesApp } from '@/components/OsImagesApp'
 import { OsTooltipProvider } from '@/components/OsTooltip'
-import { appOpenUrl, appRuntimeUrls, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
+import { appOpenUrl, appRuntimeUrls, installedAppIds, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { OsAppWindow } from '@/components/OsAppWindow'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
@@ -166,10 +166,18 @@ function DashboardContent() {
   // without requiring the launcher to have been mounted first.
   const { allApps: installedRuntimeApps } = useInstalledApps()
   const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images']
+  // App pages owned by the app runtime: installed apps + catalog apps render
+  // even without a dashboard page record, so deep links like
+  // /app/ora-browser work directly (also with proxy-only/local apps that
+  // have no host URL in appRuntimeUrls).
+  const isRuntimeAppPage = (id: string) =>
+    installedRuntimeApps.some((app) => app.id === id) ||
+    installedAppIds.has(id) ||
+    STORE_CATALOG.some((app) => app.id === id)
   // Deep-linked Docker apps (/app/<id>) also use the OS chrome (dock, no navbar).
-  const isOsAppPage = standaloneAppPageIds.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
+  const isOsAppPage = standaloneAppPageIds.includes(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
   const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
-  const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId)
+  const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId) && !isRuntimeAppPage(currentPageId)
   const { windows, immersivePageId, setImmersive } = useOsWindows()
 
   // OS app lookup used by the window manager (icons/names for windows + dock).
@@ -784,7 +792,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
             const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
-            const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
+            const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
@@ -793,7 +801,8 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
 
             // ── 404 for pages that nobody owns ──────────────────────
             // Built-in HA entity pages always exist; everything else needs a page record.
-            if (!currentPage && !builtinPageIds.includes(currentPageId)) {
+            // Installed / catalog apps are owned by the app runtime (deep links).
+            if (!currentPage && !builtinPageIds.includes(currentPageId) && !isRuntimeAppPage(currentPageId)) {
               return (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-foreground/60">
                   <span className="text-7xl font-bold text-foreground/10">404</span>
