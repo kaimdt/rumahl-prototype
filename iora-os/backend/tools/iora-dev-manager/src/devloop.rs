@@ -724,9 +724,7 @@ async fn affected_services(backend: &Path, changed: &[PathBuf]) -> Result<Vec<St
             name.clone(),
             manifest.parent().unwrap_or(backend).to_path_buf(),
         );
-        if manifest.to_string_lossy().contains("/services/")
-            || manifest.to_string_lossy().contains("/apps/system/")
-        {
+        if is_service_manifest(&manifest.to_string_lossy()) {
             services.insert(name.clone());
         }
         for dep in package["dependencies"].as_array().into_iter().flatten() {
@@ -760,6 +758,16 @@ async fn affected_services(backend: &Path, changed: &[PathBuf]) -> Result<Vec<St
         .collect::<Vec<_>>();
     result.sort();
     Ok(result)
+}
+
+/// A cargo package counts as a deployable IORA service when its manifest
+/// lives under `backend/services/` or `backend/apps/system/`. Path separators
+/// are matched platform-independently (Windows uses backslashes, the guest
+/// and CI use slashes) - a missed match here silently skipped every rebuild
+/// on Windows hosts.
+fn is_service_manifest(manifest: &str) -> bool {
+    let forward = manifest.replace('\\', "/");
+    forward.contains("/services/") || forward.contains("/apps/system/")
 }
 
 fn shell_quote(value: &str) -> String {
@@ -797,6 +805,26 @@ mod tests {
     #[test]
     fn base64_matches_qga_payload() {
         assert_eq!(encode_base64(b"IORA"), "SU9SQQ==");
+    }
+    #[test]
+    fn service_manifest_detection_is_separator_agnostic() {
+        // Windows cargo metadata returns backslash paths - a missed match
+        // here silently skipped every guest rebuild on Windows hosts.
+        assert!(is_service_manifest(
+            r"C:\repo\iora-os\backend\services\iora-home\Cargo.toml"
+        ));
+        assert!(is_service_manifest(
+            "C:/repo/iora-os/backend/services/iora-home/Cargo.toml"
+        ));
+        assert!(is_service_manifest(
+            r"C:\repo\iora-os\backend\apps\system\iora-developer-app\Cargo.toml"
+        ));
+        assert!(!is_service_manifest(
+            "C:/repo/iora-os/backend/tools/iora-dev-manager/Cargo.toml"
+        ));
+        assert!(!is_service_manifest(
+            "C:/repo/iora-os/backend/shared/iora-shared/Cargo.toml"
+        ));
     }
     #[test]
     fn ignores_build_outputs() {
