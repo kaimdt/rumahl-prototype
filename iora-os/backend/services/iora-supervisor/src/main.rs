@@ -1125,12 +1125,103 @@ fn docker_cli_path() -> String {
     std::env::var("DOCKER_CLI").unwrap_or_else(|_| "/usr/bin/docker".to_string())
 }
 
+fn docker_compose_cli_path() -> String {
+    std::env::var("DOCKER_COMPOSE_CLI")
+        .unwrap_or_else(|_| "docker-compose".to_string())
+}
+
+fn compose_plugin_unavailable(output: &std::process::Output) -> bool {
+    compose_plugin_error(output.status.success(), &String::from_utf8_lossy(&output.stderr))
+}
+
+fn compose_plugin_error(success: bool, stderr: &str) -> bool {
+    if success {
+        return false;
+    }
+    let stderr = stderr.to_ascii_lowercase();
+    stderr.contains("unknown shorthand flag")
+        || stderr.contains("is not a docker command")
+        || stderr.contains("unknown command: compose")
+}
+
+/// Run Compose v2 (`docker compose`) and transparently fall back to the
+/// standalone Compose v1 binary used by older IORA development images.
+async fn run_compose(
+    args: &[&str],
+    compose_dir: &std::path::Path,
+) -> std::io::Result<std::process::Output> {
+    use tokio::process::Command;
+
+    let plugin_output = Command::new(docker_cli_path())
+        .arg("compose")
+        .args(args)
+        .current_dir(compose_dir)
+        .output()
+        .await?;
+    if !compose_plugin_unavailable(&plugin_output) {
+        return Ok(plugin_output);
+    }
+    Command::new(docker_compose_cli_path())
+        .args(args)
+        .current_dir(compose_dir)
+        .output()
+        .await
+}
+
+/// Compose v1 cannot emit `docker-compose ps --format json`. Docker labels
+/// are stable across Compose generations, so use the engine directly as a
+/// compatibility status source.
+async fn docker_project_status(project_name: &str) -> Result<Option<ComposeProjectStatus>, String> {
+    use tokio::process::Command;
+
+    let label = format!("label=com.docker.compose.project={project_name}");
+    let output = Command::new(docker_cli_path())
+        .args([
+            "ps",
+            "-a",
+            "--filter",
+            &label,
+            "--format",
+            "{{.State}}|{{.Status}}|{{.Label \"com.docker.compose.service\"}}",
+        ])
+        .output()
+        .await
+        .map_err(|error| format!("docker ps invocation failed: {error}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let rows = stdout.lines().filter(|line| !line.trim().is_empty()).collect::<Vec<_>>();
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let mut status = ComposeProjectStatus::default();
+    for row in rows {
+        let mut fields = row.splitn(3, '|');
+        let state = fields.next().unwrap_or_default().to_ascii_lowercase();
+        let details = fields.next().unwrap_or_default().to_ascii_lowercase();
+        let service = fields.next().unwrap_or_default();
+        if state == "running" {
+            if details.contains("unhealthy") {
+                status.unhealthy += 1;
+            } else {
+                status.running += 1;
+            }
+        } else if matches!(state.as_str(), "exited" | "dead" | "removing") {
+            status.exited += 1;
+        }
+        if !service.is_empty() {
+            status.services.insert(service.to_string(), state);
+        }
+        status.total += 1;
+    }
+    Ok(Some(status))
+}
+
 async fn compose_status_for_project(
     app_id: &str,
     project_name: &str,
 ) -> Result<Option<ComposeProjectStatus>, String> {
-    use tokio::process::Command;
-
     let req = ComposeProjectRequest {
         app_id: app_id.to_string(),
         project_name: project_name.to_string(),
@@ -1153,19 +1244,11 @@ async fn compose_status_for_project(
 
     let mut last_error: Option<String> = None;
     for compose_dir in compose_dirs {
-        let output = Command::new(docker_cli_path())
-            .args([
-                "compose",
-                "-p",
-                project_name,
-                "ps",
-                "--all",
-                "--format",
-                "json",
-            ])
-            .current_dir(&compose_dir)
-            .output()
-            .await;
+        let output = run_compose(
+            &["-p", project_name, "ps", "--all", "--format", "json"],
+            &compose_dir,
+        )
+        .await;
         let output = match output {
             Ok(output) => output,
             // The first candidate dir often doesn't exist (different app
@@ -1177,7 +1260,14 @@ async fn compose_status_for_project(
         };
 
         if !output.status.success() {
-            last_error = Some(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            match docker_project_status(project_name).await {
+                Ok(Some(status)) => return Ok(Some(status)),
+                Ok(None) => {}
+                Err(error) => last_error = Some(error),
+            }
+            if last_error.is_none() {
+                last_error = Some(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            }
             continue;
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1256,8 +1346,6 @@ async fn compose_status(path: web::Path<String>) -> impl Responder {
 
 #[post("/api/supervisor/compose/up")]
 async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
-    use tokio::process::Command;
-
     let project_name = safe_compose_token(&req.project_name);
     if req.app_id.trim().is_empty() || project_name.is_empty() {
         return HttpResponse::BadRequest().json(serde_json::json!({
@@ -1291,11 +1379,7 @@ async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
         }
     }
 
-    let result = Command::new(docker_cli_path())
-        .args(["compose", "-p", &project_name, "up", "-d"])
-        .current_dir(&compose_dir)
-        .output()
-        .await;
+    let result = run_compose(&["-p", &project_name, "up", "-d"], &compose_dir).await;
 
     match result {
         Ok(output) if output.status.success() => HttpResponse::Ok().json(serde_json::json!({
@@ -1327,8 +1411,6 @@ async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
 
 #[post("/api/supervisor/compose/down")]
 async fn compose_down(req: web::Json<ComposeProjectRequest>) -> impl Responder {
-    use tokio::process::Command;
-
     let project_name = safe_compose_token(&req.project_name);
     if req.app_id.trim().is_empty() || project_name.is_empty() {
         return HttpResponse::BadRequest().json(serde_json::json!({
@@ -1346,11 +1428,11 @@ async fn compose_down(req: web::Json<ComposeProjectRequest>) -> impl Responder {
             }));
         }
     };
-    let result = Command::new(docker_cli_path())
-        .args(["compose", "-p", &project_name, "down", "--remove-orphans"])
-        .current_dir(&compose_dir)
-        .output()
-        .await;
+    let result = run_compose(
+        &["-p", &project_name, "down", "--remove-orphans"],
+        &compose_dir,
+    )
+    .await;
 
     match result {
         Ok(output) if output.status.success() => HttpResponse::Ok().json(serde_json::json!({
@@ -1382,8 +1464,6 @@ async fn compose_down(req: web::Json<ComposeProjectRequest>) -> impl Responder {
 
 #[post("/api/supervisor/compose/prepare")]
 async fn compose_prepare(req: web::Json<ComposeProjectRequest>) -> impl Responder {
-    use tokio::process::Command;
-
     let project_name = safe_compose_token(&req.project_name);
     let prepare_mode = req.prepare_mode.as_deref().unwrap_or("pull");
     if req.app_id.trim().is_empty() || project_name.is_empty() {
@@ -1418,15 +1498,11 @@ async fn compose_prepare(req: web::Json<ComposeProjectRequest>) -> impl Responde
     }
 
     let args = if prepare_mode == "build" {
-        vec!["compose", "-p", &project_name, "build"]
+        vec!["-p", &project_name, "build"]
     } else {
-        vec!["compose", "-p", &project_name, "pull"]
+        vec!["-p", &project_name, "pull"]
     };
-    let result = Command::new(docker_cli_path())
-        .args(args)
-        .current_dir(&compose_dir)
-        .output()
-        .await;
+    let result = run_compose(&args, &compose_dir).await;
 
     match result {
         Ok(output) if output.status.success() => HttpResponse::Ok().json(serde_json::json!({
@@ -2471,5 +2547,19 @@ mod tests {
         assert_eq!(safe_compose_token("valid_name"), "valid_name");
         assert_eq!(safe_compose_token("app!@#123"), "app123");
         assert_eq!(safe_compose_token("UPPER_case"), "UPPER_case");
+    }
+
+    #[test]
+    fn test_compose_v1_fallback_detection() {
+        assert!(compose_plugin_error(
+            false,
+            "unknown shorthand flag: 'p' in -p"
+        ));
+        assert!(compose_plugin_error(
+            false,
+            "docker: 'compose' is not a docker command."
+        ));
+        assert!(!compose_plugin_error(false, "permission denied"));
+        assert!(!compose_plugin_error(true, "unknown shorthand flag"));
     }
 }

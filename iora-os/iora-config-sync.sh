@@ -25,6 +25,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 log "Synchronizing Global Config access..."
+log "JWT synchronization revision: 2 (canonical /etc/iora/jwt-secret)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. Ensure IORA OS environment markers exist
@@ -143,6 +144,10 @@ if [ -n "$DB_SECRET" ] && [ "${#DB_SECRET}" -ge 32 ]; then
         chmod 0644 "$JWT_SECRET_TMP"
     fi
     mv -f "$JWT_SECRET_TMP" /etc/iora/jwt-secret
+    if [ ! -s /etc/iora/jwt-secret ]; then
+        echo "ERROR: canonical JWT secret was not created" >&2
+        exit 1
+    fi
     success "Synchronized canonical JWT secret: /etc/iora/jwt-secret"
 fi
 
@@ -324,6 +329,7 @@ log "Verifying IORA OS compatibility..."
 # Check critical paths
 CRITICAL_PATHS=(
     "/etc/iora"
+    "/etc/iora/jwt-secret"
     "/opt/iora/data"
     "/usr/lib/iora"
     "/usr/bin/iora-cli"

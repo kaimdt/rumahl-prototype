@@ -129,6 +129,7 @@
   <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
   <button id="tab-terminal" onclick="switchTab('terminal')">Terminal</button>
   <button id="tab-services" onclick="switchTab('services')">Services</button>
+  <button id="tab-monitoring" onclick="switchTab('monitoring')">Monitoring</button>
   <button id="tab-logs" onclick="switchTab('logs')">Logs</button>
 </nav>
 
@@ -256,6 +257,30 @@
       <tbody></tbody>
     </table>
     <div id="journal"></div>
+  </div>
+</main>
+</div>
+
+<div id="page-monitoring" class="tab-page">
+<main style="grid-template-columns:minmax(0,1fr) 320px">
+  <div class="panel">
+    <h2>Guest invariants <button class="small" style="float:right" onclick="loadMonitoring()">Refresh</button></h2>
+    <table id="monitoring-checks">
+      <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
+      <tbody><tr><td colspan="3">Open this page to run diagnostics.</td></tr></tbody>
+    </table>
+  </div>
+  <div>
+    <div class="panel">
+      <h2>Recovery actions</h2>
+      <p class="foot">Re-publish Global Config, create <span class="f">/etc/iora/jwt-secret</span>, reload systemd and restart Home, Files and Supervisor.</p>
+      <div style="height:10px"></div>
+      <button id="config-sync-button" class="primary" onclick="runConfigSync()">Synchronize config &amp; JWT</button>
+    </div>
+    <div class="panel">
+      <h2>Coverage</h2>
+      <div class="foot">Monitors the canonical JWT file, Home, Files, Supervisor, Docker, Compose, the Files health endpoint, guest disk usage and failed systemd units.</div>
+    </div>
   </div>
 </main>
 </div>
@@ -676,6 +701,51 @@
     document.getElementById('tab-' + name).classList.add('active');
     if (name === 'terminal') ensureTerminal();
     if (name === 'services') loadServices();
+    if (name === 'monitoring') loadMonitoring();
+  }
+
+  async function loadMonitoring() {
+    const body = document.querySelector('#monitoring-checks tbody');
+    body.innerHTML = '<tr><td colspan="3">Running guest diagnostics...</td></tr>';
+    try {
+      const response = await fetch('/api/monitoring');
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'diagnostics failed');
+      const checks = result.checks || [];
+      body.innerHTML = checks.map(function (check) {
+        const color = check.status === 'ok' ? 'ok' : (check.status === 'error' ? 'bad' : 'warn');
+        return '<tr><td class="f">' + escapeHtml(check.id) + '</td><td class="' + color + '">' +
+          escapeHtml(check.status) + '</td><td>' + escapeHtml(check.message) + '</td></tr>';
+      }).join('') || '<tr><td colspan="3">No diagnostic results returned.</td></tr>';
+    } catch (error) {
+      body.innerHTML = '<tr><td colspan="3" class="bad">' + escapeHtml(String(error)) + '</td></tr>';
+    }
+  }
+
+  async function runConfigSync() {
+    const button = document.getElementById('config-sync-button');
+    if (!confirm('Synchronize guest configuration, verify the JWT file and restart Home, Files and Supervisor?')) return;
+    button.disabled = true;
+    button.textContent = 'Synchronizing...';
+    try {
+      const response = await fetch('/api/maintenance/config-sync', { method: 'POST' });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'config sync failed');
+      message.textContent = result.output || 'Configuration synchronized.';
+      await loadMonitoring();
+    } catch (error) {
+      errorText.textContent = 'Config sync failed: ' + error;
+      banner.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Synchronize config & JWT';
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
   function ensureTerminal() {
@@ -844,6 +914,9 @@
   setInterval(refreshStats, 10000);
   loadVms();
   setInterval(loadVms, 10000);
+  setInterval(function () {
+    if (document.getElementById('page-monitoring').classList.contains('active')) loadMonitoring();
+  }, 10000);
 </script>
 </body>
 </html>

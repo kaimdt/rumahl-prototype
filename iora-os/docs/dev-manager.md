@@ -45,6 +45,20 @@ The Rust TUI provides native QEMU launch, the live Doctor, failed-unit logs, QMP
 
 The log view reads journald through QGA and falls back to the host-side manager log when the guest channel is unavailable.
 
+## Monitoring and recovery
+
+The web dashboard includes a **Monitoring** workspace that checks invariants
+inside the guest through QGA: the canonical JWT file, Home, Files, Supervisor,
+Docker, Docker Compose, the Files health endpoint, disk usage, and failed
+systemd units. It refreshes while visible and therefore remains useful when
+the normal ORA frontend or guest network is broken.
+
+**Synchronize config & JWT** runs the repository's `iora-config-sync.sh` as
+root in the guest, verifies `/etc/iora/jwt-secret`, reloads systemd, and
+restarts only `iora-home`, `iora-files`, and `iora-supervisor`. This is the
+manual recovery action for cross-service 401 errors; its result is immediately
+reflected in the monitoring table.
+
 ## Independent VM control plane
 
 The Rust VM view exposes start, pause, resume, reset, graceful guest shutdown, hard process stop, SSH, browser launch, and the QGA rescue prompt. Hypervisor actions go directly through QMP rather than being inferred from SSH.

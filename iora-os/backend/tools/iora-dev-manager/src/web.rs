@@ -44,6 +44,8 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/vms/attach", post(vms_attach))
         .route("/api/vms/stop", post(vms_stop))
         .route("/api/network/reset", post(network_reset))
+        .route("/api/monitoring", get(monitoring))
+        .route("/api/maintenance/config-sync", post(config_sync))
         .route("/api/guest", post(guest))
         .route("/api/ssh", post(ssh_open))
         .route("/api/logs", get(logs))
@@ -213,6 +215,63 @@ async fn service_logs(
 
 async fn stats(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
     Json(daemon.stats().await)
+}
+
+/// Guest-side invariants that commonly break local development while the VM
+/// itself still appears healthy. Kept in the Dev Manager control plane so
+/// recovery remains available when the ORA web application is unavailable.
+async fn monitoring(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    let command = r#"
+set +e
+check() { if sh -c "$2" >/dev/null 2>&1; then printf 'ok|%s|%s\n' "$1" "$3"; else printf 'error|%s|%s\n' "$1" "$4"; fi; }
+check jwt_file 'test -s /etc/iora/jwt-secret' '/etc/iora/jwt-secret is present' '/etc/iora/jwt-secret is missing or empty'
+check jwt_size 'test "$(wc -c </etc/iora/jwt-secret 2>/dev/null)" -ge 32' 'JWT secret length is valid' 'JWT secret is shorter than 32 bytes'
+check files 'systemctl is-active --quiet iora-files' 'iora-files is active' 'iora-files is not active'
+check home 'systemctl is-active --quiet iora-home' 'iora-home is active' 'iora-home is not active'
+check supervisor 'systemctl is-active --quiet iora-supervisor' 'iora-supervisor is active' 'iora-supervisor is not active'
+check docker 'docker info >/dev/null 2>&1' 'Docker daemon is reachable' 'Docker daemon is unavailable'
+check compose '(docker compose version || docker-compose version) >/dev/null 2>&1' 'Docker Compose is available' 'Neither Compose v2 nor docker-compose is available'
+check files_health 'curl -fsS http://127.0.0.1:8100/health >/dev/null' 'Files health endpoint responds' 'Files health endpoint is unavailable'
+df -P /var/lib/iora 2>/dev/null | awk 'NR==2 {print "info|disk|" $5 " used on " $6}'
+systemctl --failed --no-legend 2>/dev/null | awk '{print "error|failed_unit|" $1 " is failed"}'
+"#;
+    match daemon.guest(command.to_string()).await {
+        Ok(output) => {
+            let checks = output
+                .lines()
+                .filter_map(|line| {
+                    let mut fields = line.splitn(3, '|');
+                    Some(json!({
+                        "status": fields.next()?,
+                        "id": fields.next()?,
+                        "message": fields.next()?,
+                    }))
+                })
+                .collect::<Vec<_>>();
+            Json(json!({"ok": true, "checks": checks}))
+        }
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
+}
+
+/// Re-run the canonical guest config synchronizer and restart only the
+/// services that consume the shared JWT/Files configuration.
+async fn config_sync(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
+    let command = r#"
+set -eu
+SCRIPT=/home/iora/iora/iora-os/iora-config-sync.sh
+if [ ! -x "$SCRIPT" ]; then SCRIPT=/usr/lib/iora/iora-config-sync; fi
+test -x "$SCRIPT"
+"$SCRIPT"
+test -s /etc/iora/jwt-secret
+systemctl daemon-reload
+systemctl restart iora-home iora-files iora-supervisor
+printf 'Config synchronized; JWT file verified; services restarted.'
+"#;
+    match daemon.guest(command.to_string()).await {
+        Ok(output) => Json(json!({"ok": true, "output": output})),
+        Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
+    }
 }
 
 async fn mappings_get(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
