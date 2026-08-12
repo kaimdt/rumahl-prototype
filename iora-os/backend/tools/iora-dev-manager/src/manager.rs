@@ -507,9 +507,16 @@ impl Manager {
             .args(if rebuild { vec!["-Rebuild", "-NoWatch"] } else { vec!["-NoWatch"] })
             // VM sizing comes from dev-manager.json so every NEW disk
             // creation (first boot / -Rebuild) honors the configured size.
-            .arg(format!("-DiskSize {}G", self.config.default_disk_gb.max(4)))
-            .arg(format!("-Ram {}G", self.config.default_ram_gb.max(4)))
-            .arg(format!("-CpuCount {}", self.config.default_cpus.clamp(1, 64)))
+            // Name and value must be SEPARATE arguments: PowerShell -File
+            // treats a single token with a space (e.g. "-DiskSize 55G") as
+            // ONE parameter name and fails with "A parameter cannot be found
+            // that matches parameter name 'DiskSize 55G'".
+            .arg("-DiskSize")
+            .arg(format!("{}G", self.config.default_disk_gb.max(4)))
+            .arg("-Ram")
+            .arg(format!("{}G", self.config.default_ram_gb.max(4)))
+            .arg("-CpuCount")
+            .arg(self.config.default_cpus.clamp(1, 64).to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
