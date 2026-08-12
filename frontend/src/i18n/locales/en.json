@@ -191,7 +191,9 @@
       "confirmShutdown": "Shut down ORA OS in five seconds?",
       "noSystemData": "System data unavailable",
       "logout": "Log out",
-      "guest": "Guest"
+      "guest": "Guest",
+      "nowPlaying": "Now playing",
+      "downloads": "Downloads"
     },
     "lock": {
       "sessionLocked": "Session locked",
@@ -461,7 +463,10 @@
       "downloadStart": "Start download",
       "downloadStarting": "Starting…",
       "downloadStarted": "Download started — see Job Center",
-      "downloadFailed": "Could not start download"
+      "downloadFailed": "Could not start download",
+      "shareExternalLink": "Create external link",
+      "shareLinkCopied": "External link copied to clipboard",
+      "shareLinkFailed": "Could not create external link"
     },
     "dock": {
       "open": "Open",

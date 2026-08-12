@@ -2694,6 +2694,8 @@ async fn main() -> anyhow::Result<()> {
         // require_authenticated; the exact "/proxy" and "/proxy/" spellings
         // (empty wildcard remainder) are delegated from spa_fallback.
         .route("/api/apps/:app_id/proxy/*path", any(app_proxy_handler))
+        // Public share links (no auth — the download token is the credential)
+        .route("/share/:download_token", get(proxy_files_share))
         // Maintenance status (public – frontend needs this before auth)
         .route("/api/maintenance/status", get(public_maintenance_status))
         .route(
@@ -6892,7 +6894,11 @@ async fn proxy_files_share(
     use axum::body::Body;
     let base = microservice_url("IORA_FILES_URL", "iora-files", 8100);
     let path = req.uri().path().to_string();
-    let new_path = path.replacen("/api/share/", "/api/files/shared/", 1);
+    let new_path = if path.starts_with("/share/") {
+        path.replacen("/share/", "/api/files/shared/", 1)
+    } else {
+        path.replacen("/api/share/", "/api/files/shared/", 1)
+    };
     let query = req
         .uri()
         .query()

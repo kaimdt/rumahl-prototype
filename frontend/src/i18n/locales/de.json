@@ -191,7 +191,9 @@
       "confirmShutdown": "ORA OS in fünf Sekunden herunterfahren?",
       "noSystemData": "Systemdaten nicht verfügbar",
       "logout": "Abmelden",
-      "guest": "Gast"
+      "guest": "Gast",
+      "nowPlaying": "Läuft gerade",
+      "downloads": "Downloads"
     },
     "lock": {
       "sessionLocked": "Sitzung gesperrt",
@@ -461,7 +463,10 @@
       "downloadStart": "Download starten",
       "downloadStarting": "Starte…",
       "downloadStarted": "Download gestartet — siehe Job Center",
-      "downloadFailed": "Download konnte nicht gestartet werden"
+      "downloadFailed": "Download konnte nicht gestartet werden",
+      "shareExternalLink": "Externen Link erstellen",
+      "shareLinkCopied": "Externer Link in die Zwischenablage kopiert",
+      "shareLinkFailed": "Externer Link konnte nicht erstellt werden"
     },
     "dock": {
       "open": "Öffnen",

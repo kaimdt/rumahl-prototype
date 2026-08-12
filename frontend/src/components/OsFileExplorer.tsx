@@ -749,6 +749,41 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     }
   }
 
+  /** Create a share link and copy an external (Tailscale) URL to it. */
+  const createExternalLink = async (entry: FileEntry) => {
+    try {
+      const shareResponse = await authFetch('/api/files/shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: entry.id, expires_in_hours: 72 }),
+      })
+      if (!shareResponse.ok) throw new Error(`HTTP ${shareResponse.status}`)
+      const share = await shareResponse.json() as { token?: string }
+      if (!share.token) throw new Error(t('os.files.shareLinkFailed'))
+
+      // Prefer the tailnet IP when Tailscale is online so the link works
+      // from outside the LAN.
+      let host: string | null = null
+      try {
+        const remoteResponse = await authFetch('/api/remote/status')
+        if (remoteResponse.ok) {
+          const remote = await remoteResponse.json() as { tailscale?: { online?: boolean; ip?: string } }
+          if (remote.tailscale?.online && remote.tailscale.ip) host = remote.tailscale.ip
+        }
+      } catch {
+        // remote status unavailable — fall back to the local host
+      }
+
+      const backend = new URL(getBackendUrl() || window.location.origin)
+      if (host) backend.hostname = host
+      const url = `${backend.protocol}//${backend.host}/share/${share.token}`
+      await navigator.clipboard.writeText(url)
+      toast.success(t('os.files.shareLinkCopied'))
+    } catch (shareError) {
+      toast.error(shareError instanceof Error ? shareError.message : t('os.files.shareLinkFailed'))
+    }
+  }
+
   /** Move a file/folder into another folder (internal drag & drop). */
   const copyEntry = async (fileId: string, targetFolderId: string | null) => {
     try {
@@ -963,7 +998,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         </div>
       )}
       {error && <div className="ora-inline-error" role="alert"><div><strong>{errorKind === 'refresh' ? t('os.files.refreshFailed') : t('common.error')}</strong><p>{t(errorKind === 'refresh' ? 'os.files.connectionError' : 'os.files.operationError', { detail: error })}</p></div><button type="button" onClick={() => void load(true)}>{t('common.tryAgain')}</button></div>}
-          <div className={`ora-selection-bar ${selected.size === 0 ? 'invisible' : ''}`}><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>
+          <div className={`ora-selection-bar ${selected.size === 0 ? 'invisible' : ''}`}><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void createExternalLink(selectedEntries[0])}><LinkSimple size={16} />{t('os.files.shareExternalLink')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>
 
           <div
             className={`ora-files-surface ${dropHighlight ? 'border-accent/60 ring-2 ring-accent/25' : ''}`}

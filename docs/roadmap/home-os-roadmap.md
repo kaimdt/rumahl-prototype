@@ -445,11 +445,27 @@ requiring SSH or direct configuration-file edits.
   - **Shipped (status):** `GET /api/remote/status` detects Tailscale (via
     the `tailscale` CLI: hostname, tailnet IP, online) and WireGuard
     (`/etc/wireguard` interfaces); Settings → System → **Remote access**
-    shows the tunnel state. External-link flows can build on the tailnet IP.
+    shows the tunnel state.
+  - **Shipped (external links ✅):** public `GET /share/{token}` route in
+    iora-home (maps to iora-files, no auth — token is the credential);
+    the Files selection bar offers **"Create external link"** — builds a
+    72 h share and copies a URL that prefers the tailnet IP when Tailscale
+    is online. Domains/TLS still open.
 - Device agents (Windows/macOS/Linux): send-to-device, open-on-device,
   clipboard sync, wake, remote terminal (AirDrop + KDE Connect feel).
 
 ### Package 8 — Control Center & AI System Ops
+
+> **Status:** in progress — Control Center basics ✅; full quick toggles and
+> AI system ops still open.
+
+- Unified Control Center: Wi-Fi, Bluetooth, VPN, dark mode, audio, displays,
+  focus, home + server load, downloads, playing media, notifications, ORA
+  Assistant.
+  - **Shipped (basics):** the shell quick-settings popover now shows
+    **now playing** (Home Assistant media players with play/pause), **active
+    downloads** (job progress, jumps to the Job Center) on top of the
+    existing server load (CPU/RAM/uptime), sleep/lock and power actions.
 
 - Unified Control Center: Wi-Fi, Bluetooth, VPN, dark mode, audio, displays,
   focus, home + server load, downloads, playing media, notifications, ORA

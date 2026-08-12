@@ -589,6 +589,10 @@ media widget shows continue-watching items and detected servers.
 ### Remote Access (Tailscale / WireGuard status)
 
 ```http
+# Public share link (no auth — the download token is the credential)
+# Mapped to iora-files /api/files/shared/:token for external access
+GET /share/{token}
+
 # Tunnel status (requires os.network.read)
 GET /api/remote/status
 → { "tailscale": { "installed": true, "running": true, "online": true, "hostname": "ora", "ip": "100.x.y.z" },
