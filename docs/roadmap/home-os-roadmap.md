@@ -406,12 +406,17 @@ requiring SSH or direct configuration-file edits.
 ### Package 6 — Home & Lifestyle Apps + Media Hub
 
 > **Status:** in progress — per-user Downloads ✅, download manager ✅, Media
-> Hub ✅; lifestyle apps still open.
+> Hub ✅, first lifestyle app (Notes) ✅; more lifestyle apps still open.
 
 - App-store apps: Calendar, Notes, Tasks, Contacts, Photos, Music, Videos,
   Recipes, Shopping List, Documents, Password Manager, Home Assistant,
   Camera Viewer, Downloads, Torrent Client, Printer Manager, Scanner,
   Family Dashboard, Shared Calendar, Shared Storage.
+  - **Reference app ✅ (`apps/examples/apps/ora-notes`):** installable Notes
+    app (own Docker container + web UI) demonstrating the App Framework:
+    notes persisted via App Storage KV (`/api/apps/:id/storage/kv/notes`),
+    custom launcher page, supervisor health check, app token auth. This is
+    the template for further lifestyle apps.
 - **Per-user Downloads folder ✅** — `GET /api/files/system-folder`
   (iora-files) finds or creates the personal Downloads/Documents/Photos/
   Videos folders per user (legacy localized names are reused via aliases);
