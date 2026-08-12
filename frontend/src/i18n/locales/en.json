@@ -448,7 +448,13 @@
       "familyShareRemove": "Remove family share",
       "familyShareAdded": "Shared with family",
       "familyShareRemoved": "Family share removed",
-      "familyShareFailed": "Could not update family share"
+      "familyShareFailed": "Could not update family share",
+      "systemFolders": {
+        "documents": "Documents",
+        "downloads": "Downloads",
+        "photos": "Photos",
+        "videos": "Videos"
+      }
     },
     "dock": {
       "open": "Open",

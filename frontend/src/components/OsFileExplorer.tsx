@@ -74,7 +74,13 @@ function formatBytes(value = 0) {
 /** Real file-explorer icons: type-based file_*.png, folder icons for folders,
  * and a reserved app icon when an app owns the file type. */
 /** System folders shown in the sidebar (created on first use, Windows-style). */
-const SYSTEM_FOLDERS = ['Dokumente', 'Downloads', 'Photos', 'Videos']
+interface SystemFolder { id: string; canonical: string; nameKey: string }
+const SYSTEM_FOLDERS: SystemFolder[] = [
+  { id: 'documents', canonical: 'Documents', nameKey: 'os.files.systemFolders.documents' },
+  { id: 'downloads', canonical: 'Downloads', nameKey: 'os.files.systemFolders.downloads' },
+  { id: 'photos', canonical: 'Photos', nameKey: 'os.files.systemFolders.photos' },
+  { id: 'videos', canonical: 'Videos', nameKey: 'os.files.systemFolders.videos' },
+]
 
 /** Folder names owned by apps → app icon badge (bottom-right of the folder tile). */
 const APP_FOLDER_BADGES: Record<string, string> = {
@@ -690,33 +696,28 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     }
   }
 
-  /** Open (and create on first use) a system folder like Documents/Photos. */
-  const openSystemFolder = async (name: string) => {
-    setActiveSystemFolder(name)
+  /** Open a personal system folder (Downloads, Documents, …) — the backend
+   * finds or creates it per user (Package 6: per-user Downloads folder). */
+  const openSystemFolder = async (folder: SystemFolder) => {
+    setActiveSystemFolder(folder.canonical)
     setTrashMode(false)
     setNetMode(false)
     try {
-      const res = await authFetch('/api/files/?limit=500')
+      const res = await authFetch(`/api/files/system-folder?name=${encodeURIComponent(folder.canonical)}`)
       if (!res.ok) return
-      const data = await res.json() as { files?: FileEntry[] }
-      const existing = (data.files || []).find((f) => f.is_folder && f.original_name.toLowerCase() === name.toLowerCase())
-      if (existing) {
-        navigate(existing.id, [{ id: existing.id, name: existing.original_name }])
-        return
-      }
-      if (can('os.files.write')) {
-        const create = await authFetch('/api/files/folders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, parent_folder_id: null }),
-        })
-        if (create.ok) {
-          const created = await create.json() as { id?: string; original_name?: string }
-          if (created.id) navigate(created.id, [{ id: created.id, name: created.original_name || name }])
-        }
+      const data = await res.json() as { folder?: { id?: string; name?: string } }
+      if (data.folder?.id) {
+        navigate(data.folder.id, [{ id: data.folder.id, name: data.folder.name || folder.canonical }])
       }
     } catch { /* offline */ }
   }
+
+  /** Ensure every user has their personal system folders (incl. Downloads). */
+  useEffect(() => {
+    for (const folder of SYSTEM_FOLDERS) {
+      void authFetch(`/api/files/system-folder?name=${encodeURIComponent(folder.canonical)}`).catch(() => {})
+    }
+  }, [])
 
   /** Move a file/folder into another folder (internal drag & drop). */
   const copyEntry = async (fileId: string, targetFolderId: string | null) => {
@@ -864,13 +865,13 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           <button type="button" className={`ora-sidebar-item ${currentFolderId === null ? 'is-active' : ''}`} onClick={() => navigate(null, [])}><House size={18} weight="duotone" />{t('os.files.home')}</button>
           {SYSTEM_FOLDERS.map((folder) => (
             <button
-              key={folder}
+              key={folder.id}
               type="button"
               onClick={() => void openSystemFolder(folder)}
-              className={`ora-sidebar-item ${activeSystemFolder === folder ? 'is-active' : ''}`}
+              className={`ora-sidebar-item ${activeSystemFolder === folder.canonical ? 'is-active' : ''}`}
             >
               <img src="/icons/folder.png" alt="" width={18} height={18} className="object-contain" draggable={false} />
-              {folder}
+              {t(folder.nameKey, folder.canonical)}
             </button>
           ))}
           {tree.length > 0 && (

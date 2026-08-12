@@ -448,7 +448,13 @@
       "familyShareRemove": "Familienfreigabe aufheben",
       "familyShareAdded": "Mit Familie geteilt",
       "familyShareRemoved": "Familienfreigabe aufgehoben",
-      "familyShareFailed": "Familienfreigabe konnte nicht aktualisiert werden"
+      "familyShareFailed": "Familienfreigabe konnte nicht aktualisiert werden",
+      "systemFolders": {
+        "documents": "Dokumente",
+        "downloads": "Downloads",
+        "photos": "Fotos",
+        "videos": "Videos"
+      }
     },
     "dock": {
       "open": "Öffnen",

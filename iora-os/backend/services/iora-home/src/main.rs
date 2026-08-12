@@ -2525,6 +2525,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/files/quota", get(proxy_files))
         .route("/api/files/resolve-path", get(proxy_files))
         .route("/api/files/system-path", get(proxy_files))
+        .route("/api/files/system-folder", get(proxy_files))
         .route("/api/files/network/shares", get(proxy_files))
         .route("/api/files/network/mounts", get(proxy_files).post(proxy_files))
         .route("/api/files/network/mounts/:id", delete(proxy_files))
