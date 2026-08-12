@@ -1,0 +1,286 @@
+# ORA Home OS Roadmap
+
+**Status:** Draft v1 — live document, updated as packages ship
+**Owner:** ORA OS Team
+**Last updated:** 2026-02-11
+
+---
+
+## 1. Vision
+
+ORA OS is evolving from a home-automation dashboard + Docker frontend into a
+**true Home Operating System**. The goal is a platform — not a container list:
+
+- Apps are **first-class citizens** with an OS-provided API (`ora.*` SDK),
+  permissions, background jobs, notifications and lifecycle — not just
+  embedded web pages.
+- The shell provides desktop-grade UX: windows, spotlight, notifications,
+  clipboard, drag & drop, share sheet, session restore.
+- Devices (NAS, gaming PC, laptops, TVs, printers) are first-class citizens.
+- Users get real profiles: personal desktops, apps, files, permissions,
+  guest mode, family areas.
+- Third parties can build apps **without knowing how ORA implements storage,
+  users, notifications or windows internally**.
+
+### Core principle: ORA Core vs. ORA Apps
+
+```
+ORA Apps          ← installable, permissioned, replaceable
+─────────────────────────────────────────────
+Window Manager / Desktop  (shell UX, session)
+Files / Notifications / Jobs / Users          ← OS services & SDK
+Permissions                                    ← trust boundary
+ORA Runtime (plugin sandbox, app lifecycle)   ← iora-shared, plugin.rs
+System Services (control, network, backup…)   ← microservices
+Kernel / Linux
+```
+
+Everything above the *Permissions* line is app territory. Everything below is
+ORA Core and must be kept stable, tested and documented.
+
+---
+
+## 2. Current State (verified inventory)
+
+### 2.1 Frontend shell (React + Vite)
+
+| Area | Status | Location |
+|---|---|---|
+| Multi-window + split view (left/right) | ✅ exists | `OsWindowContext`, `OsAppWindow`, `OsSystemShell` |
+| Alt+Tab recents switcher | ✅ exists | `OsSystemShell` |
+| Power menu (shutdown/reboot w/ delay) | ✅ exists | `OsSystemShell` → `/api/os/control/*` |
+| Command palette ⌘K (apps, actions) | ✅ exists | `CommandPalette.tsx` |
+| Notification center | ✅ exists | `NotificationCenter.tsx`, `NotificationContext` |
+| Files app + universal file picker | ✅ exists | `OsFileExplorer`, `OsAppFilePickerDialog` |
+| Move/copy dialogs, drag & drop in Files | ✅ exists | `OsFileMoveCopyDialog`, `OsFileExplorer` |
+| Share sheet (iora-share) | ✅ exists | `NativeShare.tsx`, `SharePage.tsx` |
+| Themes, splash, session lock, screensaver | ✅ exists | `ThemeContext`, `OsSessionLock`, `Screensaver` |
+| Widget registry (dashboard widgets) | ✅ exists | `lib/widgetRegistry.ts`, `components/widgets/*` |
+| Admin panel (ai/core/network/os/services/tools/… ) | ✅ exists | `AdminPanel*`, `adminTabs/*` |
+| Scheduled-task panel (pause/resume) | ⚠️ partial | `ActiveTasksPanel.tsx` (Assist tasks, **not** a system job manager) |
+| **Global spotlight search (files/devices/settings/containers)** | ❌ missing | — |
+| **System-wide job manager (downloads/backups/updates)** | ❌ missing | — |
+| **Clipboard manager + cross-device clipboard** | ❌ missing | — |
+| **Session restore (windows/tabs/positions)** | ❌ missing | — |
+| **Snap layouts (grid), virtual desktops** | ❌ missing (only left/right split) | — |
+| **Default apps / MIME associations** | ❌ missing | — |
+| **Deep links (`/app/files/path/…`)** | ❌ missing | — |
+| **Drag & drop between apps** | ❌ missing (within Files only) | — |
+| **Control Center (unified quick settings)** | ⚠️ partial (quick-settings popover) | `OsSystemShell` |
+
+### 2.2 Backend (Rust workspace, `iora-os/backend`)
+
+| Area | Status | Location |
+|---|---|---|
+| App manifest, plugins, capabilities | ✅ exists | `iora-shared`: `app_manifest.rs`, `plugin.rs`, `app_capabilities.rs` |
+| Inter-app RPC (exposed services) | ✅ exists | `app_capabilities.rs` |
+| App storage (files + KV), app SQLite DB | ✅ exists | `app_storage.rs`, `app_database.rs` |
+| App scheduler (cron), webhooks, messaging (pub/sub/direct) | ✅ exists | `app_scheduler.rs`, `app_webhooks.rs`, `app_messaging.rs` |
+| Permission system (~80 perms) | ✅ exists | `permissions.rs` (incl. Camera, Mic, Location, Media, Network, Files, Users, Docker, Secrets, Queue/Jobs) |
+| OS control (stats, services, logs, power) | ✅ exists | `iora-control` → `/api/os/control/*` |
+| Network device discovery/scan | ✅ exists | `iora-network-monitor` → `/api/network/*` |
+| Cloud relay (Nabu-Casa-style tunnel) | ✅ exists | `iora-connector` |
+| Backups | ✅ exists | `iora-backup` → `/api/os/backups/*` |
+| Secrets service | ✅ exists | `iora-secrets` (UI/vault UX missing) |
+| System event log (dedup, occurrences) | ✅ exists | migration `031_system_events` |
+| Refresh tokens, user OS permissions | ✅ exists | migrations `032`, `033` |
+| App store (PostgreSQL) | ✅ exists | `iora-appstore`, `schema.sql` |
+| **System-wide job bus (progress, cancel, resume)** | ❌ missing | — |
+| **Devices service (WOL/SNMP/MQTT/agents)** | ❌ missing | — |
+| **Automation flow editor (visual)** | ❌ missing (scheduler + widgets only) | — |
+| **Secrets vault UI + app credential provisioning** | ❌ missing | — |
+| **Remote access pack (WireGuard/TLS/domains)** | ⚠️ partial (relay + nginx + tailscale example) | — |
+
+### 2.3 JS SDK (`sdks/javascript/src/client.ts`)
+
+Currently exposed: entities, notifications, storage (files/KV), app database
+(SQLite), scheduler, webhooks, messaging, settings, plugin execution, STT,
+TTS, assist tools.
+
+**Missing from the `ora.*` vision:** system events, jobs/queues, permissions
+request flow, secrets, users/profiles, devices, clipboard, window manager
+hooks, share sheet, file picker, deep-link handling.
+
+---
+
+## 3. Gap analysis (vision → today)
+
+| Vision item | Today | Gap |
+|---|---|---|
+| Notification center | ✅ | Aggregation of app/system events; per-app opt-out & priority |
+| Global search / Spotlight | ⚠️ ⌘K app launcher | Search across **files, devices, settings, containers, people, commands**; Ctrl+Space |
+| Quick actions / command palette | ⚠️ ⌘K actions | System actions as **installable app-provided commands** |
+| System job manager | ❌ | Jobs bus (progress/cancel/pause), UI panel, survives app switches |
+| Clipboard manager | ❌ | History, cross-device clipboard |
+| Share sheet | ✅ iora-share | Broader targets: mail, links, SMB, devices, apps |
+| Drag & drop between apps | ⚠️ within Files | Cross-app payload protocol (file refs → apps) |
+| Default apps / MIME | ❌ | File-type → app routing table |
+| Deep links | ❌ | `/app/<id>/<path>` resolution + app-internal navigation |
+| Universal file picker | ✅ | Standardize across apps (SDK call) |
+| Global keyboard shortcuts | ⚠️ few hardcoded | Registered, per-app, configurable |
+| Multi-window / snap layouts | ⚠️ windows + left/right split | Snap grid, maximize, move shortcuts |
+| Virtual desktops / workspaces | ❌ | Deferred (nice-to-have) |
+| Session restore | ❌ | Persist windows/tabs/positions per user |
+| User profiles (personal desktop, guest, family) | ⚠️ user switching + perms | Profiles, guest mode, family shared areas, per-user app sets |
+| ORA app framework / SDK | ✅ strong core | `ora.*` API surface, jobs, secrets, users, devices, events |
+| Permissions (Android/iOS-style) | ✅ ~80 perms + editor | **Runtime request dialogs**, background-use grants, per-user grants |
+| Devices as first-class citizens | ⚠️ network discovery only | Devices app: WOL, SNMP, MQTT, HA, Tailscale, agents |
+| Home dashboard | ✅ widgets | Widget registration API for apps, sections (storage/media/energy) |
+| Automation engine | ⚠️ scheduler | Visual flow editor, triggers/conditions/actions, app hooks |
+| Secrets / credential vault | ⚠️ service exists | Vault UI, app credential provisioning, rotation |
+| Native apps (Monitor/Storage/Containers/…) | ⚠️ admin tabs | Standalone apps with widgets & deep links |
+| Home/lifestyle apps (Calendar, Notes, …) | ❌ | App-store apps (installable, not core) |
+| Media Hub (Jellyfin/Plex detection) | ❌ | Continue-watching on home, universal downloads |
+| Downloads manager | ❌ | Global queue, survives browser close |
+| Remote access | ⚠️ relay + nginx | Tailscale/WireGuard/domains/TLS pack, remote share links |
+| Device-to-device (AirDrop-like) | ❌ | Agents on Windows/macOS/Linux, send/clipboard/wake/terminal |
+| Control Center | ⚠️ quick settings popover | Wi-Fi/BT/VPN/audio/displays/focus + load/media/downloads |
+| AI system ops ("why is my NAS slow?") | ⚠️ Assist | System-analysis tools, permissioned installs |
+
+---
+
+## 4. Prioritized roadmap
+
+Priorities were chosen so that **each package delivers standalone value while
+building the foundation for the next**. Implementation order per package:
+backend/API first where a service boundary exists, frontend first where the
+value is purely UX.
+
+### Package 0 — OS Foundation ⭐ (first package)
+
+> The desktop-grade fundamentals every other feature builds on.
+
+1. **Global Spotlight search (Ctrl+Space)**
+   - Search sources: apps (existing ⌘K), files (iora-files), devices
+     (iora-network-monitor), settings (settings registry), containers
+     (iora-supervisor), people/contacts, commands (app-provided).
+   - Fuse.js-style fuzzy matching; grouped results; keyboard navigation.
+   - `SpotlightSearch.tsx` reusing the ⌘K overlay pattern; keep ⌘K as alias.
+2. **System-wide Job Manager**
+   - Backend: jobs table + `/api/jobs/*` (create, list, progress, cancel,
+     pause, resume, logs). Sources: downloads, file operations, backups,
+     updates, imports.
+   - Frontend: `JobCenterPanel.tsx` (dock/notification entry), job cards with
+     progress bars, survives app switches (state in context + backend).
+   - App SDK hook: `ora.jobs.create(...)` (permission: `AppQueueManage`).
+3. **Clipboard manager + cross-device clipboard**
+   - Backend: clipboard store + `/api/clipboard/*` (history, sync channel via
+     `app_messaging`).
+   - Frontend: history popover (Ctrl+Shift+V), device sync toggle.
+4. **Session restore**
+   - Persist windows (pageId, layout, position, size, z) + open tabs per user
+     to backend (per-user table) and localStorage fallback; restore on login.
+5. **Snap layouts**
+   - Extend `OsWindowLayout` with a snap grid (left/right/top/bottom/quarters,
+     maximize); keyboard + drag-to-edge triggers.
+6. **Default apps / MIME + deep links + cross-app drag & drop**
+   - MIME routing table (`file-type → app`) in `osAppRegistry`;
+   - deep-link resolver (`/app/<id>/<path>`);
+   - drag payload protocol (file refs via `dataTransfer` → drop targets).
+7. **Global keyboard shortcut registry** (per-app, configurable, i18n labels)
+
+**Dependencies:** none (uses existing window context, notification center).
+**Exit criteria:** Spotlight searches files+devices+containers; a download or
+backup runs as a visible, resumable job; windows survive logout/login.
+
+### Package 1 — User Profiles & Permissions
+
+- Profile model: personal desktop, app set, files (home dir per user), HA
+  dashboards per user, shared family areas.
+- Guest mode (temporary, no persistence), child/family profiles (restrictions).
+- Permission grants per user (migration 033 extension) + **runtime request
+  dialogs** ("App X wants access to files" → allow/deny, like Android/iOS).
+- User switcher → real profile switcher with per-profile session restore.
+
+### Package 2 — App Framework & SDK (`ora.*`)
+
+- SDK modules: `ora.notifications`, `ora.files` (picker), `ora.storage`,
+  `ora.clipboard`, `ora.windows`, `ora.permissions` (request flow),
+  `ora.jobs`, `ora.secrets` (credential provisioning), `ora.users`,
+  `ora.devices`, `ora.home` (automation), `ora.system.events`.
+- Backend: expose the Package-0 job bus, secrets vault and device registry to
+  apps; system-events subscription for apps (lifecycle hooks already exist).
+- Docs + examples for third-party apps.
+
+### Package 3 — Devices & Home Dashboard
+
+- **Devices app:** registry for gaming PC, MacBook, NAS, TV, printer, …
+  backends: WOL, SSH, SNMP, MQTT, Home Assistant, Tailscale, local agents
+  (desktop agent for Win/macOS/Linux later).
+- **Home Dashboard v2:** sections (time/weather/calendar/presence, storage,
+  server state, downloads, smart home, music, recent files, cameras, energy)
+  with **app-registered widgets** (`RegisterWidget` permission already exists).
+
+### Package 4 — Automation Engine
+
+- Visual flow editor (trigger → condition → action), triggers from devices,
+  jobs, files, schedules, apps; actions incl. notifications, jobs, scripts.
+- Reuses `app_scheduler`, `RunAutomations`, `CreateAutomations` permissions.
+
+### Package 5 — Native Home OS Apps (from admin tabs to apps)
+
+- System Monitor, Storage (disks/SMART/pools), Containers, Network, Backup,
+  Users, Logs, Services, Updates as standalone, permissioned apps with
+  widgets and deep links. Admin panel keeps an "admin view" of the same data.
+
+### Package 6 — Home & Lifestyle Apps + Media Hub
+
+- App-store apps: Calendar, Notes, Tasks, Contacts, Photos, Music, Videos,
+  Recipes, Shopping List, Documents, Password Manager, Home Assistant,
+  Camera Viewer, Downloads, Torrent Client, Printer Manager, Scanner,
+  Family Dashboard, Shared Calendar, Shared Storage.
+- **Media Hub:** Jellyfin/Plex detection, continue-watching on home,
+  universal **download manager** (any app can hand downloads to ORA;
+  survives browser close).
+
+### Package 7 — Remote Access & Device-to-Device
+
+- Remote access pack: Tailscale/WireGuard, reverse proxy, domains, TLS,
+  "create external link" for shares (file → share → external link).
+- Device agents (Windows/macOS/Linux): send-to-device, open-on-device,
+  clipboard sync, wake, remote terminal (AirDrop + KDE Connect feel).
+
+### Package 8 — Control Center & AI System Ops
+
+- Unified Control Center: Wi-Fi, Bluetooth, VPN, dark mode, audio, displays,
+  focus, home + server load, downloads, playing media, notifications, ORA
+  Assistant.
+- AI ops ("why is my NAS slow?" → CPU/disks/network/logs analysis;
+  "install Immich with 500 GB" → storage+container+proxy+permissions).
+
+### Package 9 — Terminal & Admin Center Redesign (deferred)
+
+- Complete overhaul of the Admin Center; Terminal moves into it as a deeply
+  integrated, permissioned component. *Explicitly deferred by decision.*
+
+### Deferred backlog
+
+- Virtual desktops / workspaces (after snap layouts prove out).
+- ORA agent binaries for Win/macOS/Linux (blocked on Package 7 protocol).
+
+---
+
+## 5. Guiding principles
+
+1. **Backend/API before frontend** where a service boundary exists; frontend
+   first for pure-UX packages — decided **per feature**, not dogmatically.
+2. **Apps install features; core ships the platform.** Lifestyle apps live in
+   the app store, not in the base image.
+3. **Permissions are the trust boundary.** New OS capabilities ship with a
+   permission (see `permissions.rs`), runtime request dialogs in Package 1.
+4. **Migrations are append-only.** New schema via new numbered files in
+   `iora-home/migrations/` (current: `033`).
+5. **i18n**: every new UI string ships with `en.json` + `de.json`.
+6. **No emojis in UI**; Phosphor/Lucide icons only.
+7. **Maintain the 12k-line guard:** `iora-home/src/main.rs` is never read or
+   rewritten wholesale — routes are added via targeted edits.
+
+---
+
+## 6. How to contribute / track
+
+- Kanban tasks for ORA use `--workspace worktree:wt/<task-name>`, branches
+  `feat/<task-name>`, push + PR on completion.
+- Each package gets a dedicated branch and its own docs page once shipped.
+- Update this roadmap (and `docs/docs-config.json` + `frontend/public/docs/`)
+  when a package is started, scoped or shipped.
