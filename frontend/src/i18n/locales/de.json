@@ -291,6 +291,10 @@
         "zoomOut": "Verkleinern",
         "previous": "Vorheriges Bild",
         "next": "Nächstes Bild"
+      },
+      "devices": {
+        "name": "Geräte",
+        "description": "Deine Geräte mit Wake-on-LAN"
       }
     },
     "systemApps": {
@@ -1434,8 +1438,7 @@
     "apps": {
       "os-images": "Bilder"
     }
-  }
-,
+  },
   "automationEditor": {
     "title": "Automation Studio",
     "subtitle": "Abläufe aus Auslösern, Bedingungen und Aktionen erstellen",
@@ -1502,8 +1505,7 @@
       "warning": "Warnung",
       "critical": "Kritisch"
     }
-  }
-,
+  },
   "haOnboarding": {
     "title": "Home Assistant verbinden",
     "description": "ORA findet Home Assistant im Netzwerk, prüft den Zugriff und aktiviert die Live-Verbindung für Entitäten und Automationen automatisch.",
@@ -1523,8 +1525,7 @@
     "ready": "Dein Zuhause ist bereit",
     "home": "Home Assistant",
     "integrationsReady": "{{count}} Home-Assistant-Komponenten sind für ORA Home und Automation Studio bereit."
-  }
-,
+  },
   "storageApp": {
     "title": "Speicher",
     "subtitle": "Physische Datenträger, Dateisysteme, SMART-Zustand und Linux RAID",
@@ -1609,5 +1610,49 @@
     "jobStatus_running": "Läuft",
     "jobStatus_completed": "Abgeschlossen",
     "jobStatus_failed": "Aufmerksamkeit erforderlich"
+  },
+  "devicesApp": {
+    "title": "Geräte",
+    "subtitle": "Netzwerkgeräte und Wake-on-LAN",
+    "refresh": "Aktualisieren",
+    "addDevice": "Gerät hinzufügen",
+    "editDevice": "Gerät bearbeiten",
+    "onlineDevices": "Gerade online",
+    "knownDevices": "Bekannte Geräte",
+    "wakeable": "Aufweckbar",
+    "myDevices": "Meine Geräte",
+    "networkDevices": "Netzwerkgeräte",
+    "noDevices": "Noch keine Geräte — füge deinen Gaming-PC, NAS oder TV mit MAC-Adresse hinzu",
+    "noNetworkDevices": "Keine Geräte im Netzwerk gefunden",
+    "name": "Name",
+    "namePlaceholder": "Gaming-PC",
+    "type": "Typ",
+    "macAddress": "MAC-Adresse",
+    "ipAddress": "IP-Adresse",
+    "notes": "Notizen",
+    "wakeEnabled": "Aufwecken erlauben (WOL)",
+    "wake": "Aufwecken",
+    "waking": "Wecke auf…",
+    "wakeSent": "Wake-Paket an {{name}} gesendet",
+    "wakeFailed": "Aufwecken fehlgeschlagen",
+    "notWakeable": "MAC-Adresse hinzufügen, um Aufwecken zu aktivieren",
+    "edit": "Bearbeiten",
+    "remove": "Entfernen",
+    "saved": "Gerät gespeichert",
+    "saveFailed": "Gerät konnte nicht gespeichert werden",
+    "removed": "Gerät entfernt",
+    "removeFailed": "Gerät konnte nicht entfernt werden",
+    "unavailable": "Geräte-Dienst nicht erreichbar",
+    "online": "Online",
+    "offline": "Offline",
+    "types": {
+      "computer": "Computer",
+      "nas": "NAS",
+      "tv": "TV",
+      "printer": "Drucker",
+      "phone": "Telefon",
+      "tablet": "Tablet",
+      "other": "Sonstiges"
+    }
   }
 }

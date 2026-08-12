@@ -312,6 +312,7 @@ const SYSTEM_PAGE_PATHS: Record<string, string> = {
   'os-network': '/network',
   'os-system': '/system',
   'os-storage': '/storage',
+  'os-devices': '/devices',
   'os-updates': '/updates',
   'os-backups': '/backups',
 }

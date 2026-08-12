@@ -190,6 +190,10 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
             "043_user_profiles",
             include_str!("../../migrations/043_user_profiles.sql"),
         ),
+        (
+            "044_device_registry",
+            include_str!("../../migrations/044_device_registry.sql"),
+        ),
     ];
 
     // Apply each migration if not already applied

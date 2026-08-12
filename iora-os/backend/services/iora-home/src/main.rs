@@ -51,6 +51,7 @@ mod clipboard_handler;
 mod crypto;
 mod db;
 mod desktop_gateway;
+mod device_handler;
 mod tor_manager;
 mod dev_image;
 mod documentation;
@@ -1878,6 +1879,17 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/os/permissions/requests/:request_id/respond",
             post(permission_requests_handler::respond_permission_request),
+        )
+        // Device registry (curated devices + Wake-on-LAN)
+        .route("/api/devices", get(device_handler::list_devices))
+        .route("/api/devices", post(device_handler::create_device))
+        .route(
+            "/api/devices/:device_id",
+            put(device_handler::update_device).delete(device_handler::delete_device),
+        )
+        .route(
+            "/api/devices/:device_id/wake",
+            post(device_handler::wake_device),
         )
         // Webhook management
         .route("/api/webhooks", get(list_webhooks))

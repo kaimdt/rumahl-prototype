@@ -489,6 +489,41 @@ GET /api/files/permissions/{file_id}
 DELETE /api/files/permissions/revoke/{perm_id}
 ```
 
+### Devices (registry + Wake-on-LAN)
+
+Curated devices (gaming PC, NAS, TV, printer, …) with a MAC address for
+Wake-on-LAN. Auto-discovered network devices remain in `GET /api/network/devices`;
+this registry adds the human layer (friendly name, type, WOL capability).
+Backed by the `device_registry` table (migration 044); the UI lives in the
+Devices app (`/devices`, requires `os.network.write`).
+
+```http
+# List / create curated devices
+GET  /api/devices
+POST /api/devices
+Content-Type: application/json
+
+{
+  "name": "Gaming PC",
+  "device_type": "computer",
+  "mac_address": "AA:BB:CC:DD:EE:FF",
+  "ip_address": "192.168.1.10",
+  "wake_enabled": true,
+  "notes": "RTX 5080 rig"
+}
+
+# Update / remove
+PUT    /api/devices/{id}
+DELETE /api/devices/{id}
+
+# Wake-on-LAN: sends a magic packet (UDP broadcast 255.255.255.255:9)
+POST /api/devices/{id}/wake
+```
+
+`device_type`: `computer` | `nas` | `tv` | `printer` | `phone` | `tablet` | `other`.
+MAC validation (`AA:BB:CC:DD:EE:FF` or dashed) happens server-side; wake
+returns 400 when the device has no MAC or WOL is disabled.
+
 ## iora-core Endpoints (Port 8090)
 
 ### Health

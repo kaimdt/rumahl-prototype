@@ -297,9 +297,17 @@ backup runs as a visible, resumable job; windows survive logout/login.
 
 ### Package 3 — Devices & Home Dashboard
 
+> **Status:** in progress — Devices app ✅ shipped; Home Dashboard v2 still open.
+
 - **Devices app:** registry for gaming PC, MacBook, NAS, TV, printer, …
   backends: WOL, SSH, SNMP, MQTT, Home Assistant, Tailscale, local agents
   (desktop agent for Win/macOS/Linux later).
+  - **Shipped:** migration `044_device_registry`, `iora-shared::devices`
+    types, `device_handler.rs` (`/api/devices` CRUD + `/wake` sending a WOL
+    magic packet to 255.255.255.255:9 with MAC validation), `OsDevicesApp`
+    (`/devices`): curated devices with add/edit/remove + Wake buttons, plus
+    the auto-discovered network-device list (online/offline). Requires
+    `os.network.write`. Follow-ups: SSH/SNMP/MQTT agents, device agents.
 - **Home Dashboard v2:** sections (time/weather/calendar/presence, storage,
   server state, downloads, smart home, music, recent files, cameras, energy)
   with **app-registered widgets** (`RegisterWidget` permission already exists).

@@ -8,6 +8,7 @@ pub mod app_manifest;
 pub mod app_messaging;
 pub mod app_scheduler;
 pub mod clipboard;
+pub mod devices;
 pub mod permission_requests;
 pub mod session;
 pub mod user_profiles;

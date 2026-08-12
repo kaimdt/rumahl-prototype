@@ -10,6 +10,7 @@ import {
   House,
   FlowArrow,
   Robot,
+  Desktop,
   ShareNetwork,
   Storefront,
   VideoCamera,
@@ -28,7 +29,7 @@ export interface OsAppDefinition {
   icon: Icon
   kind: OsAppKind
   adminOnly?: boolean
-  requiredPermission?: 'os.files.read' | 'os.network.read' | 'os.system.read' | 'os.updates' | 'os.backups'
+  requiredPermission?: 'os.files.read' | 'os.network.read' | 'os.network.write' | 'os.system.read' | 'os.updates' | 'os.backups'
   accent: string
   order: number
   /** Remote icon URL (installed Docker apps) — rendered as <img> when set. */
@@ -127,6 +128,18 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     requiredPermission: 'os.system.read',
     accent: 'oklch(0.68 0.16 205)',
     order: 23,
+  },
+  {
+    id: 'iora-devices',
+    pageId: 'os-devices',
+    nameKey: 'os.apps.devices.name',
+    fallbackName: 'Devices',
+    descriptionKey: 'os.apps.devices.description',
+    icon: Desktop,
+    kind: 'system',
+    requiredPermission: 'os.network.write',
+    accent: 'oklch(0.66 0.17 250)',
+    order: 24,
   },
   {
     id: 'iora-system',

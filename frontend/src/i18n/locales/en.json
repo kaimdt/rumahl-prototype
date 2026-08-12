@@ -291,6 +291,10 @@
         "zoomOut": "Zoom out",
         "previous": "Previous image",
         "next": "Next image"
+      },
+      "devices": {
+        "name": "Devices",
+        "description": "Your devices with wake-on-LAN"
       }
     },
     "systemApps": {
@@ -1433,8 +1437,7 @@
     "apps": {
       "os-images": "Bilder (Images)"
     }
-  }
-,
+  },
   "automationEditor": {
     "title": "Automation Studio",
     "subtitle": "Build trigger, condition, and action flows",
@@ -1501,8 +1504,7 @@
       "warning": "Warning",
       "critical": "Critical"
     }
-  }
-,
+  },
   "haOnboarding": {
     "title": "Connect Home Assistant",
     "description": "ORA can find Home Assistant on your network, verify access, and activate the live entity and automation connection automatically.",
@@ -1522,8 +1524,7 @@
     "ready": "Your home is ready",
     "home": "Home Assistant",
     "integrationsReady": "{{count}} Home Assistant components are ready for ORA Home and Automation Studio."
-  }
-,
+  },
   "storageApp": {
     "title": "Storage",
     "subtitle": "Physical disks, filesystems, SMART health, and Linux RAID",
@@ -1608,5 +1609,49 @@
     "jobStatus_running": "Running",
     "jobStatus_completed": "Completed",
     "jobStatus_failed": "Needs attention"
+  },
+  "devicesApp": {
+    "title": "Devices",
+    "subtitle": "Network devices and Wake-on-LAN",
+    "refresh": "Refresh",
+    "addDevice": "Add device",
+    "editDevice": "Edit device",
+    "onlineDevices": "Online now",
+    "knownDevices": "Known devices",
+    "wakeable": "Wakeable",
+    "myDevices": "My devices",
+    "networkDevices": "Network devices",
+    "noDevices": "No devices yet — add your gaming PC, NAS or TV with its MAC address",
+    "noNetworkDevices": "No devices discovered on the network",
+    "name": "Name",
+    "namePlaceholder": "Gaming PC",
+    "type": "Type",
+    "macAddress": "MAC address",
+    "ipAddress": "IP address",
+    "notes": "Notes",
+    "wakeEnabled": "Allow wake (WOL)",
+    "wake": "Wake",
+    "waking": "Waking…",
+    "wakeSent": "Wake packet sent to {{name}}",
+    "wakeFailed": "Wake failed",
+    "notWakeable": "Add a MAC address to enable wake",
+    "edit": "Edit",
+    "remove": "Remove",
+    "saved": "Device saved",
+    "saveFailed": "Could not save device",
+    "removed": "Device removed",
+    "removeFailed": "Could not remove device",
+    "unavailable": "Devices service unavailable",
+    "online": "Online",
+    "offline": "Offline",
+    "types": {
+      "computer": "Computer",
+      "nas": "NAS",
+      "tv": "TV",
+      "printer": "Printer",
+      "phone": "Phone",
+      "tablet": "Tablet",
+      "other": "Other"
+    }
   }
 }
