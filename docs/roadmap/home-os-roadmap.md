@@ -217,11 +217,64 @@ backup runs as a visible, resumable job; windows survive logout/login.
   jobs, files, schedules, apps; actions incl. notifications, jobs, scripts.
 - Reuses `app_scheduler`, `RunAutomations`, `CreateAutomations` permissions.
 
-### Package 5 — Native Home OS Apps (from admin tabs to apps)
+### Package 5 — Storage, NAS & Native Home OS Apps
 
-- System Monitor, Storage (disks/SMART/pools), Containers, Network, Backup,
-  Users, Logs, Services, Updates as standalone, permissioned apps with
-  widgets and deep links. Admin panel keeps an "admin view" of the same data.
+> Turn ORA OS into a complete, safety-first NAS operating system while moving
+> the existing administration surfaces into standalone system apps.
+
+1. **Storage inventory and health**
+   - Native Storage app for physical disks, partitions, filesystems, mounts,
+     temperatures, SMART/NVMe health, wear level, bad sectors and capacity.
+   - Background health checks, predictive warnings and notifications with
+     direct links to the affected disk, pool or share.
+2. **Software RAID lifecycle**
+   - Linux `mdadm` support for RAID 0, 1, 5, 6 and 10: create, inspect,
+     assemble, start, stop, expand, replace failed disks and monitor rebuilds.
+   - RAID creation and recovery use the system-wide Job Manager so long-running
+     initialization, reshape, scrub and rebuild operations remain visible.
+   - Degraded arrays stay accessible when safe; ORA explains the failure,
+     identifies a suitable replacement and guides the repair workflow.
+3. **Pools, filesystems and data integrity**
+   - Storage pools and volumes on ext4, XFS and Btrfs; optional ZFS integration
+     is feature-detected and never assumed to be installed.
+   - Btrfs/ZFS capabilities expose snapshots, checksums, scrub, quotas and
+     replication only when supported by the selected backend.
+   - Scheduled scrubs, SMART tests and filesystem checks with persistent
+     results, alerting and audit history.
+4. **NAS shares and access control**
+   - SMB/Samba and NFS share management; per-user and per-group read/write
+     access, guest access off by default, quotas and recycle-bin policies.
+   - Shared family areas and app storage resolve through the Package-1 user and
+     permission model; credentials and mount secrets use the secrets vault.
+   - Service discovery for shares on the local network and stable deep links
+     from Files, Users, Backup and the Home Dashboard.
+5. **Backup, snapshots and replication**
+   - Snapshot policies are not treated as backups: the UI distinguishes local
+     rollback, external backup and off-device replication.
+   - Backup targets include USB disks, another ORA/NAS system and permissioned
+     remote targets; restore workflows verify data before replacing live data.
+6. **Native system apps**
+   - System Monitor, Storage, Containers, Network, Backup, Users, Logs,
+     Services and Updates become standalone, permissioned apps with widgets
+     and deep links. The Admin Center keeps an administrative view of the same
+     APIs instead of separate implementations.
+
+**Safety requirements:** destructive storage operations always show the exact
+source disks, affected arrays/volumes, data-loss impact and generated command
+plan before execution. They require an explicit typed confirmation and fresh
+admin authorization; they cannot be initiated autonomously by AI, apps or
+background automations. ORA never formats a mounted disk, never silently
+reuses a disk with signatures and never marks a rebuild complete before the
+kernel reports a healthy array.
+
+**Dependencies:** Package 0 Job Manager and notifications; Package 1 user and
+permission model for shares. Basic local RAID management can ship before
+Package 1, but multi-user NAS sharing cannot.
+
+**Exit criteria:** ORA can create and monitor a RAID1 array, detect and report a
+degraded member, guide a disk replacement and rebuild, schedule a scrub,
+create an authenticated SMB share, and restore a verified backup without
+requiring SSH or direct configuration-file edits.
 
 ### Package 6 — Home & Lifestyle Apps + Media Hub
 

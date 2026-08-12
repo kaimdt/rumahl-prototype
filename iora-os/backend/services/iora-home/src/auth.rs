@@ -24,6 +24,8 @@ pub struct Claims {
     pub jti: String, // JWT ID – used for blacklisting
     pub username: String,
     pub is_admin: bool,
+    #[serde(default)]
+    pub iat: usize, // issued at – used for fresh authorization checks
     pub exp: usize, // expiration time
 }
 
@@ -54,6 +56,7 @@ pub fn generate_token(
         jti: jti.clone(),
         username: username.to_owned(),
         is_admin,
+        iat: now.timestamp() as usize,
         exp: exp as usize,
     };
 

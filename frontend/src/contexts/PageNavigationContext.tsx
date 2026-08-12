@@ -303,10 +303,12 @@ const SYSTEM_PAGE_PATHS: Record<string, string> = {
   share: '/share',
   streaming: '/streaming',
   'ai-agent': '/agent',
+  automations: '/automations',
   'os-files': '/files',
   'os-images': '/images',
   'os-network': '/network',
   'os-system': '/system',
+  'os-storage': '/storage',
   'os-updates': '/updates',
   'os-backups': '/backups',
 }

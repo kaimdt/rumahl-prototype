@@ -3,11 +3,12 @@ import { Sparkle, Gear, Clock, CalendarBlank, Info } from '@phosphor-icons/react
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConnection } from '@/contexts/ConnectionContext'
+import { HomeAssistantOnboarding } from '@/components/HomeAssistantOnboarding'
 
 export function SimpleDashboard() {
   const { setCurrentPageId } = usePageNavigation()
   const { user } = useAuth()
-  const { backend } = useConnection()
+  const { backend, haConfigured } = useConnection()
   const [time, setTime] = useState(new Date())
 
   useEffect(() => {
@@ -59,6 +60,8 @@ export function SimpleDashboard() {
             </div>
           </div>
         </div>
+
+        {isAdmin && haConfigured === false && <HomeAssistantOnboarding onComplete={() => window.location.reload()} />}
 
         {/* Welcome Section */}
         <div className="glass-card rounded-3xl p-8 sm:p-12">

@@ -2,6 +2,8 @@
 mod auth;
 mod cache;
 mod error;
+mod nas_inventory;
+mod storage_inventory;
 mod ws;
 
 use std::{
@@ -1238,6 +1240,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/ssh/users/:username", delete(delete_ssh_user))
         // OS-level management (only useful when running on IORA OS)
         .route("/api/control/os/disks", get(list_disks))
+        .route("/api/control/os/storage/inventory", get(storage_inventory::inventory))
+        .route("/api/control/os/storage/nas", get(nas_inventory::inventory))
+        .route("/api/control/os/storage/nas/plan", post(nas_inventory::plan))
+        .route("/api/control/os/storage/nas/execute", post(nas_inventory::execute))
+        .route("/api/control/os/storage/raid/plan", post(storage_inventory::plan))
         .route("/api/control/os/network", get(list_network_interfaces))
         .route("/api/control/os/network/set", post(set_network_config))
         .route("/api/control/os/processes", get(list_top_processes))
