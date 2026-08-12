@@ -123,6 +123,11 @@ export type WidgetType =
   | 'map'
   | 'iframe'
   | 'stream'
+  // ORA OS system widgets (Home Dashboard v2, Package 3)
+  | 'ora_storage'
+  | 'ora_system'
+  | 'ora_jobs'
+  | 'ora_recent_files'
 
 export interface DashboardWidget {
   id: string

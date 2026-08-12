@@ -124,4 +124,11 @@ export const DEFAULT_HOME_WIDGETS: DashboardWidget[] = [
   { id: 'home-analog-clock',  type: 'analog_clock',   position: { x: 1, y: 1 }, size: { w: 1, h: 1 }, config: { size: 220 } },
   { id: 'home-calendar',      type: 'calendar',       position: { x: 2, y: 1 }, size: { w: 2, h: 1 }, config: {} },
   { id: 'home-scenes',        type: 'scene_selector', position: { x: 0, y: 2 }, size: { w: 4, h: 1 }, config: {} },
+  // ORA OS system section (Package 3 — Home Dashboard v2; additive to the
+  // Home Assistant widgets above, which remain the smart-home core).
+  { id: 'home-system-header', type: 'section_header', position: { x: 0, y: 3 }, size: { w: 4, h: 1 }, label: 'System' },
+  { id: 'home-storage',       type: 'ora_storage',    position: { x: 0, y: 4 }, size: { w: 2, h: 1 }, config: {} },
+  { id: 'home-system',        type: 'ora_system',     position: { x: 2, y: 4 }, size: { w: 2, h: 1 }, config: {} },
+  { id: 'home-jobs',          type: 'ora_jobs',       position: { x: 0, y: 5 }, size: { w: 2, h: 2 }, config: {} },
+  { id: 'home-recent-files',  type: 'ora_recent_files', position: { x: 2, y: 5 }, size: { w: 2, h: 2 }, config: {} },
 ]

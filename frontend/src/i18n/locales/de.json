@@ -716,6 +716,27 @@
       "on": "An",
       "off": "Aus",
       "speed": "Geschwindigkeit"
+    },
+    "oraStorage": {
+      "title": "Speicher",
+      "used": "belegt",
+      "free": "frei",
+      "unavailable": "Speicher nicht erreichbar"
+    },
+    "oraSystem": {
+      "title": "Server",
+      "cpu": "CPU",
+      "memory": "RAM",
+      "uptime": "Laufzeit",
+      "unavailable": "Server offline"
+    },
+    "oraJobs": {
+      "title": "Jobs",
+      "empty": "Keine aktiven Jobs"
+    },
+    "oraFiles": {
+      "title": "Letzte Dateien",
+      "empty": "Noch keine Dateien"
     }
   },
   "admin": {

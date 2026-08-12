@@ -311,6 +311,13 @@ backup runs as a visible, resumable job; windows survive logout/login.
 - **Home Dashboard v2:** sections (time/weather/calendar/presence, storage,
   server state, downloads, smart home, music, recent files, cameras, energy)
   with **app-registered widgets** (`RegisterWidget` permission already exists).
+  - **Shipped (system section):** four ORA-native dashboard widgets —
+    `ora_storage` (quota), `ora_system` (CPU/RAM/uptime), `ora_jobs`
+    (active jobs), `ora_recent_files` — added to the widget registry, the
+    widget palette and the default home layout under a "System" section.
+    **ORA Home stays dependent on Home Assistant:** the smart-home widgets
+    (weather, scenes, calendar, entities) remain the core; the system
+    widgets are purely additive ORA data.
 
 ### Package 4 — Automation Engine ✅ implemented (Codex)
 
