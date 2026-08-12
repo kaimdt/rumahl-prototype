@@ -1459,7 +1459,9 @@
       "os.backups": "Backups verwalten",
       "os.backupsDesc": "Backups erstellen und wiederherstellen",
       "os.services": "Dienste verwalten",
-      "os.servicesDesc": "Systemdienste starten, stoppen und neu starten"
+      "os.servicesDesc": "Systemdienste starten, stoppen und neu starten",
+      "os.terminal": "Terminal",
+      "os.terminalDesc": "Interaktive Shell öffnen"
     }
   },
   "shortcuts": {
@@ -1842,6 +1844,7 @@
     "openApp": "App öffnen",
     "categories": "Kategorien",
     "items": "Einträge",
-    "back": "Zurück"
+    "back": "Zurück",
+    "terminal": "Terminal"
   }
 }

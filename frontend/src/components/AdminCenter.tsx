@@ -26,6 +26,7 @@ import { renderAdminTabContent, tabGroups, getTabs, type Tab } from '@/component
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { authFetch } from '@/lib/authHelpers'
 import { useCallback, useEffect } from 'react'
+import { OsTerminal } from '@/components/OsTerminal'
 
 /**
  * AdminCenter — Windows 11 Settings-style admin shell.
@@ -95,6 +96,7 @@ export function AdminCenter() {
   // Category structure: home + the existing admin groups.
   const categories: Category[] = useMemo(() => [
     { id: 'home', title: t('adminCenter.home'), icon: House, items: [] },
+    { id: 'terminal', title: t('adminCenter.terminal'), icon: Terminal, items: [] },
     ...tabGroups.map((group) => ({ id: group.id, title: group.title, icon: group.icon as typeof Cpu, items: group.items as Tab[] })),
   ], [t])
 
@@ -166,6 +168,9 @@ export function AdminCenter() {
   // ── Category overview (Windows 11 settings style) ────────────────────────
   const renderCategory = (category: Category) => (
     <div className="space-y-6">
+      {category.id === 'terminal' && <OsTerminal />}
+      {category.id !== 'terminal' && (
+      <>
       <div>
         <h1 className="text-2xl font-semibold">{category.title}</h1>
         <p className="mt-1 text-sm text-foreground/50">{category.items.length} {t('adminCenter.items')}</p>
@@ -200,6 +205,8 @@ export function AdminCenter() {
           )
         })}
       </div>
+      </>
+      )}
     </div>
   )
 

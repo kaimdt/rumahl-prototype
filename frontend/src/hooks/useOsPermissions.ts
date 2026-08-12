@@ -11,6 +11,7 @@ export type OsPermission =
   | 'os.updates'
   | 'os.backups'
   | 'os.services'
+  | 'os.terminal'
 
 export function useOsPermissions() {
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})

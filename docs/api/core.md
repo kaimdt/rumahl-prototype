@@ -603,6 +603,22 @@ Detection is best-effort via the `tailscale` CLI and `/etc/wireguard`
 presence. "External link" flows (file → share → remote URL) can build on the
 returned tailnet IP.
 
+### Web Terminal (Admin Center)
+
+```http
+# Interactive shell (requires os.terminal; authenticated via ?token=…)
+WS  /api/os/terminal/ws?token=…
+
+# Browser: new WebSocket(wsUrl + '/api/os/terminal/ws?token=' + token)
+# The session runs `bash` in a PTY (util-linux `script`) on the ORA host;
+# the server streams the terminal output (ANSI included) and accepts raw
+# input. Cancel = Ctrl+C (\u0003), exit = Ctrl+D.
+```
+
+`os.terminal` is a new OS permission (admin + maintenance by default, in the
+permission request catalog). The Admin Center exposes it as its own
+"Terminal" category.
+
 ### Logs (user-level viewer) + Services (systemd)
 
 The Logs app (`/logs`, requires `os.system.read`) exposes the central log

@@ -81,6 +81,7 @@ mod person_tracker;
 mod plugin_sandbox;
 mod streaming;
 mod system_events;
+mod terminal_handler;
 mod theme_handler;
 mod websocket;
 mod zigbee_client;
@@ -1914,6 +1915,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/downloads/:job_id/cancel",
             post(download_handler::cancel_download),
         )
+        // Web terminal (Package 9) — authenticated via ?token=
+        .route("/api/os/terminal/ws", get(terminal_handler::terminal_ws))
         // Remote access status (Package 7)
         .route("/api/remote/status", get(remote_handler::remote_status))
         // Media Hub (Package 6): Jellyfin/Plex detection + continue-watching
@@ -15033,7 +15036,7 @@ async fn delete_api_key(
 // Admin Endpoints
 // ═══════════════════════════════════════════════════════════════════════
 
-const OS_PERMISSIONS: [&str; 9] = [
+const OS_PERMISSIONS: [&str; 10] = [
     "os.files.read",
     "os.files.write",
     "os.network.read",
@@ -15043,6 +15046,7 @@ const OS_PERMISSIONS: [&str; 9] = [
     "os.updates",
     "os.backups",
     "os.services",
+    "os.terminal",
 ];
 
 fn role_os_permissions(role: &str) -> Vec<&'static str> {
@@ -15055,6 +15059,7 @@ fn role_os_permissions(role: &str) -> Vec<&'static str> {
             "os.updates",
             "os.backups",
             "os.services",
+            "os.terminal",
         ],
         "editor" => vec!["os.files.read", "os.files.write", "os.system.read"],
         "viewer" => vec!["os.files.read"],

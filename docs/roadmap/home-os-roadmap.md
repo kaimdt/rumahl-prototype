@@ -475,7 +475,7 @@ requiring SSH or direct configuration-file edits.
 
 ### Package 9 — Terminal & Admin Center Redesign
 
-> **Status:** in progress — Admin Center redesigned ✅; Terminal still open.
+> **Status:** ✅ **COMPLETE** — Admin Center redesigned + Terminal shipped.
 
 - Complete overhaul of the Admin Center; Terminal moves into it as a deeply
   integrated, permissioned component.
@@ -489,6 +489,12 @@ requiring SSH or direct configuration-file edits.
     services and quick access. Also fixed the long-standing broken tab
     (AdminCard now supports `description`; tools.tsx) and the AppDetailDialog
     type error — the frontend now type-checks with zero errors.
+  - **Terminal ✅** — `terminal_handler.rs` (WS `/api/os/terminal/ws`,
+    `bash` in a PTY via util-linux `script`, no new crate; new
+    `os.terminal` permission, admin + maintenance by default) and
+    `OsTerminal.tsx` (compact ANSI renderer, keyboard input incl. arrows/
+    Ctrl+C/D, paste-ready). Exposed as its own Terminal category in the
+    Admin Center.
 
 ### Deferred backlog
 

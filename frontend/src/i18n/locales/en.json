@@ -1458,7 +1458,9 @@
       "os.backups": "Manage backups",
       "os.backupsDesc": "Create and restore backups",
       "os.services": "Manage services",
-      "os.servicesDesc": "Start, stop and restart system services"
+      "os.servicesDesc": "Start, stop and restart system services",
+      "os.terminal": "Terminal",
+      "os.terminalDesc": "Open an interactive shell"
     }
   },
   "shortcuts": {
@@ -1841,6 +1843,7 @@
     "openApp": "Open app",
     "categories": "Categories",
     "items": "items",
-    "back": "Back"
+    "back": "Back",
+    "terminal": "Terminal"
   }
 }
