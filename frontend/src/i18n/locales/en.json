@@ -631,7 +631,17 @@
     "profileSaveFailed": "Could not save profile",
     "guestMode": "Guest mode",
     "guestModeDesc": "Allow password-free guest access (temporary viewer account)",
-    "guestModeSaved": "Guest mode updated"
+    "guestModeSaved": "Guest mode updated",
+    "mediaHub": "Media Hub",
+    "mediaHubDesc": "Jellyfin/Plex detection and continue-watching",
+    "mediaSaved": "Media config saved",
+    "mediaSaveFailed": "Could not save media config",
+    "mediaDetected": "Detected",
+    "mediaNotDetected": "Not detected",
+    "mediaUrlPlaceholder": "http://127.0.0.1:8096",
+    "mediaApiKey": "API key",
+    "mediaUserId": "User ID",
+    "mediaToken": "Token"
   },
   "dashboard": {
     "noEntities": "No entities found",
@@ -768,6 +778,13 @@
       "atHome": "Home",
       "away": "Away",
       "empty": "No people tracked"
+    },
+    "oraMedia": {
+      "title": "Media",
+      "refresh": "Refresh",
+      "empty": "Nothing in progress",
+      "notConfigured": "Connect Jellyfin in Settings → Media Hub",
+      "mediaServer": "Media server"
     }
   },
   "admin": {

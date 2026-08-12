@@ -129,6 +129,7 @@ export type WidgetType =
   | 'ora_jobs'
   | 'ora_recent_files'
   | 'ora_presence'
+  | 'ora_media'
 
 export interface DashboardWidget {
   id: string

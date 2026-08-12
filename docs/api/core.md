@@ -564,6 +564,28 @@ Downloads folder (multipart) using the caller's token; cancelling skips the
 final upload. Private LAN hosts are allowed (a home OS downloads from its
 NAS); loopback/link-local/multicast are blocked.
 
+### Media Hub (Jellyfin/Plex detection + continue-watching)
+
+```http
+# Detect local media servers (Jellyfin 8096, Plex 32400 or configured URLs)
+GET /api/media/hub
+→ { "jellyfin": { "reachable": true, "name": "…", "configured": false }, "plex": … }
+
+# Jellyfin resume items (requires API key + user id in the config)
+GET /api/media/continue-watching
+→ { "configured": true, "items": [ { "id": "…", "title": "…", "series": "…", "season": 2, "episode": 4, "progress_percent": 61 } ] }
+
+# Media server config (secrets redacted on GET; "••••••••" keeps the stored one)
+GET /api/media/config
+PUT /api/media/config
+Content-Type: application/json
+
+{ "jellyfin_url": "http://127.0.0.1:8096", "jellyfin_api_key": "…", "jellyfin_user_id": "…", "plex_url": "…", "plex_token": "…" }
+```
+
+Config is stored in `system_preferences` (`media.servers`); the Home dashboard
+media widget shows continue-watching items and detected servers.
+
 ### Logs (user-level viewer) + Services (systemd)
 
 The Logs app (`/logs`, requires `os.system.read`) exposes the central log

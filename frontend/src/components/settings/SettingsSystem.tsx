@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { MagnifyingGlass, MapPin, NavigationArrow, Plus, TextAa, Users, Vibrate, Warning, X, Keyboard, FileCode } from '@phosphor-icons/react'
+import { MagnifyingGlass, MapPin, NavigationArrow, Plus, TextAa, Users, Vibrate, Warning, X, Keyboard, FileCode, FilmStrip } from '@phosphor-icons/react'
 import { useLocalStorage } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
@@ -775,6 +775,91 @@ export function DefaultAppsSection() {
           )
         })}
         <p className="pt-1 text-[11px] text-foreground/40">{t('defaultApps.hint')}</p>
+      </div>
+    </SettingsSection>
+  )
+}
+
+// ─── Media Hub configuration (Package 6) ─────────────────────────────────
+
+export function MediaHubConfigSection() {
+  const { t } = useTranslation()
+  const [form, setForm] = useState({ jellyfin_url: '', jellyfin_api_key: '', jellyfin_user_id: '', plex_url: '', plex_token: '' })
+  const [hub, setHub] = useState<{ jellyfin: { reachable: boolean; name?: string | null }; plex: { reachable: boolean; name?: string | null } } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [configResponse, hubResponse] = await Promise.all([authFetch('/api/media/config'), authFetch('/api/media/hub')])
+      if (configResponse.ok) setForm(await configResponse.json())
+      if (hubResponse.ok) setHub(await hubResponse.json())
+    } catch {
+      // offline
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const response = await authFetch('/api/media/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (response.ok) toast.success(t('settings.mediaSaved'))
+      else toast.error(t('settings.mediaSaveFailed'))
+      await load()
+    } catch {
+      toast.error(t('settings.mediaSaveFailed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }))
+
+  return (
+    <SettingsSection icon={FilmStrip} title={t('settings.mediaHub')} description={t('settings.mediaHubDesc')}>
+      <div className="space-y-4 px-5 pb-5">
+        {/* Detection status */}
+        <div className="flex flex-wrap gap-2">
+          <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${hub?.jellyfin.reachable ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/7 text-foreground/45'}`}>
+            Jellyfin {hub?.jellyfin.reachable ? `· ${hub.jellyfin.name || t('settings.mediaDetected')}` : t('settings.mediaNotDetected')}
+          </span>
+          <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${hub?.plex.reachable ? 'bg-amber-500/10 text-amber-300' : 'bg-foreground/7 text-foreground/45'}`}>
+            Plex {hub?.plex.reachable ? `· ${hub.plex.name || t('settings.mediaDetected')}` : t('settings.mediaNotDetected')}
+          </span>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-white/8 bg-foreground/4 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/55">Jellyfin</p>
+            <div className="space-y-2">
+              <input value={form.jellyfin_url} onChange={(event) => set('jellyfin_url', event.target.value)} className="ora-input" placeholder={t('settings.mediaUrlPlaceholder')} />
+              <input value={form.jellyfin_api_key} onChange={(event) => set('jellyfin_api_key', event.target.value)} className="ora-input" placeholder={t('settings.mediaApiKey')} type="password" autoComplete="off" />
+              <input value={form.jellyfin_user_id} onChange={(event) => set('jellyfin_user_id', event.target.value)} className="ora-input" placeholder={t('settings.mediaUserId')} />
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-foreground/4 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/55">Plex</p>
+            <div className="space-y-2">
+              <input value={form.plex_url} onChange={(event) => set('plex_url', event.target.value)} className="ora-input" placeholder={t('settings.mediaUrlPlaceholder')} />
+              <input value={form.plex_token} onChange={(event) => set('plex_token', event.target.value)} className="ora-input" placeholder={t('settings.mediaToken')} type="password" autoComplete="off" />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <button type="button" disabled={saving || loading} onClick={() => void save()} className="ora-primary-button">
+            {saving ? t('common.saving') : t('common.save')}
+          </button>
+        </div>
       </div>
     </SettingsSection>
   )

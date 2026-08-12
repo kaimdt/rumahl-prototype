@@ -132,4 +132,5 @@ export const DEFAULT_HOME_WIDGETS: DashboardWidget[] = [
   { id: 'home-system',        type: 'ora_system',     position: { x: 2, y: 4 }, size: { w: 2, h: 1 }, config: {} },
   { id: 'home-jobs',          type: 'ora_jobs',       position: { x: 0, y: 5 }, size: { w: 2, h: 2 }, config: {} },
   { id: 'home-recent-files',  type: 'ora_recent_files', position: { x: 2, y: 5 }, size: { w: 2, h: 2 }, config: {} },
+  { id: 'home-media',          type: 'ora_media',       position: { x: 0, y: 7 }, size: { w: 4, h: 2 }, config: {} },
 ]

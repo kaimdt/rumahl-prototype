@@ -116,6 +116,7 @@ const NinaSettingsSection = lazy(() => import('./settings/SettingsSystem').then(
 const FamilyProfilesSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.FamilyProfilesSection })))
 const KeyboardShortcutsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.KeyboardShortcutsSection })))
 const DefaultAppsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.DefaultAppsSection })))
+const MediaHubConfigSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.MediaHubConfigSection })))
 const SettingsAppsSection = lazy(() => import('./SettingsAppsSection').then((m) => ({ default: m.SettingsAppsSection })))
 
 /** Map icon name string to Phosphor icon component */
@@ -1042,6 +1043,9 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Default apps / MIME associations */}
             <Suspense fallback={null}><DefaultAppsSection /></Suspense>
+
+            {/* Media Hub configuration */}
+            <Suspense fallback={null}><MediaHubConfigSection /></Suspense>
           </div>
         </TabsContent>
 

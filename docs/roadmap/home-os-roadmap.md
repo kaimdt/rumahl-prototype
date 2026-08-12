@@ -405,8 +405,8 @@ requiring SSH or direct configuration-file edits.
 
 ### Package 6 — Home & Lifestyle Apps + Media Hub
 
-> **Status:** in progress — per-user Downloads folder ✅ + universal download
-> manager ✅; lifestyle apps and the Media Hub (Jellyfin/Plex) still open.
+> **Status:** in progress — per-user Downloads ✅, download manager ✅, Media
+> Hub ✅; lifestyle apps still open.
 
 - App-store apps: Calendar, Notes, Tasks, Contacts, Photos, Music, Videos,
   Recipes, Shopping List, Documents, Password Manager, Home Assistant,
@@ -423,8 +423,12 @@ requiring SSH or direct configuration-file edits.
   (multipart, caller token), so downloads survive tab closes. Cancel skips
   the upload. Files app has a "Download from URL" dialog; the Job Center
   shows progress; SDK exposes `ora.downloads`.
-- **Media Hub:** Jellyfin/Plex detection, continue-watching on home,
-  (downloads now hand into the manager; media hub UI still open).
+- **Media Hub ✅** — `GET /api/media/hub` probes Jellyfin (8096) and Plex
+  (32400) or configured URLs; `GET /api/media/continue-watching` returns
+  Jellyfin resume items (API key + user id config, stored redacted in
+  `media.servers`); the `ora_media` Home widget shows continue-watching with
+  progress bars + detected server chips; Settings → System → **Media Hub**
+  configures the connections. Plex continue-watching is a follow-up.
 
 ### Package 7 — Remote Access & Device-to-Device
 

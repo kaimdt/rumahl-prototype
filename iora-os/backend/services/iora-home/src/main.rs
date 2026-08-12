@@ -69,6 +69,7 @@ mod local_appstore;
 mod location_sync;
 mod logs_handler;
 mod matter_client;
+mod media_handler;
 mod middleware;
 mod mqtt_client;
 mod notification_dispatcher;
@@ -1912,6 +1913,14 @@ async fn main() -> anyhow::Result<()> {
             "/api/downloads/:job_id/cancel",
             post(download_handler::cancel_download),
         )
+        // Media Hub (Package 6): Jellyfin/Plex detection + continue-watching
+        .route("/api/media/hub", get(media_handler::media_hub))
+        .route(
+            "/api/media/continue-watching",
+            get(media_handler::continue_watching),
+        )
+        .route("/api/media/config", get(media_handler::get_media_config))
+        .route("/api/media/config", put(media_handler::save_media_config))
         // Webhook management
         .route("/api/webhooks", get(list_webhooks))
         .route("/api/webhooks", post(create_webhook))
