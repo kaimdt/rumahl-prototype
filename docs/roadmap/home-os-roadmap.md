@@ -437,8 +437,15 @@ requiring SSH or direct configuration-file edits.
 
 ### Package 7 — Remote Access & Device-to-Device
 
+> **Status:** in progress — tunnel status ✅; external links, TLS/domains and
+> device-to-device agents still open.
+
 - Remote access pack: Tailscale/WireGuard, reverse proxy, domains, TLS,
   "create external link" for shares (file → share → external link).
+  - **Shipped (status):** `GET /api/remote/status` detects Tailscale (via
+    the `tailscale` CLI: hostname, tailnet IP, online) and WireGuard
+    (`/etc/wireguard` interfaces); Settings → System → **Remote access**
+    shows the tunnel state. External-link flows can build on the tailnet IP.
 - Device agents (Windows/macOS/Linux): send-to-device, open-on-device,
   clipboard sync, wake, remote terminal (AirDrop + KDE Connect feel).
 

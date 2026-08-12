@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { MagnifyingGlass, MapPin, NavigationArrow, Plus, TextAa, Users, Vibrate, Warning, X, Keyboard, FileCode, FilmStrip } from '@phosphor-icons/react'
+import { MagnifyingGlass, MapPin, NavigationArrow, Plus, TextAa, Users, Vibrate, Warning, X, Keyboard, FileCode, FilmStrip, Globe } from '@phosphor-icons/react'
 import { useLocalStorage } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
@@ -860,6 +860,77 @@ export function MediaHubConfigSection() {
             {saving ? t('common.saving') : t('common.save')}
           </button>
         </div>
+      </div>
+    </SettingsSection>
+  )
+}
+
+// ─── Remote access (Package 7) ────────────────────────────────────────────
+
+export function RemoteAccessSection() {
+  const { t } = useTranslation()
+  const [status, setStatus] = useState<{
+    tailscale: { installed?: boolean; running?: boolean; online?: boolean; hostname?: string; ip?: string }
+    wireguard: { installed?: boolean; interfaces?: string[] }
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await authFetch('/api/remote/status')
+      if (response.ok) setStatus(await response.json())
+    } catch {
+      // offline
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  return (
+    <SettingsSection icon={Globe} title={t('settings.remoteAccess')} description={t('settings.remoteAccessDesc')}>
+      <div className="space-y-3 px-5 pb-5">
+        {/* Tailscale */}
+        <div className="rounded-2xl border border-white/8 bg-foreground/4 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground/90">Tailscale</p>
+            {status?.tailscale.installed ? (
+              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${status.tailscale.online ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
+                {status.tailscale.online ? t('settings.remoteOnline') : t('settings.remoteOffline')}
+              </span>
+            ) : (
+              <span className="rounded-full bg-foreground/7 px-2 py-1 text-[10px] text-foreground/45">{t('settings.remoteNotInstalled')}</span>
+            )}
+          </div>
+          {status?.tailscale.installed && (
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-foreground/55">
+              {status.tailscale.hostname && <span>{t('settings.remoteHostname')}: <strong className="text-foreground/80">{status.tailscale.hostname}</strong></span>}
+              {status.tailscale.ip && <span>IP: <strong className="text-foreground/80">{status.tailscale.ip}</strong></span>}
+            </div>
+          )}
+          {!status?.tailscale.installed && <p className="mt-2 text-[11px] text-foreground/40">{t('settings.remoteTailscaleHint')}</p>}
+        </div>
+
+        {/* WireGuard */}
+        <div className="rounded-2xl border border-white/8 bg-foreground/4 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground/90">WireGuard</p>
+            {status?.wireguard.installed ? (
+              <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300">{t('settings.remoteConfigured')}</span>
+            ) : (
+              <span className="rounded-full bg-foreground/7 px-2 py-1 text-[10px] text-foreground/45">{t('settings.remoteNotConfigured')}</span>
+            )}
+          </div>
+          {status?.wireguard.interfaces?.length ? (
+            <p className="mt-2 text-[11px] text-foreground/45">{status.wireguard.interfaces.join(', ')}</p>
+          ) : (
+            <p className="mt-2 text-[11px] text-foreground/40">{t('settings.remoteWireguardHint')}</p>
+          )}
+        </div>
+
+        {loading && <p className="text-xs text-foreground/40">{t('common.loading')}</p>}
       </div>
     </SettingsSection>
   )

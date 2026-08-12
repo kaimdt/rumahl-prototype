@@ -74,6 +74,7 @@ mod middleware;
 mod mqtt_client;
 mod notification_dispatcher;
 mod permission_requests_handler;
+mod remote_handler;
 mod session_handler;
 mod user_profiles_handler;
 mod person_tracker;
@@ -1913,6 +1914,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/downloads/:job_id/cancel",
             post(download_handler::cancel_download),
         )
+        // Remote access status (Package 7)
+        .route("/api/remote/status", get(remote_handler::remote_status))
         // Media Hub (Package 6): Jellyfin/Plex detection + continue-watching
         .route("/api/media/hub", get(media_handler::media_hub))
         .route(

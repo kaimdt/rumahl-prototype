@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Einkaufsliste</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0} body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0b0d12;color:#e5e7eb;min-height:100vh}
+  header{display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.08)} header h1{font-size:1.25rem;font-weight:600}
+  main{max-width:40rem;margin:0 auto;padding:1.5rem} .add{display:flex;gap:.5rem;margin-bottom:1.5rem}
+  .add input{flex:1;background:rgba(0,0,0,.3);color:#e5e7eb;border:1px solid rgba(255,255,255,.1);border-radius:.75rem;padding:.7rem .9rem;font-size:.95rem}
+  .add button{background:#22d3ee;color:#082f36;border:none;border-radius:.75rem;padding:.7rem 1.2rem;font-weight:600;cursor:pointer}
+  .item{display:flex;align-items:center;gap:.75rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:.9rem;padding:.85rem 1rem;margin-bottom:.6rem}
+  .item input[type=checkbox]{width:1.1rem;height:1.1rem;accent-color:#22d3ee}
+  .item span{flex:1;font-size:.95rem} .item.done span{text-decoration:line-through;color:rgba(255,255,255,.35)}
+  .item .qty{color:rgba(255,255,255,.45);font-size:.8rem} .item button{background:none;border:none;color:#f87171;cursor:pointer;font-size:1rem}
+  .empty{text-align:center;color:rgba(255,255,255,.35);padding:3rem 0} .progress{font-size:.8rem;color:rgba(255,255,255,.45);margin-bottom:1rem}
+</style></head><body>
+<header><h1>🛒 Einkaufsliste</h1><span class="progress" id="progress"></span></header>
+<main>
+  <div class="add"><input id="name" placeholder="Artikel…" /><input id="qty" placeholder="Menge" style="width:6rem" /><button onclick="addItem()">Hinzufügen</button></div>
+  <div id="list"></div>
+</main>
+<script>
+  async function api(p, o) { const r = await fetch('/api'+p, { headers: {'Content-Type':'application/json'}, ...o }); if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+  async function load() {
+    const items = await api('/items');
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    const done = items.filter(i => i.done).length;
+    document.getElementById('progress').textContent = items.length ? done + ' / ' + items.length + ' erledigt' : '';
+    if (!items.length) { list.innerHTML = '<div class="empty">Leere Liste — füge Artikel hinzu.</div>'; return; }
+    for (const item of items) {
+      const el = document.createElement('div');
+      el.className = 'item' + (item.done ? ' done' : '');
+      el.innerHTML = '<input type="checkbox" ' + (item.done ? 'checked' : '') + '><span></span><span class="qty"></span><button>✕</button>';
+      el.querySelector('span').textContent = item.name;
+      el.querySelector('.qty').textContent = item.qty || '';
+      el.querySelector('input').onchange = async (e) => { await api('/items/'+item.id, { method:'PUT', body: JSON.stringify({ done: e.target.checked }) }); load(); };
+      el.querySelector('button').onclick = async () => { await api('/items/'+item.id, { method:'DELETE' }); load(); };
+      list.appendChild(el);
+    }
+  }
+  async function addItem() {
+    const name = document.getElementById('name').value.trim();
+    const qty = document.getElementById('qty').value.trim();
+    if (!name) return;
+    await api('/items', { method:'POST', body: JSON.stringify({ name, qty, done: false }) });
+    document.getElementById('name').value = ''; document.getElementById('qty').value = '';
+    load();
+  }
+  load();
+</script></body></html>

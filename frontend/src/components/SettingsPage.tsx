@@ -117,6 +117,7 @@ const FamilyProfilesSection = lazy(() => import('./settings/SettingsSystem').the
 const KeyboardShortcutsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.KeyboardShortcutsSection })))
 const DefaultAppsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.DefaultAppsSection })))
 const MediaHubConfigSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.MediaHubConfigSection })))
+const RemoteAccessSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.RemoteAccessSection })))
 const SettingsAppsSection = lazy(() => import('./SettingsAppsSection').then((m) => ({ default: m.SettingsAppsSection })))
 
 /** Map icon name string to Phosphor icon component */
@@ -1046,6 +1047,9 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Media Hub configuration */}
             <Suspense fallback={null}><MediaHubConfigSection /></Suspense>
+
+            {/* Remote access (Package 7) */}
+            <Suspense fallback={null}><RemoteAccessSection /></Suspense>
           </div>
         </TabsContent>
 

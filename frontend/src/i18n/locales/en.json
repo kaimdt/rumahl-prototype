@@ -641,7 +641,17 @@
     "mediaUrlPlaceholder": "http://127.0.0.1:8096",
     "mediaApiKey": "API key",
     "mediaUserId": "User ID",
-    "mediaToken": "Token"
+    "mediaToken": "Token",
+    "remoteAccess": "Remote access",
+    "remoteAccessDesc": "Tailscale / WireGuard status for accessing ORA from outside",
+    "remoteOnline": "Online",
+    "remoteOffline": "Offline",
+    "remoteNotInstalled": "Not installed",
+    "remoteHostname": "Hostname",
+    "remoteConfigured": "Configured",
+    "remoteNotConfigured": "Not configured",
+    "remoteTailscaleHint": "Install Tailscale on the host to access ORA from anywhere (tailscale.com).",
+    "remoteWireguardHint": "No WireGuard config found in /etc/wireguard."
   },
   "dashboard": {
     "noEntities": "No entities found",

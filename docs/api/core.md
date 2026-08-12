@@ -586,6 +586,19 @@ Content-Type: application/json
 Config is stored in `system_preferences` (`media.servers`); the Home dashboard
 media widget shows continue-watching items and detected servers.
 
+### Remote Access (Tailscale / WireGuard status)
+
+```http
+# Tunnel status (requires os.network.read)
+GET /api/remote/status
+→ { "tailscale": { "installed": true, "running": true, "online": true, "hostname": "ora", "ip": "100.x.y.z" },
+    "wireguard": { "installed": true, "interfaces": ["wg0.conf"] } }
+```
+
+Detection is best-effort via the `tailscale` CLI and `/etc/wireguard`
+presence. "External link" flows (file → share → remote URL) can build on the
+returned tailnet IP.
+
 ### Logs (user-level viewer) + Services (systemd)
 
 The Logs app (`/logs`, requires `os.system.read`) exposes the central log

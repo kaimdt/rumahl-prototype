@@ -1,0 +1,66 @@
+{
+  "id": "ora-calendar",
+  "name": "Kalender",
+  "version": "1.0.0",
+  "developer": "IORA Team",
+  "description": "Einfacher Familien-Kalender – Termine mit Datum und Uhrzeit, gespeichert über das ORA App Storage.",
+  "icon": "https://img.icons8.com/color/256/calendar.png",
+  "type": "app",
+  "permissions": [
+    "AppStorageRead",
+    "AppStorageWrite",
+    "AppStorageDelete",
+    "AppStorageManage"
+  ],
+  "storage": {
+    "enabled": true,
+    "quota": {
+      "max_file_storage_bytes": 5242880,
+      "max_kv_entries": 100,
+      "max_file_size_bytes": 1048576
+    }
+  },
+  "custom_pages": [
+    {
+      "id": "ora-calendar-main",
+      "title": "Kalender",
+      "icon": "Calendar",
+      "url": "/apps/ora-calendar/",
+      "show_in_nav": true,
+      "order": 212
+    }
+  ],
+  "docker": {
+    "auto_build": true,
+    "base_image": "node:18-alpine",
+    "working_dir": "/app",
+    "install_cmd": "npm install",
+    "start_cmd": "node server.js",
+    "internal_ports": [
+      {
+        "port": 3000,
+        "protocol": "tcp",
+        "description": "HTTP API und Web-UI"
+      }
+    ],
+    "environment": {
+      "NODE_ENV": "production"
+    },
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "store_metadata": {
+    "category": "Organisation",
+    "tags": [
+      "kalender",
+      "termin",
+      "familie"
+    ],
+    "min_iora_version": "2.0.0",
+    "license": "MIT"
+  }
+}
