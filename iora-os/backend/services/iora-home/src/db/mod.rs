@@ -194,6 +194,10 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
             "044_device_registry",
             include_str!("../../migrations/044_device_registry.sql"),
         ),
+        (
+            "045_device_agents",
+            include_str!("../../migrations/045_device_agents.sql"),
+        ),
     ];
 
     // Apply each migration if not already applied

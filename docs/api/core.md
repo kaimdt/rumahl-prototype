@@ -518,6 +518,10 @@ DELETE /api/devices/{id}
 
 # Wake-on-LAN: sends a magic packet (UDP broadcast 255.255.255.255:9)
 POST /api/devices/{id}/wake
+
+# Reachability probe (tcp: host+port connect, http: GET url — migration 045)
+POST /api/devices/{id}/probe
+→ { "reachable": true, "latency_ms": 12, "detail": "tcp 192.168.1.10:22 reachable" }
 ```
 
 `device_type`: `computer` | `nas` | `tv` | `printer` | `phone` | `tablet` | `other`.

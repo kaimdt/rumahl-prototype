@@ -118,8 +118,9 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
 ]
 
 export const DEFAULT_HOME_WIDGETS: DashboardWidget[] = [
-  { id: 'home-greeting',      type: 'greeting',       position: { x: 0, y: 0 }, size: { w: 3, h: 1 }, config: {} },
-  { id: 'home-weather',       type: 'weather',        position: { x: 3, y: 0 }, size: { w: 1, h: 1 }, config: {} },
+  { id: 'home-greeting',      type: 'greeting',       position: { x: 0, y: 0 }, size: { w: 2, h: 1 }, config: {} },
+  { id: 'home-weather',       type: 'weather',        position: { x: 2, y: 0 }, size: { w: 1, h: 1 }, config: {} },
+  { id: 'home-presence',      type: 'ora_presence',   position: { x: 3, y: 0 }, size: { w: 1, h: 1 }, config: {} },
   { id: 'home-digital-clock', type: 'digital_clock',  position: { x: 0, y: 1 }, size: { w: 1, h: 1 }, config: { showSeconds: true, showDate: true } },
   { id: 'home-analog-clock',  type: 'analog_clock',   position: { x: 1, y: 1 }, size: { w: 1, h: 1 }, config: { size: 220 } },
   { id: 'home-calendar',      type: 'calendar',       position: { x: 2, y: 1 }, size: { w: 2, h: 1 }, config: {} },

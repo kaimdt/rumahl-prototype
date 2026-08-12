@@ -295,6 +295,10 @@
       "devices": {
         "name": "Devices",
         "description": "Your devices with wake-on-LAN"
+      },
+      "containers": {
+        "name": "Containers",
+        "description": "Docker containers and resource usage"
       }
     },
     "systemApps": {
@@ -736,6 +740,13 @@
     "oraFiles": {
       "title": "Recent files",
       "empty": "No files yet"
+    },
+    "oraPresence": {
+      "title": "Presence",
+      "home": "home",
+      "atHome": "Home",
+      "away": "Away",
+      "empty": "No people tracked"
     }
   },
   "admin": {
@@ -1673,6 +1684,48 @@
       "phone": "Phone",
       "tablet": "Tablet",
       "other": "Other"
+    },
+    "agent": "Agent",
+    "agentNone": "None",
+    "agentHost": "Host",
+    "agentPort": "Port",
+    "agentUrl": "URL",
+    "check": "Check",
+    "checking": "Checking…",
+    "probeFailed": "Check failed",
+    "agents": {
+      "tcp": "TCP probe",
+      "http": "HTTP probe"
+    }
+  },
+  "containersApp": {
+    "title": "Containers",
+    "subtitle": "Apps and Docker containers",
+    "refresh": "Refresh",
+    "total": "Containers",
+    "running": "Running",
+    "stopped": "Stopped",
+    "cpu": "CPU",
+    "memory": "Memory",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "unavailable": "Container service unavailable",
+    "empty": "No containers",
+    "actionFailed": "Action failed",
+    "actionDone": {
+      "start": "{{name}} started",
+      "stop": "{{name}} stopped",
+      "restart": "{{name}} restarted"
+    },
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped"
+    },
+    "filter": {
+      "all": "All",
+      "running": "Running",
+      "stopped": "Stopped"
     }
   }
 }

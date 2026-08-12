@@ -11,6 +11,7 @@ import {
   PencilSimple,
   Plus,
   Printer,
+  Pulse,
   Television,
   Trash,
   WifiHigh,
@@ -43,6 +44,14 @@ interface RegistryDevice {
   notes: string
   created_by: string
   created_at: string
+  agent_type?: string | null
+  agent_config?: Record<string, unknown>
+}
+
+interface ProbeResult {
+  reachable: boolean
+  latency_ms?: number
+  detail?: string
 }
 
 const DEVICE_TYPES = ['computer', 'nas', 'tv', 'printer', 'phone', 'tablet', 'other'] as const
@@ -68,7 +77,9 @@ export function OsDevicesApp() {
   const [waking, setWaking] = useState<string | null>(null)
   const [editing, setEditing] = useState<RegistryDevice | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '' })
+  const [form, setForm] = useState({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '', agent_type: '', agent_host: '', agent_port: '22', agent_url: '' })
+  const [probes, setProbes] = useState<Record<string, ProbeResult>>({})
+  const [probing, setProbing] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -124,6 +135,12 @@ export function OsDevicesApp() {
       ip_address: form.ip_address.trim() || null,
       wake_enabled: form.wake_enabled,
       notes: form.notes.trim(),
+      agent_type: form.agent_type || null,
+      agent_config: form.agent_type === 'tcp'
+        ? { host: form.agent_host.trim(), port: Number(form.agent_port) || 22 }
+        : form.agent_type === 'http'
+          ? { url: form.agent_url.trim() }
+          : {},
     }
     try {
       const response = editing
@@ -136,7 +153,7 @@ export function OsDevicesApp() {
       toast.success(t('devicesApp.saved'))
       setShowForm(false)
       setEditing(null)
-      setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '' })
+      setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '', agent_type: '', agent_host: '', agent_port: '22', agent_url: '' })
       await load()
     } catch (saveError) {
       toast.error(saveError instanceof Error ? saveError.message : t('devicesApp.saveFailed'))
@@ -156,6 +173,7 @@ export function OsDevicesApp() {
 
   const openEdit = (device: RegistryDevice) => {
     setEditing(device)
+    const config = device.agent_config || {}
     setForm({
       name: device.name,
       device_type: device.device_type,
@@ -163,8 +181,29 @@ export function OsDevicesApp() {
       ip_address: device.ip_address || '',
       wake_enabled: device.wake_enabled,
       notes: device.notes,
+      agent_type: device.agent_type || '',
+      agent_host: typeof config.host === 'string' ? config.host : '',
+      agent_port: config.port != null ? String(config.port) : '22',
+      agent_url: typeof config.url === 'string' ? config.url : '',
     })
     setShowForm(true)
+  }
+
+  const probeDevice = async (device: RegistryDevice) => {
+    setProbing(device.id)
+    try {
+      const response = await authFetch(`/api/devices/${device.id}/probe`, { method: 'POST' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || `HTTP ${response.status}`)
+      }
+      const result = await response.json() as ProbeResult
+      setProbes((current) => ({ ...current, [device.id]: result }))
+    } catch (probeError) {
+      toast.error(probeError instanceof Error ? probeError.message : t('devicesApp.probeFailed'))
+    } finally {
+      setProbing(null)
+    }
   }
 
   const activeCount = network.filter((device) => device.is_active).length
@@ -187,7 +226,7 @@ export function OsDevicesApp() {
           <button type="button" onClick={() => void load()} disabled={loading} className="glass-card rounded-full p-3" title={t('devicesApp.refresh')}>
             <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button type="button" onClick={() => { setEditing(null); setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '' }); setShowForm((value) => !value) }} className="ora-primary-button">
+          <button type="button" onClick={() => { setEditing(null); setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '', agent_type: '', agent_host: '', agent_port: '22', agent_url: '' }); setShowForm((value) => !value) }} className="ora-primary-button">
             <Plus size={16} />{t('devicesApp.addDevice')}
           </button>
           <OsWindowActions pageId="os-devices" />
@@ -226,6 +265,22 @@ export function OsDevicesApp() {
                   {device.notes && <p className="mt-1 text-xs text-foreground/45">{device.notes}</p>}
                 </div>
               </div>
+              {device.agent_type && (
+                <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-foreground/5 px-3 py-2 text-xs">
+                  <span className="text-foreground/45">{t(`devicesApp.agents.${device.agent_type}`)}</span>
+                  <span className="flex items-center gap-2">
+                    {probes[device.id] && (
+                      <span className={probes[device.id].reachable ? 'text-emerald-400' : 'text-red-400'} title={probes[device.id].detail}>
+                        {probes[device.id].reachable ? t('devicesApp.online') : t('devicesApp.offline')}
+                        {probes[device.id].latency_ms != null && ` · ${probes[device.id].latency_ms}ms`}
+                      </span>
+                    )}
+                    <button type="button" disabled={probing === device.id} onClick={() => void probeDevice(device)} className="rounded-lg bg-foreground/7 px-2 py-1 text-[11px] font-semibold text-foreground/70 transition-colors hover:bg-foreground/12 disabled:opacity-40">
+                      <Pulse size={12} className="mr-1 inline" />{probing === device.id ? t('devicesApp.checking') : t('devicesApp.check')}
+                    </button>
+                  </span>
+                </div>
+              )}
               <div className="mt-4 flex items-center justify-end gap-2">
                 {device.wake_enabled && device.mac_address ? (
                   <button type="button" disabled={waking === device.id} onClick={() => void wakeDevice(device)} className="ora-primary-button !py-2">
@@ -270,6 +325,28 @@ export function OsDevicesApp() {
             <Field label={t('devicesApp.notes')}>
               <input value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="ora-input" />
             </Field>
+            <Field label={t('devicesApp.agent')}>
+              <select value={form.agent_type} onChange={(event) => setForm((current) => ({ ...current, agent_type: event.target.value }))} className="ora-input">
+                <option value="">{t('devicesApp.agentNone')}</option>
+                <option value="tcp">TCP</option>
+                <option value="http">HTTP</option>
+              </select>
+            </Field>
+            {form.agent_type === 'tcp' && (
+              <>
+                <Field label={t('devicesApp.agentHost')}>
+                  <input value={form.agent_host} onChange={(event) => setForm((current) => ({ ...current, agent_host: event.target.value }))} className="ora-input" placeholder="192.168.1.10" />
+                </Field>
+                <Field label={t('devicesApp.agentPort')}>
+                  <input value={form.agent_port} onChange={(event) => setForm((current) => ({ ...current, agent_port: event.target.value }))} className="ora-input" placeholder="22" />
+                </Field>
+              </>
+            )}
+            {form.agent_type === 'http' && (
+              <Field label={t('devicesApp.agentUrl')}>
+                <input value={form.agent_url} onChange={(event) => setForm((current) => ({ ...current, agent_url: event.target.value }))} className="ora-input" placeholder="http://192.168.1.20:8080" />
+              </Field>
+            )}
             <label className="flex items-end gap-2 pb-2 text-sm text-foreground/60">
               <input type="checkbox" checked={form.wake_enabled} onChange={(event) => setForm((current) => ({ ...current, wake_enabled: event.target.checked }))} />
               {t('devicesApp.wakeEnabled')}

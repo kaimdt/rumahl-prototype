@@ -38,10 +38,12 @@ type DeviceRow = (
     String,
     String,
     chrono::DateTime<Utc>,
+    Option<String>,
+    serde_json::Value,
 );
 
 const DEVICE_SELECT: &str = "SELECT id, name, device_type, mac_address, ip_address, \
-                             wake_enabled, notes, created_by, created_at \
+                             wake_enabled, notes, created_by, created_at, agent_type, agent_config \
                              FROM device_registry";
 
 fn row_to_value(row: &DeviceRow) -> Value {
@@ -55,7 +57,32 @@ fn row_to_value(row: &DeviceRow) -> Value {
         "notes": row.6,
         "created_by": row.7,
         "created_at": row.8,
+        "agent_type": row.9,
+        "agent_config": row.10,
     })
+}
+
+/// Validate an agent configuration: known type + object config.
+fn validate_agent(
+    agent_type: &Option<String>,
+    agent_config: &Option<serde_json::Value>,
+) -> Result<(), ErrorResponse> {
+    let Some(agent_type) = agent_type else {
+        return Ok(());
+    };
+    if !iora_shared::devices::AGENT_TYPES.contains(&agent_type.as_str()) {
+        return Err(ErrorResponse::bad_request(format!(
+            "invalid agent_type '{agent_type}' (expected tcp or http)"
+        )));
+    }
+    if let Some(config) = agent_config {
+        if !config.is_object() {
+            return Err(ErrorResponse::bad_request(
+                "agent_config must be a JSON object",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_mac(mac: &str) -> bool {
@@ -137,6 +164,7 @@ pub async fn create_device(
             )));
         }
     }
+    validate_agent(&body.agent_type, &body.agent_config)?;
 
     let id = Uuid::new_v4().to_string();
     let mac = body
@@ -144,10 +172,12 @@ pub async fn create_device(
         .as_deref()
         .filter(|m| !m.trim().is_empty())
         .map(|m| m.to_string());
+    let agent_type = body.agent_type.as_deref().filter(|a| !a.trim().is_empty());
+    let agent_config = body.agent_config.clone().unwrap_or_else(|| json!({}));
 
     sqlx::query(
-        "INSERT INTO device_registry (id, name, device_type, mac_address, ip_address, wake_enabled, notes, created_by) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        "INSERT INTO device_registry (id, name, device_type, mac_address, ip_address, wake_enabled, notes, created_by, agent_type, agent_config) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&id)
     .bind(body.name.trim())
@@ -157,6 +187,8 @@ pub async fn create_device(
     .bind(body.wake_enabled)
     .bind(body.notes.trim())
     .bind(user_id)
+    .bind(agent_type)
+    .bind(&agent_config)
     .execute(&state.db_pool)
     .await
     .map_err(|e| ErrorResponse::internal(format!("failed to create device: {e}")))?;
@@ -190,6 +222,10 @@ pub async fn update_device(
             )));
         }
     }
+    validate_agent(&body.agent_type, &body.agent_config)?;
+
+    // An explicit empty agent_type clears the agent; bind "" as the marker.
+    let agent_type = body.agent_type.as_deref().map(|a| a.trim());
 
     let affected = sqlx::query(
         "UPDATE device_registry SET \
@@ -198,8 +234,10 @@ pub async fn update_device(
          mac_address = COALESCE($3, mac_address), \
          ip_address = COALESCE($4, ip_address), \
          wake_enabled = COALESCE($5, wake_enabled), \
-         notes = COALESCE($6, notes) \
-         WHERE id = $7",
+         notes = COALESCE($6, notes), \
+         agent_type = CASE WHEN $7 = '' THEN NULL ELSE COALESCE($7, agent_type) END, \
+         agent_config = COALESCE($8, agent_config) \
+         WHERE id = $9",
     )
     .bind(
         body.name
@@ -212,6 +250,8 @@ pub async fn update_device(
     .bind(body.ip_address.as_deref().filter(|i| !i.trim().is_empty()))
     .bind(body.wake_enabled)
     .bind(body.notes.as_deref().map(str::trim))
+    .bind(agent_type.unwrap_or(""))
+    .bind(body.agent_config.as_ref())
     .bind(&id)
     .execute(&state.db_pool)
     .await
@@ -288,5 +328,111 @@ pub async fn wake_device(
                 "failed to send wake packet: {e}"
             )))
         }
+    }
+}
+
+/// POST /api/devices/:id/probe — run the device's reachability agent.
+pub async fn probe_device(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let row: Option<DeviceRow> =
+        sqlx::query_as::<_, DeviceRow>(&format!("{DEVICE_SELECT} WHERE id = $1"))
+            .bind(&id)
+            .fetch_optional(&state.db_pool)
+            .await
+            .map_err(|e| ErrorResponse::internal(format!("failed to load device: {e}")))?;
+
+    let Some(row) = row else {
+        return Err(ErrorResponse::not_found(format!("device {id} not found")));
+    };
+
+    let agent_type = row.9.as_deref().unwrap_or("");
+    let config = &row.10;
+    let fallback_ip = row.4.as_deref().unwrap_or("").to_string();
+
+    let start = std::time::Instant::now();
+
+    match agent_type {
+        "tcp" => {
+            let host = config
+                .get("host")
+                .and_then(|v| v.as_str())
+                .filter(|h| !h.is_empty())
+                .unwrap_or(&fallback_ip)
+                .to_string();
+            let port = config
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(22)
+                .clamp(1, 65535) as u16;
+            if host.is_empty() {
+                return Err(ErrorResponse::bad_request(format!(
+                    "device '{}' has no host for the tcp agent",
+                    row.1
+                )));
+            }
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                tokio::net::TcpStream::connect((host.as_str(), port)),
+            )
+            .await
+            {
+                Ok(Ok(_)) => Ok(Json(json!({
+                    "reachable": true,
+                    "latency_ms": start.elapsed().as_millis(),
+                    "detail": format!("tcp {host}:{port} reachable"),
+                }))),
+                Ok(Err(e)) => Ok(Json(json!({
+                    "reachable": false,
+                    "latency_ms": start.elapsed().as_millis(),
+                    "detail": format!("tcp {host}:{port} refused: {e}"),
+                }))),
+                Err(_) => Ok(Json(json!({
+                    "reachable": false,
+                    "latency_ms": start.elapsed().as_millis(),
+                    "detail": format!("tcp {host}:{port} timed out"),
+                }))),
+            }
+        }
+        "http" => {
+            let url = config
+                .get("url")
+                .and_then(|v| v.as_str())
+                .filter(|u| !u.is_empty())
+                .unwrap_or_default()
+                .to_string();
+            if url.is_empty() {
+                return Err(ErrorResponse::bad_request(format!(
+                    "device '{}' has no url for the http agent",
+                    row.1
+                )));
+            }
+            let client = reqwest::Client::new();
+            match client
+                .get(&url)
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    Ok(Json(json!({
+                        "reachable": status < 500,
+                        "latency_ms": start.elapsed().as_millis(),
+                        "detail": format!("http {url} -> {status}"),
+                    })))
+                }
+                Err(e) => Ok(Json(json!({
+                    "reachable": false,
+                    "latency_ms": start.elapsed().as_millis(),
+                    "detail": format!("http {url} failed: {e}"),
+                }))),
+            }
+        }
+        _ => Err(ErrorResponse::bad_request(format!(
+            "device '{}' has no agent configured",
+            row.1
+        ))),
     }
 }

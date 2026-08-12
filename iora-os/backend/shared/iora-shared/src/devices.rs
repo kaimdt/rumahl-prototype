@@ -23,6 +23,10 @@ pub struct DeviceRegistryEntry {
     pub notes: String,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
+    /// Agent for reachability checks: `tcp`, `http` or `None`.
+    pub agent_type: Option<String>,
+    /// Agent configuration (`host`/`port` for tcp, `url` for http).
+    pub agent_config: serde_json::Value,
 }
 
 /// Request body for creating a registry device.
@@ -39,6 +43,10 @@ pub struct CreateDeviceRequest {
     pub wake_enabled: bool,
     #[serde(default)]
     pub notes: String,
+    #[serde(default)]
+    pub agent_type: Option<String>,
+    #[serde(default)]
+    pub agent_config: Option<serde_json::Value>,
 }
 
 /// Request body for updating a registry device (all fields optional).
@@ -56,6 +64,10 @@ pub struct UpdateDeviceRequest {
     pub wake_enabled: Option<bool>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(default)]
+    pub agent_type: Option<String>,
+    #[serde(default)]
+    pub agent_config: Option<serde_json::Value>,
 }
 
 fn default_device_type() -> String {
@@ -70,3 +82,6 @@ fn default_true() -> bool {
 pub const DEVICE_TYPES: [&str; 7] = [
     "computer", "nas", "tv", "printer", "phone", "tablet", "other",
 ];
+
+/// Supported agent types for reachability probes.
+pub const AGENT_TYPES: [&str; 2] = ["tcp", "http"];

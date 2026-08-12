@@ -43,6 +43,7 @@ import EntityStatisticsWidget from '@/components/widgets/EntityStatisticsWidget'
 import QuickActionsWidget from '@/components/widgets/QuickActionsWidget'
 import SystemMonitorWidget from '@/components/widgets/SystemMonitorWidget'
 import { OraStorageWidget, OraSystemWidget, OraJobsWidget, OraRecentFilesWidget } from '@/components/widgets/OraSystemWidgets'
+import { OraPresenceWidget } from '@/components/widgets/OraPresenceWidget'
 import SceneManagerWidget from '@/components/widgets/SceneManagerWidget'
 import RoomSummaryWidget from '@/components/widgets/RoomSummaryWidget'
 import NotificationLogWidget from '@/components/widgets/NotificationLogWidget'
@@ -636,6 +637,8 @@ export function RenderWidget({
       return <OraJobsWidget />
     case 'ora_recent_files':
       return <OraRecentFilesWidget />
+    case 'ora_presence':
+      return <OraPresenceWidget config={widget.config} />
     case 'scene_manager':
       return <SceneManagerWidget config={widget.config} />
     case 'room_summary':

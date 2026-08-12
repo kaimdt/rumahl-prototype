@@ -1891,6 +1891,10 @@ async fn main() -> anyhow::Result<()> {
             "/api/devices/:device_id/wake",
             post(device_handler::wake_device),
         )
+        .route(
+            "/api/devices/:device_id/probe",
+            post(device_handler::probe_device),
+        )
         // Webhook management
         .route("/api/webhooks", get(list_webhooks))
         .route("/api/webhooks", post(create_webhook))

@@ -59,6 +59,7 @@ const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default
 const AutomationEditorApp = lazy(() => import('@/components/AutomationEditorApp').then(m => ({ default: m.AutomationEditorApp })))
 const OsStorageApp = lazy(() => import('@/components/OsStorageApp').then(m => ({ default: m.OsStorageApp })))
 const OsDevicesApp = lazy(() => import('@/components/OsDevicesApp').then(m => ({ default: m.OsDevicesApp })))
+const OsContainersApp = lazy(() => import('@/components/OsContainersApp').then(m => ({ default: m.OsContainersApp })))
 const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
 const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
 // AppSettingsPage is now rendered inside the Settings app (SettingsAppsSection
@@ -243,6 +244,7 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
     case 'os-system': return <OsSystemApp kind="system" />
     case 'os-storage': return <OsStorageApp />
     case 'os-devices': return <OsDevicesApp />
+    case 'os-containers': return <OsContainersApp />
     case 'os-updates': return <OsMaintenanceApp kind="updates" />
     case 'os-backups': return <OsMaintenanceApp kind="backups" />
     case 'app-store': return <AppStoreTab token={token || ''} />

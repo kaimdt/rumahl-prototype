@@ -295,6 +295,10 @@
       "devices": {
         "name": "Geräte",
         "description": "Deine Geräte mit Wake-on-LAN"
+      },
+      "containers": {
+        "name": "Container",
+        "description": "Docker-Container und Ressourcenverbrauch"
       }
     },
     "systemApps": {
@@ -737,6 +741,13 @@
     "oraFiles": {
       "title": "Letzte Dateien",
       "empty": "Noch keine Dateien"
+    },
+    "oraPresence": {
+      "title": "Anwesenheit",
+      "home": "zuhause",
+      "atHome": "Zuhause",
+      "away": "Abwesend",
+      "empty": "Keine Personen erfasst"
     }
   },
   "admin": {
@@ -1674,6 +1685,48 @@
       "phone": "Telefon",
       "tablet": "Tablet",
       "other": "Sonstiges"
+    },
+    "agent": "Agent",
+    "agentNone": "Keiner",
+    "agentHost": "Host",
+    "agentPort": "Port",
+    "agentUrl": "URL",
+    "check": "Prüfen",
+    "checking": "Prüfe…",
+    "probeFailed": "Prüfung fehlgeschlagen",
+    "agents": {
+      "tcp": "TCP-Prüfung",
+      "http": "HTTP-Prüfung"
+    }
+  },
+  "containersApp": {
+    "title": "Container",
+    "subtitle": "Apps und Docker-Container",
+    "refresh": "Aktualisieren",
+    "total": "Container",
+    "running": "Läuft",
+    "stopped": "Gestoppt",
+    "cpu": "CPU",
+    "memory": "Speicher",
+    "start": "Starten",
+    "stop": "Stoppen",
+    "restart": "Neu starten",
+    "unavailable": "Container-Dienst nicht erreichbar",
+    "empty": "Keine Container",
+    "actionFailed": "Aktion fehlgeschlagen",
+    "actionDone": {
+      "start": "{{name}} gestartet",
+      "stop": "{{name}} gestoppt",
+      "restart": "{{name}} neu gestartet"
+    },
+    "status": {
+      "running": "Läuft",
+      "stopped": "Gestoppt"
+    },
+    "filter": {
+      "all": "Alle",
+      "running": "Läuft",
+      "stopped": "Gestoppt"
     }
   }
 }

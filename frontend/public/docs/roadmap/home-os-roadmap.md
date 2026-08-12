@@ -307,11 +307,18 @@ backup runs as a visible, resumable job; windows survive logout/login.
     magic packet to 255.255.255.255:9 with MAC validation), `OsDevicesApp`
     (`/devices`): curated devices with add/edit/remove + Wake buttons, plus
     the auto-discovered network-device list (online/offline). Requires
-    `os.network.write`. Follow-ups: SSH/SNMP/MQTT agents, device agents.
+    `os.network.write`.
+  - **Agents ✅ (migration `045_device_agents`):** reachability probes —
+    `tcp` (host:port connect) and `http` (GET) agents configured per device;
+    `POST /api/devices/:id/probe` returns reachable/latency/detail and the
+    Devices app shows a per-device Check button with the last result.
+    Follow-ups: SSH/SNMP agents, desktop device agents.
 - **Home Dashboard v2:** sections (time/weather/calendar/presence, storage,
   server state, downloads, smart home, music, recent files, cameras, energy)
   with **app-registered widgets** (`RegisterWidget` permission already exists).
-  - **Shipped (system section):** four ORA-native dashboard widgets —
+  - **Shipped (presence + system sections):** `ora_presence` widget
+    aggregates Home Assistant `person`/`device_tracker` entities ("X of Y
+    home") on the home row; four ORA-native dashboard widgets —
     `ora_storage` (quota), `ora_system` (CPU/RAM/uptime), `ora_jobs`
     (active jobs), `ora_recent_files` — added to the widget registry, the
     widget palette and the default home layout under a "System" section.
@@ -332,6 +339,9 @@ backup runs as a visible, resumable job; windows survive logout/login.
 - Reuses `app_scheduler`, `RunAutomations`, `CreateAutomations` permissions.
 
 ### Package 5 — Storage, NAS & Native Home OS Apps
+
+> **Status:** in progress — Storage ✅ (Codex), Containers ✅; Network/System
+> apps exist; Logs/Services/Updates apps still open.
 
 > Turn ORA OS into a complete, safety-first NAS operating system while moving
 > the existing administration surfaces into standalone system apps.
