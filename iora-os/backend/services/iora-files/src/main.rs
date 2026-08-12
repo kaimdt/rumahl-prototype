@@ -549,22 +549,66 @@ async fn list_files(
         .fetch_all(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    } else if let Some(ref folder_id) = query.folder_id {
+        // Inside a folder: own content, or the children of a family-shared
+        // folder owned by someone else.
+        let is_family_shared: i64 =
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM file_permissions WHERE file_id = ? AND grantee_type = 'family'",
+            )
+            .bind(folder_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
+        if is_family_shared > 0 {
+            sqlx::query_as(
+                "SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL \
+                 ORDER BY is_folder DESC, original_name ASC",
+            )
+            .bind(folder_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        } else {
+            sqlx::query_as(
+                "SELECT * FROM files WHERE owner_id = ? AND parent_folder_id = ? AND deleted_at IS NULL \
+                 ORDER BY is_folder DESC, original_name ASC",
+            )
+            .bind(&user_id)
+            .bind(folder_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        }
     } else {
         let deleted_filter = if query.include_deleted.unwrap_or(false) {
             ""
         } else {
             "AND deleted_at IS NULL"
         };
-        let sql = format!(
+        // Root listing: own files plus family-shared entries of other owners.
+        let own = sqlx::query_as(&format!(
             "SELECT * FROM files WHERE owner_id = ? AND parent_folder_id IS ? {} ORDER BY is_folder DESC, original_name ASC",
             deleted_filter
-        );
-        sqlx::query_as(&sql)
-            .bind(&user_id)
-            .bind(&query.folder_id)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        ))
+        .bind(&user_id)
+        .bind(&query.folder_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let shared = sqlx::query_as(&format!(
+            "SELECT * FROM files WHERE deleted_at IS NULL AND parent_folder_id IS NULL \
+             AND owner_id != ? \
+             AND id IN (SELECT file_id FROM file_permissions WHERE grantee_type = 'family') \
+             ORDER BY is_folder DESC, original_name ASC"
+        ))
+        .bind(&user_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut merged = own;
+        merged.extend(shared);
+        merged
     };
 
     let total = files.len() as i64;
@@ -1362,12 +1406,25 @@ async fn set_permission(
 
     let perm_id = Uuid::new_v4().to_string();
     let grantee_type = body.grantee_type.as_deref().unwrap_or("user");
+    // Family shares use a fixed grantee identity: every authenticated
+    // (non-guest) family member gets access via the `family` grantee type.
+    if !["user", "family"].contains(&grantee_type) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid grantee type".to_string(),
+        ));
+    }
+    let grantee_id = if grantee_type == "family" {
+        "family".to_string()
+    } else {
+        body.grantee_id.clone()
+    };
     let now = Utc::now().to_rfc3339();
 
     // Upsert: remove existing permission for same grantee, then insert
     sqlx::query("DELETE FROM file_permissions WHERE file_id = ? AND grantee_id = ?")
         .bind(&body.file_id)
-        .bind(&body.grantee_id)
+        .bind(&grantee_id)
         .execute(&state.db)
         .await
         .ok();
@@ -1378,7 +1435,7 @@ async fn set_permission(
     )
     .bind(&perm_id)
     .bind(&body.file_id)
-    .bind(&body.grantee_id)
+    .bind(&grantee_id)
     .bind(grantee_type)
     .bind(&body.permission)
     .bind(&user_id)
@@ -1392,7 +1449,7 @@ async fn set_permission(
         &body.file_id,
         &user_id,
         "permission_change",
-        Some(serde_json::json!({"grantee": body.grantee_id, "permission": body.permission})),
+        Some(serde_json::json!({"grantee": grantee_id, "permission": body.permission})),
     )
     .await;
 
@@ -1753,14 +1810,18 @@ async fn get_file_with_access(
         return Ok(file);
     }
 
-    // Check explicit permissions
+    // Check explicit permissions (user-specific grants win over family shares)
     let perm: Option<FilePermission> =
-        sqlx::query_as("SELECT * FROM file_permissions WHERE file_id = ? AND grantee_id = ?")
-            .bind(file_id)
-            .bind(user_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        sqlx::query_as(
+            "SELECT * FROM file_permissions WHERE file_id = ? AND (grantee_id = ? OR grantee_type = 'family') \
+             ORDER BY CASE WHEN grantee_id = ? THEN 0 ELSE 1 END LIMIT 1",
+        )
+        .bind(file_id)
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let has_access = match perm {
         Some(p) => match required_permission {

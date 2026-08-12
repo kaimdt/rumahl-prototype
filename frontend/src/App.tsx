@@ -21,6 +21,7 @@ import { OsDock } from '@/components/OsDock'
 import { OsFullscreenBar } from '@/components/OsFullscreenBar'
 import { OsWindowActions } from '@/components/OsWindowActions'
 import { CommandPalette } from '@/components/CommandPalette'
+import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { AppRuntimeView } from '@/components/AppRuntimeView'
 import { OsImagesApp } from '@/components/OsImagesApp'
 import { OsTooltipProvider } from '@/components/OsTooltip'
@@ -1083,10 +1084,10 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
           getApp={(pageId) => osAppByPageId.get(pageId)}
           getName={getOsAppName}
           renderContent={(pageId) => renderOsAppContent(pageId, { inWindow: true })}
-          onMaximize={(pageId) => setCurrentPageId(pageId)}
         />
       )}
       <CommandPalette />
+      <PermissionRequestDialog />
       <OsSessionLock />
       <ORAAssistant />
       {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}

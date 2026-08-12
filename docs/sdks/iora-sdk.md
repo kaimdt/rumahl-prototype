@@ -216,6 +216,99 @@ API Gateway returns standard HTTP status codes:
 
 ---
 
+## The `ora.*` SDK surface (JavaScript)
+
+The JavaScript SDK (`sdks/javascript`, package `iora-sdk`) exposes every OS
+capability through namespaced modules — the same surface apps and plugins
+use in the browser or in Node. Permission checks happen server-side; use
+`ora.permissions.request(...)` to ask the user for missing grants
+(Android/iOS-style dialog in the shell).
+
+```ts
+import { IoraClient } from 'iora-sdk'
+
+const ora = new IoraClient({ baseUrl: 'http://ora.local:8126', apiKey: process.env.IORA_APP_TOKEN })
+ora.setAppId('my-app')            // required for app-scoped calls (secrets)
+
+await ora.notifications.send({ title: 'Backup done', message: 'All good' })
+
+const { files } = await ora.files.list({ folderId: null, search: 'report' })
+await ora.files.upload(file, { folderId: '…' })
+
+await ora.jobs.create({ name: 'Export', job_type: 'export', source: 'my-app' })
+await ora.jobs.update(jobId, { progress: 42, status: 'running' })
+
+await ora.clipboard.add('copied text')
+await ora.permissions.request({ permission: 'os.power', reason: 'Scheduled shutdown' })
+
+await ora.secrets.create({ name: 'api_key', value: 'sk-…' })
+const devices = await ora.devices.list()
+const users = await ora.users.list()
+await ora.system.reportEvent({ severity: 'warning', source: 'my-app', message: 'Disk almost full' })
+```
+
+### Module reference
+
+| Module | Methods | Backing API |
+|---|---|---|
+| `entities` | `list`, `get`, `callService`, `turnOn`, `turnOff` | `/api/states` |
+| `notifications` | `send`, `list` | `/api/notifications` |
+| `storage` | `set`, `get`, `delete` | `/api/storage/*` |
+| `appStorage` | `listFiles`, `uploadFile`, `getFile`, `deleteFile`, KV ops, usage | `/api/apps/:id/storage` |
+| `database` | `provision`, `drop`, `status`, `execute`, `backup`, `listBackups` | `/api/apps/:id/database` |
+| `scheduler` | `list`, `create`, `get`, `update`, `delete`, `trigger`, `getLogs` | `/api/apps/:id/schedules` |
+| `webhooks` | `list`, `create`, `get`, `update`, `delete`, `test`, `getLogs`, `getStats` | `/api/apps/:id/webhooks` |
+| `messaging` | `listChannels`, `publish`, `subscribe`, `sendDirect`, `getInbox`, … | `/api/messaging` |
+| `settings` | `getSchema`, `get`, `update`, `reset` | `/api/appstore/apps` |
+| `plugins` | `list`, `get`, `execute`, `getLogs`, `getSandboxStatus` | plugin sandbox |
+| `voice` | `transcribe`, `synthesize`, `listSttModels`, `listTtsVoices`, `speak` | `/api/assist/voice` |
+| `jobs` | `list`, `get`, `create`, `update`, `pause`, `resume`, `cancel`, `remove`, `cleanup` | `/api/jobs` |
+| `clipboard` | `list`, `add`, `togglePin`, `remove`, `clear` | `/api/clipboard` |
+| `permissions` | `catalog`, `request`, `listRequests`, `respond` | `/api/os/permissions/*` |
+| `files` | `list`, `info`, `downloadUrl`, `remove`, `move`, `copy`, `rename`, `restore`, `quota`, `createFolder`, `upload` | `/api/files` |
+| `secrets` | `list`, `create`, `update`, `remove`, `reveal` | `/api/apps/:id/secrets` |
+| `users` | `list` | `/api/auth/users` |
+| `devices` | `list`, `active`, `stats`, `scan` | `/api/network/devices` |
+| `system` | `reportEvent`, `listEvents`, `resolveEvent`, `stats` | `/api/system-events`, `/api/os/control/system` |
+
+Window management (`ora.windows`) is a shell (frontend) concept — desktop
+apps run inside ORA OS windows automatically; there is no HTTP surface for it.
+
+### Reacting to system events (`on_system_event`)
+
+Apps can subscribe to the system event log via a manifest lifecycle hook.
+When a matching event is recorded, iora-home POSTs to the app's runtime
+endpoint:
+
+```json
+{
+  "lifecycle_hooks": {
+    "hooks": [
+      { "event": "on_system_event", "handler": "/hooks/system-event", "filter": "error" }
+    ]
+  }
+}
+```
+
+Payload delivered to `http://<app-host><handler>`:
+
+```json
+{
+  "event": "system_event",
+  "severity": "error",
+  "source": "backup",
+  "message": "Backup failed: disk full",
+  "timestamp": "2026-08-12T12:00:00Z"
+}
+```
+
+The optional `filter` is a glob matched against severity, source or
+`severity:source` (`error`, `backup.*`, `error:backup`). Fan-out is
+best-effort with a 3 s timeout. Apps can also push their own events via
+`ora.system.reportEvent(...)`.
+
+---
+
 ## Widget Development
 
 Widgets allow your App/Plugin to provide UI components in the IORA dashboard.

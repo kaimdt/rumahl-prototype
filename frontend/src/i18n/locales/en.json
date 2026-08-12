@@ -427,7 +427,12 @@
       "scanHint": "Scanning the local network for SMB drives — connect any device you find.",
       "noDevicesFound": "No network drives found",
       "selectCount": "Select ({{count}})",
-      "selectFolder": "Select a target folder"
+      "selectFolder": "Select a target folder",
+      "familyShare": "Share with family",
+      "familyShareRemove": "Remove family share",
+      "familyShareAdded": "Shared with family",
+      "familyShareRemoved": "Family share removed",
+      "familyShareFailed": "Could not update family share"
     },
     "dock": {
       "open": "Open",
@@ -462,7 +467,15 @@
       "close": "Close",
       "emptyPane": "Empty pane",
       "splitHint": "Open an app from the dock to fill this side.",
-      "open": "Window open"
+      "open": "Window open",
+      "maximize": "Maximize",
+      "restore": "Restore"
+    },
+    "images": {
+      "dropHint": "Drop images here to copy them into this folder",
+      "dropCopied": "{{name}} copied",
+      "dropFailed": "Could not copy the dropped file",
+      "dropInvalid": "Only image files can be dropped here"
     }
   },
   "settings": {
@@ -575,7 +588,21 @@
     "appExternalOverride": "user override: opens directly via port",
     "appEmbedMode": "Display mode",
     "appPermissions": "Permissions",
-    "appDangerZone": "Danger zone"
+    "appDangerZone": "Danger zone",
+    "familyProfiles": "Family profiles",
+    "familyProfilesDesc": "Child profiles restrict which apps appear in the shell",
+    "familyNoUsers": "No editable user accounts",
+    "profileKind": {
+      "standard": "Standard",
+      "child": "Child"
+    },
+    "profileRestrictions": "Allowed apps",
+    "profileNoRestrictions": "All apps allowed (no restrictions)",
+    "profileAllowedCount": "apps selected",
+    "profileSaveFailed": "Could not save profile",
+    "guestMode": "Guest mode",
+    "guestModeDesc": "Allow password-free guest access (temporary viewer account)",
+    "guestModeSaved": "Guest mode updated"
   },
   "dashboard": {
     "noEntities": "No entities found",
@@ -1090,7 +1117,11 @@
     "optional": "optional",
     "confirmPassword": "Confirm password",
     "rememberMeHint": "Session stays active after closing the browser",
-    "pageFooter": "IORA — Interface for Optimized Residential Autonomy"
+    "pageFooter": "IORA — Interface for Optimized Residential Autonomy",
+    "guestSuccess": "Signed in as guest",
+    "guestFailed": "Guest sign-in failed",
+    "or": "or",
+    "guestLogin": "Continue as guest"
   },
   "errors": {
     "notFound": "Page not found",
@@ -1267,8 +1298,141 @@
     "sleepOff": "Disable sleep mode",
     "lock": "Lock",
     "themeNight": "Activate night theme",
-    "placeholder": "Search apps, pages and actions…",
-    "noResults": "No results"
+    "placeholder": "Search apps, files, devices, settings and actions…",
+    "noResults": "No results",
+    "files": "Files",
+    "devices": "Devices",
+    "settings": "Settings",
+    "folder": "Folder",
+    "online": "Online",
+    "offline": "Offline",
+    "searching": "Searching…"
+  },
+  "jobs": {
+    "title": "Job Center",
+    "subtitle": "Background jobs",
+    "activeCount_one": "{{count}} active job",
+    "activeCount_other": "{{count}} active jobs",
+    "cleanup": "Clear finished jobs",
+    "empty": "No active jobs",
+    "unknown": "Unknown",
+    "queued": "Queued",
+    "running": "Running",
+    "paused": "Paused",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "pause": "Pause",
+    "resume": "Resume",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "appStore": "App Store",
+    "installing": "Installing…"
+  },
+  "clipboard": {
+    "title": "Clipboard",
+    "hint": "History across devices",
+    "shortcutHint": "Clipboard (Ctrl+Shift+V)",
+    "empty": "No clipboard entries yet",
+    "emptyHint": "Copy something anywhere — it shows up here and syncs across your devices.",
+    "noMatch": "No matching entries",
+    "search": "Search clipboard…",
+    "copy": "Copy to clipboard",
+    "copied": "Copied",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "delete": "Delete",
+    "clear": "Clear history"
+  },
+  "permissions": {
+    "requestTitle": "Permission request",
+    "wantsAccess": " wants access to",
+    "system": "System",
+    "grantHint": "You can change this later in Settings → Permissions.",
+    "allow": "Allow",
+    "deny": "Deny",
+    "catalog": {
+      "os.files.read": "Read files",
+      "os.files.readDesc": "Access your personal files",
+      "os.files.write": "Write files",
+      "os.files.writeDesc": "Create and modify files",
+      "os.network.read": "Read network status",
+      "os.network.readDesc": "See devices and network activity",
+      "os.network.write": "Modify network settings",
+      "os.network.writeDesc": "Change network configuration",
+      "os.system.read": "Read system info",
+      "os.system.readDesc": "See CPU, memory and service status",
+      "os.power": "Power control",
+      "os.powerDesc": "Shut down or restart the system",
+      "os.updates": "Manage updates",
+      "os.updatesDesc": "Install and roll back updates",
+      "os.backups": "Manage backups",
+      "os.backupsDesc": "Create and restore backups"
+    }
+  },
+  "shortcuts": {
+    "title": "Keyboard shortcuts",
+    "desc": "Global shortcuts — click a combo to re-record it",
+    "reset": "Reset",
+    "recording": "Press keys…",
+    "hint": "Press Esc while recording to cancel. Changes apply immediately.",
+    "spotlight": {
+      "label": "Spotlight search",
+      "desc": "Open the global search"
+    },
+    "clipboard": {
+      "label": "Clipboard",
+      "desc": "Open clipboard history"
+    },
+    "taskSwitcher": {
+      "label": "Task switcher",
+      "desc": "Show open windows"
+    },
+    "snapLeft": {
+      "label": "Snap window left",
+      "desc": "Snap the top window to the left half"
+    },
+    "snapRight": {
+      "label": "Snap window right",
+      "desc": "Snap the top window to the right half"
+    },
+    "snapMaximize": {
+      "label": "Maximize window",
+      "desc": "Maximize or restore the top window"
+    },
+    "snapRestore": {
+      "label": "Restore window",
+      "desc": "Restore the top window to its normal size"
+    },
+    "lock": {
+      "label": "Lock session",
+      "desc": "Lock the current session"
+    },
+    "sleep": {
+      "label": "Sleep mode",
+      "desc": "Toggle sleep mode"
+    }
+  },
+  "defaultApps": {
+    "title": "Default apps",
+    "desc": "Which app opens which file type",
+    "none": "System default",
+    "opensWith": "Opens with your chosen app",
+    "notConfigured": "Opens with the system default",
+    "hint": "Apps register the file types they can open; the Files explorer uses these choices for \"Open\" and \"Open with\".",
+    "types": {
+      "image": "Images",
+      "video": "Videos",
+      "audio": "Audio",
+      "pdf": "PDF documents",
+      "text": "Text & documents",
+      "table": "Spreadsheets",
+      "presentation": "Presentations",
+      "archive": "Archives"
+    },
+    "apps": {
+      "os-images": "Bilder (Images)"
+    }
   }
 ,
   "automationEditor": {

@@ -7,18 +7,17 @@ interface Props {
   getApp: (pageId: string) => OsAppDefinition | undefined
   getName: (pageId: string) => string
   renderContent: (pageId: string) => ReactNode
-  onMaximize: (pageId: string) => void
 }
 
 /**
  * Renders the open OS windows on top of the desktop (launcher):
- * floating windows plus the split-view pair.
+ * floating windows (with snap layouts) plus the split-view pair.
  */
-export function OsWindowOverlay({ getApp, getName, renderContent, onMaximize }: Props) {
+export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
   const { windows } = useOsWindows()
 
-  const floating = windows.filter((w) => w.layout === 'window' && !w.minimized)
-  const split = windows.filter((w) => w.layout !== 'window')
+  const floating = windows.filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
+  const split = windows.filter((w) => w.layout === 'split-left' || w.layout === 'split-right')
   const hasSplit = split.length > 0
 
   if (floating.length === 0 && !hasSplit) return null
@@ -46,7 +45,6 @@ export function OsWindowOverlay({ getApp, getName, renderContent, onMaximize }: 
                   name={win.pageId ? getName(win.pageId) : ''}
                   icon={iconFor(win.pageId)}
                   renderContent={renderContent}
-                  onMaximize={() => win.pageId && onMaximize(win.pageId)}
                 />
               </div>
             )
@@ -62,7 +60,6 @@ export function OsWindowOverlay({ getApp, getName, renderContent, onMaximize }: 
           name={win.pageId ? getName(win.pageId) : ''}
           icon={iconFor(win.pageId)}
           renderContent={renderContent}
-          onMaximize={() => win.pageId && onMaximize(win.pageId)}
         />
       ))}
     </div>

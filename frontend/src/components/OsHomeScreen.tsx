@@ -22,6 +22,7 @@ import { buildLauncherItems, LauncherAppGrid, type LauncherFolder } from '@/comp
 import { useAuth } from '@/contexts/AuthContext'
 import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
+import { isAppAllowed } from '@/lib/userRestrictions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useOsWindows, type OsLaunchMode } from '@/contexts/OsWindowContext'
 import { useLocalStorage } from '@/lib/storage'
@@ -141,6 +142,7 @@ export function OsHomeScreen() {
     return [...SYSTEM_OS_APPS, ...pageApps, ...extra]
       .filter((app) => !app.adminOnly || user?.isAdmin)
       .filter((app) => !app.requiredPermission || permissions[app.requiredPermission] === true)
+      .filter((app) => isAppAllowed(user, app.id))
       .sort((a, b) => a.order - b.order)
   }, [pages, permissions, user?.isAdmin, installedApps])
 

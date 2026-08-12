@@ -67,7 +67,10 @@
         "description": "Empfohlen: 1.6-2.2g pro kg Körpergewicht",
         "type": "number",
         "default": 180,
-        "validation": { "min": 50, "max": 400 }
+        "validation": {
+          "min": 50,
+          "max": 400
+        }
       },
       {
         "key": "default_fat",
@@ -75,7 +78,10 @@
         "description": "Empfohlen: 0.8-1.0g pro kg Körpergewicht",
         "type": "number",
         "default": 70,
-        "validation": { "min": 20, "max": 200 }
+        "validation": {
+          "min": 20,
+          "max": 200
+        }
       },
       {
         "key": "default_carbs",
@@ -83,7 +89,10 @@
         "description": "Fülle den Rest deiner Kalorien mit Carbs",
         "type": "number",
         "default": 250,
-        "validation": { "min": 50, "max": 600 }
+        "validation": {
+          "min": 50,
+          "max": 600
+        }
       },
       {
         "key": "default_calories",
@@ -91,7 +100,10 @@
         "description": "Dein täglicher Kalorienbedarf",
         "type": "number",
         "default": 2500,
-        "validation": { "min": 1200, "max": 6000 }
+        "validation": {
+          "min": 1200,
+          "max": 6000
+        }
       }
     ]
   },
@@ -121,8 +133,25 @@
   },
   "store_metadata": {
     "category": "Gesundheit & Fitness",
-    "tags": ["ernährung", "fitness", "makros", "protein", "kalorien", "muskelaufbau", "bodybuilding"],
+    "tags": [
+      "ernährung",
+      "fitness",
+      "makros",
+      "protein",
+      "kalorien",
+      "muskelaufbau",
+      "bodybuilding"
+    ],
     "min_iora_version": "2.1.0",
     "license": "MIT"
+  },
+  "lifecycle_hooks": {
+    "hooks": [
+      {
+        "event": "on_system_event",
+        "handler": "/hooks/system-event",
+        "filter": "error"
+      }
+    ]
   }
 }

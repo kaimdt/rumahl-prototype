@@ -6,6 +6,8 @@ import { authFetch } from '@/lib/authHelpers'
 import { getBackendUrl } from '@/lib/config'
 import { AuthImage } from '@/components/AuthImage'
 import { registerFileTypeApp } from '@/lib/fileTypeRegistry'
+import { readFileDragData } from '@/lib/fileDrop'
+import { toast } from 'sonner'
 
 interface ImageEntry {
   id: string
@@ -74,6 +76,33 @@ export function OsImagesApp() {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const [zoom, setZoom] = useState(1)
   const [sortNewest, setSortNewest] = useState(true)
+  const [dragOver, setDragOver] = useState(false)
+
+  // Cross-app drag & drop: accept files dragged from the Files explorer and
+  // copy them into the current folder (Package 0, Feature 6c).
+  const isImageName = (name: string) => /\.(jpe?g|png|gif|webp|svg|bmp|heic|avif)$/i.test(name)
+
+  const dropFile = async (event: React.DragEvent) => {
+    event.preventDefault()
+    setDragOver(false)
+    const file = readFileDragData(event.dataTransfer)
+    if (!file || !isImageName(file.name)) {
+      toast.error(t('os.images.dropInvalid'))
+      return
+    }
+    try {
+      const res = await authFetch(`/api/files/${file.id}/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_folder_id: currentFolder.id }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      toast.success(t('os.images.dropCopied', { name: file.name }))
+      void load(currentFolder.id, currentFolder.name, path)
+    } catch {
+      toast.error(t('os.images.dropFailed'))
+    }
+  }
 
   const load = useCallback(async (folderId: string | null, folderName: string, trail: FolderEntry[]) => {
     setLoading(true)
@@ -167,7 +196,33 @@ export function OsImagesApp() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6">
+    <div
+      className="mx-auto max-w-7xl p-4 sm:p-6"
+      onDragOver={(event) => {
+        if (readFileDragData(event.dataTransfer)) {
+          event.preventDefault()
+          setDragOver(true)
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={dropFile}
+    >
+      {/* Drop highlight overlay */}
+      <AnimatePresence>
+        {dragOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center bg-accent/10 backdrop-blur-[2px]"
+          >
+            <div className="rounded-2xl border-2 border-dashed border-accent/60 bg-background/80 px-8 py-6 text-center shadow-2xl backdrop-blur-xl">
+              <ImagesIcon size={32} className="mx-auto mb-2 text-accent" />
+              <p className="text-sm font-semibold text-foreground">{t('os.images.dropHint')}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Header */}
       <div className="mb-5 flex items-center gap-3">
         <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl">

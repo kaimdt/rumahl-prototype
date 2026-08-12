@@ -295,6 +295,200 @@ DELETE /api/webhooks/{id}
 GET /api/webhooks/{id}/deliveries
 ```
 
+### System Jobs (Job Center)
+
+Background jobs (downloads, file operations, backups, updates, installs)
+run system-wide and survive app switches. Backed by the `system_jobs` table
+(migration 039); the UI lives in the Job Center (shell icon with active-job
+badge) and the SDK exposes `ora.jobs`.
+
+```http
+# List jobs (optional ?status=running|queued|paused|completed|failed|cancelled)
+GET /api/jobs
+
+# Job details
+GET /api/jobs/{id}
+
+# Create a job (starts in "queued")
+POST /api/jobs
+Content-Type: application/json
+
+{
+  "name": "Download ubuntu.iso",
+  "job_type": "download",
+  "source": "my-app",
+  "metadata": { "url": "https://releases.ubuntu.com/24.04/ubuntu.iso" }
+}
+
+# Advance progress / message / status (called by the executing side)
+POST /api/jobs/{id}/progress
+Content-Type: application/json
+
+{ "progress": 78, "message": "Writing to disk…", "status": "running" }
+
+# Lifecycle
+POST /api/jobs/{id}/pause
+POST /api/jobs/{id}/resume
+POST /api/jobs/{id}/cancel
+
+# Remove one job / bulk-clean terminal jobs
+DELETE /api/jobs/{id}
+DELETE /api/jobs
+```
+
+Status lifecycle: `queued → running → paused/completed/failed/cancelled`.
+Terminal states (`completed`, `failed`, `cancelled`) are final; pause/resume
+validate transitions (409 on invalid moves). Progress is an integer 0–100.
+
+### Clipboard (history across devices)
+
+Personal clipboard history per user, shared across devices through the same
+API. The frontend captures copy/cut events automatically (passwords and
+payloads > 64 KiB are skipped); the Clipboard panel opens with
+Ctrl+Shift+V. Backed by the `clipboard_entries` table (migration 040); the
+SDK exposes `ora.clipboard`.
+
+```http
+# List history (newest first, pinned on top)
+GET /api/clipboard?limit=50
+
+# Add an entry (deduplicates: same content moves to top)
+POST /api/clipboard
+Content-Type: application/json
+
+{ "content": "text to remember", "content_type": "text", "source": "web" }
+
+# Toggle pin
+POST /api/clipboard/{id}/pin
+
+# Remove one entry / clear history
+DELETE /api/clipboard/{id}
+DELETE /api/clipboard
+```
+
+### Session Restore (persisted OS windows)
+
+Persists open OS windows (page, layout, geometry, z-order, minimized) per
+user so the desktop comes back after login or reload. The frontend saves the
+window set (debounced + flushed on pagehide); localStorage is the offline
+fallback. Backed by the `session_windows` table (migration 041); layouts
+include `window`, `maximized`, half/quarter snap variants and
+`split-left`/`split-right`.
+
+```http
+# Load the user's persisted windows
+GET /api/session/windows
+
+# Replace the user's persisted windows (max 16)
+PUT /api/session/windows
+Content-Type: application/json
+
+{
+  "windows": [
+    { "page_id": "os-files", "layout": "left", "x": 8, "y": 8,
+      "width": 640, "height": 1000, "z": 11, "minimized": false }
+  ]
+}
+
+# Clear the persisted session
+DELETE /api/session/windows
+```
+
+### Runtime Permission Requests (Allow/Deny dialogs)
+
+Android/iOS-style permission prompts. Components (apps, plugins, system
+surfaces) request an OS permission the user has not granted yet; the shell
+polls pending requests and shows one dialog at a time. Approving writes the
+grant into `user_os_permissions` so `effective_os_permissions` sees it
+immediately. Backed by the `permission_requests` table (migration 042); the
+SDK exposes `ora.permissions`.
+
+```http
+# Catalog of all OS permissions with descriptions (UI translates labels)
+GET /api/os/permissions/catalog
+
+# Request a permission (409 if already granted; idempotent per permission)
+POST /api/os/permissions/request
+Content-Type: application/json
+
+{
+  "permission": "os.power",
+  "requester": "Energy Optimizer",
+  "scope": "energy-optimizer-plugin",
+  "reason": "Schedule a nightly shutdown"
+}
+
+# List the user's requests (?status=pending|approved|denied)
+GET /api/os/permissions/requests
+
+# Answer a request — allow persists the grant (only the owner, pending only)
+POST /api/os/permissions/requests/{id}/respond
+Content-Type: application/json
+
+{ "approved": true }
+```
+
+### User Profiles (family / child profiles)
+
+Child profiles restrict which apps appear in the shell (dock, launcher,
+command palette) via an `allowed_app_ids` whitelist. Fields live on the
+`users` row (migration 043) and are attached to `/api/auth/verify` responses
+as `profile_type` + `restrictions`, so the shell enforces them without extra
+round trips. The UI lives in Settings → System → Family profiles.
+
+```http
+# All users with profile fields (admin only)
+GET /api/admin/users
+
+# Update a user's profile (admin only)
+PUT /api/admin/users/{id}/profile
+Content-Type: application/json
+
+{
+  "profile_type": "child",
+  "restrictions": { "allowed_app_ids": ["iora-files", "os-images"] }
+}
+```
+
+`profile_type`: `standard` | `child`. Empty/missing `allowed_app_ids` means
+no app restrictions. Launcher, Home and Settings are always reachable.
+
+### Guest Mode (password-free temporary access)
+
+Opt-in (admin toggle: Settings → System → Family profiles → Guest mode,
+backed by the `security.guest_mode_enabled` system setting, default off).
+A guest is a real user row (`guest`, role `viewer`, no credentials) so all
+per-user subsystems work unchanged; guests are filtered out of user lists.
+
+```http
+# Is the guest button shown on the login page?
+GET /api/auth/guest-status
+
+# Start/continue a guest session (403 when disabled)
+POST /api/auth/guest
+```
+
+### Family Shares (shared files)
+
+Files (and root folders) can be shared with the whole family: every
+authenticated non-guest family member gets read access. Family-shared
+entries appear in the root listing of other users, and family-shared folders
+can be browsed. Backed by `file_permissions` with `grantee_type='family'`.
+
+```http
+# Share a file/folder with the family (read-only)
+POST /api/files/permissions
+Content-Type: application/json
+
+{ "file_id": "...", "grantee_id": "family", "grantee_type": "family", "permission": "read" }
+
+# Permission list of a file (find the family grant's id to revoke)
+GET /api/files/permissions/{file_id}
+
+# Revoke a permission
+DELETE /api/files/permissions/revoke/{perm_id}
+```
+
 ## iora-core Endpoints (Port 8090)
 
 ### Health

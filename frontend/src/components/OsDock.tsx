@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
 import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
+import { isAppAllowed } from '@/lib/userRestrictions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
@@ -45,7 +46,8 @@ export function OsDock() {
     return [...SYSTEM_OS_APPS, ...pageApps, ...extra]
       .filter((app) => !app.adminOnly || user?.isAdmin)
       .filter((app) => !app.requiredPermission || can(app.requiredPermission))
-  }, [can, pages, user?.isAdmin, installedApps])
+      .filter((app) => isAppAllowed(user, app.id))
+  }, [can, pages, user?.isAdmin, installedApps, user])
 
   const appById = useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps])
 

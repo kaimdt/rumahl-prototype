@@ -170,6 +170,26 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
             "035_automation_flow_edges",
             include_str!("../../migrations/035_automation_flow_edges.sql"),
         ),
+        (
+            "039_system_jobs",
+            include_str!("../../migrations/039_system_jobs.sql"),
+        ),
+        (
+            "040_clipboard",
+            include_str!("../../migrations/040_clipboard.sql"),
+        ),
+        (
+            "041_session_windows",
+            include_str!("../../migrations/041_session_windows.sql"),
+        ),
+        (
+            "042_permission_requests",
+            include_str!("../../migrations/042_permission_requests.sql"),
+        ),
+        (
+            "043_user_profiles",
+            include_str!("../../migrations/043_user_profiles.sql"),
+        ),
     ];
 
     // Apply each migration if not already applied

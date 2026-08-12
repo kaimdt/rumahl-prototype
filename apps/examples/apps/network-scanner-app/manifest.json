@@ -22,7 +22,10 @@
     "install_cmd": "cargo build --release",
     "start_cmd": "./target/release/network-scanner-app",
     "privileged": true,
-    "cap_add": ["NET_ADMIN", "NET_RAW"],
+    "cap_add": [
+      "NET_ADMIN",
+      "NET_RAW"
+    ],
     "internal_ports": [
       {
         "port": 3000,
@@ -51,7 +54,10 @@
       "order": 150,
       "iframe": true,
       "iframe_config": {
-        "sandbox": ["allow-scripts", "allow-same-origin"],
+        "sandbox": [
+          "allow-scripts",
+          "allow-same-origin"
+        ],
         "allow": [],
         "security_token": true
       }
@@ -107,14 +113,33 @@
   "network_access": {
     "allowed_domains": [],
     "allow_user_domains": false,
-    "allowed_local_ips": ["0.0.0.0/0"],
+    "allowed_local_ips": [
+      "0.0.0.0/0"
+    ],
     "allow_user_local_ips": false,
     "allow_network_scan": true
   },
   "store_metadata": {
     "category": "Network Tools",
-    "tags": ["network", "scanner", "devices", "monitoring"],
-    "screenshots": ["screenshot1.png", "screenshot2.png"],
+    "tags": [
+      "network",
+      "scanner",
+      "devices",
+      "monitoring"
+    ],
+    "screenshots": [
+      "screenshot1.png",
+      "screenshot2.png"
+    ],
     "homepage": "https://github.com/iora/network-scanner"
+  },
+  "lifecycle_hooks": {
+    "hooks": [
+      {
+        "event": "on_system_event",
+        "handler": "/hooks/system-event",
+        "filter": "error"
+      }
+    ]
   }
 }

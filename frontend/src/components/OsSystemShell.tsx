@@ -5,8 +5,10 @@ import {
   BatteryCharging,
   Bell,
   CaretRight,
+  ClipboardText,
   Cpu,
   Gear,
+  ListBullets,
   LockKey,
   Moon,
   Power,
@@ -22,6 +24,10 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { authFetch } from '@/lib/authHelpers'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { JobCenterPanel, useActiveSystemJobCount } from '@/components/JobCenterPanel'
+import { ClipboardManager, useClipboardCapture } from '@/components/ClipboardManager'
+import { useOsWindows } from '@/contexts/OsWindowContext'
+import { comboMatches, getCombo } from '@/lib/shortcutRegistry'
 
 interface SystemStats {
   cpu_usage_percent: number
@@ -58,6 +64,8 @@ export function OsSystemShell() {
   const { theme, sleepMode, setSleepMode } = useTheme()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const [open, setOpen] = useState(false)
+  const [showJobCenter, setShowJobCenter] = useState(false)
+  const [showClipboard, setShowClipboard] = useState(false)
   const [showRecents, setShowRecents] = useState(false)
   const [recentIds, setRecentIds] = useState<string[]>(readRecentApps)
   const [stats, setStats] = useState<SystemStats | null>(null)
@@ -67,6 +75,9 @@ export function OsSystemShell() {
   const [powerPending, setPowerPending] = useState(false)
   const { can } = useOsPermissions()
   const { user, logout } = useAuth()
+  const activeJobCount = useActiveSystemJobCount()
+  const { windows, snapWindow, toggleMaximize } = useOsWindows()
+  useClipboardCapture()
 
   const apps = useMemo(() => {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
@@ -130,19 +141,72 @@ export function OsSystemShell() {
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.altKey && event.key === 'Tab') {
+      // Spotlight (Ctrl/⌘+Space — registry-configured) → the command palette
+      // listens for the toggle event (⌘K stays as a direct alias there).
+      if (comboMatches(getCombo('spotlight'), event)) {
+        event.preventDefault()
+        window.dispatchEvent(new Event('iora:spotlight-toggle'))
+        return
+      }
+      // Clipboard panel
+      if (comboMatches(getCombo('clipboard'), event)) {
+        event.preventDefault()
+        setShowClipboard((value) => !value)
+        setOpen(false)
+        setShowJobCenter(false)
+        return
+      }
+      // Task switcher (Alt+Tab)
+      if (comboMatches(getCombo('task-switcher'), event)) {
         event.preventDefault()
         setShowRecents(true)
         setOpen(false)
+        setShowJobCenter(false)
+        setShowClipboard(false)
+        return
+      }
+      // Lock session
+      if (comboMatches(getCombo('lock'), event)) {
+        event.preventDefault()
+        window.dispatchEvent(new Event('iora:lock-session'))
+        return
+      }
+      // Sleep mode
+      if (comboMatches(getCombo('sleep'), event)) {
+        event.preventDefault()
+        setSleepMode(!sleepMode)
+        return
+      }
+      // Snap shortcuts (Alt+Arrow) act on the top-most floating window on
+      // the desktop — desktop-style window management from anywhere.
+      const snapAction = [
+        ['snap-left', 'left'],
+        ['snap-right', 'right'],
+        ['snap-maximize', 'maximize'],
+        ['snap-restore', 'window'],
+      ] as const
+      const snap = snapAction.find(([id]) => comboMatches(getCombo(id), event))
+      if (snap) {
+        event.preventDefault()
+        const [_, layout] = snap
+        const top = windows
+          .filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
+          .sort((a, b) => b.z - a.z)[0]
+        if (!top) return
+        if (layout === 'maximize') toggleMaximize(top.pageId)
+        else snapWindow(top.pageId, layout)
+        return
       }
       if (event.key === 'Escape') {
         setShowRecents(false)
         setOpen(false)
+        setShowJobCenter(false)
+        setShowClipboard(false)
       }
     }
     window.addEventListener('keydown', handleKeyboard)
     return () => window.removeEventListener('keydown', handleKeyboard)
-  }, [])
+  }, [windows, snapWindow, toggleMaximize, sleepMode, setSleepMode])
 
   const openApp = (pageId: string) => {
     setCurrentPageId(pageId)
@@ -173,10 +237,46 @@ export function OsSystemShell() {
 
   return (
     <>
-      <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[55] sm:right-6 sm:top-5">
+      <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[55] flex items-center gap-2 sm:right-6 sm:top-5">
         <button
           type="button"
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => {
+            setShowClipboard((value) => !value)
+            setOpen(false)
+            setShowJobCenter(false)
+          }}
+          className={`glass-card flex h-11 w-11 items-center justify-center rounded-full text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring ${showClipboard ? 'bg-foreground/15 text-foreground' : ''}`}
+          aria-label={t('clipboard.title')}
+          aria-expanded={showClipboard}
+          title={t('clipboard.shortcutHint')}
+        >
+          <ClipboardText size={17} weight="bold" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowJobCenter((value) => !value)
+            setOpen(false)
+            setShowClipboard(false)
+          }}
+          className={`glass-card relative flex h-11 w-11 items-center justify-center rounded-full text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring ${showJobCenter ? 'bg-foreground/15 text-foreground' : ''}`}
+          aria-label={t('jobs.title')}
+          aria-expanded={showJobCenter}
+        >
+          <ListBullets size={17} weight="bold" />
+          {activeJobCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white shadow">
+              {activeJobCount > 9 ? '9+' : activeJobCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen((value) => !value)
+            setShowJobCenter(false)
+            setShowClipboard(false)
+          }}
           className="glass-card flex min-h-11 items-center gap-2 rounded-full px-3 text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring"
           aria-label={t('os.shell.openQuickSettings')}
           aria-expanded={open}
@@ -303,6 +403,9 @@ export function OsSystemShell() {
           </>
         )}
       </AnimatePresence>
+
+      <JobCenterPanel open={showJobCenter} onClose={() => setShowJobCenter(false)} />
+      <ClipboardManager open={showClipboard} onClose={() => setShowClipboard(false)} />
 
       <AnimatePresence>
         {showRecents && (

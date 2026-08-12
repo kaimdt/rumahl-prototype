@@ -190,10 +190,32 @@ interface AuthModeOption {
 // ── LoginPage ────────────────────────────────────────────
 export function LoginPage() {
   const { t } = useTranslation()
-  const { login, loginWithPin, register } = useAuth()
+  const { login, loginAsGuest, loginWithPin, register } = useAuth()
 
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [isLoading, setIsLoading] = useState(false)
+  const [guestEnabled, setGuestEnabled] = useState(false)
+
+  // Guest mode availability (admin toggle, backend preference).
+  useEffect(() => {
+    fetch('/api/auth/guest-status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setGuestEnabled(Boolean(data?.enabled)))
+      .catch(() => {})
+  }, [])
+
+  const onGuestLogin = async () => {
+    setIsLoading(true)
+    try {
+      await loginAsGuest()
+      toast.success(t('auth.guestSuccess'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('auth.guestFailed')
+      toast.error(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   // PIN login state
   const [users, setUsers] = useState<UserListEntry[]>([])
@@ -529,6 +551,27 @@ export function LoginPage() {
                     )}
                   </Button>
                 </motion.form>
+              )}
+
+              {/* Guest mode (opt-in, admin toggle) */}
+              {guestEnabled && authMode === 'login' && (
+                <div className="flex items-center gap-3 pt-1">
+                  <span className="h-px flex-1 bg-white/10" />
+                  <span className="text-[11px] uppercase tracking-wider text-white/30">{t('auth.or')}</span>
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
+              )}
+              {guestEnabled && authMode === 'login' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void onGuestLogin()}
+                  disabled={isLoading}
+                  className="w-full h-11 rounded-2xl text-sm font-medium border-white/15 text-white/80 hover:text-white hover:bg-white/10"
+                >
+                  <UserPlus size={17} weight="duotone" />
+                  {t('auth.guestLogin')}
+                </Button>
               )}
 
               {/* ── Register Tab (react-hook-form) ──────── */}

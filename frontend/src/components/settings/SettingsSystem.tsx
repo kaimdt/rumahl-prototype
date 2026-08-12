@@ -1,9 +1,14 @@
 // Additional settings + NINA warnings section of the Settings page (lazy-loaded chunk).
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { MagnifyingGlass, MapPin, NavigationArrow, Plus, TextAa, Vibrate, Warning, X } from '@phosphor-icons/react'
+import { MagnifyingGlass, MapPin, NavigationArrow, Plus, TextAa, Users, Vibrate, Warning, X, Keyboard, FileCode } from '@phosphor-icons/react'
 import { useLocalStorage } from '@/lib/storage'
+import { useAuth } from '@/contexts/AuthContext'
+import { useInstalledApps } from '@/hooks/useInstalledApps'
+import { SYSTEM_OS_APPS } from '@/lib/osAppRegistry'
+import { SHORTCUTS, comboFromEvent, customizedIds, formatCombo, getCombo, resetCombo, setCombo, type ShortcutDefinition } from '@/lib/shortcutRegistry'
+import { FILE_TYPE_CATEGORIES, appsForCategory, getDefaultAppForType, setDefaultAppForType, type FileTypeCategory } from '@/lib/fileTypeRegistry'
 import {
   getAutoContrastMode,
   getDeviceTier,
@@ -411,6 +416,366 @@ export function NinaSettingsSection() {
           )}
         </div>
       )}
+    </SettingsSection>
+  )
+}
+
+// ─── Family profiles (admin) ──────────────────────────────────────────────
+// Child profiles restrict which apps appear in the dock, launcher and
+// command palette (`allowed_app_ids` whitelist on the user's profile).
+
+interface FamilyUserEntry {
+  id: string
+  username: string
+  display_name?: string | null
+  role: string
+  is_admin: boolean
+  profile_type?: string
+  restrictions?: { allowed_app_ids?: string[] }
+}
+
+export function FamilyProfilesSection() {
+  const { t } = useTranslation()
+  const { user: currentUser } = useAuth()
+  const { installedApps } = useInstalledApps()
+  const [users, setUsers] = useState<FamilyUserEntry[]>([])
+  const [drafts, setDrafts] = useState<Record<string, { profileType: string; allowed: Set<string> }>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState<string | null>(null)
+  const [guestEnabled, setGuestEnabled] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(true)
+
+  // Guest mode master switch (system setting).
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const res = await authFetch('/api/admin/settings/security.guest_mode_enabled')
+        if (res.ok) {
+          const data = await res.json()
+          if (alive) setGuestEnabled(data.value === true)
+        }
+      } catch {
+        // backend unreachable
+      } finally {
+        if (alive) setGuestLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const toggleGuest = async (enabled: boolean) => {
+    setGuestEnabled(enabled)
+    try {
+      const res = await authFetch('/api/admin/settings/security.guest_mode_enabled', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: enabled }),
+      })
+      if (!res.ok) {
+        setGuestEnabled(!enabled)
+        toast.error(t('settings.profileSaveFailed'))
+      } else {
+        toast.success(t('settings.guestModeSaved'))
+      }
+    } catch {
+      setGuestEnabled(!enabled)
+      toast.error(t('settings.profileSaveFailed'))
+    }
+  }
+
+  const appOptions = useMemo(() => {
+    const system = SYSTEM_OS_APPS.map((app) => ({
+      id: app.id,
+      name: app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName,
+    }))
+    const extra = installedApps.map((app) => ({ id: app.pageId, name: app.fallbackName }))
+    const seen = new Set<string>()
+    return [...system, ...extra].filter((app) => (seen.has(app.id) ? false : (seen.add(app.id), true)))
+  }, [t, installedApps])
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const res = await authFetch('/api/admin/users')
+        if (!res.ok) return
+        const data = await res.json() as { users: FamilyUserEntry[] }
+        if (!alive) return
+        setUsers(data.users || [])
+        const initial: Record<string, { profileType: string; allowed: Set<string> }> = {}
+        for (const u of data.users || []) {
+          initial[u.id] = {
+            profileType: u.profile_type || 'standard',
+            allowed: new Set(u.restrictions?.allowed_app_ids || []),
+          }
+        }
+        setDrafts(initial)
+      } catch {
+        // backend unreachable
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const toggleApp = (userId: string, appId: string) => {
+    setDrafts((current) => {
+      const draft = current[userId]
+      if (!draft) return current
+      const next = new Set(draft.allowed)
+      if (next.has(appId)) next.delete(appId)
+      else next.add(appId)
+      return { ...current, [userId]: { ...draft, allowed: next } }
+    })
+  }
+
+  const saveUser = async (entry: FamilyUserEntry) => {
+    const draft = drafts[entry.id]
+    if (!draft) return
+    setSaving(entry.id)
+    try {
+      const res = await authFetch(`/api/admin/users/${entry.id}/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile_type: draft.profileType,
+          restrictions: draft.profileType === 'child' ? { allowed_app_ids: [...draft.allowed].sort() } : {},
+        }),
+      })
+      if (res.ok) {
+        toast.success(t('settings.profileSaved'))
+      } else {
+        toast.error(t('settings.profileSaveFailed'))
+      }
+    } catch {
+      toast.error(t('settings.profileSaveFailed'))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const editable = users.filter((u) => !u.is_admin)
+
+  return (
+    <SettingsSection icon={Users} title={t('settings.familyProfiles')} description={t('settings.familyProfilesDesc')}>
+      {/* Guest mode master switch */}
+      <div className="px-5 pb-4">
+        <ToggleRow
+          label={t('settings.guestMode')}
+          description={t('settings.guestModeDesc')}
+          checked={guestEnabled}
+          disabled={guestLoading}
+          onCheckedChange={(value) => void toggleGuest(Boolean(value))}
+        />
+      </div>
+      {loading ? (
+        <p className="px-5 pb-5 text-sm text-foreground/45">{t('common.loading')}</p>
+      ) : editable.length === 0 ? (
+        <p className="px-5 pb-5 text-sm text-foreground/45">{t('settings.familyNoUsers')}</p>
+      ) : (
+        <div className="space-y-3 px-5 pb-5">
+          {editable.map((entry) => {
+            const draft = drafts[entry.id]
+            if (!draft) return null
+            const isChild = draft.profileType === 'child'
+            return (
+              <div key={entry.id} className="rounded-2xl border border-white/8 bg-foreground/4 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground/90">
+                      {entry.display_name || entry.username}
+                    </p>
+                    <p className="text-[11px] text-foreground/45">@{entry.username}</p>
+                  </div>
+                  <div className="flex items-center gap-1 rounded-xl bg-foreground/6 p-1">
+                    {(['standard', 'child'] as const).map((kind) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        onClick={() => setDrafts((current) => ({
+                          ...current,
+                          [entry.id]: { ...draft, profileType: kind },
+                        }))}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                          draft.profileType === kind ? 'bg-accent text-white' : 'text-foreground/55 hover:text-foreground'
+                        }`}
+                      >
+                        {t(`settings.profileKind.${kind}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {isChild && (
+                  <div className="mt-3">
+                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-foreground/45">
+                      {t('settings.profileRestrictions')}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {appOptions.map((app) => {
+                        const on = draft.allowed.has(app.id)
+                        return (
+                          <button
+                            key={app.id}
+                            type="button"
+                            onClick={() => toggleApp(entry.id, app.id)}
+                            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                              on
+                                ? 'border-accent/40 bg-accent/15 text-accent'
+                                : 'border-white/10 bg-foreground/4 text-foreground/60 hover:border-white/20'
+                            }`}
+                          >
+                            {app.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="mt-2 text-[11px] text-foreground/40">
+                      {draft.allowed.size === 0 ? t('settings.profileNoRestrictions') : `${draft.allowed.size} ${t('settings.profileAllowedCount')}`}
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={saving === entry.id}
+                    onClick={() => void saveUser(entry)}
+                    className="rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-accent/20 transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {saving === entry.id ? t('common.saving') : t('common.save')}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </SettingsSection>
+  )
+}
+
+// ─── Global keyboard shortcuts (Package 0, Feature 7) ────────────────────
+
+export function KeyboardShortcutsSection() {
+  const { t } = useTranslation()
+  const [recording, setRecording] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+  const customized = customizedIds()
+
+  // Record a new combo while a shortcut is in recording mode.
+  useEffect(() => {
+    if (!recording) return
+    const onKey = (event: KeyboardEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const combo = comboFromEvent(event)
+      if (combo) {
+        setCombo(recording, combo)
+        setRecording(null)
+        setTick((v) => v + 1)
+      } else {
+        setRecording(null) // Escape cancels
+        setTick((v) => v + 1)
+      }
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [recording])
+
+  return (
+    <SettingsSection icon={Keyboard} title={t('shortcuts.title')} description={t('shortcuts.desc')}>
+      <div className="space-y-2 px-5 pb-5">
+        {SHORTCUTS.map((shortcut: ShortcutDefinition) => {
+          const combo = getCombo(shortcut.id)
+          const isCustom = customized.has(shortcut.id)
+          const isRecording = recording === shortcut.id
+          return (
+            <div key={shortcut.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-foreground/4 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground/90">{t(shortcut.labelKey)}</p>
+                <p className="text-[11px] text-foreground/45">{t(shortcut.descKey)}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={() => { resetCombo(shortcut.id); setTick((v) => v + 1) }}
+                    className="rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground/45 transition-colors hover:bg-foreground/10 hover:text-foreground"
+                    title={t('shortcuts.reset')}
+                  >
+                    {t('shortcuts.reset')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setRecording(isRecording ? null : shortcut.id)}
+                  className={`rounded-xl border px-3 py-1.5 font-mono text-xs font-semibold transition-colors ${
+                    isRecording
+                      ? 'border-accent/50 bg-accent/15 text-accent'
+                      : 'border-white/10 bg-foreground/5 text-foreground/70 hover:border-white/20'
+                  }`}
+                >
+                  {isRecording ? t('shortcuts.recording') : formatCombo(combo)}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+        <p className="pt-1 text-[11px] text-foreground/40">{t('shortcuts.hint')}</p>
+      </div>
+    </SettingsSection>
+  )
+}
+
+// ─── Default apps / MIME associations (Package 0, Feature 6) ──────────────
+
+export function DefaultAppsSection() {
+  const { t } = useTranslation()
+  const [, forceRender] = useState(0)
+
+  const changeDefault = (category: FileTypeCategory, value: string) => {
+    setDefaultAppForType(category.key, value === 'none' ? null : value)
+    forceRender((v) => v + 1)
+  }
+
+  return (
+    <SettingsSection icon={FileCode} title={t('defaultApps.title')} description={t('defaultApps.desc')}>
+      <div className="space-y-2 px-5 pb-5">
+        {FILE_TYPE_CATEGORIES.map((category) => {
+          const options = appsForCategory(category)
+          const current = getDefaultAppForType(category.key)
+          return (
+            <div key={category.key} className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-foreground/4 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground/85">{t(category.labelKey)}</p>
+                <p className="text-[11px] text-foreground/40">
+                  {current ? t('defaultApps.opensWith') : t('defaultApps.notConfigured')}
+                </p>
+              </div>
+              <select
+                value={current || 'none'}
+                onChange={(e) => changeDefault(category, e.target.value)}
+                className="shrink-0 rounded-xl border border-white/10 bg-foreground/6 px-2.5 py-1.5 text-xs font-medium text-foreground/80 outline-none focus:border-accent/50"
+              >
+                <option value="none">{t('defaultApps.none')}</option>
+                {options.map((app) => (
+                  <option key={app.appId} value={app.appId}>
+                    {t(`defaultApps.apps.${app.appId}`, app.appName)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )
+        })}
+        <p className="pt-1 text-[11px] text-foreground/40">{t('defaultApps.hint')}</p>
+      </div>
     </SettingsSection>
   )
 }

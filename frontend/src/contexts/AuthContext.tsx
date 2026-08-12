@@ -9,6 +9,10 @@ interface User {
   displayName?: string
   role: string
   isAdmin: boolean
+  /** 'standard' | 'child' — family profile kind. */
+  profileType?: string
+  /** Per-user restrictions (allowed_app_ids whitelist etc.). */
+  restrictions?: { allowed_app_ids?: string[] }
 }
 
 interface ApiUser {
@@ -17,6 +21,8 @@ interface ApiUser {
   display_name?: string
   role?: string
   is_admin: boolean
+  profile_type?: string
+  restrictions?: { allowed_app_ids?: string[] }
 }
 
 interface AuthContextType {
@@ -24,6 +30,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
+  loginAsGuest: () => Promise<void>
   loginWithPin: (userId: string, pin: string) => Promise<void>
   register: (username: string, password: string, displayName?: string) => Promise<void>
   updateProfile: (payload: { username?: string; displayName?: string }) => Promise<void>
@@ -40,6 +47,8 @@ function mapApiUser(user: ApiUser): User {
     displayName: user.display_name,
     role: user.role || 'user',
     isAdmin: user.is_admin ?? false,
+    profileType: user.profile_type || 'standard',
+    restrictions: user.restrictions || undefined,
   }
 }
 
@@ -196,6 +205,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
   }, [])
 
+  /** Start a guest session (temporary viewer user, no credentials). */
+  const loginAsGuest = useCallback(async () => {
+    const response = await fetch(`${apiBase()}/api/auth/guest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Guest login failed')
+    }
+
+    const data = await response.json()
+    writePersistedToken(data.token, data.refresh_token)
+    setToken(data.token)
+    const mapped = mapApiUser(data.user as ApiUser)
+    setUser(mapped)
+    localStorage.setItem('ha-username', mapped.username)
+    localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
+  }, [])
+
   const loginWithPin = useCallback(async (userId: string, pin: string) => {
     const response = await fetch(`${apiBase()}/api/auth/pin-login`, {
       method: 'POST',
@@ -298,12 +328,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated,
     isLoading,
     login,
+    loginAsGuest,
     loginWithPin,
     register,
     updateProfile,
     logout,
     token,
-  }), [user, isAuthenticated, isLoading, login, loginWithPin, register, updateProfile, logout, token])
+  }), [user, isAuthenticated, isLoading, login, loginAsGuest, loginWithPin, register, updateProfile, logout, token])
 
   return (
     <AuthContext.Provider value={contextValue}>

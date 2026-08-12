@@ -31,10 +31,25 @@
         "type": "select",
         "label": "Einheiten",
         "options": [
-          {"label": "Celsius", "value": "metric"},
-          {"label": "Fahrenheit", "value": "imperial"}
+          {
+            "label": "Celsius",
+            "value": "metric"
+          },
+          {
+            "label": "Fahrenheit",
+            "value": "imperial"
+          }
         ],
         "default": "metric"
+      }
+    ]
+  },
+  "lifecycle_hooks": {
+    "hooks": [
+      {
+        "event": "on_system_event",
+        "handler": "/hooks/system-event",
+        "filter": "error"
       }
     ]
   }

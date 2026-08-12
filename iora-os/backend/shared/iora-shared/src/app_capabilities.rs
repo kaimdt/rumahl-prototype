@@ -106,6 +106,9 @@ pub enum LifecycleEvent {
     OnAppEvent,
     /// Fired when an IORA Assist agent task completes.
     OnAssistTaskComplete,
+    /// Fired when a system event is recorded (filter on `severity` or
+    /// `source`, e.g. `error` or `backup.*`).
+    OnSystemEvent,
 }
 
 // ─── Exposed Services (inter-app RPC) ────────────────────────────────────────

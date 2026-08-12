@@ -42,10 +42,12 @@ mod app_messaging_handler;
 mod app_runtime_handler;
 mod app_scheduler_handler;
 mod app_storage_handler;
+mod app_system_event_hooks;
 mod app_webhooks_handler;
 mod automation_handler;
 mod auth;
 mod ble_client;
+mod clipboard_handler;
 mod crypto;
 mod db;
 mod desktop_gateway;
@@ -60,6 +62,7 @@ mod ha_connection;
 mod ha_onboarding_handler;
 mod ha_websocket;
 mod homekit_client;
+mod job_handler;
 mod local_appstore;
 mod location_sync;
 mod logs_handler;
@@ -67,6 +70,9 @@ mod matter_client;
 mod middleware;
 mod mqtt_client;
 mod notification_dispatcher;
+mod permission_requests_handler;
+mod session_handler;
+mod user_profiles_handler;
 mod person_tracker;
 mod plugin_sandbox;
 mod streaming;
@@ -1063,6 +1069,19 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // ── App system-event hooks ────────────────────────────────────────
+    // Dispatch `on_system_event` lifecycle hooks: apps with a matching
+    // manifest hook get a POST to their runtime target when an event is
+    // recorded. Best-effort fan-out on a dedicated task.
+    if let Some(mut hook_rx) = system_events.subscribe_hooks() {
+        let hook_store = local_appstore.clone();
+        tokio::spawn(async move {
+            while let Some(event) = hook_rx.recv().await {
+                app_system_event_hooks::dispatch_to_apps(&hook_store, &event).await;
+            }
+        });
+    }
+
     // ── plugin_sandbox init ─────────────────────────────────────────
     let plugin_sandbox_base = std::env::var("IORA_LOCAL_APPS_DIR")
         .map(std::path::PathBuf::from)
@@ -1522,6 +1541,14 @@ async fn main() -> anyhow::Result<()> {
             "/api/admin/users/:user_id/os-permissions",
             get(admin_get_user_os_permissions).put(admin_set_user_os_permissions),
         )
+        .route(
+            "/api/admin/users/:user_id/profile",
+            put(user_profiles_handler::update_user_profile),
+        )
+        .route(
+            "/api/admin/users",
+            get(user_profiles_handler::admin_list_users_with_profiles),
+        )
         .route("/api/admin/api-keys", get(admin_list_all_api_keys))
         .route("/api/admin/api-keys/:key_id", delete(admin_delete_api_key))
         .route("/api/admin/ha/config", get(admin_ha_config))
@@ -1796,6 +1823,61 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/automations/:automation_id/executions",
             get(automation_handler::list_executions),
+        )
+        // System-wide job manager (Job Center + ora.jobs SDK)
+        .route("/api/jobs", get(job_handler::list_jobs))
+        .route("/api/jobs", post(job_handler::create_job))
+        .route("/api/jobs", delete(job_handler::cleanup_jobs))
+        .route("/api/jobs/:job_id", get(job_handler::get_job))
+        .route("/api/jobs/:job_id", delete(job_handler::delete_job))
+        .route(
+            "/api/jobs/:job_id/progress",
+            post(job_handler::update_job_progress),
+        )
+        .route("/api/jobs/:job_id/pause", post(job_handler::pause_job))
+        .route("/api/jobs/:job_id/resume", post(job_handler::resume_job))
+        .route("/api/jobs/:job_id/cancel", post(job_handler::cancel_job))
+        // Clipboard manager (history per user, cross-device via same API)
+        .route("/api/clipboard", get(clipboard_handler::list_clipboard))
+        .route("/api/clipboard", post(clipboard_handler::add_clipboard_entry))
+        .route("/api/clipboard", delete(clipboard_handler::clear_clipboard))
+        .route(
+            "/api/clipboard/:entry_id/pin",
+            post(clipboard_handler::toggle_clipboard_pin),
+        )
+        .route(
+            "/api/clipboard/:entry_id",
+            delete(clipboard_handler::delete_clipboard_entry),
+        )
+        // Session restore (persisted OS windows per user)
+        .route(
+            "/api/session/windows",
+            get(session_handler::get_session_windows),
+        )
+        .route(
+            "/api/session/windows",
+            put(session_handler::save_session_windows),
+        )
+        .route(
+            "/api/session/windows",
+            delete(session_handler::clear_session_windows),
+        )
+        // Runtime permission requests (Android/iOS-style dialogs)
+        .route(
+            "/api/os/permissions/catalog",
+            get(permission_requests_handler::get_permission_catalog),
+        )
+        .route(
+            "/api/os/permissions/request",
+            post(permission_requests_handler::create_permission_request),
+        )
+        .route(
+            "/api/os/permissions/requests",
+            get(permission_requests_handler::list_permission_requests),
+        )
+        .route(
+            "/api/os/permissions/requests/:request_id/respond",
+            post(permission_requests_handler::respond_permission_request),
         )
         // Webhook management
         .route("/api/webhooks", get(list_webhooks))
@@ -2605,6 +2687,8 @@ async fn main() -> anyhow::Result<()> {
         // Authentication API (public)
         .route("/api/auth/register", post(auth_register))
         .route("/api/auth/login", post(auth_login))
+        .route("/api/auth/guest", post(auth_guest_login))
+        .route("/api/auth/guest-status", get(auth_guest_status))
         .route("/api/auth/verify", get(auth_verify))
         .route("/api/auth/validate", get(auth_validate_credentials))
         .route("/api/auth/pin-login", post(auth_pin_login))
@@ -12447,6 +12531,7 @@ async fn list_all_users(
         Ok(users) => {
             let entries: Vec<db::models::UserListEntry> = users
                 .into_iter()
+                .filter(|u| u.username != "guest")
                 .map(|u| db::models::UserListEntry {
                     has_pin: u.pin_hash.is_some(),
                     id: u.id,
@@ -12964,6 +13049,94 @@ async fn auth_login(
     }))
 }
 
+/// Whether guest mode is enabled (system preference, default off).
+async fn guest_mode_enabled(state: &AppState) -> bool {
+    match state
+        .config_repo
+        .get_system_preference("security.guest_mode_enabled")
+        .await
+    {
+        Ok(Some(pref)) => serde_json::from_str::<serde_json::Value>(&pref.preference_value)
+            .map(|v| v.as_bool().unwrap_or(false))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// GET /api/auth/guest-status — whether the guest button should be shown.
+async fn auth_guest_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(json!({"enabled": guest_mode_enabled(&state).await}))
+}
+
+/// POST /api/auth/guest — start/continue a guest session.
+///
+/// Guest mode is opt-in (admin toggle). A guest is a real user row with the
+/// fixed username `guest` (role `viewer`, no credentials) so every existing
+/// per-user subsystem (permissions, clipboard, jobs, session restore) works
+/// unchanged. Guests are filtered out of user lists.
+async fn auth_guest_login(
+    State(state): State<AppState>,
+) -> Result<Json<db::models::AuthResponse>, ErrorResponse> {
+    if !guest_mode_enabled(&state).await {
+        return Err(ErrorResponse::forbidden("Guest mode is disabled"));
+    }
+
+    // Reuse the existing guest row or create it on first use.
+    let user = match state.config_repo.get_user_by_username("guest").await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            let created = state
+                .config_repo
+                .create_user(db::models::CreateUserRequest {
+                    username: "guest".to_string(),
+                    display_name: Some("Guest".to_string()),
+                })
+                .await
+                .map_err(|e| ErrorResponse::internal(format!("failed to create guest user: {e}")))?;
+            state
+                .config_repo
+                .set_user_role(&created.id, "viewer")
+                .await
+                .map_err(|e| ErrorResponse::internal(format!("failed to set guest role: {e}")))?;
+            created
+        }
+        Err(e) => {
+            warn!("Failed to load guest user: {}", e);
+            return Err(ErrorResponse::internal("Failed to load guest user"));
+        }
+    };
+
+    let (token, _jti, expires_in) = auth::generate_token(&user.id, &user.username, false)
+        .map_err(|e| {
+            ErrorResponse::internal(format!("Failed to generate authentication token: {e}"))
+        })?;
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            None,
+            None,
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store guest refresh token: {}", e);
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
+}
+
 /// Exchange a refresh token for a new access token (+ optionally rotate the refresh token)
 async fn auth_refresh(
     State(state): State<AppState>,
@@ -13300,6 +13473,15 @@ async fn auth_verify(
 
     // If admin status changed in DB, issue a fresh token
     let mut response = serde_json::to_value(&user).unwrap_or_default();
+    // Attach profile fields (kept out of the User struct so existing
+    // queries stay untouched) — the shell uses them for restrictions.
+    match user_profiles_handler::get_user_profile(&state, &user.id).await {
+        Ok((profile_type, restrictions)) => {
+            response["profile_type"] = serde_json::Value::String(profile_type);
+            response["restrictions"] = restrictions;
+        }
+        Err(e) => warn!("Failed to load profile for {}: {}", user.id, e.error),
+    }
     if user.is_admin != claims.is_admin {
         if let Ok((new_token, _new_jti, _expires_in)) =
             auth::generate_token(&user.id, &user.username, user.is_admin)
@@ -14860,7 +15042,7 @@ async fn effective_os_permissions(
     Ok(permissions)
 }
 
-async fn user_has_os_permission(
+pub(crate) async fn user_has_os_permission(
     state: &AppState,
     user_id: &str,
     permission: &str,

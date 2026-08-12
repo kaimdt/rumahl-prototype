@@ -427,7 +427,12 @@
       "scanHint": "Das lokale Netzwerk wird nach SMB-Festplatten durchsucht — gefundene Geräte kannst du direkt verbinden.",
       "noDevicesFound": "Keine Netzwerk-Festplatten gefunden",
       "selectCount": "Auswählen ({{count}})",
-      "selectFolder": "Zielordner auswählen"
+      "selectFolder": "Zielordner auswählen",
+      "familyShare": "Mit Familie teilen",
+      "familyShareRemove": "Familienfreigabe aufheben",
+      "familyShareAdded": "Mit Familie geteilt",
+      "familyShareRemoved": "Familienfreigabe aufgehoben",
+      "familyShareFailed": "Familienfreigabe konnte nicht aktualisiert werden"
     },
     "dock": {
       "open": "Öffnen",
@@ -462,7 +467,15 @@
       "close": "Schließen",
       "emptyPane": "Leerer Bereich",
       "splitHint": "Öffne eine App im Dock, um diese Seite zu füllen.",
-      "open": "Fenster offen"
+      "open": "Fenster offen",
+      "maximize": "Maximieren",
+      "restore": "Wiederherstellen"
+    },
+    "images": {
+      "dropHint": "Bilder hierher ziehen, um sie in diesen Ordner zu kopieren",
+      "dropCopied": "{{name}} kopiert",
+      "dropFailed": "Abgelegte Datei konnte nicht kopiert werden",
+      "dropInvalid": "Hier können nur Bilddateien abgelegt werden"
     }
   },
   "settings": {
@@ -575,7 +588,21 @@
     "appExternalOverride": "Benutzer-Einstellung: öffnet direkt über den Port",
     "appEmbedMode": "Anzeigemodus",
     "appPermissions": "Berechtigungen",
-    "appDangerZone": "Gefahrenzone"
+    "appDangerZone": "Gefahrenzone",
+    "familyProfiles": "Familienprofile",
+    "familyProfilesDesc": "Kinderprofile legen fest, welche Apps in der Shell erscheinen",
+    "familyNoUsers": "Keine bearbeitbaren Benutzerkonten",
+    "profileKind": {
+      "standard": "Standard",
+      "child": "Kind"
+    },
+    "profileRestrictions": "Erlaubte Apps",
+    "profileNoRestrictions": "Alle Apps erlaubt (keine Einschränkungen)",
+    "profileAllowedCount": "Apps ausgewählt",
+    "profileSaveFailed": "Profil konnte nicht gespeichert werden",
+    "guestMode": "Gastmodus",
+    "guestModeDesc": "Passwortfreien Gastzugriff erlauben (temporäres Viewer-Konto)",
+    "guestModeSaved": "Gastmodus aktualisiert"
   },
   "dashboard": {
     "noEntities": "Keine Entitäten gefunden",
@@ -1091,7 +1118,11 @@
     "optional": "optional",
     "confirmPassword": "Passwort bestätigen",
     "rememberMeHint": "Sitzung bleibt nach Browserschließung aktiv",
-    "pageFooter": "IORA — Interface for Optimized Residential Autonomy"
+    "pageFooter": "IORA — Interface for Optimized Residential Autonomy",
+    "guestSuccess": "Als Gast angemeldet",
+    "guestFailed": "Gast-Anmeldung fehlgeschlagen",
+    "or": "oder",
+    "guestLogin": "Als Gast fortfahren"
   },
   "errors": {
     "notFound": "Page not found",
@@ -1268,8 +1299,141 @@
     "sleepOff": "Schlafmodus beenden",
     "lock": "Sperren",
     "themeNight": "Nacht-Theme aktivieren",
-    "placeholder": "Apps, Seiten und Aktionen suchen…",
-    "noResults": "Keine Ergebnisse"
+    "placeholder": "Apps, Dateien, Geräte, Einstellungen und Aktionen durchsuchen…",
+    "noResults": "Keine Ergebnisse",
+    "files": "Dateien",
+    "devices": "Geräte",
+    "settings": "Einstellungen",
+    "folder": "Ordner",
+    "online": "Online",
+    "offline": "Offline",
+    "searching": "Suche…"
+  },
+  "jobs": {
+    "title": "Job Center",
+    "subtitle": "Hintergrund-Jobs",
+    "activeCount_one": "{{count}} aktiver Job",
+    "activeCount_other": "{{count}} aktive Jobs",
+    "cleanup": "Abgeschlossene löschen",
+    "empty": "Keine aktiven Jobs",
+    "unknown": "Unbekannt",
+    "queued": "Wartet",
+    "running": "Läuft",
+    "paused": "Pausiert",
+    "completed": "Abgeschlossen",
+    "failed": "Fehlgeschlagen",
+    "cancelled": "Abgebrochen",
+    "pause": "Pausieren",
+    "resume": "Fortsetzen",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "appStore": "App Store",
+    "installing": "Installiere…"
+  },
+  "clipboard": {
+    "title": "Zwischenablage",
+    "hint": "Verlauf über alle Geräte",
+    "shortcutHint": "Zwischenablage (Ctrl+Shift+V)",
+    "empty": "Noch keine Einträge",
+    "emptyHint": "Kopiere irgendwo etwas — es erscheint hier und wird über deine Geräte synchronisiert.",
+    "noMatch": "Keine passenden Einträge",
+    "search": "Zwischenablage durchsuchen…",
+    "copy": "In Zwischenablage kopieren",
+    "copied": "Kopiert",
+    "pin": "Anheften",
+    "unpin": "Lösen",
+    "delete": "Löschen",
+    "clear": "Verlauf leeren"
+  },
+  "permissions": {
+    "requestTitle": "Berechtigungsanfrage",
+    "wantsAccess": " möchte Zugriff auf",
+    "system": "System",
+    "grantHint": "Du kannst dies später in Einstellungen → Berechtigungen ändern.",
+    "allow": "Erlauben",
+    "deny": "Ablehnen",
+    "catalog": {
+      "os.files.read": "Dateien lesen",
+      "os.files.readDesc": "Zugriff auf deine persönlichen Dateien",
+      "os.files.write": "Dateien schreiben",
+      "os.files.writeDesc": "Dateien erstellen und ändern",
+      "os.network.read": "Netzwerkstatus lesen",
+      "os.network.readDesc": "Geräte und Netzwerkaktivität sehen",
+      "os.network.write": "Netzwerk-Einstellungen ändern",
+      "os.network.writeDesc": "Netzwerkkonfiguration ändern",
+      "os.system.read": "Systeminformationen lesen",
+      "os.system.readDesc": "CPU, Speicher und Dienststatus sehen",
+      "os.power": "Stromsteuerung",
+      "os.powerDesc": "System herunterfahren oder neu starten",
+      "os.updates": "Updates verwalten",
+      "os.updatesDesc": "Updates installieren und zurücksetzen",
+      "os.backups": "Backups verwalten",
+      "os.backupsDesc": "Backups erstellen und wiederherstellen"
+    }
+  },
+  "shortcuts": {
+    "title": "Tastenkürzel",
+    "desc": "Globale Kürzel — Klicke eine Kombination zum Neu-Aufnehmen",
+    "reset": "Zurücksetzen",
+    "recording": "Tasten drücken…",
+    "hint": "Drücke Esc während der Aufnahme zum Abbrechen. Änderungen gelten sofort.",
+    "spotlight": {
+      "label": "Spotlight-Suche",
+      "desc": "Globale Suche öffnen"
+    },
+    "clipboard": {
+      "label": "Zwischenablage",
+      "desc": "Zwischenablage-Verlauf öffnen"
+    },
+    "taskSwitcher": {
+      "label": "Task-Switcher",
+      "desc": "Offene Fenster anzeigen"
+    },
+    "snapLeft": {
+      "label": "Fenster links andocken",
+      "desc": "Oberstes Fenster links einrasten"
+    },
+    "snapRight": {
+      "label": "Fenster rechts andocken",
+      "desc": "Oberstes Fenster rechts einrasten"
+    },
+    "snapMaximize": {
+      "label": "Fenster maximieren",
+      "desc": "Oberstes Fenster maximieren/wiederherstellen"
+    },
+    "snapRestore": {
+      "label": "Fenster wiederherstellen",
+      "desc": "Oberstes Fenster auf Normalgröße"
+    },
+    "lock": {
+      "label": "Session sperren",
+      "desc": "Aktuelle Session sperren"
+    },
+    "sleep": {
+      "label": "Schlafmodus",
+      "desc": "Schlafmodus umschalten"
+    }
+  },
+  "defaultApps": {
+    "title": "Standard-Apps",
+    "desc": "Welche App welchen Dateityp öffnet",
+    "none": "Systemstandard",
+    "opensWith": "Öffnet mit der gewählten App",
+    "notConfigured": "Öffnet mit dem Systemstandard",
+    "hint": "Apps registrieren die Dateitypen, die sie öffnen können; der Datei-Explorer nutzt diese Auswahl für \"Öffnen\" und \"Öffnen mit\".",
+    "types": {
+      "image": "Bilder",
+      "video": "Videos",
+      "audio": "Audio",
+      "pdf": "PDF-Dokumente",
+      "text": "Text & Dokumente",
+      "table": "Tabellen",
+      "presentation": "Präsentationen",
+      "archive": "Archive"
+    },
+    "apps": {
+      "os-images": "Bilder"
+    }
   }
 ,
   "automationEditor": {

@@ -9,6 +9,7 @@
 
 import { ServicePlugin, PluginContext } from '@/lib/plugins/types'
 import { createPluginAIClient, AITool } from '@/lib/plugins/ai-integration'
+import { authFetch } from '@/lib/authHelpers'
 
 let context: PluginContext
 
@@ -165,6 +166,68 @@ export const plugin: ServicePlugin = {
       await ai.registerTool(smartScheduleTool)
 
       console.log('✅ Energy Optimizer AI: Tools registered successfully')
+
+      // ── ORA OS integration (Package 2: ora.* surface) ────────────────
+      // 1. Ask the user for power control — the shell shows the
+      //    Android/iOS-style Allow/Deny dialog (409 = already granted).
+      await authFetch('/api/os/permissions/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          permission: 'os.power',
+          requester: 'Energy Optimizer',
+          scope: 'energy-optimizer-ai',
+          reason: 'Schedule device shutdowns during off-peak hours',
+        }),
+      }).catch(() => {})
+
+      // 2. Run the initial analysis as a visible system job (Job Center).
+      const jobRes = await authFetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Energy optimization analysis',
+          job_type: 'analysis',
+          source: 'energy-optimizer-ai',
+        }),
+      })
+      if (jobRes.ok) {
+        const job = await jobRes.json() as { id: string }
+        for (const progress of [30, 70]) {
+          await authFetch(`/api/jobs/${job.id}/progress`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ progress, status: 'running', message: 'Analyzing power entities…' }),
+          })
+        }
+        await authFetch(`/api/jobs/${job.id}/progress`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ progress: 100, status: 'completed' }),
+        })
+      }
+
+      // 3. Store an optional API key as an app secret (credential vault).
+      await authFetch('/api/apps/energy-optimizer-ai/secrets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'provider_api_key',
+          value: 'your-provider-key-here',
+          description: 'Placeholder — replace with your smart-home provider key',
+        }),
+      }).catch(() => {})
+
+      // 4. Report plugin health into the system event log.
+      await authFetch('/api/system-events/client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          severity: 'info',
+          source: 'energy-optimizer-ai',
+          message: 'Energy Optimizer started — tools registered',
+        }),
+      }).catch(() => {})
 
       // Optional: Run initial analysis
       const analysis = await ai.chat({

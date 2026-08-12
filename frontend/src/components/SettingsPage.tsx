@@ -65,6 +65,7 @@ import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { OsWindowActions } from '@/components/OsWindowActions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { useAuth } from '@/contexts/AuthContext'
 import { readAccentIcons, applyAccentIcons } from '@/lib/accentIcons'
 import { useLocalStorage } from '@/lib/storage'
 import {
@@ -112,6 +113,9 @@ const ThemePickerSection = lazy(() => import('./settings/SettingsAppearance').th
 const ScreensaverScheduleEditor = lazy(() => import('./settings/SettingsDashboard').then((m) => ({ default: m.ScreensaverScheduleEditor })))
 const AdditionalSettings = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.AdditionalSettings })))
 const NinaSettingsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.NinaSettingsSection })))
+const FamilyProfilesSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.FamilyProfilesSection })))
+const KeyboardShortcutsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.KeyboardShortcutsSection })))
+const DefaultAppsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.DefaultAppsSection })))
 const SettingsAppsSection = lazy(() => import('./SettingsAppsSection').then((m) => ({ default: m.SettingsAppsSection })))
 
 /** Map icon name string to Phosphor icon component */
@@ -498,6 +502,7 @@ export const DAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 
 export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation()
+  const { user: authUser } = useAuth()
   const {
     user,
     userName,
@@ -1026,6 +1031,17 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Haptic Feedback, Navigation, Typography, Animations */}
             <Suspense fallback={null}><AdditionalSettings /></Suspense>
+
+            {/* Family / child profiles (admin only) */}
+            {authUser?.isAdmin && (
+              <Suspense fallback={null}><FamilyProfilesSection /></Suspense>
+            )}
+
+            {/* Global keyboard shortcuts */}
+            <Suspense fallback={null}><KeyboardShortcutsSection /></Suspense>
+
+            {/* Default apps / MIME associations */}
+            <Suspense fallback={null}><DefaultAppsSection /></Suspense>
           </div>
         </TabsContent>
 

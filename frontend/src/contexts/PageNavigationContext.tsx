@@ -99,6 +99,9 @@ import {
 } from '@phosphor-icons/react'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { installedAppIds } from '@/hooks/useInstalledApps'
+import { createPageApps, SYSTEM_OS_APPS } from '@/lib/osAppRegistry'
+import { isAppAllowed } from '@/lib/userRestrictions'
+import { useAuth } from '@/contexts/AuthContext'
 
 export interface PageSettings {
   page_id: string
@@ -624,6 +627,32 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   const [currentSubPath, setCurrentSubPath] = useState<string>(() =>
     pathToSubPath(window.location.pathname)
   )
+
+  // ── Family-profile route guard ─────────────────────────────────────────
+  // Restricted users (child profiles with an allowed_app_ids whitelist) are
+  // redirected to the launcher when they land on a page whose app is not
+  // whitelisted — covers deep links (/app/os-files/…), the boot URL and any
+  // programmatic navigation. Launcher, Home and Settings stay reachable.
+  const { user } = useAuth()
+  const allowedPageIds = useMemo(() => {
+    const all = [
+      ...SYSTEM_OS_APPS,
+      ...createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap]),
+    ]
+    return new Set(all.filter((app) => isAppAllowed(user, app.id)).map((app) => app.pageId))
+  }, [user, pages])
+
+  useEffect(() => {
+    const restricted = user?.restrictions?.allowed_app_ids?.length
+    if (!user || !restricted) return
+    if (currentPageId === 'launcher' || currentPageId === 'home' || currentPageId === 'settings') return
+    if (!allowedPageIds.has(currentPageId)) {
+      setCurrentPageIdState('launcher')
+      if (window.location.pathname !== '/') {
+        window.history.replaceState(window.history.state, '', '/')
+      }
+    }
+  }, [currentPageId, user, allowedPageIds])
   const [modalPageId, setModalPageId] = useState<string | null>(null)
   const [pageLayouts, setPageLayoutsState] = useState<Record<string, { cols: number; rows: number; gap: number }>>({})
   const [pageSettingsState, setPageSettingsState] = useState<Record<string, PageSettings>>({})

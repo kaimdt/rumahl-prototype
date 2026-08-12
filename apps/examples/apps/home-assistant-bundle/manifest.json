@@ -14,11 +14,9 @@
     "AppStorageRead",
     "AppDatabaseManage"
   ],
-
   "bundle": {
     "version": "1.0",
     "display_name": "Home Assistant Bundle",
-
     "services": [
       {
         "name": "postgres",
@@ -29,9 +27,16 @@
           "POSTGRES_DB": "hass"
         },
         "internal_ports": [
-          { "port": 5432, "protocol": "tcp", "assignment_mode": "fixed", "description": "PostgreSQL" }
+          {
+            "port": 5432,
+            "protocol": "tcp",
+            "assignment_mode": "fixed",
+            "description": "PostgreSQL"
+          }
         ],
-        "volumes": ["./postgres-data:/var/lib/postgresql/data"],
+        "volumes": [
+          "./postgres-data:/var/lib/postgresql/data"
+        ],
         "restart": "unless-stopped",
         "health_check": {
           "endpoint": "pg_isready -U hass",
@@ -48,9 +53,17 @@
         "name": "mqtt",
         "image": "eclipse-mosquitto:2",
         "internal_ports": [
-          { "port": 1883, "protocol": "tcp", "assignment_mode": "fixed", "description": "MQTT" }
+          {
+            "port": 1883,
+            "protocol": "tcp",
+            "assignment_mode": "fixed",
+            "description": "MQTT"
+          }
         ],
-        "volumes": ["./mosquitto-config:/mosquitto/config", "./mosquitto-data:/mosquitto/data"],
+        "volumes": [
+          "./mosquitto-config:/mosquitto/config",
+          "./mosquitto-data:/mosquitto/data"
+        ],
         "restart": "unless-stopped",
         "depends_on": [],
         "resources": {
@@ -62,13 +75,23 @@
         "name": "homeassistant",
         "image": "ghcr.io/home-assistant/home-assistant:stable",
         "internal_ports": [
-          { "port": 8123, "protocol": "tcp", "assignment_mode": "random", "description": "HA Web UI" }
+          {
+            "port": 8123,
+            "protocol": "tcp",
+            "assignment_mode": "random",
+            "description": "HA Web UI"
+          }
         ],
         "environment": {
           "TZ": "Europe/Berlin"
         },
-        "volumes": ["./ha-config:/config"],
-        "depends_on": ["postgres", "mqtt"],
+        "volumes": [
+          "./ha-config:/config"
+        ],
+        "depends_on": [
+          "postgres",
+          "mqtt"
+        ],
         "restart": "unless-stopped",
         "health_check": {
           "endpoint": "/",
@@ -82,19 +105,16 @@
         }
       }
     ],
-
     "network": {
       "driver": "bridge",
       "internal": false,
       "name": "iora-bundle-home-assistant",
       "subnet": "172.28.0.0/24"
     },
-
     "volumes": [],
     "auto_compose": true,
     "min_iora_version": "2.3.0"
   },
-
   "custom_pages": [
     {
       "id": "ha-dashboard",
@@ -105,7 +125,6 @@
       "order": 200
     }
   ],
-
   "settings_schema": {
     "title": "Home Assistant Einstellungen",
     "description": "Konfiguriere die Home Assistant Bundle-Installation",
@@ -121,7 +140,10 @@
         "label": "HA Port (extern)",
         "type": "number",
         "default": 8123,
-        "validation": { "min": 1024, "max": 65535 }
+        "validation": {
+          "min": 1024,
+          "max": 65535
+        }
       },
       {
         "key": "mqtt_enabled",
@@ -137,11 +159,24 @@
       }
     ]
   },
-
   "store_metadata": {
     "category": "Smart Home",
-    "tags": ["home-automation", "smarthome", "bundle", "multi-container"],
+    "tags": [
+      "home-automation",
+      "smarthome",
+      "bundle",
+      "multi-container"
+    ],
     "homepage": "https://www.home-assistant.io/",
     "license": "Apache-2.0"
+  },
+  "lifecycle_hooks": {
+    "hooks": [
+      {
+        "event": "on_system_event",
+        "handler": "/hooks/system-event",
+        "filter": "error"
+      }
+    ]
   }
 }
