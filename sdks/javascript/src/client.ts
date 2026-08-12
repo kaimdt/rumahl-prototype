@@ -1443,6 +1443,34 @@ export default class IoraClient {
   };
 
   /**
+   * Universal Download Manager API (`ora.downloads`).
+   *
+   * Downloads run in the backend as system jobs and land in the user's
+   * personal Downloads folder — they survive tab closes and app switches.
+   * Progress and history appear in the Job Center automatically.
+   */
+  downloads = {
+    /**
+     * Start a backend download by URL (saved into the user's Downloads folder).
+     */
+    start: async (url: string, opts?: { filename?: string }): Promise<{ job_id: string; status: string }> => {
+      return this.request('POST', '/api/downloads', { url, filename: opts?.filename });
+    },
+    /**
+     * List the user's download jobs (newest first).
+     */
+    list: async (): Promise<{ downloads: any[] }> => {
+      return this.request('GET', '/api/downloads');
+    },
+    /**
+     * Cancel a queued/running download job.
+     */
+    cancel: async (jobId: string): Promise<{ cancelled: boolean }> => {
+      return this.request('POST', `/api/downloads/${jobId}/cancel`);
+    },
+  };
+
+  /**
    * System API (`ora.system`) — system events, stats and diagnostics.
    */
   system = {

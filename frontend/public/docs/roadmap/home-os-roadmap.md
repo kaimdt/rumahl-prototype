@@ -405,8 +405,8 @@ requiring SSH or direct configuration-file edits.
 
 ### Package 6 — Home & Lifestyle Apps + Media Hub
 
-> **Status:** in progress — per-user Downloads folder ✅; lifestyle apps,
-> Media Hub (Jellyfin/Plex) and the universal download manager still open.
+> **Status:** in progress — per-user Downloads folder ✅ + universal download
+> manager ✅; lifestyle apps and the Media Hub (Jellyfin/Plex) still open.
 
 - App-store apps: Calendar, Notes, Tasks, Contacts, Photos, Music, Videos,
   Recipes, Shopping List, Documents, Password Manager, Home Assistant,
@@ -417,9 +417,14 @@ requiring SSH or direct configuration-file edits.
   Videos folders per user (legacy localized names are reused via aliases);
   the Files sidebar shows them with i18n labels and guarantees their
   existence on app open. This folder is the anchor for the download manager.
+- **Universal download manager ✅** — `POST /api/downloads` starts a backend
+  download as a system job (SSRF-guarded: no loopback); the file streams
+  server-side and is uploaded into the user's personal Downloads folder
+  (multipart, caller token), so downloads survive tab closes. Cancel skips
+  the upload. Files app has a "Download from URL" dialog; the Job Center
+  shows progress; SDK exposes `ora.downloads`.
 - **Media Hub:** Jellyfin/Plex detection, continue-watching on home,
-  universal **download manager** (any app can hand downloads to ORA;
-  survives browser close).
+  (downloads now hand into the manager; media hub UI still open).
 
 ### Package 7 — Remote Access & Device-to-Device
 

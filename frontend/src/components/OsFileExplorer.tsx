@@ -22,6 +22,7 @@ import {
   Trash,
   UploadSimple,
   UsersThree,
+  LinkSimple,
   X,
  Rows, FilePlus, Info, Check } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
@@ -408,6 +409,9 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [familyShares, setFamilyShares] = useState<Set<string>>(new Set())
   const familyShareLoading = useRef<string | null>(null)
   const [moveCopyPick, setMoveCopyPick] = useState<{ entry: FileEntry; mode: 'move' | 'copy' } | null>(null)
+  const [downloadUrlOpen, setDownloadUrlOpen] = useState(false)
+  const [downloadUrl, setDownloadUrl] = useState('')
+  const [downloadStarting, setDownloadStarting] = useState(false)
   const deviceInput = useRef<HTMLInputElement>(null)
   const requestRef = useRef(0)
   const treeRef = useRef<TreeNode[]>([])
@@ -719,6 +723,32 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     }
   }, [])
 
+  /** Start a backend download into the user's Downloads folder (Package 6). */
+  const startUrlDownload = async () => {
+    const url = downloadUrl.trim()
+    if (!url) return
+    setDownloadStarting(true)
+    try {
+      const response = await authFetch('/api/downloads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || `HTTP ${response.status}`)
+      }
+      const data = await response.json() as { job_id?: string }
+      toast.success(t('os.files.downloadStarted'))
+      setDownloadUrlOpen(false)
+      setDownloadUrl('')
+    } catch (downloadError) {
+      toast.error(downloadError instanceof Error ? downloadError.message : t('os.files.downloadFailed'))
+    } finally {
+      setDownloadStarting(false)
+    }
+  }
+
   /** Move a file/folder into another folder (internal drag & drop). */
   const copyEntry = async (fileId: string, targetFolderId: string | null) => {
     try {
@@ -853,7 +883,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('iora-files-view', next) }} className="ora-icon-button" aria-label={t('os.files.changeView')} data-tooltip={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
           <label className="ora-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
-          {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="ora-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
+          {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="ora-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><button type="button" onClick={() => setDownloadUrlOpen(true)} className="ora-secondary-button"><LinkSimple size={16} />{t('os.files.downloadFromUrl')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
           <span className="mx-0.5 h-6 w-px bg-foreground/10" aria-hidden="true" />
           <OsWindowActions pageId="os-files" />
         </div>
@@ -1173,6 +1203,34 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
             </div>
           )}
         </Modal>
+      )}
+      {downloadUrlOpen && (
+        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/60 p-4" onMouseDown={() => setDownloadUrlOpen(false)}>
+          <div className="glass-card w-full max-w-md rounded-3xl p-6" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-cyan-300">{t('os.files.downloadFromUrl')}</p>
+                <h2 className="mt-1 text-xl font-semibold">{t('os.files.downloadDialogTitle')}</h2>
+              </div>
+              <button type="button" onClick={() => setDownloadUrlOpen(false)} className="rounded-xl p-2 hover:bg-foreground/7"><X size={18} /></button>
+            </header>
+            <p className="mt-2 text-xs text-foreground/55">{t('os.files.downloadDialogHint')}</p>
+            <input
+              value={downloadUrl}
+              onChange={(event) => setDownloadUrl(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') void startUrlDownload() }}
+              placeholder="https://…"
+              autoFocus
+              className="mt-4 w-full rounded-xl border border-white/10 bg-foreground/5 px-3 py-2.5 text-sm outline-none focus:border-cyan-400/40"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setDownloadUrlOpen(false)} className="ora-secondary-button">{t('common.cancel')}</button>
+              <button type="button" disabled={downloadStarting || !downloadUrl.trim()} onClick={() => void startUrlDownload()} className="ora-primary-button">
+                <DownloadSimple size={15} />{downloadStarting ? t('os.files.downloadStarting') : t('os.files.downloadStart')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {createPortal(
       contextEntry && (() => {

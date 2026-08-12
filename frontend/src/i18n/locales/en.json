@@ -454,7 +454,14 @@
         "downloads": "Downloads",
         "photos": "Photos",
         "videos": "Videos"
-      }
+      },
+      "downloadFromUrl": "Download from URL",
+      "downloadDialogTitle": "Download into your Downloads folder",
+      "downloadDialogHint": "The download runs in the background (Job Center) and is saved into your personal Downloads folder — it survives closing this tab.",
+      "downloadStart": "Start download",
+      "downloadStarting": "Starting…",
+      "downloadStarted": "Download started — see Job Center",
+      "downloadFailed": "Could not start download"
     },
     "dock": {
       "open": "Open",

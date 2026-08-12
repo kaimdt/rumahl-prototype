@@ -537,6 +537,33 @@ POST /api/devices/{id}/probe
 MAC validation (`AA:BB:CC:DD:EE:FF` or dashed) happens server-side; wake
 returns 400 when the device has no MAC or WOL is disabled.
 
+### Universal Download Manager
+
+Downloads run in the backend as system jobs (`job_type: download`) and are
+saved into the user's personal Downloads folder — they survive tab closes
+and app switches. The Job Center shows progress/cancel automatically;
+the SDK exposes `ora.downloads`.
+
+```http
+# Start a download (SSRF-guarded: http/https, no loopback hosts)
+POST /api/downloads
+Content-Type: application/json
+
+{ "url": "https://releases.ubuntu.com/24.04/ubuntu.iso", "filename": "ubuntu.iso" }
+→ 202 { "job_id": "…", "status": "queued" }
+
+# The user's download jobs (newest first)
+GET /api/downloads
+
+# Cancel a queued/running download
+POST /api/downloads/{job_id}/cancel
+```
+
+Downloads stream server-side into a temp buffer and upload into the personal
+Downloads folder (multipart) using the caller's token; cancelling skips the
+final upload. Private LAN hosts are allowed (a home OS downloads from its
+NAS); loopback/link-local/multicast are blocked.
+
 ### Logs (user-level viewer) + Services (systemd)
 
 The Logs app (`/logs`, requires `os.system.read`) exposes the central log

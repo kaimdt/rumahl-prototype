@@ -52,6 +52,7 @@ mod crypto;
 mod db;
 mod desktop_gateway;
 mod device_handler;
+mod download_handler;
 mod tor_manager;
 mod dev_image;
 mod documentation;
@@ -1903,6 +1904,13 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/devices/:device_id/probe",
             post(device_handler::probe_device),
+        )
+        // Universal download manager (Package 6)
+        .route("/api/downloads", get(download_handler::list_downloads))
+        .route("/api/downloads", post(download_handler::start_download))
+        .route(
+            "/api/downloads/:job_id/cancel",
+            post(download_handler::cancel_download),
         )
         // Webhook management
         .route("/api/webhooks", get(list_webhooks))
@@ -6822,7 +6830,7 @@ async fn forward_request_to(
     }
 }
 
-fn microservice_url(env_var: &str, service: &str, default_port: u16) -> String {
+pub(crate) fn microservice_url(env_var: &str, service: &str, default_port: u16) -> String {
     if let Ok(v) = std::env::var(env_var) {
         if !v.is_empty() {
             return v;
