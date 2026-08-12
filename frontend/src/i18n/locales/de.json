@@ -299,6 +299,14 @@
       "containers": {
         "name": "Container",
         "description": "Docker-Container und Ressourcenverbrauch"
+      },
+      "logs": {
+        "name": "Logs",
+        "description": "Zentraler Log-Viewer aller Dienste"
+      },
+      "services": {
+        "name": "Dienste",
+        "description": "systemd-Dienste"
       }
     },
     "systemApps": {
@@ -1404,7 +1412,9 @@
       "os.updates": "Updates verwalten",
       "os.updatesDesc": "Updates installieren und zurücksetzen",
       "os.backups": "Backups verwalten",
-      "os.backupsDesc": "Backups erstellen und wiederherstellen"
+      "os.backupsDesc": "Backups erstellen und wiederherstellen",
+      "os.services": "Dienste verwalten",
+      "os.servicesDesc": "Systemdienste starten, stoppen und neu starten"
     }
   },
   "shortcuts": {
@@ -1727,6 +1737,52 @@
       "all": "Alle",
       "running": "Läuft",
       "stopped": "Gestoppt"
+    }
+  },
+  "logsApp": {
+    "title": "Logs",
+    "subtitle": "Zentraler Log-Viewer für alle Dienste und Apps",
+    "refresh": "Aktualisieren",
+    "sources": "Quellen",
+    "selectSource": "Quelle wählen",
+    "autoRefresh": "Auto-Refresh",
+    "unavailable": "Log-Dienst nicht erreichbar",
+    "noSources": "Keine Log-Quellen",
+    "empty": "Keine Log-Einträge"
+  },
+  "servicesApp": {
+    "title": "Dienste",
+    "subtitle": "systemd-Dienste — starten, stoppen, neu starten",
+    "refresh": "Aktualisieren",
+    "total": "Dienste",
+    "running": "Aktiv",
+    "inactive": "Inaktiv",
+    "failed": "Fehlgeschlagen",
+    "start": "Starten",
+    "stop": "Stoppen",
+    "restart": "Neu starten",
+    "search": "Dienste durchsuchen…",
+    "unavailable": "Dienste-Dienst nicht erreichbar",
+    "empty": "Keine passenden Dienste",
+    "actionFailed": "Aktion fehlgeschlagen",
+    "actionDone": {
+      "start": "{{name}} gestartet",
+      "stop": "{{name}} gestoppt",
+      "restart": "{{name}} neu gestartet"
+    },
+    "state": {
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "activating": "Startet",
+      "deactivating": "Stoppt",
+      "failed": "Fehlgeschlagen",
+      "unknown": "Unbekannt"
+    },
+    "filter": {
+      "all": "Alle",
+      "running": "Aktiv",
+      "inactive": "Inaktiv",
+      "failed": "Fehlgeschlagen"
     }
   }
 }

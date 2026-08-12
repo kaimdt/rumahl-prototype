@@ -377,10 +377,13 @@ backup runs as a visible, resumable job; windows survive logout/login.
      rollback, external backup and off-device replication.
    - Backup targets include USB disks, another ORA/NAS system and permissioned
      remote targets; restore workflows verify data before replacing live data.
-6. **Native system apps**
-   - System Monitor, Storage, Containers, Network, Backup, Users, Logs,
-     Services and Updates become standalone, permissioned apps with widgets
-     and deep links. The Admin Center keeps an administrative view of the same
+6. **Native system apps** ✅
+   - System Monitor ✅ (`os-system`), Storage ✅ (`os-storage`, Codex),
+     Containers ✅ (`os-containers`), Network ✅ (`os-network`), Backup/Updates
+     ✅ (`os-maintenance`), Logs ✅ (`os-logs` — user-level source viewer via
+     `GET /api/os/logs/*`, `os.system.read`), Services ✅ (`os-services` —
+     systemd list + start/stop/restart via iora-control, new `os.services`
+     permission). The Admin Center keeps an administrative view of the same
      APIs instead of separate implementations.
 
 **Safety requirements:** destructive storage operations always show the exact

@@ -1825,6 +1825,15 @@ async fn main() -> anyhow::Result<()> {
             "/api/automations/:automation_id/executions",
             get(automation_handler::list_executions),
         )
+        // User-level log viewer (Package 5 — Logs app)
+        .route(
+            "/api/os/logs/sources",
+            get(user_list_log_sources),
+        )
+        .route(
+            "/api/os/logs/source/:source_id",
+            get(user_get_source_logs),
+        )
         // System-wide job manager (Job Center + ora.jobs SDK)
         .route("/api/jobs", get(job_handler::list_jobs))
         .route("/api/jobs", post(job_handler::create_job))
@@ -6062,6 +6071,34 @@ async fn admin_system_event_detail(
         "group": group,
         "occurrences": occurrences,
     })))
+}
+
+/// GET /api/os/logs/sources — user-level wrapper (requires os.system.read).
+async fn user_list_log_sources(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> axum::response::Response {
+    match require_user_os_permission(&state, &identity, "os.system.read").await {
+        Ok(()) => logs_handler::list_log_sources(State(state)).await.into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// GET /api/os/logs/source/:source_id — user-level wrapper.
+async fn user_get_source_logs(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+    axum::extract::Path(source_id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<logs_handler::LogQuery>,
+) -> axum::response::Response {
+    match require_user_os_permission(&state, &identity, "os.system.read").await {
+        Ok(()) => {
+            logs_handler::get_source_logs(State(state), axum::extract::Path(source_id), axum::extract::Query(query))
+                .await
+                .into_response()
+        }
+        Err(e) => e.into_response(),
+    }
 }
 
 /// POST /api/admin/system-events/:fingerprint/resolve
@@ -14969,7 +15006,7 @@ async fn delete_api_key(
 // Admin Endpoints
 // ═══════════════════════════════════════════════════════════════════════
 
-const OS_PERMISSIONS: [&str; 8] = [
+const OS_PERMISSIONS: [&str; 9] = [
     "os.files.read",
     "os.files.write",
     "os.network.read",
@@ -14978,6 +15015,7 @@ const OS_PERMISSIONS: [&str; 8] = [
     "os.power",
     "os.updates",
     "os.backups",
+    "os.services",
 ];
 
 fn role_os_permissions(role: &str) -> Vec<&'static str> {
@@ -14989,6 +15027,7 @@ fn role_os_permissions(role: &str) -> Vec<&'static str> {
             "os.system.read",
             "os.updates",
             "os.backups",
+            "os.services",
         ],
         "editor" => vec!["os.files.read", "os.files.write", "os.system.read"],
         "viewer" => vec!["os.files.read"],
@@ -19378,6 +19417,8 @@ async fn user_iora_control_proxy(
             "os.network.read"
         } else if path.starts_with("os/reboot") || path.starts_with("os/shutdown") {
             "os.power"
+        } else if path.starts_with("os/services") {
+            "os.services"
         } else {
             return ErrorResponse::forbidden("OS endpoint is not delegated").into_response();
         };

@@ -299,6 +299,14 @@
       "containers": {
         "name": "Containers",
         "description": "Docker containers and resource usage"
+      },
+      "logs": {
+        "name": "Logs",
+        "description": "Central log viewer for all services"
+      },
+      "services": {
+        "name": "Services",
+        "description": "systemd services"
       }
     },
     "systemApps": {
@@ -1403,7 +1411,9 @@
       "os.updates": "Manage updates",
       "os.updatesDesc": "Install and roll back updates",
       "os.backups": "Manage backups",
-      "os.backupsDesc": "Create and restore backups"
+      "os.backupsDesc": "Create and restore backups",
+      "os.services": "Manage services",
+      "os.servicesDesc": "Start, stop and restart system services"
     }
   },
   "shortcuts": {
@@ -1726,6 +1736,52 @@
       "all": "All",
       "running": "Running",
       "stopped": "Stopped"
+    }
+  },
+  "logsApp": {
+    "title": "Logs",
+    "subtitle": "Central log viewer for all services and apps",
+    "refresh": "Refresh",
+    "sources": "Sources",
+    "selectSource": "Select a source",
+    "autoRefresh": "Auto refresh",
+    "unavailable": "Log service unavailable",
+    "noSources": "No log sources",
+    "empty": "No log entries"
+  },
+  "servicesApp": {
+    "title": "Services",
+    "subtitle": "systemd services — start, stop, restart",
+    "refresh": "Refresh",
+    "total": "Services",
+    "running": "Running",
+    "inactive": "Inactive",
+    "failed": "Failed",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "search": "Search services…",
+    "unavailable": "Services service unavailable",
+    "empty": "No matching services",
+    "actionFailed": "Action failed",
+    "actionDone": {
+      "start": "{{name}} started",
+      "stop": "{{name}} stopped",
+      "restart": "{{name}} restarted"
+    },
+    "state": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "activating": "Activating",
+      "deactivating": "Deactivating",
+      "failed": "Failed",
+      "unknown": "Unknown"
+    },
+    "filter": {
+      "all": "All",
+      "running": "Running",
+      "inactive": "Inactive",
+      "failed": "Failed"
     }
   }
 }

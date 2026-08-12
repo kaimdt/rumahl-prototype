@@ -36,7 +36,7 @@ use crate::{AppState, ErrorResponse};
 
 /// Catalog of OS permissions with short English descriptions. The frontend
 /// renders translated labels via `permissions.catalog.<id>` i18n keys.
-const OS_PERMISSION_CATALOG: [(&str, &str); 8] = [
+const OS_PERMISSION_CATALOG: [(&str, &str); 9] = [
     ("os.files.read", "Read files"),
     ("os.files.write", "Write files"),
     ("os.network.read", "Read network status"),
@@ -45,6 +45,7 @@ const OS_PERMISSION_CATALOG: [(&str, &str); 8] = [
     ("os.power", "Power the system on/off"),
     ("os.updates", "Manage updates"),
     ("os.backups", "Manage backups"),
+    ("os.services", "Manage system services"),
 ];
 
 /// Row layout: id, user_id, permission, requester, scope, reason, status,

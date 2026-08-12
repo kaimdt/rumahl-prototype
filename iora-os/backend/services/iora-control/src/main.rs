@@ -1221,6 +1221,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/dashboard", get(dashboard_overview))
         .route("/api/control/system", get(system_stats))
         .route("/api/control/services", get(list_services))
+        .route("/api/control/os/services", get(list_systemd_services))
+        .route(
+            "/api/control/os/services/:name/:action",
+            post(control_systemd_service),
+        )
         .route("/api/control/logs", get(aggregate_logs))
         .route(
             "/api/control/plugins",
@@ -1297,4 +1302,114 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+// ── systemd services (Package 5 — Services app) ───────────────────────────
+
+/// Parse `systemctl list-units --type=service --all --no-legend` output into
+/// structured rows.
+fn parse_systemd_units(output: &str) -> Vec<serde_json::Value> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(4, char::is_whitespace).filter(|p| !p.is_empty());
+            let name = parts.next()?.to_string();
+            let load = parts.next().unwrap_or("").to_string();
+            let active = parts.next().unwrap_or("").to_string();
+            let sub = parts.next().unwrap_or("").to_string();
+            let description = parts.next().unwrap_or("").trim().to_string();
+            if !name.ends_with(".service") {
+                return None;
+            }
+            Some(serde_json::json!({
+                "name": name,
+                "load": load,
+                "active": active,
+                "sub": sub,
+                "description": description,
+            }))
+        })
+        .collect()
+}
+
+/// GET /api/control/os/services — list systemd service units.
+async fn list_systemd_services() -> impl IntoResponse {
+    match std::process::Command::new("systemctl")
+        .args(["list-units", "--type=service", "--all", "--no-legend", "--no-pager"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let services = parse_systemd_units(&stdout);
+            Json(serde_json::json!({ "services": services }))
+                .into_response()
+        }
+        Ok(output) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": String::from_utf8_lossy(&output.stderr).to_string()
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Validate a systemd unit name to prevent command injection.
+fn valid_unit_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.ends_with(".service")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '@' | '\\'))
+}
+
+/// POST /api/control/os/services/:name/:action — start|stop|restart a unit.
+async fn control_systemd_service(
+    axum::extract::Path((name, action)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    if !valid_unit_name(&name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("invalid unit name '{name}'") })),
+        )
+            .into_response();
+    }
+    if !matches!(action.as_str(), "start" | "stop" | "restart") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("invalid action '{action}'") })),
+        )
+            .into_response();
+    }
+
+    match std::process::Command::new("systemctl")
+        .args([action.as_str(), name.as_str()])
+        .output()
+    {
+        Ok(output) if output.status.success() => Json(serde_json::json!({
+            "ok": true,
+            "name": name,
+            "action": action,
+            "output": String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        }))
+        .into_response(),
+        Ok(output) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": String::from_utf8_lossy(&output.stderr).trim().to_string()
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }

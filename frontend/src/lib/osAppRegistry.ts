@@ -12,6 +12,8 @@ import {
   Robot,
   Desktop,
   Cube,
+  TerminalWindow,
+  GearSix,
   ShareNetwork,
   Storefront,
   VideoCamera,
@@ -30,7 +32,7 @@ export interface OsAppDefinition {
   icon: Icon
   kind: OsAppKind
   adminOnly?: boolean
-  requiredPermission?: 'os.files.read' | 'os.network.read' | 'os.network.write' | 'os.system.read' | 'os.updates' | 'os.backups'
+  requiredPermission?: 'os.files.read' | 'os.network.read' | 'os.network.write' | 'os.system.read' | 'os.updates' | 'os.backups' | 'os.services'
   accent: string
   order: number
   /** Remote icon URL (installed Docker apps) — rendered as <img> when set. */
@@ -153,6 +155,30 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     requiredPermission: 'os.system.read',
     accent: 'oklch(0.63 0.15 265)',
     order: 25,
+  },
+  {
+    id: 'iora-logs',
+    pageId: 'os-logs',
+    nameKey: 'os.apps.logs.name',
+    fallbackName: 'Logs',
+    descriptionKey: 'os.apps.logs.description',
+    icon: TerminalWindow,
+    kind: 'system',
+    requiredPermission: 'os.system.read',
+    accent: 'oklch(0.6 0.14 40)',
+    order: 26,
+  },
+  {
+    id: 'iora-services',
+    pageId: 'os-services',
+    nameKey: 'os.apps.services.name',
+    fallbackName: 'Services',
+    descriptionKey: 'os.apps.services.description',
+    icon: GearSix,
+    kind: 'system',
+    requiredPermission: 'os.services',
+    accent: 'oklch(0.65 0.15 220)',
+    order: 27,
   },
   {
     id: 'iora-system',

@@ -528,6 +528,27 @@ POST /api/devices/{id}/probe
 MAC validation (`AA:BB:CC:DD:EE:FF` or dashed) happens server-side; wake
 returns 400 when the device has no MAC or WOL is disabled.
 
+### Logs (user-level viewer) + Services (systemd)
+
+The Logs app (`/logs`, requires `os.system.read`) exposes the central log
+sources; the Services app (`/services`, requires the new `os.services`
+permission) lists and controls systemd units.
+
+```http
+# Log sources + entries per source
+GET /api/os/logs/sources
+GET /api/os/logs/source/{source_id}?lines=300
+
+# systemd services (delegated to iora-control; os.services permission)
+GET  /api/os/control/os/services
+POST /api/os/control/os/services/{unit.service}/{start|stop|restart}
+```
+
+Unit names are validated (`*.service`, alphanumerics plus `_-.@`) to prevent
+command injection; only `start`/`stop`/`restart` are accepted. `os.services`
+is granted to admins and the maintenance role by default and appears in the
+permission request catalog.
+
 ## iora-core Endpoints (Port 8090)
 
 ### Health
