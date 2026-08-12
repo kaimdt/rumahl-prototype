@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+operation="${1:-}"
+shift || true
+name="" path="" mode="ro" guest="no" principals="" clients=""
+while (($#)); do
+  case "$1" in
+    --name) name="${2:-}"; shift 2 ;;
+    --path) path="${2:-}"; shift 2 ;;
+    --mode) mode="${2:-}"; shift 2 ;;
+    --guest) guest="${2:-}"; shift 2 ;;
+    --principals) principals="${2:-}"; shift 2 ;;
+    --clients) clients="${2:-}"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[[ "$name" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || { echo "Invalid share name" >&2; exit 2; }
+[[ "$path" == /* && "$path" != *..* ]] || { echo "Invalid share path" >&2; exit 2; }
+[[ -d "$path" ]] || { echo "Share path does not exist" >&2; exit 3; }
+[[ "$mode" == ro || "$mode" == rw ]] || { echo "Invalid access mode" >&2; exit 2; }
+exec 9>/run/lock/iora-storage-share.lock
+flock -x 9
+
+case "$operation" in
+  apply-smb)
+    command -v testparm >/dev/null || { echo "testparm is not installed" >&2; exit 4; }
+    [[ "$guest" == no || "$mode" == ro ]] || { echo "Writable guest shares are forbidden" >&2; exit 2; }
+    install -d -m 0750 /etc/samba/iora-shares.d
+    target="/etc/samba/iora-shares.d/${name}.conf"
+    tmp="$(mktemp /etc/samba/iora-shares.d/.${name}.XXXXXX)"
+    trap 'rm -f "$tmp"' EXIT
+    {
+      printf '[%s]\n  path = %s\n  read only = %s\n  guest ok = %s\n' "$name" "$path" "$([[ "$mode" == ro ]] && echo yes || echo no)" "$guest"
+      [[ -z "$principals" ]] || printf '  valid users = %s\n' "${principals//,/ }"
+    } >"$tmp"
+    chmod 0640 "$tmp"
+    testparm -s "$tmp" >/dev/null
+    mv -f "$tmp" "$target"
+    smb_conf=/etc/samba/smb.conf
+    include_line="include = $target"
+    if ! grep -Fqx "$include_line" "$smb_conf"; then
+      conf_tmp="$(mktemp /etc/samba/.smb.conf.XXXXXX)"
+      cp -a "$smb_conf" "$conf_tmp"
+      printf '\n%s\n' "$include_line" >>"$conf_tmp"
+      if ! testparm -s "$conf_tmp" >/dev/null; then
+        rm -f "$target" "$conf_tmp"
+        echo "Generated Samba configuration failed validation" >&2
+        exit 5
+      fi
+      chmod --reference="$smb_conf" "$conf_tmp"
+      chown --reference="$smb_conf" "$conf_tmp"
+      mv -f "$conf_tmp" "$smb_conf"
+    fi
+    command -v smbcontrol >/dev/null && smbcontrol all reload-config || true
+    ;;
+  apply-nfs)
+    command -v exportfs >/dev/null || { echo "exportfs is not installed" >&2; exit 4; }
+    [[ -n "$clients" ]] || { echo "At least one NFS client is required" >&2; exit 2; }
+    install -d -m 0755 /etc/exports.d
+    target="/etc/exports.d/iora-${name}.exports"
+    tmp="$(mktemp /etc/exports.d/.iora-${name}.XXXXXX)"
+    trap 'rm -f "$tmp"' EXIT
+    printf '%s' "$path" >"$tmp"
+    IFS=',' read -ra entries <<<"$clients"
+    for client in "${entries[@]}"; do
+      [[ "$client" =~ ^[A-Za-z0-9@._:/\*-]+$ ]] || { echo "Invalid NFS client" >&2; exit 2; }
+      printf ' %s(%s,sync,no_subtree_check)' "$client" "$mode" >>"$tmp"
+    done
+    printf '\n' >>"$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$target"
+    exportfs -ra
+    ;;
+  *) echo "Unsupported operation" >&2; exit 2 ;;
+esac

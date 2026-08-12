@@ -162,6 +162,14 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
             "033_user_os_permissions",
             include_str!("../../migrations/033_user_os_permissions.sql"),
         ),
+        (
+            "034_automation_flows",
+            include_str!("../../migrations/034_automation_flows.sql"),
+        ),
+        (
+            "035_automation_flow_edges",
+            include_str!("../../migrations/035_automation_flow_edges.sql"),
+        ),
     ];
 
     // Apply each migration if not already applied

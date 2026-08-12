@@ -55,6 +55,8 @@ import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ default: m.AdminPanel })))
 const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default: m.AgentTab })))
+const AutomationEditorApp = lazy(() => import('@/components/AutomationEditorApp').then(m => ({ default: m.AutomationEditorApp })))
+const OsStorageApp = lazy(() => import('@/components/OsStorageApp').then(m => ({ default: m.OsStorageApp })))
 const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
 const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
 // AppSettingsPage is now rendered inside the Settings app (SettingsAppsSection
@@ -237,6 +239,7 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
     case 'os-images': return <OsImagesApp />
     case 'os-network': return <OsSystemApp kind="network" />
     case 'os-system': return <OsSystemApp kind="system" />
+    case 'os-storage': return <OsStorageApp />
     case 'os-updates': return <OsMaintenanceApp kind="updates" />
     case 'os-backups': return <OsMaintenanceApp kind="backups" />
     case 'app-store': return <AppStoreTab token={token || ''} />
@@ -277,6 +280,7 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
     case 'share': return <SharePage />
     case 'streaming': return <StreamSender />
     case 'ai-agent': return <AgentTab token={token || ''} />
+    case 'automations': return <AutomationEditorApp />
     default: return null
   }
 }
@@ -293,6 +297,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
   if (pageId === 'share') return <OsAppWindow pageId={pageId} title={t('os.apps.share.name')} icon={getOsAppIcon(pageId)}><SharePage /></OsAppWindow>
   if (pageId === 'streaming') return <OsAppWindow pageId={pageId} title={t('os.apps.streaming.name')} icon={getOsAppIcon(pageId)}><StreamSender /></OsAppWindow>
   if (pageId === 'ai-agent') return <OsAppWindow pageId={pageId} title={t('os.apps.agent.name')} icon={getOsAppIcon(pageId)}><AgentTab token={token || ''} /></OsAppWindow>
+  if (pageId === 'automations') return <OsAppWindow pageId={pageId} title={t('os.apps.automations.name')} icon={getOsAppIcon(pageId)} noClip><AutomationEditorApp /></OsAppWindow>
   return renderOsAppContent(pageId)
 }
 

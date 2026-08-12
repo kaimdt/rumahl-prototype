@@ -43,6 +43,7 @@ mod app_runtime_handler;
 mod app_scheduler_handler;
 mod app_storage_handler;
 mod app_webhooks_handler;
+mod automation_handler;
 mod auth;
 mod ble_client;
 mod crypto;
@@ -56,6 +57,7 @@ mod frontend_dev_proxy;
 mod ha_cache;
 mod ha_client;
 mod ha_connection;
+mod ha_onboarding_handler;
 mod ha_websocket;
 mod homekit_client;
 mod local_appstore;
@@ -1523,6 +1525,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/api-keys", get(admin_list_all_api_keys))
         .route("/api/admin/api-keys/:key_id", delete(admin_delete_api_key))
         .route("/api/admin/ha/config", get(admin_ha_config))
+        .route("/api/admin/ha/discover", post(ha_onboarding_handler::discover))
+        .route("/api/admin/ha/onboard", post(ha_onboarding_handler::onboard))
         .route("/api/admin/ha/integrations", get(admin_ha_integrations))
         .route("/api/admin/ha/devices", get(admin_ha_devices))
         .route("/api/admin/ha/areas", get(admin_ha_areas))
@@ -1773,6 +1777,26 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/keys", post(create_api_key))
         .route("/api/keys/:key_id", put(update_api_key))
         .route("/api/keys/:key_id", delete(delete_api_key))
+        // Visual automation engine (Package 4)
+        .route(
+            "/api/automations",
+            get(automation_handler::list_automations)
+                .post(automation_handler::create_automation),
+        )
+        .route(
+            "/api/automations/:automation_id",
+            get(automation_handler::get_automation)
+                .put(automation_handler::update_automation)
+                .delete(automation_handler::delete_automation),
+        )
+        .route(
+            "/api/automations/:automation_id/run",
+            post(automation_handler::run_automation),
+        )
+        .route(
+            "/api/automations/:automation_id/executions",
+            get(automation_handler::list_executions),
+        )
         // Webhook management
         .route("/api/webhooks", get(list_webhooks))
         .route("/api/webhooks", post(create_webhook))
