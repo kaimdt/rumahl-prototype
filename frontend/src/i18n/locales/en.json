@@ -1435,6 +1435,14 @@
     "typeConfirmation": "Type this phrase to authorize execution",
     "executeWrite": "Execute storage change",
     "freshAuthRequired": "Fresh administrator authorization is required. Sign out and sign in again, then recreate the plan.",
-    "executionFailed": "The storage change failed. No further commands were executed."
+    "executionFailed": "The storage change failed. No further commands were executed.",
+    "storageJobs": "Storage jobs",
+    "noJobs": "No monitored storage jobs have been started.",
+    "job_scrub": "RAID consistency check",
+    "job_replace_member": "RAID member replacement",
+    "jobStatus_queued": "Queued",
+    "jobStatus_running": "Running",
+    "jobStatus_completed": "Completed",
+    "jobStatus_failed": "Needs attention"
   }
 }

@@ -4,6 +4,7 @@ mod cache;
 mod error;
 mod nas_inventory;
 mod storage_inventory;
+mod storage_jobs;
 mod ws;
 
 use std::{
@@ -1212,6 +1213,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    storage_jobs::initialize().await;
     let state = AppState::new();
 
     // Protected API routes (require authentication)
@@ -1245,6 +1247,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/os/storage/nas/plan", post(nas_inventory::plan))
         .route("/api/control/os/storage/nas/execute", post(nas_inventory::execute))
         .route("/api/control/os/storage/raid/plan", post(storage_inventory::plan))
+        .route("/api/control/os/storage/raid/execute", post(storage_jobs::execute))
+        .route("/api/control/os/storage/jobs", get(storage_jobs::list))
+        .route("/api/control/os/storage/jobs/:id", get(storage_jobs::get))
         .route("/api/control/os/network", get(list_network_interfaces))
         .route("/api/control/os/network/set", post(set_network_config))
         .route("/api/control/os/processes", get(list_top_processes))

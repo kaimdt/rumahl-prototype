@@ -1436,6 +1436,14 @@
     "typeConfirmation": "Tippe diese Phrase zur Autorisierung der Ausführung",
     "executeWrite": "Speicheränderung ausführen",
     "freshAuthRequired": "Eine frische Administrator-Autorisierung ist erforderlich. Melde dich ab und erneut an und erstelle den Plan neu.",
-    "executionFailed": "Die Speicheränderung ist fehlgeschlagen. Es wurden keine weiteren Befehle ausgeführt."
+    "executionFailed": "Die Speicheränderung ist fehlgeschlagen. Es wurden keine weiteren Befehle ausgeführt.",
+    "storageJobs": "Speicheraufträge",
+    "noJobs": "Es wurden noch keine überwachten Speicheraufträge gestartet.",
+    "job_scrub": "RAID-Konsistenzprüfung",
+    "job_replace_member": "Austausch eines RAID-Mitglieds",
+    "jobStatus_queued": "Eingereiht",
+    "jobStatus_running": "Läuft",
+    "jobStatus_completed": "Abgeschlossen",
+    "jobStatus_failed": "Aufmerksamkeit erforderlich"
   }
 }

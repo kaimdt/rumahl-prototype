@@ -110,6 +110,10 @@ async fn collect_smart(paths: &[String]) -> HashMap<String, Value> {
 }
 
 pub async fn plan(Json(request): Json<RaidPlanRequest>) -> Result<Json<RaidOperationPlan>, (StatusCode, Json<Value>)> {
+    Ok(Json(build_plan(request).await?))
+}
+
+pub async fn build_plan(request: RaidPlanRequest) -> Result<RaidOperationPlan, (StatusCode, Json<Value>)> {
     let mdstat = tokio::fs::read_to_string("/proc/mdstat").await.map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, format!("Linux MD status is unavailable: {error}")))?;
     let arrays = parse_mdstat(&mdstat);
     let plan = match request {
@@ -154,7 +158,7 @@ pub async fn plan(Json(request): Json<RaidPlanRequest>) -> Result<Json<RaidOpera
             }
         }
     };
-    Ok(Json(plan))
+    Ok(plan)
 }
 
 struct ReplacementInfo { size_bytes: u64, mounted: bool, has_signatures: bool }
