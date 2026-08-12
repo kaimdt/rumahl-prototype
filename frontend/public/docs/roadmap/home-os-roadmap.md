@@ -405,10 +405,18 @@ requiring SSH or direct configuration-file edits.
 
 ### Package 6 — Home & Lifestyle Apps + Media Hub
 
+> **Status:** in progress — per-user Downloads folder ✅; lifestyle apps,
+> Media Hub (Jellyfin/Plex) and the universal download manager still open.
+
 - App-store apps: Calendar, Notes, Tasks, Contacts, Photos, Music, Videos,
   Recipes, Shopping List, Documents, Password Manager, Home Assistant,
   Camera Viewer, Downloads, Torrent Client, Printer Manager, Scanner,
   Family Dashboard, Shared Calendar, Shared Storage.
+- **Per-user Downloads folder ✅** — `GET /api/files/system-folder`
+  (iora-files) finds or creates the personal Downloads/Documents/Photos/
+  Videos folders per user (legacy localized names are reused via aliases);
+  the Files sidebar shows them with i18n labels and guarantees their
+  existence on app open. This folder is the anchor for the download manager.
 - **Media Hub:** Jellyfin/Plex detection, continue-watching on home,
   universal **download manager** (any app can hand downloads to ORA;
   survives browser close).

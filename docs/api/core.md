@@ -246,6 +246,15 @@ Content-Type: multipart/form-data
 file: <binary>
 ```
 
+### Personal System Folders (Downloads per user)
+
+```http
+# Personal system folder (Downloads, Documents, Photos, Videos) — found or
+# created per user; legacy localized names (e.g. "Dokumente") are reused.
+GET /api/files/system-folder?name=Downloads
+→ { "folder": { "id": "…", "name": "Downloads", "created": false } }
+```
+
 ### Notification System
 
 ```http
