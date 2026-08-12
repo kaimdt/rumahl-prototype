@@ -54,7 +54,7 @@ const MediaPlayerWidget = lazy(() => import('@/components/widgets/MediaPlayerWid
 const SharePage = lazy(() => import('./components/SharePage').then(m => ({ default: m.SharePage })))
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
-const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ default: m.AdminPanel })))
+const AdminCenter = lazy(() => import('@/components/AdminCenter').then(m => ({ default: m.AdminCenter })))
 const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default: m.AgentTab })))
 const AutomationEditorApp = lazy(() => import('@/components/AutomationEditorApp').then(m => ({ default: m.AutomationEditorApp })))
 const OsStorageApp = lazy(() => import('@/components/OsStorageApp').then(m => ({ default: m.OsStorageApp })))
@@ -284,7 +284,7 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
         theme={theme}
       />
     )
-    case 'admin': return user?.isAdmin ? <AdminPanel /> : null
+    case 'admin': return user?.isAdmin ? <AdminCenter /> : null
     case 'docs': return <DocsPage />
     case 'share': return <SharePage />
     case 'streaming': return <StreamSender />
@@ -300,7 +300,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
     return <section className="ora-app-frame p-4 sm:p-6"><header className="mb-6 flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h1 className="mt-1 text-3xl font-semibold">{t('os.apps.appStore.name')}</h1><p className="mt-1 text-sm text-foreground/45">{t('os.apps.appStore.description')}</p></div><OsWindowActions pageId={pageId} /></header><AppStoreTab token={token || ''} /></section>
   }
   if (pageId === 'admin') {
-    return user?.isAdmin ? <OsAppWindow pageId={pageId} title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminPanel /></OsAppWindow> : null
+    return user?.isAdmin ? <OsAppWindow pageId={pageId} title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminCenter /></OsAppWindow> : null
   }
   if (pageId === 'docs') return <OsAppWindow pageId={pageId} title={t('navigation.docs')} icon={getOsAppIcon(pageId)}><DocsPage /></OsAppWindow>
   if (pageId === 'share') return <OsAppWindow pageId={pageId} title={t('os.apps.share.name')} icon={getOsAppIcon(pageId)}><SharePage /></OsAppWindow>

@@ -1005,7 +1005,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                         onChange={(e) => setSelectedTerminalService(e.target.value)}
                         className="px-2 py-1.5 rounded-md bg-foreground/10 border border-foreground/15 text-[10px] text-foreground focus:outline-none focus:border-accent"
                       >
-                        {detail.services
+                        {(detail.services || [])
                           .map((svc) => typeof svc?.name === 'string' ? svc.name : '')
                           .filter(Boolean)
                           .map((serviceName) => (

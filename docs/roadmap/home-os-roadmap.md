@@ -473,10 +473,22 @@ requiring SSH or direct configuration-file edits.
 - AI ops ("why is my NAS slow?" → CPU/disks/network/logs analysis;
   "install Immich with 500 GB" → storage+container+proxy+permissions).
 
-### Package 9 — Terminal & Admin Center Redesign (deferred)
+### Package 9 — Terminal & Admin Center Redesign
+
+> **Status:** in progress — Admin Center redesigned ✅; Terminal still open.
 
 - Complete overhaul of the Admin Center; Terminal moves into it as a deeply
-  integrated, permissioned component. *Explicitly deferred by decision.*
+  integrated, permissioned component.
+  - **Admin Center redesign ✅** — new `AdminCenter` shell in a Windows 11
+    Settings style: narrow icon sidebar (categories) → category overview
+    with cards → detail view with back arrow. The 69 admin tabs stay intact
+    and reusable (`renderAdminTabContent` extracted from AdminPanel); native
+    OS apps (Storage, Containers, Logs, Services, Devices, System Monitor)
+    are surfaced as primary cards that deep-link into the apps instead of
+    duplicating admin views. A Home overview shows system health, active
+    services and quick access. Also fixed the long-standing broken tab
+    (AdminCard now supports `description`; tools.tsx) and the AppDetailDialog
+    type error — the frontend now type-checks with zero errors.
 
 ### Deferred backlog
 

@@ -1828,5 +1828,19 @@
       "inactive": "Inactive",
       "failed": "Failed"
     }
+  },
+  "adminCenter": {
+    "home": "Home",
+    "title": "Admin Center",
+    "subtitle": "Systemverwaltung und Einstellungen",
+    "status": "System status",
+    "checking": "Checking…",
+    "servicesUp": "Active services",
+    "version": "Version",
+    "osApps": "OS apps",
+    "openApp": "Open app",
+    "categories": "Categories",
+    "items": "items",
+    "back": "Back"
   }
 }
