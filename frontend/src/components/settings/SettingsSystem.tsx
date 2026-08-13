@@ -500,7 +500,7 @@ export function FamilyProfilesSection() {
     let alive = true
     ;(async () => {
       try {
-        const res = await authFetch('/api/admin/users')
+        const res = await authFetch('/api/admin/users/with-profiles')
         if (!res.ok) return
         const data = await res.json() as { users: FamilyUserEntry[] }
         if (!alive) return

@@ -1551,7 +1551,7 @@ async fn main() -> anyhow::Result<()> {
             put(user_profiles_handler::update_user_profile),
         )
         .route(
-            "/api/admin/users",
+            "/api/admin/users/with-profiles",
             get(user_profiles_handler::admin_list_users_with_profiles),
         )
         .route("/api/admin/api-keys", get(admin_list_all_api_keys))
