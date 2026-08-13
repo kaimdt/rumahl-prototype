@@ -50,6 +50,7 @@ mod ble_client;
 mod clipboard_handler;
 mod crypto;
 mod db;
+mod dev_build_handler;
 mod desktop_gateway;
 mod device_handler;
 mod download_handler;
@@ -2492,6 +2493,10 @@ async fn main() -> anyhow::Result<()> {
         )
         // OS-dev-image marker / developer-mode lock info.
         .route("/api/admin/dev-image", get(admin_dev_image_info))
+        .route(
+            "/api/admin/dev/build-frontend",
+            post(dev_build_handler::build_frontend),
+        )
         .route("/api/core/registrations", get(core_registrations_list))
         .route(
             "/api/core/registrations/:id/approve",

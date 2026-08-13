@@ -790,6 +790,15 @@ for svc in "${!IORA_PORTS[@]}"; do
     success "  ${svc}.service (port ${IORA_PORTS[$svc]})"
 done
 
+# Enable every IORA service so it starts automatically on boot — the
+# watchdog only restarts units that are enabled, and without this the
+# services would never come up after a reboot.
+for svc in "${!IORA_PORTS[@]}"; do
+    ln -sf "${SVC_DIR}/${svc}.service" "${SVC_DIR}/multi-user.target.wants/${svc}.service" 2>/dev/null || true
+done
+success "All IORA services enabled (multi-user.target.wants)"
+
+
 # ── Build-once gate (source mode) ─────────────────────────────────────────
 # All source-mode services run `cargo run -p <svc>`; without a pre-build
 # they serialize on the cargo build lock and a cold start can take hours

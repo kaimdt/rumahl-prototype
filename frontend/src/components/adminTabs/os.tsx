@@ -6,6 +6,7 @@ import { AdminCard, ErrorMessage, LoadingSpinner, adminFetch, ccBtnDanger, ccBtn
 import { ServiceJsonBlock } from '../AdminPanel'
 export const OS_BASE = '/api/admin/iora-control'
 import { devBridgeFetch } from './ai'
+import { authFetch } from '@/lib/authHelpers'
 export function DevBridgeTab({ token: _token }: { token: string }) {
   const [bridgeStatus, setBridgeStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [bridgeStatusText, setBridgeStatusText] = useState('')
@@ -695,6 +696,26 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
   const [suRunning, setSuRunning] = useState(false)
   const [suResult, setSuResult] = useState<string | null>(null)
 
+  const handleFrontendRebuild = async () => {
+    setBuilding(true)
+    setStatus(null)
+    try {
+      const res = await authFetch('/api/admin/dev/build-frontend', { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setStatus(JSON.stringify(data, null, 2))
+      toast.success('Frontend-Build gestartet — Fortschritt im Job Center')
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e))
+      toast.error('Frontend-Build konnte nicht gestartet werden')
+    } finally {
+      setBuilding(false)
+    }
+  }
+
   const handleReplace = async () => {
     if (!devToken || !target) return
     setBuilding(true)
@@ -786,6 +807,28 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
 
   return (
     <div className="space-y-4">
+      {/* Frontend rebuild */}
+      <AdminCard title="Frontend neu bauen" icon={Terminal}>
+        <div className="space-y-3">
+          <p className="text-xs text-foreground/60">
+            Baut das Frontend im Gast neu (<code className="font-mono">npm run build</code>) —
+            nötig, wenn neue System-Apps (Storage, Containers, Logs, Services, Devices) im
+            servierten Bundle fehlen und als 404 erscheinen. Der Build läuft als Job im
+            Job Center.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={handleFrontendRebuild} disabled={building} className={ccBtnPrimary()}>
+              {building ? 'Build wird gestartet…' : 'Frontend neu bauen'}
+            </button>
+          </div>
+          {status && (
+            <div className="rounded-xl bg-black/20 border border-foreground/10 p-3">
+              <pre className="text-[10px] font-mono text-foreground/70 whitespace-pre-wrap max-h-[200px] overflow-y-auto">{status}</pre>
+            </div>
+          )}
+        </div>
+      </AdminCard>
+
       {/* Binary Replace */}
       <AdminCard title="Binary Replace" icon={Code}>
         <div className="space-y-4">
