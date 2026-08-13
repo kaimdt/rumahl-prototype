@@ -163,6 +163,7 @@
   let frameReady = false
   let reconnectTimer = null
   let pc = null
+  let frameWatchdog = null
 
   // WS endpoint: inside the app-runner iframe the UI is served through
   // the same-origin app proxy, so the socket must go through the proxy
@@ -207,6 +208,8 @@
           break
         case 'frame':
           if (msg.tab !== activeTab) return
+          // Frames arrived: cancel the no-frame watchdog and draw.
+          if (frameWatchdog) { clearTimeout(frameWatchdog); frameWatchdog = null }
           const img = new Image()
           img.onload = () => {
             canvas.width = img.width
@@ -282,6 +285,14 @@
           videoEl.style.display = 'none'
           canvas.style.display = 'block'
           status('WebRTC nicht verfügbar — Canvas-Modus', 3000)
+          // If no canvas frame arrives shortly after, the WS relay is
+          // dropping the large frames (Vite dev proxy) - point the user
+          // at the direct backend route which relays them fine.
+          frameWatchdog = setTimeout(() => {
+            if (!frameReady) {
+              status('Keine Frames empfangen — öffne die App direkt über http://127.0.0.1:3001/app/ora-browser (Vite-Proxy leitet große Frames nicht weiter)', 15000)
+            }
+          }, 5000)
         }
       }, 8000)
     } catch (err) {

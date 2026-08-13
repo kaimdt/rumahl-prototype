@@ -21,16 +21,21 @@ import {
   SortAscending,
   Trash,
   UploadSimple,
+  UsersThree,
+  LinkSimple,
   X,
  Rows, FilePlus, Info, Check } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { authFetch, getAuthToken } from '@/lib/authHelpers'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { getBackendUrl } from '@/lib/config'
 import { OsWindowActions } from '@/components/OsWindowActions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { createPortal } from 'react-dom'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 import { fileTypeIcon, fileTypeAppFor } from '@/lib/fileTypeRegistry'
+import { setFileDragData } from '@/lib/fileDrop'
 import { AuthImage } from '@/components/AuthImage'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 
@@ -70,7 +75,13 @@ function formatBytes(value = 0) {
 /** Real file-explorer icons: type-based file_*.png, folder icons for folders,
  * and a reserved app icon when an app owns the file type. */
 /** System folders shown in the sidebar (created on first use, Windows-style). */
-const SYSTEM_FOLDERS = ['Dokumente', 'Downloads', 'Photos', 'Videos']
+interface SystemFolder { id: string; canonical: string; nameKey: string }
+const SYSTEM_FOLDERS: SystemFolder[] = [
+  { id: 'documents', canonical: 'Documents', nameKey: 'os.files.systemFolders.documents' },
+  { id: 'downloads', canonical: 'Downloads', nameKey: 'os.files.systemFolders.downloads' },
+  { id: 'photos', canonical: 'Photos', nameKey: 'os.files.systemFolders.photos' },
+  { id: 'videos', canonical: 'Videos', nameKey: 'os.files.systemFolders.videos' },
+]
 
 /** Folder names owned by apps → app icon badge (bottom-right of the folder tile). */
 const APP_FOLDER_BADGES: Record<string, string> = {
@@ -170,6 +181,7 @@ export interface FilePickerConfig {
 
 export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig | null }) {
   const { t } = useTranslation()
+  const { currentSubPath } = usePageNavigation()
   const { can } = useOsPermissions()
   const [files, setFiles] = useState<FileEntry[]>([])
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([])
@@ -393,7 +405,13 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [contextEntry, setContextEntry] = useState<FileEntry | null>(null)
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(null)
   useCloseOnOtherMenu(() => { setContextEntry(null); setContextPos(null) })
+  // Family shares: file ids currently shared with the family (family grant).
+  const [familyShares, setFamilyShares] = useState<Set<string>>(new Set())
+  const familyShareLoading = useRef<string | null>(null)
   const [moveCopyPick, setMoveCopyPick] = useState<{ entry: FileEntry; mode: 'move' | 'copy' } | null>(null)
+  const [downloadUrlOpen, setDownloadUrlOpen] = useState(false)
+  const [downloadUrl, setDownloadUrl] = useState('')
+  const [downloadStarting, setDownloadStarting] = useState(false)
   const deviceInput = useRef<HTMLInputElement>(null)
   const requestRef = useRef(0)
   const treeRef = useRef<TreeNode[]>([])
@@ -452,6 +470,29 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   useEffect(() => { void load(false) }, [load])
   useEffect(() => { void loadTree() }, [loadTree])
+
+  // Deep links (/app/os-files/folder/<id> — e.g. from Spotlight): open the
+  // targeted folder on mount with a proper breadcrumb.
+  const deepLinkHandled = useRef(false)
+  useEffect(() => {
+    if (deepLinkHandled.current || !currentSubPath?.startsWith('folder/')) return
+    const folderId = currentSubPath.slice('folder/'.length)
+    if (!folderId) return
+    deepLinkHandled.current = true
+    void (async () => {
+      let name = folderId
+      try {
+        const res = await authFetch(`/api/files/${folderId}`)
+        if (res.ok) {
+          const info = await res.json() as { original_name?: string }
+          if (info.original_name) name = info.original_name
+        }
+      } catch {
+        // keep id as name
+      }
+      navigate(folderId, [{ id: folderId, name }])
+    })()
+  }, [currentSubPath])
 
   const sortedFiles = useMemo(() => [...files].sort((a, b) => {
     if (a.is_folder !== b.is_folder) return a.is_folder ? -1 : 1
@@ -603,32 +644,155 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     }
   }
 
-  /** Open (and create on first use) a system folder like Documents/Photos. */
-  const openSystemFolder = async (name: string) => {
-    setActiveSystemFolder(name)
+  /** Whether the entry currently has a family share grant. */
+  const isFamilyShared = (fileId: string) => familyShares.has(fileId)
+
+  /** Fetch the permission list for an entry to learn its family-share state. */
+  const refreshFamilyShare = async (entry: FileEntry) => {
+    if (familyShareLoading.current === entry.id) return
+    familyShareLoading.current = entry.id
+    try {
+      const res = await authFetch(`/api/files/permissions/${entry.id}`)
+      if (res.ok) {
+        const perms = await res.json() as Array<{ grantee_type?: string; permission?: string }>
+        setFamilyShares((current) => {
+          const next = new Set(current)
+          if (perms.some((p) => p.grantee_type === 'family')) next.add(entry.id)
+          else next.delete(entry.id)
+          return next
+        })
+      }
+    } catch {
+      // keep last state
+    } finally {
+      familyShareLoading.current = null
+    }
+  }
+
+  /** Toggle the family share on a file/folder (read-only for family). */
+  const toggleFamilyShare = async (entry: FileEntry) => {
+    const shared = isFamilyShared(entry.id)
+    try {
+      if (shared) {
+        // Revoke: find the family grant's id and delete it.
+        const res = await authFetch(`/api/files/permissions/${entry.id}`)
+        if (res.ok) {
+          const perms = await res.json() as Array<{ id: string; grantee_type?: string }>
+          const familyGrant = perms.find((p) => p.grantee_type === 'family')
+          if (familyGrant) {
+            await authFetch(`/api/files/permissions/revoke/${familyGrant.id}`, { method: 'DELETE' })
+          }
+        }
+        setFamilyShares((current) => { const next = new Set(current); next.delete(entry.id); return next })
+        toast.success(t('os.files.familyShareRemoved'))
+      } else {
+        const res = await authFetch('/api/files/permissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_id: entry.id, grantee_id: 'family', grantee_type: 'family', permission: 'read' }),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        setFamilyShares((current) => new Set(current).add(entry.id))
+        toast.success(t('os.files.familyShareAdded'))
+      }
+    } catch {
+      toast.error(t('os.files.familyShareFailed'))
+    }
+  }
+
+  /** Open a personal system folder (Downloads, Documents, …) — the backend
+   * finds or creates it per user (Package 6: per-user Downloads folder). */
+  const openSystemFolder = async (folder: SystemFolder) => {
+    setActiveSystemFolder(folder.canonical)
     setTrashMode(false)
     setNetMode(false)
     try {
-      const res = await authFetch('/api/files/?limit=500')
+      const res = await authFetch(`/api/files/system-folder?name=${encodeURIComponent(folder.canonical)}`)
       if (!res.ok) return
-      const data = await res.json() as { files?: FileEntry[] }
-      const existing = (data.files || []).find((f) => f.is_folder && f.original_name.toLowerCase() === name.toLowerCase())
-      if (existing) {
-        navigate(existing.id, [{ id: existing.id, name: existing.original_name }])
-        return
-      }
-      if (can('os.files.write')) {
-        const create = await authFetch('/api/files/folders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, parent_folder_id: null }),
-        })
-        if (create.ok) {
-          const created = await create.json() as { id?: string; original_name?: string }
-          if (created.id) navigate(created.id, [{ id: created.id, name: created.original_name || name }])
-        }
+      const data = await res.json() as { folder?: { id?: string; name?: string } }
+      if (data.folder?.id) {
+        navigate(data.folder.id, [{ id: data.folder.id, name: data.folder.name || folder.canonical }])
       }
     } catch { /* offline */ }
+  }
+
+  /** Ensure every user has their personal system folders (incl. Downloads). */
+  useEffect(() => {
+    for (const folder of SYSTEM_FOLDERS) {
+      void authFetch(`/api/files/system-folder?name=${encodeURIComponent(folder.canonical)}`).catch(() => {})
+    }
+  }, [])
+
+  /** Start a backend download into the user's Downloads folder (Package 6). */
+  const startUrlDownload = async () => {
+    const url = downloadUrl.trim()
+    if (!url) return
+    setDownloadStarting(true)
+    try {
+      const response = await authFetch('/api/downloads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || `HTTP ${response.status}`)
+      }
+      const data = await response.json() as { job_id?: string }
+      toast.success(t('os.files.downloadStarted'))
+      setDownloadUrlOpen(false)
+      setDownloadUrl('')
+    } catch (downloadError) {
+      toast.error(downloadError instanceof Error ? downloadError.message : t('os.files.downloadFailed'))
+    } finally {
+      setDownloadStarting(false)
+    }
+  }
+
+  /** Create a share link and copy an external (Tailscale) URL to it. */
+  const createExternalLink = async (entry: FileEntry) => {
+    try {
+      const shareResponse = await authFetch('/api/files/shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: entry.id, expires_in_hours: 72 }),
+      })
+      if (!shareResponse.ok) throw new Error(`HTTP ${shareResponse.status}`)
+      const share = await shareResponse.json() as { token?: string }
+      if (!share.token) throw new Error(t('os.files.shareLinkFailed'))
+
+      // Prefer the configured external URL (domain/TLS), then the tailnet
+      // IP when Tailscale is online, then the local host.
+      let externalBase: string | null = null
+      try {
+        const configResponse = await authFetch('/api/remote/config')
+        if (configResponse.ok) {
+          const config = await configResponse.json() as { external_url?: string }
+          if (config.external_url) externalBase = config.external_url.replace(/\/$/, '')
+        }
+      } catch {
+        // fall through
+      }
+      if (!externalBase) {
+        try {
+          const remoteResponse = await authFetch('/api/remote/status')
+          if (remoteResponse.ok) {
+            const remote = await remoteResponse.json() as { tailscale?: { online?: boolean; ip?: string } }
+            if (remote.tailscale?.online && remote.tailscale.ip) externalBase = `http://${remote.tailscale.ip}`
+          }
+        } catch {
+          // fall through
+        }
+      }
+
+      const url = externalBase
+        ? `${externalBase}/share/${share.token}`
+        : `${getBackendUrl() || window.location.origin}/share/${share.token}`
+      await navigator.clipboard.writeText(url)
+      toast.success(t('os.files.shareLinkCopied'))
+    } catch (shareError) {
+      toast.error(shareError instanceof Error ? shareError.message : t('os.files.shareLinkFailed'))
+    }
   }
 
   /** Move a file/folder into another folder (internal drag & drop). */
@@ -765,7 +929,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('iora-files-view', next) }} className="ora-icon-button" aria-label={t('os.files.changeView')} data-tooltip={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
           <label className="ora-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
-          {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="ora-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
+          {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="ora-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><button type="button" onClick={() => setDownloadUrlOpen(true)} className="ora-secondary-button"><LinkSimple size={16} />{t('os.files.downloadFromUrl')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
           <span className="mx-0.5 h-6 w-px bg-foreground/10" aria-hidden="true" />
           <OsWindowActions pageId="os-files" />
         </div>
@@ -777,13 +941,13 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           <button type="button" className={`ora-sidebar-item ${currentFolderId === null ? 'is-active' : ''}`} onClick={() => navigate(null, [])}><House size={18} weight="duotone" />{t('os.files.home')}</button>
           {SYSTEM_FOLDERS.map((folder) => (
             <button
-              key={folder}
+              key={folder.id}
               type="button"
               onClick={() => void openSystemFolder(folder)}
-              className={`ora-sidebar-item ${activeSystemFolder === folder ? 'is-active' : ''}`}
+              className={`ora-sidebar-item ${activeSystemFolder === folder.canonical ? 'is-active' : ''}`}
             >
               <img src="/icons/folder.png" alt="" width={18} height={18} className="object-contain" draggable={false} />
-              {folder}
+              {t(folder.nameKey, folder.canonical)}
             </button>
           ))}
           {tree.length > 0 && (
@@ -845,7 +1009,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         </div>
       )}
       {error && <div className="ora-inline-error" role="alert"><div><strong>{errorKind === 'refresh' ? t('os.files.refreshFailed') : t('common.error')}</strong><p>{t(errorKind === 'refresh' ? 'os.files.connectionError' : 'os.files.operationError', { detail: error })}</p></div><button type="button" onClick={() => void load(true)}>{t('common.tryAgain')}</button></div>}
-          <div className={`ora-selection-bar ${selected.size === 0 ? 'invisible' : ''}`}><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>
+          <div className={`ora-selection-bar ${selected.size === 0 ? 'invisible' : ''}`}><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void createExternalLink(selectedEntries[0])}><LinkSimple size={16} />{t('os.files.shareExternalLink')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>
 
           <div
             className={`ora-files-surface ${dropHighlight ? 'border-accent/60 ring-2 ring-accent/25' : ''}`}
@@ -969,7 +1133,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                     />
                   </div>
                 )}
-                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-id={entry.id} data-tooltip={entry.original_name} className={`ora-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''} ${pickerMode && !matchesAccept(entry) && !entry.is_folder ? 'opacity-35' : ''}`}><span className={entry.is_folder ? 'ora-folder-icon' : 'ora-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
+                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-id={entry.id} data-tooltip={entry.original_name} className={`ora-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''} ${pickerMode && !matchesAccept(entry) && !entry.is_folder ? 'opacity-35' : ''}`}><span className={entry.is_folder ? 'ora-folder-icon' : 'ora-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
                   <input
                     autoFocus
                     value={renameValue}
@@ -991,7 +1155,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           {marquee && <div className="ora-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
           </div>
             ) : viewMode === 'list' ? (
-              <div className="ora-file-list"><div className="ora-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row relative ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-3">{selected.size > 0 && <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${selected.has(entry.id) ? 'bg-accent text-white' : 'bg-foreground/10 text-transparent'}`}><Check size={10} weight="bold" /></span>}<span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span>{renameEntry?.id === entry.id ? (
+              <div className="ora-file-list"><div className="ora-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row relative ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-3">{selected.size > 0 && <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${selected.has(entry.id) ? 'bg-accent text-white' : 'bg-foreground/10 text-transparent'}`}><Check size={10} weight="bold" /></span>}<span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span>{renameEntry?.id === entry.id ? (
                     <input
                       autoFocus
                       value={renameValue}
@@ -1013,7 +1177,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
             ) : (
               <div className="ora-file-list">
                 <div className="ora-file-table-head"><span>{t('os.files.name')}</span><span>{t('os.files.type')}</span><span>{t('os.files.size')}</span><span>{t('os.files.modified')}</span></div>
-                {sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={() => setDraggedId(entry.id)} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row ora-file-table-row ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-2.5"><span className="shrink-0">{fileIcon(entry, 22)}</span>{renameEntry?.id === entry.id ? (
+                {sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row ora-file-table-row ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-2.5"><span className="shrink-0">{fileIcon(entry, 22)}</span>{renameEntry?.id === entry.id ? (
                     <input
                       autoFocus
                       value={renameValue}
@@ -1086,6 +1250,34 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           )}
         </Modal>
       )}
+      {downloadUrlOpen && (
+        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/60 p-4" onMouseDown={() => setDownloadUrlOpen(false)}>
+          <div className="glass-card w-full max-w-md rounded-3xl p-6" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-cyan-300">{t('os.files.downloadFromUrl')}</p>
+                <h2 className="mt-1 text-xl font-semibold">{t('os.files.downloadDialogTitle')}</h2>
+              </div>
+              <button type="button" onClick={() => setDownloadUrlOpen(false)} className="rounded-xl p-2 hover:bg-foreground/7"><X size={18} /></button>
+            </header>
+            <p className="mt-2 text-xs text-foreground/55">{t('os.files.downloadDialogHint')}</p>
+            <input
+              value={downloadUrl}
+              onChange={(event) => setDownloadUrl(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') void startUrlDownload() }}
+              placeholder="https://…"
+              autoFocus
+              className="mt-4 w-full rounded-xl border border-white/10 bg-foreground/5 px-3 py-2.5 text-sm outline-none focus:border-cyan-400/40"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setDownloadUrlOpen(false)} className="ora-secondary-button">{t('common.cancel')}</button>
+              <button type="button" disabled={downloadStarting || !downloadUrl.trim()} onClick={() => void startUrlDownload()} className="ora-primary-button">
+                <DownloadSimple size={15} />{downloadStarting ? t('os.files.downloadStarting') : t('os.files.downloadStart')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {createPortal(
       contextEntry && (() => {
         const app = contextEntry.is_folder ? undefined : fileTypeAppFor(contextEntry.mime_type, contextEntry.original_name)
@@ -1099,7 +1291,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           {pickerMode && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); setSelected(new Set([e.id])); void completePick() }}><Check size={16} />{t('os.filePicker.select')}</button>}
           <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); openEntry(e) }}><FolderOpen size={16} />{contextEntry.is_folder ? t('os.files.open') : (contextEntry.mime_type?.startsWith('image/') ? t('os.files.preview') : t('os.files.open'))}</button>
           {app && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); app.open({ id: e.id, name: e.original_name }) }}><img src={app.appIcon} alt="" width={16} height={16} className="object-contain" draggable={false} />{t('os.files.openWith', { app: app.appName })}</button>}
-          {!contextEntry.is_folder && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); void download(e) }}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}
+          {!contextEntry.is_folder && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); void download(e) }}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{can('os.files.write') && <button type="button" onClick={() => { const e = contextEntry; setContextEntry(null); void toggleFamilyShare(e) }}><UsersThree size={16} />{isFamilyShared(contextEntry.id) ? t('os.files.familyShareRemove') : t('os.files.familyShare')}</button>}
           <button type="button" onClick={() => { setSelected(new Set([contextEntry.id])); setContextEntry(null) }}><Info size={16} />{t('os.files.details')}</button><button type="button" onClick={() => { setRenameEntry(contextEntry); setRenameValue(contextEntry.original_name); setContextEntry(null) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>{can('os.files.write') && <button type="button" onClick={() => openMoveCopy(contextEntry, 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && <button type="button" onClick={() => openMoveCopy(contextEntry, 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries([contextEntry])}><Trash size={16} />{t('common.delete')}</button>}
         </div>
         )

@@ -1001,7 +1001,7 @@ apt-get update -qq
 # --no-install-recommends + retries: smaller download, faster provisioning
 apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
     curl git ca-certificates build-essential pkg-config libssl-dev \
-    nodejs npm docker.io postgresql postgresql-client rsync \
+    nodejs npm docker.io docker-compose postgresql postgresql-client rsync \
     python3 python3-pip htop vim mold nginx openssl socat \
     sudo systemd-container
 systemctl enable --now docker postgresql nginx 2>/dev/null || true
@@ -1109,6 +1109,25 @@ CEOF
     ssh_vm "mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned"
     touch "$PROVISIONED_MARKER"
     ok "Provisioning complete"
+fi
+
+# Existing development VMs may carry the provisioned marker from before
+# Compose was part of the base package set. Repair that capability in place.
+if ! ssh_vm '(docker compose version || docker-compose version) >/dev/null 2>&1'; then
+    log "Docker Compose is missing in the existing VM – installing it..."
+    ssh_vm bash -s <<'COMPOSEEOF' || die "Docker Compose installation failed"
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+    apt-get install -y -qq --no-install-recommends docker-compose-plugin
+elif apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+    apt-get install -y -qq --no-install-recommends docker-compose-v2
+else
+    apt-get install -y -qq --no-install-recommends docker-compose
+fi
+docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1
+COMPOSEEOF
 fi
 
 # ── Step 7: Service enablement & DB init (always run; safe to repeat) ──────

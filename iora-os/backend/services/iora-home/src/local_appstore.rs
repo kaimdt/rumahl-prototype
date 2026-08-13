@@ -556,6 +556,31 @@ impl LocalAppStore {
         Ok(removed)
     }
 
+    /// Remove every install-job that belongs to an app (used on uninstall so
+    /// a finished job can never re-trigger an auto-start or progress tile).
+    pub async fn clear_jobs_for_app(&self, app_id: &str) -> Result<usize> {
+        let removed_ids: Vec<Uuid> = {
+            let inner = self.inner.read().await;
+            inner
+                .jobs
+                .iter()
+                .filter(|(_, job)| job.app_id.as_deref() == Some(app_id))
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        if removed_ids.is_empty() {
+            return Ok(0);
+        }
+        let mut inner = self.inner.write().await;
+        for id in &removed_ids {
+            inner.jobs.remove(id);
+            inner.job_order.retain(|entry| entry != id);
+        }
+        drop(inner);
+        self.persist_jobs().await?;
+        Ok(removed_ids.len())
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<InstallEvent> {
         self.events.subscribe()
     }
@@ -834,6 +859,30 @@ impl LocalAppStore {
 
     /// Start the app (mark as running and optionally assign ports).
     pub async fn start(&self, app_id: &str) -> Result<InstalledApp> {
+        // Local (non-Docker) apps keep their manifest `ports` — apps that
+        // were installed before that extraction existed (or whose install
+        // predates it) would otherwise never resolve a proxy URL. Pull the
+        // ports in here so starting the app also heals it.
+        {
+            let inner = self.inner.read().await;
+            if let Some(app) = inner.apps.get(app_id) {
+                if app.ports.is_empty() {
+                    if let Some(ports) = app.manifest.extra.get("ports") {
+                        if let Ok(parsed) = serde_json::from_value::<Vec<PortMapping>>(ports.clone())
+                        {
+                            drop(inner);
+                            let mut inner = self.inner.write().await;
+                            if let Some(app) = inner.apps.get_mut(app_id) {
+                                if app.ports.is_empty() {
+                                    app.ports = parsed;
+                                }
+                            }
+                            self.persist_index().await?;
+                        }
+                    }
+                }
+            }
+        }
         self.set_status(app_id, "running").await
     }
 
@@ -1098,6 +1147,18 @@ impl LocalAppStore {
         // Extract docker config from manifest extra.
         let docker_config = manifest.extra.get("docker").cloned();
 
+        // Local (non-Docker) apps declare their service port in the manifest
+        // (top-level `ports`, lands in `extra` via flatten). Take them over
+        // at install time so the gateway/proxy can resolve the URL right
+        // away - without this a freshly installed local app (e.g. the ORA
+        // Browser on :8102) answers "Keine konfigurierte URL für diese App"
+        // until the next iora-home restart (reload_index recovery).
+        let ports: Vec<PortMapping> = manifest
+            .extra
+            .get("ports")
+            .and_then(|v| serde_json::from_value::<Vec<PortMapping>>(v.clone()).ok())
+            .unwrap_or_default();
+
         // Extract bundle config (v2.3 multi-container apps).
         let is_bundle = manifest.extra.get("bundle").is_some();
         let bundle_config = manifest.extra.get("bundle").cloned();
@@ -1115,6 +1176,11 @@ impl LocalAppStore {
             let inner = self.inner.read().await;
             inner.apps.get(&manifest.id).cloned()
         };
+        // Remember whether this install replaces an existing app: when the
+        // user uninstalls the app WHILE the install job is running (e.g.
+        // during the image preparation), the final insert below must not
+        // resurrect it.
+        let is_replacement = replacing_existing.is_some();
         if let Some(existing) = replacing_existing.as_ref() {
             if !options.replace_existing {
                 let _ = tokio::fs::remove_dir_all(&staging_dir).await;
@@ -1166,7 +1232,7 @@ impl LocalAppStore {
             manifest: manifest.clone(),
             custom_pages,
             docker_config,
-            ports: Vec::new(),
+            ports,
             is_bundle,
             bundle_config,
             permission_grants,
@@ -1194,6 +1260,18 @@ impl LocalAppStore {
         }
 
         let mut inner = self.inner.write().await;
+        if is_replacement && !inner.apps.contains_key(&app.id) {
+            // The app was uninstalled while this replace-install was still
+            // preparing - do NOT resurrect it. Clean up the staged dir and
+            // report the install as canceled.
+            drop(inner);
+            let _ = tokio::fs::remove_dir_all(&app_dir).await;
+            let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+            anyhow::bail!(
+                "App '{}' wurde während der Neuinstallation deinstalliert - Installation abgebrochen",
+                app.id
+            );
+        }
         inner.apps.insert(app.id.clone(), app.clone());
         drop(inner);
         self.persist_index().await?;
@@ -1601,4 +1679,40 @@ fn sanitize_path(input: &str) -> Option<PathBuf> {
 
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for "Keine konfigurierte URL für diese App": a
+    /// local (non-Docker) app like the ORA Browser declares its service port
+    /// as top-level `ports` in the manifest. The flatten parser must keep it
+    /// reachable via `extra.ports` so install/start/gateway can resolve the
+    /// proxy URL without waiting for a docker-compose lookup.
+    #[test]
+    fn manifest_top_level_ports_survive_flatten_parse() {
+        let manifest = br#"{
+            "id": "ora-browser",
+            "name": "ORA Browser",
+            "version": "0.1.0",
+            "developer": "IORA OS",
+            "description": "test",
+            "type": "app",
+            "icon": "browser",
+            "permissions": ["NetworkLocalAccess"],
+            "ports": [
+                { "external": 8102, "protocol": "tcp", "internal": 8102 }
+            ]
+        }"#;
+        let parsed = parse_app_manifest(manifest).expect("manifest parses");
+        assert_eq!(parsed.id, "ora-browser");
+        let ports: Vec<PortMapping> = serde_json::from_value(
+            parsed.extra.get("ports").expect("ports in extra").clone(),
+        )
+        .expect("ports deserialize");
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].external, 8102);
+        assert_eq!(ports[0].internal, 8102);
+    }
 }

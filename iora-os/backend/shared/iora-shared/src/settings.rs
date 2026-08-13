@@ -443,6 +443,11 @@ pub fn default_settings() -> Vec<SettingDefinition> {
         SettingBuilder::new("privacy.crash_reports", "Send crash reports", Privacy, Bool)
             .default(serde_json::json!(false))
             .build(),
+        // ── Security ────────────────────────────────────────────────────────
+        SettingBuilder::new("security.guest_mode_enabled", "Guest mode", Privacy, Bool)
+            .description("Allow password-free guest access (temporary viewer account).")
+            .default(serde_json::json!(false))
+            .build(),
         // ── Developer ────────────────────────────────────────────────────────
         SettingBuilder::new("developer.mode", "Developer Mode", Developer, Bool)
             .description("Master switch for developer/debug features in the dashboard: extra console logs, raw JSON drawers, render counters, SSE/WS frame inspector. Frontend only — does not change backend permissions.")

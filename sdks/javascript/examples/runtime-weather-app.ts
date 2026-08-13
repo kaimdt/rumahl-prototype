@@ -14,6 +14,7 @@ import {
   AppStatus,
   LogLevel,
   Permission,
+  IoraClient,
 } from "@iora/sdk";
 
 async function main() {
@@ -39,6 +40,41 @@ async function main() {
 }
 
 async function runWeatherApp(runtime: RuntimeManager) {
+  // ── ORA OS surface (Package 2: ora.*) ────────────────────────────────
+  // The runtime manager sets IORA_ENDPOINT/IORA_APP_TOKEN; the SDK client
+  // gives apps the same OS capabilities as the shell (jobs, files,
+  // permissions, system events, devices, secrets).
+  const ora = new IoraClient({
+    baseUrl: process.env.IORA_ENDPOINT || "http://localhost:8126",
+    apiKey: process.env.IORA_APP_TOKEN,
+  });
+  ora.setAppId(process.env.IORA_APP_ID || "weather-service");
+
+  try {
+    // Track weather refreshes as background jobs (Job Center UI).
+    const job = await ora.jobs.create({
+      name: "Weather refresh",
+      job_type: "sync",
+      source: "weather-service",
+    });
+    await ora.jobs.update(job.id, { progress: 50, message: "Fetching forecast…", status: "running" });
+    await ora.jobs.update(job.id, { progress: 100, status: "completed" });
+
+    // Ask the user for network access if missing (shell Allow/Deny dialog).
+    await ora.permissions
+      .request({ permission: "os.network.read", reason: "Detect weather station on the LAN" })
+      .catch(() => {});
+
+    // Report health into the system event log.
+    await ora.system.reportEvent({
+      severity: "info",
+      source: "weather-service",
+      message: "Weather app started",
+    });
+  } catch (error) {
+    await runtime.log(LogLevel.WARNING, `OS integration skipped: ${error}`, null);
+  }
+
   // Register custom query handler
   runtime.registerQueryHandler("get_weather", (params) => {
     return {

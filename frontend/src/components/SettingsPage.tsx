@@ -65,6 +65,7 @@ import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { OsWindowActions } from '@/components/OsWindowActions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { useAuth } from '@/contexts/AuthContext'
 import { readAccentIcons, applyAccentIcons } from '@/lib/accentIcons'
 import { useLocalStorage } from '@/lib/storage'
 import {
@@ -76,6 +77,7 @@ import {
   type AutoContrastMode,
 } from '@/lib/autoContrast'
 import { useTheme } from '@/contexts/ThemeContext'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { YamlPageEditor } from '@/components/YamlPageEditor'
@@ -111,6 +113,11 @@ const ThemePickerSection = lazy(() => import('./settings/SettingsAppearance').th
 const ScreensaverScheduleEditor = lazy(() => import('./settings/SettingsDashboard').then((m) => ({ default: m.ScreensaverScheduleEditor })))
 const AdditionalSettings = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.AdditionalSettings })))
 const NinaSettingsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.NinaSettingsSection })))
+const FamilyProfilesSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.FamilyProfilesSection })))
+const KeyboardShortcutsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.KeyboardShortcutsSection })))
+const DefaultAppsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.DefaultAppsSection })))
+const MediaHubConfigSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.MediaHubConfigSection })))
+const RemoteAccessSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.RemoteAccessSection })))
 const SettingsAppsSection = lazy(() => import('./SettingsAppsSection').then((m) => ({ default: m.SettingsAppsSection })))
 
 /** Map icon name string to Phosphor icon component */
@@ -497,6 +504,7 @@ export const DAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 
 export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation()
+  const { user: authUser } = useAuth()
   const {
     user,
     userName,
@@ -526,6 +534,31 @@ export function SettingsPage(props: SettingsPageProps) {
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
+  // Deep links via URL sub-path (/settings/apps/ora-browser): the Settings
+  // app is path-driven so every tab (and the per-app detail view) has its
+  // own URL that survives reloads, back/forward and sharing.
+  const { currentSubPath, navigateToPage } = usePageNavigation()
+  const [settingsAppId, setSettingsAppId] = useState<string | null>(null)
+  useEffect(() => {
+    const segments = currentSubPath.split('/').filter(Boolean)
+    const tab = segments[0] as typeof settingsTab | undefined
+    if (tab && ['general', 'appearance', 'dashboard', 'system', 'apps'].includes(tab)) {
+      setSettingsTab(tab)
+    }
+    setSettingsAppId(tab === 'apps' && segments[1] ? segments[1] : null)
+  }, [currentSubPath])
+  const changeTab = (tab: typeof settingsTab) => {
+    setSettingsTab(tab)
+    // Push the tab into the URL (no full page reload) so the Settings app
+    // works purely on paths; the apps tab gets the selected app appended.
+    navigateToPage('settings', tab === 'apps' && settingsAppId ? `apps/${settingsAppId}` : tab)
+  }
+  /** Deep link into a specific app detail view: /settings/apps/<id>. */
+  const changeTabWithApp = (appId: string) => {
+    setSettingsTab('apps')
+    setSettingsAppId(appId)
+    navigateToPage('settings', `apps/${appId}`)
+  }
   const [accentIcons, setAccentIcons] = useState(readAccentIcons)
   const { can } = useOsPermissions()
   const [powerAction, setPowerAction] = useState<'reboot' | 'shutdown' | null>(null)
@@ -562,7 +595,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </div>
       </header>
 
-      <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as typeof settingsTab)} className="ora-settings-layout">
+      <Tabs value={settingsTab} onValueChange={(v) => changeTab(v as typeof settingsTab)} className="ora-settings-layout">
         <TabsList className="ora-settings-sidebar">
           <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
@@ -1000,6 +1033,23 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Haptic Feedback, Navigation, Typography, Animations */}
             <Suspense fallback={null}><AdditionalSettings /></Suspense>
+
+            {/* Family / child profiles (admin only) */}
+            {authUser?.isAdmin && (
+              <Suspense fallback={null}><FamilyProfilesSection /></Suspense>
+            )}
+
+            {/* Global keyboard shortcuts */}
+            <Suspense fallback={null}><KeyboardShortcutsSection /></Suspense>
+
+            {/* Default apps / MIME associations */}
+            <Suspense fallback={null}><DefaultAppsSection /></Suspense>
+
+            {/* Media Hub configuration */}
+            <Suspense fallback={null}><MediaHubConfigSection /></Suspense>
+
+            {/* Remote access (Package 7) */}
+            <Suspense fallback={null}><RemoteAccessSection /></Suspense>
           </div>
         </TabsContent>
 
@@ -1306,7 +1356,10 @@ export function SettingsPage(props: SettingsPageProps) {
         {/* ─── TAB: Apps (Apple-style per-app settings) ─────────────── */}
         <TabsContent value="apps" className="space-y-5">
           <Suspense fallback={<div className="flex items-center justify-center py-14"><span className="h-7 w-7 animate-spin rounded-full border-2 border-foreground/20 border-t-accent" /></div>}>
-            <SettingsAppsSection />
+            <SettingsAppsSection
+              initialSelectedId={settingsAppId}
+              onSelectApp={(appId) => changeTabWithApp(appId)}
+            />
           </Suspense>
         </TabsContent>
       </Tabs>

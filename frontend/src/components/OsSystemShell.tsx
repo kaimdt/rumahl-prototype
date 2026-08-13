@@ -5,8 +5,10 @@ import {
   BatteryCharging,
   Bell,
   CaretRight,
+  ClipboardText,
   Cpu,
   Gear,
+  ListBullets,
   LockKey,
   Moon,
   Power,
@@ -14,6 +16,10 @@ import {
   WifiHigh,
   WifiSlash,
   SignOut,
+  Play,
+  Pause,
+  MusicNotes,
+  DownloadSimple,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
@@ -22,6 +28,11 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { authFetch } from '@/lib/authHelpers'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { useEntityStore } from '@/hooks/useEntityStore'
+import { JobCenterPanel, useActiveSystemJobCount } from '@/components/JobCenterPanel'
+import { ClipboardManager, useClipboardCapture } from '@/components/ClipboardManager'
+import { useOsWindows } from '@/contexts/OsWindowContext'
+import { comboMatches, getCombo } from '@/lib/shortcutRegistry'
 
 interface SystemStats {
   cpu_usage_percent: number
@@ -58,6 +69,8 @@ export function OsSystemShell() {
   const { theme, sleepMode, setSleepMode } = useTheme()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const [open, setOpen] = useState(false)
+  const [showJobCenter, setShowJobCenter] = useState(false)
+  const [showClipboard, setShowClipboard] = useState(false)
   const [showRecents, setShowRecents] = useState(false)
   const [recentIds, setRecentIds] = useState<string[]>(readRecentApps)
   const [stats, setStats] = useState<SystemStats | null>(null)
@@ -67,6 +80,30 @@ export function OsSystemShell() {
   const [powerPending, setPowerPending] = useState(false)
   const { can } = useOsPermissions()
   const { user, logout } = useAuth()
+  const activeJobCount = useActiveSystemJobCount()
+  const { windows, snapWindow, toggleMaximize } = useOsWindows()
+  const { entities } = useEntityStore()
+  const [activeDownloads, setActiveDownloads] = useState<Array<{ id: string; name: string; progress: number }>>([])
+  useClipboardCapture()
+
+  // Active download jobs for the Control Center (Package 8).
+  useEffect(() => {
+    const refresh = async () => {
+      try {
+        const res = await authFetch('/api/jobs')
+        if (!res.ok) return
+        const data = await res.json() as { jobs?: Array<{ id: string; name: string; status: string; progress: number }> }
+        setActiveDownloads((data.jobs || [])
+          .filter((job) => job.status === 'running' || job.status === 'queued')
+          .slice(0, 2))
+      } catch {
+        // offline
+      }
+    }
+    void refresh()
+    const id = window.setInterval(refresh, 10_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   const apps = useMemo(() => {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
@@ -130,19 +167,72 @@ export function OsSystemShell() {
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.altKey && event.key === 'Tab') {
+      // Spotlight (Ctrl/⌘+Space — registry-configured) → the command palette
+      // listens for the toggle event (⌘K stays as a direct alias there).
+      if (comboMatches(getCombo('spotlight'), event)) {
+        event.preventDefault()
+        window.dispatchEvent(new Event('iora:spotlight-toggle'))
+        return
+      }
+      // Clipboard panel
+      if (comboMatches(getCombo('clipboard'), event)) {
+        event.preventDefault()
+        setShowClipboard((value) => !value)
+        setOpen(false)
+        setShowJobCenter(false)
+        return
+      }
+      // Task switcher (Alt+Tab)
+      if (comboMatches(getCombo('task-switcher'), event)) {
         event.preventDefault()
         setShowRecents(true)
         setOpen(false)
+        setShowJobCenter(false)
+        setShowClipboard(false)
+        return
+      }
+      // Lock session
+      if (comboMatches(getCombo('lock'), event)) {
+        event.preventDefault()
+        window.dispatchEvent(new Event('iora:lock-session'))
+        return
+      }
+      // Sleep mode
+      if (comboMatches(getCombo('sleep'), event)) {
+        event.preventDefault()
+        setSleepMode(!sleepMode)
+        return
+      }
+      // Snap shortcuts (Alt+Arrow) act on the top-most floating window on
+      // the desktop — desktop-style window management from anywhere.
+      const snapAction = [
+        ['snap-left', 'left'],
+        ['snap-right', 'right'],
+        ['snap-maximize', 'maximize'],
+        ['snap-restore', 'window'],
+      ] as const
+      const snap = snapAction.find(([id]) => comboMatches(getCombo(id), event))
+      if (snap) {
+        event.preventDefault()
+        const [_, layout] = snap
+        const top = windows
+          .filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
+          .sort((a, b) => b.z - a.z)[0]
+        if (!top) return
+        if (layout === 'maximize') toggleMaximize(top.pageId)
+        else snapWindow(top.pageId, layout)
+        return
       }
       if (event.key === 'Escape') {
         setShowRecents(false)
         setOpen(false)
+        setShowJobCenter(false)
+        setShowClipboard(false)
       }
     }
     window.addEventListener('keydown', handleKeyboard)
     return () => window.removeEventListener('keydown', handleKeyboard)
-  }, [])
+  }, [windows, snapWindow, toggleMaximize, sleepMode, setSleepMode])
 
   const openApp = (pageId: string) => {
     setCurrentPageId(pageId)
@@ -167,16 +257,69 @@ export function OsSystemShell() {
     }
   }
 
+  const mediaPlayers = (entities || [])
+    .filter((entity) => entity.entity_id.startsWith('media_player.'))
+    .filter((entity) => entity.state === 'playing' || entity.state === 'paused' || entity.state === 'idle')
+    .slice(0, 2)
+
+  const toggleMediaPlayer = async (entityId: string) => {
+    try {
+      await authFetch('/api/services/media_player/media_play_pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Action-Intent': 'control-center' },
+        body: JSON.stringify({ entity_id: entityId }),
+      })
+    } catch {
+      // ignore
+    }
+  }
+
   const memoryPercent = stats?.memory_total_bytes
     ? Math.round((stats.memory_used_bytes / stats.memory_total_bytes) * 100)
     : 0
 
   return (
     <>
-      <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[55] sm:right-6 sm:top-5">
+      <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[55] flex items-center gap-2 sm:right-6 sm:top-5">
         <button
           type="button"
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => {
+            setShowClipboard((value) => !value)
+            setOpen(false)
+            setShowJobCenter(false)
+          }}
+          className={`glass-card flex h-11 w-11 items-center justify-center rounded-full text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring ${showClipboard ? 'bg-foreground/15 text-foreground' : ''}`}
+          aria-label={t('clipboard.title')}
+          aria-expanded={showClipboard}
+          title={t('clipboard.shortcutHint')}
+        >
+          <ClipboardText size={17} weight="bold" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowJobCenter((value) => !value)
+            setOpen(false)
+            setShowClipboard(false)
+          }}
+          className={`glass-card relative flex h-11 w-11 items-center justify-center rounded-full text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring ${showJobCenter ? 'bg-foreground/15 text-foreground' : ''}`}
+          aria-label={t('jobs.title')}
+          aria-expanded={showJobCenter}
+        >
+          <ListBullets size={17} weight="bold" />
+          {activeJobCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white shadow">
+              {activeJobCount > 9 ? '9+' : activeJobCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen((value) => !value)
+            setShowJobCenter(false)
+            setShowClipboard(false)
+          }}
           className="glass-card flex min-h-11 items-center gap-2 rounded-full px-3 text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring"
           aria-label={t('os.shell.openQuickSettings')}
           aria-expanded={open}
@@ -254,6 +397,61 @@ export function OsSystemShell() {
                 </div>
               </div>
 
+              {/* Now playing (Home Assistant media players) */}
+              {mediaPlayers.length > 0 && (
+                <div className="mb-3 rounded-2xl bg-foreground/5 p-3">
+                  <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/45">
+                    <MusicNotes size={12} />{t('os.shell.nowPlaying')}
+                  </p>
+                  {mediaPlayers.map((player) => {
+                    const name = (player.attributes.friendly_name as string) || player.entity_id
+                    const title = (player.attributes.media_title as string) || (player.attributes.media_artist as string) || ''
+                    return (
+                      <button
+                        key={player.entity_id}
+                        type="button"
+                        onClick={() => void toggleMediaPlayer(player.entity_id)}
+                        className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-foreground/8"
+                      >
+                        <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent">
+                          <Play size={13} weight="fill" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium text-foreground/85">{name}</span>
+                          {title && <span className="block truncate text-[10px] text-foreground/45">{title}</span>}
+                        </span>
+                        {player.state === 'playing' ? <Pause size={13} className="shrink-0 text-foreground/50" /> : <Play size={13} className="shrink-0 text-foreground/50" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Active downloads */}
+              {activeDownloads.length > 0 && (
+                <div className="mb-3 rounded-2xl bg-foreground/5 p-3">
+                  <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/45">
+                    <DownloadSimple size={12} />{t('os.shell.downloads')}
+                  </p>
+                  {activeDownloads.map((job) => (
+                    <button
+                      key={job.id}
+                      type="button"
+                      onClick={() => { setOpen(false); setShowJobCenter(true) }}
+                      className="w-full rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-foreground/8"
+                    >
+                      <span className="flex items-center justify-between gap-2 text-xs">
+                        <span className="truncate text-foreground/85">{job.name}</span>
+                        <span className="shrink-0 text-[10px] tabular-nums text-foreground/45">{job.progress}%</span>
+                      </span>
+                      <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-foreground/10">
+                        <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(2, Math.min(100, job.progress))}%` }} />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {powerConfirmation ? (
                 <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-3">
                   <p className="text-xs font-semibold text-red-200">{t('os.shell.confirmReboot')}</p>
@@ -303,6 +501,9 @@ export function OsSystemShell() {
           </>
         )}
       </AnimatePresence>
+
+      <JobCenterPanel open={showJobCenter} onClose={() => setShowJobCenter(false)} />
+      <ClipboardManager open={showClipboard} onClose={() => setShowClipboard(false)} />
 
       <AnimatePresence>
         {showRecents && (

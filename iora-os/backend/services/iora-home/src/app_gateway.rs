@@ -192,6 +192,25 @@ pub async fn resolve_runtime_target(
             protocol: protocol.clone(),
         });
     }
+    // Local (non-Docker) apps declare their service port in the manifest
+    // (top-level `ports`, flattened into `extra`) - use it when the stored
+    // port list is empty (e.g. apps installed before the extraction or
+    // entries that never ran).
+    if let Some(external) = app
+        .manifest
+        .extra
+        .get("ports")
+        .and_then(|ports| ports.as_array())
+        .and_then(|ports| ports.first())
+        .and_then(|port| port.get("external").and_then(|v| v.as_u64()))
+    {
+        return Some(RuntimeTarget {
+            host: "127.0.0.1".to_string(),
+            port: external as u16,
+            internal_port: external as u16,
+            protocol: protocol.clone(),
+        });
+    }
     // Last resort: the port manager assigned a host port.
     let _ = store;
     None

@@ -99,6 +99,9 @@ import {
 } from '@phosphor-icons/react'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { installedAppIds } from '@/hooks/useInstalledApps'
+import { createPageApps, SYSTEM_OS_APPS } from '@/lib/osAppRegistry'
+import { isAppAllowed } from '@/lib/userRestrictions'
+import { useAuth } from '@/contexts/AuthContext'
 
 export interface PageSettings {
   page_id: string
@@ -113,6 +116,9 @@ export interface PageSettings {
 interface PageNavigationContextType {
   currentPageId: string
   setCurrentPageId: (id: string) => void
+  /** Deep-link inside a system app, e.g. ('settings', 'apps/ora-browser') → /settings/apps/ora-browser. */
+  currentSubPath: string
+  navigateToPage: (id: string, subPath?: string) => void
   pages: DashboardPage[]
   setPages: (pages: DashboardPage[]) => void
   forceSavePages: (pages: DashboardPage[]) => void
@@ -300,10 +306,16 @@ const SYSTEM_PAGE_PATHS: Record<string, string> = {
   share: '/share',
   streaming: '/streaming',
   'ai-agent': '/agent',
+  automations: '/automations',
   'os-files': '/files',
   'os-images': '/images',
   'os-network': '/network',
   'os-system': '/system',
+  'os-storage': '/storage',
+  'os-devices': '/devices',
+  'os-containers': '/containers',
+  'os-logs': '/logs',
+  'os-services': '/services',
   'os-updates': '/updates',
   'os-backups': '/backups',
 }
@@ -312,18 +324,49 @@ const SYSTEM_PATH_PAGE_IDS = new Map(
   Object.entries(SYSTEM_PAGE_PATHS).map(([pageId, path]) => [path, pageId]),
 )
 
-function pageIdToPath(id: string, targetPage?: DashboardPage, docPath?: string): string {
+function pageIdToPath(id: string, targetPage?: DashboardPage, docPath?: string, subPath?: string): string {
   if (id === 'docs' && docPath) return `/docs/${docPath}`
-  if (SYSTEM_PAGE_PATHS[id]) return SYSTEM_PAGE_PATHS[id]
-  if (builtInPages.includes(id)) return `/${id}`
-  const isAppPage = targetPage?.pageType === 'app' || targetPage?.pageSource?.kind === 'app'
-  if (isAppPage || STORE_CATALOG.some((app) => app.id === id) || installedAppIds.has(id)) return `/app/${id}`
-  return `/page/${id}`
+  let base: string
+  if (SYSTEM_PAGE_PATHS[id]) {
+    base = SYSTEM_PAGE_PATHS[id]
+  } else if (builtInPages.includes(id)) {
+    base = `/${id}`
+  } else {
+    const isAppPage = targetPage?.pageType === 'app' || targetPage?.pageSource?.kind === 'app'
+    if (isAppPage || STORE_CATALOG.some((app) => app.id === id) || installedAppIds.has(id)) base = `/app/${id}`
+    else base = `/page/${id}`
+  }
+  if (subPath) {
+    const clean = subPath.replace(/^\/+|\/+$/g, '')
+    return clean ? `${base}/${clean}` : base
+  }
+  return base
+}
+
+/** Extract the sub-path after a system page path, e.g. '/settings/apps/ora-browser' → 'apps/ora-browser'. */
+function pathToSubPath(path: string): string {
+  const normalized = path.length > 1 ? path.replace(/\/+$/, '') : path
+  for (const pagePath of Object.values(SYSTEM_PAGE_PATHS)) {
+    if (pagePath === '/') continue
+    if (normalized === pagePath) return ''
+    if (normalized.startsWith(`${pagePath}/`)) {
+      return normalized.slice(pagePath.length + 1)
+    }
+  }
+  return ''
 }
 
 function pathToPageId(path: string): string {
   const normalizedPath = path.length > 1 ? path.replace(/\/+$/, '') : path
   if (normalizedPath === '') return 'launcher'
+  // System pages may carry a sub-path (/settings/apps/ora-browser) - the
+  // page id is the system page, the remainder is the deep link.
+  for (const [pageId, pagePath] of Object.entries(SYSTEM_PAGE_PATHS)) {
+    if (pagePath === '/') continue
+    if (normalizedPath === pagePath || normalizedPath.startsWith(`${pagePath}/`)) {
+      return pageId
+    }
+  }
   const systemPageId = SYSTEM_PATH_PAGE_IDS.get(normalizedPath)
   if (systemPageId) return systemPageId
   if (normalizedPath.startsWith('/docs/') || normalizedPath.startsWith('/docs')) return 'docs'
@@ -585,6 +628,35 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   const [currentPageId, setCurrentPageIdState] = useState<string>(() =>
     pathToPageId(window.location.pathname)
   )
+  const [currentSubPath, setCurrentSubPath] = useState<string>(() =>
+    pathToSubPath(window.location.pathname)
+  )
+
+  // ── Family-profile route guard ─────────────────────────────────────────
+  // Restricted users (child profiles with an allowed_app_ids whitelist) are
+  // redirected to the launcher when they land on a page whose app is not
+  // whitelisted — covers deep links (/app/os-files/…), the boot URL and any
+  // programmatic navigation. Launcher, Home and Settings stay reachable.
+  const { user } = useAuth()
+  const allowedPageIds = useMemo(() => {
+    const all = [
+      ...SYSTEM_OS_APPS,
+      ...createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap]),
+    ]
+    return new Set(all.filter((app) => isAppAllowed(user, app.id)).map((app) => app.pageId))
+  }, [user, pages])
+
+  useEffect(() => {
+    const restricted = user?.restrictions?.allowed_app_ids?.length
+    if (!user || !restricted) return
+    if (currentPageId === 'launcher' || currentPageId === 'home' || currentPageId === 'settings') return
+    if (!allowedPageIds.has(currentPageId)) {
+      setCurrentPageIdState('launcher')
+      if (window.location.pathname !== '/') {
+        window.history.replaceState(window.history.state, '', '/')
+      }
+    }
+  }, [currentPageId, user, allowedPageIds])
   const [modalPageId, setModalPageId] = useState<string | null>(null)
   const [pageLayouts, setPageLayoutsState] = useState<Record<string, { cols: number; rows: number; gap: number }>>({})
   const [pageSettingsState, setPageSettingsState] = useState<Record<string, PageSettings>>({})
@@ -607,7 +679,24 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     }
     setModalPageId(null) // Close any open modal
     setCurrentPageIdState(id)
+    setCurrentSubPath('')
     const path = pageIdToPath(id, targetPage)
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path)
+    }
+  }, [pages])
+
+  /** Navigate to a page with an optional deep-link sub-path (e.g. settings → /settings/apps/ora-browser). */
+  const navigateToPage = useCallback((id: string, subPath?: string) => {
+    const targetPage = pages.find(p => p.id === id)
+    if (targetPage?.displayMode === 'modal') {
+      setModalPageId(id)
+      return
+    }
+    setModalPageId(null)
+    setCurrentPageIdState(id)
+    setCurrentSubPath(subPath || '')
+    const path = pageIdToPath(id, targetPage, undefined, subPath)
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
     }
@@ -629,9 +718,21 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     const handlePopState = () => {
       setCurrentPageIdState(pathToPageId(window.location.pathname))
+      setCurrentSubPath(pathToSubPath(window.location.pathname))
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  // Legacy `/app-settings/<appId>` deep links moved into the Settings app
+  // under `/settings/apps/<appId>` - redirect once so bookmarks keep working.
+  useEffect(() => {
+    const path = window.location.pathname
+    if (!path.startsWith('/app-settings/')) return
+    const appId = path.slice('/app-settings/'.length)
+    window.history.replaceState(window.history.state, '', `/settings/apps/${appId}${window.location.search}${window.location.hash}`)
+    setCurrentPageIdState('settings')
+    setCurrentSubPath(`apps/${appId}`)
   }, [])
 
   // Existing `/page/<app-id>` bookmarks predate the dedicated app namespace.
@@ -1038,6 +1139,8 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   const contextValue = useMemo(() => ({
     currentPageId,
     setCurrentPageId,
+    currentSubPath,
+    navigateToPage,
     pages,
     setPages,
     forceSavePages,
@@ -1056,7 +1159,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setGlobalCustomCss,
     userCustomCss,
     setUserCustomCss,
-  }), [currentPageId, setCurrentPageId, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
+  }), [currentPageId, setCurrentPageId, currentSubPath, navigateToPage, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
 
   return (
     <PageNavigationContext.Provider value={contextValue}>

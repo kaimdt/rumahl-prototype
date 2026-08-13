@@ -12,6 +12,8 @@ const PERMISSIONS = [
   'os.power',
   'os.updates',
   'os.backups',
+  'os.services',
+  'os.terminal',
 ] as const
 
 export function OsPermissionEditor({ userId, isAdmin }: { userId: string; isAdmin: boolean }) {

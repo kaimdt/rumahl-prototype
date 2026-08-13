@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Kalender</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0} body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0b0d12;color:#e5e7eb;min-height:100vh}
+  header{display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.08)} header h1{font-size:1.25rem;font-weight:600}
+  main{max-width:42rem;margin:0 auto;padding:1.5rem} .add{display:flex;gap:.5rem;margin-bottom:1.5rem;flex-wrap:wrap}
+  .add input,.add button{border-radius:.75rem;padding:.7rem .9rem;font-size:.9rem} .add input{background:rgba(0,0,0,.3);color:#e5e7eb;border:1px solid rgba(255,255,255,.1);flex:1;min-width:8rem}
+  .add input[type=date]{flex:0 0 auto;width:9.5rem} .add button{background:#22d3ee;color:#082f36;border:none;font-weight:600;cursor:pointer}
+  .day{margin-bottom:1.25rem} .day h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.45);margin-bottom:.5rem}
+  .event{display:flex;align-items:center;gap:.75rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:.9rem;padding:.85rem 1rem;margin-bottom:.5rem}
+  .event .time{color:#22d3ee;font-size:.85rem;min-width:3.2rem} .event span{flex:1;font-size:.95rem} .event button{background:none;border:none;color:#f87171;cursor:pointer}
+  .empty{text-align:center;color:rgba(255,255,255,.35);padding:3rem 0}
+</style></head><body>
+<header><h1>📅 Kalender</h1></header>
+<main>
+  <div class="add"><input id="title" placeholder="Termin…" /><input type="date" id="date" /><input type="time" id="time" value="18:00" style="flex:0 0 auto;width:7rem" /><button onclick="addEvent()">Hinzufügen</button></div>
+  <div id="list"></div>
+</main>
+<script>
+  async function api(p, o) { const r = await fetch('/api'+p, { headers: {'Content-Type':'application/json'}, ...o }); if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+  async function load() {
+    const events = await api('/items');
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    const byDate = {};
+    for (const e of events) (byDate[e.date] = byDate[e.date] || []).push(e);
+    const dates = Object.keys(byDate).sort();
+    if (!dates.length) { list.innerHTML = '<div class="empty">Keine Termine — füge deinen ersten hinzu.</div>'; return; }
+    for (const date of dates) {
+      const day = document.createElement('div'); day.className = 'day';
+      day.innerHTML = '<h2></h2>';
+      day.querySelector('h2').textContent = new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday:'long', day:'numeric', month:'long' });
+      for (const e of byDate[date].sort((a,b) => (a.time||'').localeCompare(b.time||''))) {
+        const el = document.createElement('div'); el.className = 'event';
+        el.innerHTML = '<span class="time"></span><span></span><button>✕</button>';
+        el.querySelector('.time').textContent = e.time || '';
+        el.querySelector('span').textContent = e.title;
+        el.querySelector('button').onclick = async () => { await api('/items/'+e.id, { method:'DELETE' }); load(); };
+        day.appendChild(el);
+      }
+      list.appendChild(day);
+    }
+  }
+  async function addEvent() {
+    const title = document.getElementById('title').value.trim();
+    const date = document.getElementById('date').value;
+    const time = document.getElementById('time').value;
+    if (!title || !date) return;
+    await api('/items', { method:'POST', body: JSON.stringify({ title, date, time }) });
+    document.getElementById('title').value = '';
+    load();
+  }
+  document.getElementById('date').valueAsDate = new Date();
+  load();
+</script></body></html>

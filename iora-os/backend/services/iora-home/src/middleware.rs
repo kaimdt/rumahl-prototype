@@ -313,6 +313,7 @@ mod tests {
             jti: "test-jti".to_string(),
             username: "testuser".to_string(),
             is_admin,
+            iat: 0,
             exp: 9999999999,
         }
     }

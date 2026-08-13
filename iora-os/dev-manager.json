@@ -1,0 +1,8 @@
+{
+  "defaultDiskGb": 55,
+  "defaultRamGb": 8,
+  "defaultCpus": 4,
+  "autostart": false,
+  "sftpUser": "root",
+  "extraPorts": ""
+}

@@ -610,7 +610,7 @@ export function PluginsTab({ token }: { token: string }) {
                     className="flex items-center gap-1 px-2 py-1 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors disabled:opacity-40">
                     {executing === plugin.id ? <InlineSpinner size={12} /> : <Lightning size={12} />} {t('plugins.overview.execute')}
                   </button>
-                  <button onClick={() => { window.location.href = `/app-settings/${plugin.id}` }}
+                  <button onClick={() => { window.location.href = `/settings/apps/${encodeURIComponent(plugin.id)}` }}
                     className="flex items-center gap-1 px-2 py-1 bg-foreground/5 text-foreground/70 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors">
                     <Gear size={12} /> {t('settings.title')}
                   </button>

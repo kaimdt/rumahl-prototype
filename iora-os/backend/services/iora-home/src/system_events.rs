@@ -187,15 +187,30 @@ pub struct SystemEventLog {
     cache: Arc<RwLock<VecDeque<RawIngest>>>,
     /// Number of events the ingest task has dropped because of DB errors.
     drop_counter: Arc<AtomicU64>,
+    /// Fan-out for app lifecycle hooks (`OnSystemEvent`). Same events as the
+    /// DB ingest channel, but decoupled so a slow app never blocks the sink.
+    hook_tx: mpsc::UnboundedSender<SystemEventHookEvent>,
+    hook_rx: std::sync::Mutex<Option<mpsc::UnboundedReceiver<SystemEventHookEvent>>>,
+}
+
+/// Lightweight event payload for app lifecycle hooks.
+#[derive(Debug, Clone)]
+pub struct SystemEventHookEvent {
+    pub severity: String,
+    pub source: String,
+    pub message: String,
 }
 
 impl SystemEventLog {
     pub fn new(db: DbPool, ws_manager: Arc<WebSocketManager>) -> Arc<Self> {
+        let (hook_tx, hook_rx) = mpsc::unbounded_channel::<SystemEventHookEvent>();
         let log = Arc::new(Self {
             db,
             ws_manager,
             cache: Arc::new(RwLock::new(VecDeque::with_capacity(HOT_CACHE))),
             drop_counter: Arc::new(AtomicU64::new(0)),
+            hook_tx,
+            hook_rx: std::sync::Mutex::new(Some(hook_rx)),
         });
 
         // Install global sink for the tracing layer (only the first call
@@ -209,6 +224,20 @@ impl SystemEventLog {
         tokio::spawn(async move { me.run_ingest_loop(rx).await });
 
         log
+    }
+
+    /// Take the app-hook event stream (single consumer — the iora-home
+    /// startup task that dispatches `OnSystemEvent` lifecycle hooks).
+    pub fn subscribe_hooks(&self) -> Option<mpsc::UnboundedReceiver<SystemEventHookEvent>> {
+        self.hook_rx.lock().unwrap().take()
+    }
+
+    fn fan_out(&self, severity: &Severity, source: &str, message: &str) {
+        let _ = self.hook_tx.send(SystemEventHookEvent {
+            severity: severity.as_str().to_string(),
+            source: source.to_string(),
+            message: message.to_string(),
+        });
     }
 
     // ── Public emit API ───────────────────────────────────────────────
@@ -288,6 +317,7 @@ impl SystemEventLog {
 
     /// Generic emit with full metadata control.
     pub async fn emit(&self, severity: Severity, source: &str, message: String, meta: EventMeta) {
+        self.fan_out(&severity, source, &message);
         if let Some(tx) = GLOBAL_SINK.get() {
             let _ = tx.send(RawIngest {
                 severity,
@@ -307,6 +337,7 @@ impl SystemEventLog {
         message: String,
         meta: EventMeta,
     ) {
+        self.fan_out(&severity, source, &message);
         if let Some(tx) = GLOBAL_SINK.get() {
             let _ = tx.send(RawIngest {
                 severity,

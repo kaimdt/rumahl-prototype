@@ -10,6 +10,7 @@ import type { OsLaunchMode } from '@/contexts/OsWindowContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { authFetch } from '@/lib/authHelpers'
 import { requestAppDetail, requestAppInStore } from '@/lib/appStoreHandoff'
+import type { InstallJobInfo } from '@/hooks/useInstalledApps'
 
 export interface LauncherFolder {
   id: string
@@ -71,6 +72,7 @@ export function LauncherAppGrid({
   onOpenApp,
   getAppName,
   onLaunch,
+  installJobs = [],
 }: {
   items: LauncherItem[]
   apps: OsAppDefinition[]
@@ -84,6 +86,7 @@ export function LauncherAppGrid({
   getAppName: (app: OsAppDefinition) => string
   /** Launches an app in a specific OS layout (fullscreen / window / split / immersive). */
   onLaunch: (app: OsAppDefinition, mode: OsLaunchMode) => void
+  installJobs?: InstallJobInfo[]
 }) {
   const { t } = useTranslation()
   const [openFolderId, setOpenFolderId] = useState<string | null>(null)

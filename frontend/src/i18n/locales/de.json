@@ -191,7 +191,9 @@
       "confirmShutdown": "ORA OS in fünf Sekunden herunterfahren?",
       "noSystemData": "Systemdaten nicht verfügbar",
       "logout": "Abmelden",
-      "guest": "Gast"
+      "guest": "Gast",
+      "nowPlaying": "Läuft gerade",
+      "downloads": "Downloads"
     },
     "lock": {
       "sessionLocked": "Sitzung gesperrt",
@@ -230,6 +232,10 @@
         "name": "Einstellungen",
         "description": "ORA OS personalisieren"
       },
+      "automations": {
+        "name": "Automationen",
+        "description": "Intelligente Abläufe erstellen und überwachen"
+      },
       "agent": {
         "name": "Agent",
         "description": "KI-Assistent und Entwicklungsagent"
@@ -253,6 +259,10 @@
       "network": {
         "name": "Netzwerk",
         "description": "Schnittstellen und Netzwerkaktivität"
+      },
+      "storage": {
+        "name": "Speicher",
+        "description": "Datenträger, Zustand und RAID"
       },
       "system": {
         "name": "Systemmonitor",
@@ -283,6 +293,22 @@
         "zoomOut": "Verkleinern",
         "previous": "Vorheriges Bild",
         "next": "Nächstes Bild"
+      },
+      "devices": {
+        "name": "Geräte",
+        "description": "Deine Geräte mit Wake-on-LAN"
+      },
+      "containers": {
+        "name": "Container",
+        "description": "Docker-Container und Ressourcenverbrauch"
+      },
+      "logs": {
+        "name": "Logs",
+        "description": "Zentraler Log-Viewer aller Dienste"
+      },
+      "services": {
+        "name": "Dienste",
+        "description": "systemd-Dienste"
       }
     },
     "systemApps": {
@@ -419,7 +445,28 @@
       "scanHint": "Das lokale Netzwerk wird nach SMB-Festplatten durchsucht — gefundene Geräte kannst du direkt verbinden.",
       "noDevicesFound": "Keine Netzwerk-Festplatten gefunden",
       "selectCount": "Auswählen ({{count}})",
-      "selectFolder": "Zielordner auswählen"
+      "selectFolder": "Zielordner auswählen",
+      "familyShare": "Mit Familie teilen",
+      "familyShareRemove": "Familienfreigabe aufheben",
+      "familyShareAdded": "Mit Familie geteilt",
+      "familyShareRemoved": "Familienfreigabe aufgehoben",
+      "familyShareFailed": "Familienfreigabe konnte nicht aktualisiert werden",
+      "systemFolders": {
+        "documents": "Dokumente",
+        "downloads": "Downloads",
+        "photos": "Fotos",
+        "videos": "Videos"
+      },
+      "downloadFromUrl": "Von URL herunterladen",
+      "downloadDialogTitle": "In deinen Downloads-Ordner laden",
+      "downloadDialogHint": "Der Download läuft im Hintergrund (Job Center) und wird in deinen persönlichen Downloads-Ordner gespeichert — er übersteht das Schließen dieses Tabs.",
+      "downloadStart": "Download starten",
+      "downloadStarting": "Starte…",
+      "downloadStarted": "Download gestartet — siehe Job Center",
+      "downloadFailed": "Download konnte nicht gestartet werden",
+      "shareExternalLink": "Externen Link erstellen",
+      "shareLinkCopied": "Externer Link in die Zwischenablage kopiert",
+      "shareLinkFailed": "Externer Link konnte nicht erstellt werden"
     },
     "dock": {
       "open": "Öffnen",
@@ -454,7 +501,15 @@
       "close": "Schließen",
       "emptyPane": "Leerer Bereich",
       "splitHint": "Öffne eine App im Dock, um diese Seite zu füllen.",
-      "open": "Fenster offen"
+      "open": "Fenster offen",
+      "maximize": "Maximieren",
+      "restore": "Wiederherstellen"
+    },
+    "images": {
+      "dropHint": "Bilder hierher ziehen, um sie in diesen Ordner zu kopieren",
+      "dropCopied": "{{name}} kopiert",
+      "dropFailed": "Abgelegte Datei konnte nicht kopiert werden",
+      "dropInvalid": "Hier können nur Bilddateien abgelegt werden"
     }
   },
   "settings": {
@@ -567,7 +622,45 @@
     "appExternalOverride": "Benutzer-Einstellung: öffnet direkt über den Port",
     "appEmbedMode": "Anzeigemodus",
     "appPermissions": "Berechtigungen",
-    "appDangerZone": "Gefahrenzone"
+    "appDangerZone": "Gefahrenzone",
+    "familyProfiles": "Familienprofile",
+    "familyProfilesDesc": "Kinderprofile legen fest, welche Apps in der Shell erscheinen",
+    "familyNoUsers": "Keine bearbeitbaren Benutzerkonten",
+    "profileKind": {
+      "standard": "Standard",
+      "child": "Kind"
+    },
+    "profileRestrictions": "Erlaubte Apps",
+    "profileNoRestrictions": "Alle Apps erlaubt (keine Einschränkungen)",
+    "profileAllowedCount": "Apps ausgewählt",
+    "profileSaveFailed": "Profil konnte nicht gespeichert werden",
+    "guestMode": "Gastmodus",
+    "guestModeDesc": "Passwortfreien Gastzugriff erlauben (temporäres Viewer-Konto)",
+    "guestModeSaved": "Gastmodus aktualisiert",
+    "mediaHub": "Media Hub",
+    "mediaHubDesc": "Jellyfin/Plex-Erkennung und Continue-Watching",
+    "mediaSaved": "Media-Konfiguration gespeichert",
+    "mediaSaveFailed": "Media-Konfiguration konnte nicht gespeichert werden",
+    "mediaDetected": "Erkannt",
+    "mediaNotDetected": "Nicht erkannt",
+    "mediaUrlPlaceholder": "http://127.0.0.1:8096",
+    "mediaApiKey": "API-Schlüssel",
+    "mediaUserId": "Benutzer-ID",
+    "mediaToken": "Token",
+    "remoteAccess": "Fernzugriff",
+    "remoteAccessDesc": "Tailscale-/WireGuard-Status für den Zugriff von außen",
+    "remoteOnline": "Online",
+    "remoteOffline": "Offline",
+    "remoteNotInstalled": "Nicht installiert",
+    "remoteHostname": "Hostname",
+    "remoteConfigured": "Konfiguriert",
+    "remoteNotConfigured": "Nicht konfiguriert",
+    "remoteTailscaleHint": "Installiere Tailscale auf dem Host, um von überall auf ORA zuzugreifen (tailscale.com).",
+    "remoteWireguardHint": "Keine WireGuard-Konfiguration in /etc/wireguard gefunden.",
+    "remoteExternalUrl": "Externe Basis-URL (Domain / TLS)",
+    "remoteExternalUrlHint": "Wird für externe Freigabe-Links genutzt — z. B. https://ora.meinedomain.de. Benötigt einen Reverse-Proxy (nginx) mit deiner Domain + TLS.",
+    "remoteUrlSaved": "Externe URL gespeichert",
+    "remoteUrlFailed": "Externe URL konnte nicht gespeichert werden"
   },
   "dashboard": {
     "noEntities": "Keine Entitäten gefunden",
@@ -677,6 +770,41 @@
       "on": "An",
       "off": "Aus",
       "speed": "Geschwindigkeit"
+    },
+    "oraStorage": {
+      "title": "Speicher",
+      "used": "belegt",
+      "free": "frei",
+      "unavailable": "Speicher nicht erreichbar"
+    },
+    "oraSystem": {
+      "title": "Server",
+      "cpu": "CPU",
+      "memory": "RAM",
+      "uptime": "Laufzeit",
+      "unavailable": "Server offline"
+    },
+    "oraJobs": {
+      "title": "Jobs",
+      "empty": "Keine aktiven Jobs"
+    },
+    "oraFiles": {
+      "title": "Letzte Dateien",
+      "empty": "Noch keine Dateien"
+    },
+    "oraPresence": {
+      "title": "Anwesenheit",
+      "home": "zuhause",
+      "atHome": "Zuhause",
+      "away": "Abwesend",
+      "empty": "Keine Personen erfasst"
+    },
+    "oraMedia": {
+      "title": "Medien",
+      "refresh": "Aktualisieren",
+      "empty": "Nichts in Arbeit",
+      "notConfigured": "Jellyfin in Einstellungen → Media Hub verbinden",
+      "mediaServer": "Medienserver"
     }
   },
   "admin": {
@@ -831,6 +959,14 @@
     "installing": "Installing",
     "error": "Error",
     "unhealthy": "Unhealthy",
+    "lifecycle": {
+      "running": "Läuft",
+      "starting": "Wird gestartet",
+      "stopped": "Gestoppt",
+      "failed": "Fehlgeschlagen",
+      "unhealthy": "Healthcheck fehlgeschlagen",
+      "not_found": "Nicht installiert"
+    },
     "uptime": "Uptime",
     "cpu": "CPU",
     "memory": "Memory",
@@ -843,6 +979,43 @@
     "storeComingSoonDesc": "Integration with appstore.kaimdt.com — thousands of apps, widgets & plugins.",
     "featured": "Featured",
     "popular": "Popular",
+    "installedManagement": {
+      "eyebrow": "Anwendungsverwaltung",
+      "title": "Installierte Apps",
+      "description": "Verwalte Laufzeit, Zustand, Updates und Einstellungen der lokal auf diesem ORA OS gespeicherten Anwendungen.",
+      "updates": "Updates",
+      "needsAttention": "Benötigt Aufmerksamkeit",
+      "filterLabel": "Installierte Apps filtern",
+      "emptyTitle": "Keine Apps installiert",
+      "emptyDescription": "Installiere eine App aus dem Store oder lade ein ORA-App-Paket hoch.",
+      "actionFailed": "Aktion fehlgeschlagen: {{detail}}",
+      "uninstallConfirm": "{{name}} deinstallieren? App-Daten können dabei entfernt werden.",
+      "forceUninstallConfirm": "System-App {{name}} auf diesem Entwicklungs-Image wirklich erzwingen und deinstallieren?",
+      "versionByDeveloper": "Version {{version}} · {{developer}}",
+      "health": "Zustand",
+      "healthy": "Gesund",
+      "inactive": "Inaktiv",
+      "bundle": "Bundle",
+      "open": "Öffnen",
+      "start": "Starten",
+      "stop": "Stoppen",
+      "restart": "Neu starten",
+      "pause": "Pausieren",
+      "enable": "Aktivieren",
+      "disable": "Deaktivieren",
+      "uninstall": "Deinstallieren",
+      "forceUninstall": "Erzwungen deinstallieren",
+      "actionSuccess": {
+        "start": "{{name}} wurde gestartet.",
+        "stop": "{{name}} wurde gestoppt.",
+        "restart": "{{name}} wurde neu gestartet.",
+        "pause": "{{name}} wurde pausiert.",
+        "enable": "{{name}} wurde aktiviert.",
+        "disable": "{{name}} wurde deaktiviert.",
+        "uninstall": "{{name}} wurde deinstalliert."
+      },
+      "installingDescription": "Die App wird gerade installiert — sie erscheint automatisch als installiert, sobald der Vorgang abgeschlossen ist."
+    },
     "appStore": {
       "title": "Entdecke mehr für dein ORA OS",
       "subtitle": "Apps, Widgets und Automationen für ein privates, vernetztes Zuhause.",
@@ -863,7 +1036,6 @@
       "comingSoon": "Demnächst",
       "catalog": {
         "nextcloud": "Deine eigene Cloud: Dateien, Kalender, Kontakte & mehr — vollständig selbst gehostet in einem Docker-Container auf deinem IORA OS.",
-        "webbrowser": "Vollwertiger Firefox im Container auf deinem Server — öffne ihn im Browser-Fenster und surfe wie auf einem eigenen Rechner. Läuft auch weiter, wenn du die Seite schließt.",
         "jellyfin": "Streame eigene Filme, Serien, Musik und Fotos von einem privaten Medienserver.",
         "vaultwarden": "Ein schlanker, privater Passwortmanager, kompatibel mit Bitwarden-Clients.",
         "uptime-kuma": "Überwache Websites und Dienste über ein schönes selbst gehostetes Status-Dashboard.",
@@ -895,6 +1067,9 @@
       "installing": "Installiere {{name}}…",
       "installStarted": "Installation von {{name}} gestartet",
       "installFailed": "Installation fehlgeschlagen: {{detail}}",
+      "installFailedTitle": "Installation fehlgeschlagen",
+      "installFailedUnknown": "Das App-Paket konnte nicht installiert werden. Öffne die Installationsdetails und versuche es erneut.",
+      "installPreparing": "Das lokale App-Paket wird vorbereitet…",
       "openPort": "Im Browser öffnen",
       "starting": "Starte…",
       "start": "Starten",
@@ -944,8 +1119,14 @@
     "detail": {
       "permissionsUpdated": "Berechtigungen aktualisiert",
       "tabs": {
+        "info": "Übersicht",
         "permissions": "Rechte",
-        "pages": "Seiten"
+        "runtime": "Laufzeit",
+        "logs": "Logs ({{count}})",
+        "terminal": "Terminal",
+        "settings": "Einstellungen",
+        "pages": "Seiten",
+        "bundle": "Dienste"
       },
       "permissions": {
         "granted": "Gewährt",
@@ -1030,7 +1211,11 @@
     "optional": "optional",
     "confirmPassword": "Passwort bestätigen",
     "rememberMeHint": "Sitzung bleibt nach Browserschließung aktiv",
-    "pageFooter": "IORA — Interface for Optimized Residential Autonomy"
+    "pageFooter": "IORA — Interface for Optimized Residential Autonomy",
+    "guestSuccess": "Als Gast angemeldet",
+    "guestFailed": "Gast-Anmeldung fehlgeschlagen",
+    "or": "oder",
+    "guestLogin": "Als Gast fortfahren"
   },
   "errors": {
     "notFound": "Page not found",
@@ -1207,7 +1392,463 @@
     "sleepOff": "Schlafmodus beenden",
     "lock": "Sperren",
     "themeNight": "Nacht-Theme aktivieren",
-    "placeholder": "Apps, Seiten und Aktionen suchen…",
-    "noResults": "Keine Ergebnisse"
+    "placeholder": "Apps, Dateien, Geräte, Einstellungen und Aktionen durchsuchen…",
+    "noResults": "Keine Ergebnisse",
+    "files": "Dateien",
+    "devices": "Geräte",
+    "settings": "Einstellungen",
+    "folder": "Ordner",
+    "online": "Online",
+    "offline": "Offline",
+    "searching": "Suche…"
+  },
+  "jobs": {
+    "title": "Job Center",
+    "subtitle": "Hintergrund-Jobs",
+    "activeCount_one": "{{count}} aktiver Job",
+    "activeCount_other": "{{count}} aktive Jobs",
+    "cleanup": "Abgeschlossene löschen",
+    "empty": "Keine aktiven Jobs",
+    "unknown": "Unbekannt",
+    "queued": "Wartet",
+    "running": "Läuft",
+    "paused": "Pausiert",
+    "completed": "Abgeschlossen",
+    "failed": "Fehlgeschlagen",
+    "cancelled": "Abgebrochen",
+    "pause": "Pausieren",
+    "resume": "Fortsetzen",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "appStore": "App Store",
+    "installing": "Installiere…"
+  },
+  "clipboard": {
+    "title": "Zwischenablage",
+    "hint": "Verlauf über alle Geräte",
+    "shortcutHint": "Zwischenablage (Ctrl+Shift+V)",
+    "empty": "Noch keine Einträge",
+    "emptyHint": "Kopiere irgendwo etwas — es erscheint hier und wird über deine Geräte synchronisiert.",
+    "noMatch": "Keine passenden Einträge",
+    "search": "Zwischenablage durchsuchen…",
+    "copy": "In Zwischenablage kopieren",
+    "copied": "Kopiert",
+    "pin": "Anheften",
+    "unpin": "Lösen",
+    "delete": "Löschen",
+    "clear": "Verlauf leeren"
+  },
+  "permissions": {
+    "requestTitle": "Berechtigungsanfrage",
+    "wantsAccess": " möchte Zugriff auf",
+    "system": "System",
+    "grantHint": "Du kannst dies später in Einstellungen → Berechtigungen ändern.",
+    "allow": "Erlauben",
+    "deny": "Ablehnen",
+    "catalog": {
+      "os.files.read": "Dateien lesen",
+      "os.files.readDesc": "Zugriff auf deine persönlichen Dateien",
+      "os.files.write": "Dateien schreiben",
+      "os.files.writeDesc": "Dateien erstellen und ändern",
+      "os.network.read": "Netzwerkstatus lesen",
+      "os.network.readDesc": "Geräte und Netzwerkaktivität sehen",
+      "os.network.write": "Netzwerk-Einstellungen ändern",
+      "os.network.writeDesc": "Netzwerkkonfiguration ändern",
+      "os.system.read": "Systeminformationen lesen",
+      "os.system.readDesc": "CPU, Speicher und Dienststatus sehen",
+      "os.power": "Stromsteuerung",
+      "os.powerDesc": "System herunterfahren oder neu starten",
+      "os.updates": "Updates verwalten",
+      "os.updatesDesc": "Updates installieren und zurücksetzen",
+      "os.backups": "Backups verwalten",
+      "os.backupsDesc": "Backups erstellen und wiederherstellen",
+      "os.services": "Dienste verwalten",
+      "os.servicesDesc": "Systemdienste starten, stoppen und neu starten",
+      "os.terminal": "Terminal",
+      "os.terminalDesc": "Interaktive Shell öffnen"
+    }
+  },
+  "shortcuts": {
+    "title": "Tastenkürzel",
+    "desc": "Globale Kürzel — Klicke eine Kombination zum Neu-Aufnehmen",
+    "reset": "Zurücksetzen",
+    "recording": "Tasten drücken…",
+    "hint": "Drücke Esc während der Aufnahme zum Abbrechen. Änderungen gelten sofort.",
+    "spotlight": {
+      "label": "Spotlight-Suche",
+      "desc": "Globale Suche öffnen"
+    },
+    "clipboard": {
+      "label": "Zwischenablage",
+      "desc": "Zwischenablage-Verlauf öffnen"
+    },
+    "taskSwitcher": {
+      "label": "Task-Switcher",
+      "desc": "Offene Fenster anzeigen"
+    },
+    "snapLeft": {
+      "label": "Fenster links andocken",
+      "desc": "Oberstes Fenster links einrasten"
+    },
+    "snapRight": {
+      "label": "Fenster rechts andocken",
+      "desc": "Oberstes Fenster rechts einrasten"
+    },
+    "snapMaximize": {
+      "label": "Fenster maximieren",
+      "desc": "Oberstes Fenster maximieren/wiederherstellen"
+    },
+    "snapRestore": {
+      "label": "Fenster wiederherstellen",
+      "desc": "Oberstes Fenster auf Normalgröße"
+    },
+    "lock": {
+      "label": "Session sperren",
+      "desc": "Aktuelle Session sperren"
+    },
+    "sleep": {
+      "label": "Schlafmodus",
+      "desc": "Schlafmodus umschalten"
+    }
+  },
+  "defaultApps": {
+    "title": "Standard-Apps",
+    "desc": "Welche App welchen Dateityp öffnet",
+    "none": "Systemstandard",
+    "opensWith": "Öffnet mit der gewählten App",
+    "notConfigured": "Öffnet mit dem Systemstandard",
+    "hint": "Apps registrieren die Dateitypen, die sie öffnen können; der Datei-Explorer nutzt diese Auswahl für \"Öffnen\" und \"Öffnen mit\".",
+    "types": {
+      "image": "Bilder",
+      "video": "Videos",
+      "audio": "Audio",
+      "pdf": "PDF-Dokumente",
+      "text": "Text & Dokumente",
+      "table": "Tabellen",
+      "presentation": "Präsentationen",
+      "archive": "Archive"
+    },
+    "apps": {
+      "os-images": "Bilder"
+    }
+  },
+  "automationEditor": {
+    "title": "Automation Studio",
+    "subtitle": "Abläufe aus Auslösern, Bedingungen und Aktionen erstellen",
+    "new": "Neuer Ablauf",
+    "history": "Verlauf",
+    "run": "Ausführen",
+    "save": "Speichern",
+    "saving": "Speichert…",
+    "flows": "Abläufe",
+    "empty": "Noch keine Automationen. Erstelle deinen ersten Ablauf.",
+    "untitled": "Unbenannte Automation",
+    "name": "Name der Automation",
+    "description": "Beschreibung hinzufügen",
+    "enabled": "Aktiv",
+    "seconds": "Sek.",
+    "runCount": "{{count}} Ausführungen",
+    "saved": "Automation gespeichert",
+    "saveFailed": "Automation konnte nicht gespeichert werden",
+    "loadFailed": "Automationen konnten nicht geladen werden",
+    "deleted": "Automation gelöscht",
+    "delete": "Automation löschen",
+    "deleteConfirm": "Diese Automation dauerhaft löschen?",
+    "deleteFailed": "Automation konnte nicht gelöscht werden",
+    "saveBeforeRun": "Speichere die Automation vor der Ausführung",
+    "runStarted": "Automation abgeschlossen",
+    "runFailed": "Ausführung der Automation fehlgeschlagen",
+    "historyFailed": "Ausführungsverlauf konnte nicht geladen werden",
+    "noHistory": "Diese Automation wurde noch nicht ausgeführt",
+    "success": "Erfolgreich",
+    "failed": "Fehlgeschlagen",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "add": {
+      "trigger": "Auslöser hinzufügen",
+      "condition": "Bedingung hinzufügen",
+      "action": "Aktion hinzufügen"
+    },
+    "kind": {
+      "trigger": "Auslöser",
+      "condition": "Bedingung",
+      "action": "Aktion"
+    },
+    "adapter": {
+      "manual": "Manueller Auslöser",
+      "compare": "Wert vergleichen",
+      "home_assistant_service": "Home-Assistant-Dienst",
+      "notification": "Benachrichtigung senden"
+    },
+    "field": {
+      "path": "Kontextpfad, z. B. device.online",
+      "value": "Erwarteter Wert",
+      "service": "Dienst, z. B. light/turn_on",
+      "entity": "Entitäts-ID",
+      "notificationTitle": "Titel der Benachrichtigung",
+      "message": "Nachricht"
+    },
+    "operator": {
+      "equals": "Ist gleich",
+      "notEquals": "Ist nicht gleich",
+      "truthy": "Ist wahr"
+    },
+    "level": {
+      "info": "Information",
+      "warning": "Warnung",
+      "critical": "Kritisch"
+    }
+  },
+  "haOnboarding": {
+    "title": "Home Assistant verbinden",
+    "description": "ORA findet Home Assistant im Netzwerk, prüft den Zugriff und aktiviert die Live-Verbindung für Entitäten und Automationen automatisch.",
+    "urlPlaceholder": "Home-Assistant-URL oder Host",
+    "discover": "Automatisch finden",
+    "discovering": "Suche läuft…",
+    "noneFound": "Keine erreichbare Home-Assistant-Instanz gefunden",
+    "discoveryFailed": "Automatische Erkennung fehlgeschlagen",
+    "unreachable": "Nicht erreichbar",
+    "token": "Langzeit-Zugriffstoken",
+    "tokenPlaceholder": "Token aus deinem Home-Assistant-Profil einfügen",
+    "tokenHelp": "Öffne dein Profil in Home Assistant und erstelle ein Langzeit-Zugriffstoken. ORA prüft es vor dem Speichern.",
+    "connect": "Verbinden und einrichten",
+    "connecting": "Verbindung wird hergestellt…",
+    "connected": "Home Assistant verbunden",
+    "connectFailed": "Home Assistant konnte nicht verbunden werden",
+    "ready": "Dein Zuhause ist bereit",
+    "home": "Home Assistant",
+    "integrationsReady": "{{count}} Home-Assistant-Komponenten sind für ORA Home und Automation Studio bereit."
+  },
+  "storageApp": {
+    "title": "Speicher",
+    "subtitle": "Physische Datenträger, Dateisysteme, SMART-Zustand und Linux RAID",
+    "readOnly": "Schreibgeschütztes Inventar",
+    "physicalDisks": "Physische Datenträger",
+    "raidArrays": "RAID-Arrays",
+    "raidHealth": "RAID-Zustand",
+    "attention": "{{count}} benötigen Aufmerksamkeit",
+    "healthy": "Gesund",
+    "disks": "Datenträger und Dateisysteme",
+    "raid": "Software-RAID",
+    "unknownDisk": "Unbekannter Datenträger",
+    "smartFailed": "SMART-Warnung",
+    "smartPassed": "SMART gesund",
+    "smartUnknown": "SMART nicht verfügbar",
+    "noSerial": "Keine Seriennummer",
+    "capacity": "Kapazität",
+    "transport": "Verbindung",
+    "temperature": "Temperatur",
+    "media": "Medium",
+    "unformatted": "Kein Dateisystem",
+    "noDisks": "Der Host meldet keine physischen Datenträger.",
+    "state": "Zustand",
+    "members": "Aktive Mitglieder",
+    "devices": "Datenträger",
+    "operation": "{{operation}} läuft",
+    "state_healthy": "Gesund",
+    "state_degraded": "Degradiert",
+    "state_inactive": "Inaktiv",
+    "noRaid": "Keine Linux-MD-RAID-Arrays erkannt.",
+    "capabilities": "Host-Funktionen",
+    "available": "Verfügbar",
+    "notAvailable": "Nicht verfügbar",
+    "unavailable": "Das Speicherinventar ist nicht verfügbar.",
+    "reviewScrub": "Scrub-Plan prüfen",
+    "reviewReplacement": "Austausch mit {{device}} prüfen",
+    "planFailed": "Der RAID-Operationsplan konnte nicht erstellt werden.",
+    "replacementRejected": "Dieser Datenträger ist kein sicherer Ersatzkandidat.",
+    "planOnly": "Sicherheitsvorschau",
+    "notExecuted": "Es wurde nichts ausgeführt",
+    "planSafety": "Diese Phase prüft das betroffene Array und die Datenträger und zeigt den exakten zukünftigen Befehlsplan. Die Ausführung bleibt deaktiviert, bis erneute Autorisierung, Texteingabe und Job-Manager-Überwachung implementiert sind.",
+    "futureConfirmation": "Erforderliche Bestätigung für eine zukünftige Ausführung",
+    "storagePools": "Speicherpools",
+    "nasShares": "NAS-Freigaben",
+    "free": "Frei",
+    "mountPoints": "Einhängepunkte",
+    "noPools": "Keine Btrfs- oder ZFS-Speicherpools erkannt.",
+    "noShares": "Keine SMB- oder NFS-Freigaben erkannt.",
+    "accessMode": "Zugriffsmodus",
+    "shareReadOnly": "Nur Lesen",
+    "readWrite": "Lesen und Schreiben",
+    "guestAccess": "Gastzugriff",
+    "enabled": "Aktiviert",
+    "disabled": "Deaktiviert",
+    "clients": "Clients",
+    "validUsers": "Berechtigte Benutzer",
+    "planVolume": "Speichervolume planen",
+    "planVolumeHint": "Vorschau eines Btrfs-Subvolumes oder ZFS-Datasets. Es wird kein Befehl ausgeführt.",
+    "planShare": "NAS-Freigabe planen",
+    "planShareHint": "Vorschau einer standardmäßig gesperrten SMB- oder NFS-Konfiguration. Es wird keine Konfigurationsdatei verändert.",
+    "backend": "Speicher-Backend",
+    "poolOrMount": "Pool oder Btrfs-Einhängepunkt",
+    "volumeName": "Volume-Name",
+    "quotaGiB": "Kontingent in GiB (optional)",
+    "protocol": "Protokoll",
+    "shareName": "Freigabename",
+    "sharePath": "Speicherpfad",
+    "principals": "Benutzer, Gruppen oder Clients (kommagetrennt)",
+    "reviewPlan": "Sicherheitsplan prüfen",
+    "nasPlanFailed": "Der Speicher- oder Freigabeplan konnte nicht erstellt werden. Prüfe die Werte und Sicherheitsregeln.",
+    "writeWarning": "Diese Operation verändert den Host-Speicher",
+    "writeSafety": "Prüfe jeden Befehl, melde dich bei einer Autorisierung älter als fünf Minuten erneut an und tippe die exakte Bestätigungsphrase.",
+    "typeConfirmation": "Tippe diese Phrase zur Autorisierung der Ausführung",
+    "executeWrite": "Speicheränderung ausführen",
+    "freshAuthRequired": "Eine frische Administrator-Autorisierung ist erforderlich. Melde dich ab und erneut an und erstelle den Plan neu.",
+    "executionFailed": "Die Speicheränderung ist fehlgeschlagen. Es wurden keine weiteren Befehle ausgeführt.",
+    "storageJobs": "Speicheraufträge",
+    "noJobs": "Es wurden noch keine überwachten Speicheraufträge gestartet.",
+    "job_scrub": "RAID-Konsistenzprüfung",
+    "job_replace_member": "Austausch eines RAID-Mitglieds",
+    "jobStatus_queued": "Eingereiht",
+    "jobStatus_running": "Läuft",
+    "jobStatus_completed": "Abgeschlossen",
+    "jobStatus_failed": "Aufmerksamkeit erforderlich"
+  },
+  "devicesApp": {
+    "title": "Geräte",
+    "subtitle": "Netzwerkgeräte und Wake-on-LAN",
+    "refresh": "Aktualisieren",
+    "addDevice": "Gerät hinzufügen",
+    "editDevice": "Gerät bearbeiten",
+    "onlineDevices": "Gerade online",
+    "knownDevices": "Bekannte Geräte",
+    "wakeable": "Aufweckbar",
+    "myDevices": "Meine Geräte",
+    "networkDevices": "Netzwerkgeräte",
+    "noDevices": "Noch keine Geräte — füge deinen Gaming-PC, NAS oder TV mit MAC-Adresse hinzu",
+    "noNetworkDevices": "Keine Geräte im Netzwerk gefunden",
+    "name": "Name",
+    "namePlaceholder": "Gaming-PC",
+    "type": "Typ",
+    "macAddress": "MAC-Adresse",
+    "ipAddress": "IP-Adresse",
+    "notes": "Notizen",
+    "wakeEnabled": "Aufwecken erlauben (WOL)",
+    "wake": "Aufwecken",
+    "waking": "Wecke auf…",
+    "wakeSent": "Wake-Paket an {{name}} gesendet",
+    "wakeFailed": "Aufwecken fehlgeschlagen",
+    "notWakeable": "MAC-Adresse hinzufügen, um Aufwecken zu aktivieren",
+    "edit": "Bearbeiten",
+    "remove": "Entfernen",
+    "saved": "Gerät gespeichert",
+    "saveFailed": "Gerät konnte nicht gespeichert werden",
+    "removed": "Gerät entfernt",
+    "removeFailed": "Gerät konnte nicht entfernt werden",
+    "unavailable": "Geräte-Dienst nicht erreichbar",
+    "online": "Online",
+    "offline": "Offline",
+    "types": {
+      "computer": "Computer",
+      "nas": "NAS",
+      "tv": "TV",
+      "printer": "Drucker",
+      "phone": "Telefon",
+      "tablet": "Tablet",
+      "other": "Sonstiges"
+    },
+    "agent": "Agent",
+    "agentNone": "Keiner",
+    "agentHost": "Host",
+    "agentPort": "Port",
+    "agentUrl": "URL",
+    "check": "Prüfen",
+    "checking": "Prüfe…",
+    "probeFailed": "Prüfung fehlgeschlagen",
+    "agents": {
+      "tcp": "TCP-Prüfung",
+      "http": "HTTP-Prüfung"
+    }
+  },
+  "containersApp": {
+    "title": "Container",
+    "subtitle": "Apps und Docker-Container",
+    "refresh": "Aktualisieren",
+    "total": "Container",
+    "running": "Läuft",
+    "stopped": "Gestoppt",
+    "cpu": "CPU",
+    "memory": "Speicher",
+    "start": "Starten",
+    "stop": "Stoppen",
+    "restart": "Neu starten",
+    "unavailable": "Container-Dienst nicht erreichbar",
+    "empty": "Keine Container",
+    "actionFailed": "Aktion fehlgeschlagen",
+    "actionDone": {
+      "start": "{{name}} gestartet",
+      "stop": "{{name}} gestoppt",
+      "restart": "{{name}} neu gestartet"
+    },
+    "status": {
+      "running": "Läuft",
+      "stopped": "Gestoppt"
+    },
+    "filter": {
+      "all": "Alle",
+      "running": "Läuft",
+      "stopped": "Gestoppt"
+    }
+  },
+  "logsApp": {
+    "title": "Logs",
+    "subtitle": "Zentraler Log-Viewer für alle Dienste und Apps",
+    "refresh": "Aktualisieren",
+    "sources": "Quellen",
+    "selectSource": "Quelle wählen",
+    "autoRefresh": "Auto-Refresh",
+    "unavailable": "Log-Dienst nicht erreichbar",
+    "noSources": "Keine Log-Quellen",
+    "empty": "Keine Log-Einträge"
+  },
+  "servicesApp": {
+    "title": "Dienste",
+    "subtitle": "systemd-Dienste — starten, stoppen, neu starten",
+    "refresh": "Aktualisieren",
+    "total": "Dienste",
+    "running": "Aktiv",
+    "inactive": "Inaktiv",
+    "failed": "Fehlgeschlagen",
+    "start": "Starten",
+    "stop": "Stoppen",
+    "restart": "Neu starten",
+    "search": "Dienste durchsuchen…",
+    "unavailable": "Dienste-Dienst nicht erreichbar",
+    "empty": "Keine passenden Dienste",
+    "actionFailed": "Aktion fehlgeschlagen",
+    "actionDone": {
+      "start": "{{name}} gestartet",
+      "stop": "{{name}} gestoppt",
+      "restart": "{{name}} neu gestartet"
+    },
+    "state": {
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "activating": "Startet",
+      "deactivating": "Stoppt",
+      "failed": "Fehlgeschlagen",
+      "unknown": "Unbekannt"
+    },
+    "filter": {
+      "all": "Alle",
+      "running": "Aktiv",
+      "inactive": "Inaktiv",
+      "failed": "Fehlgeschlagen"
+    }
+  },
+  "adminCenter": {
+    "home": "Start",
+    "title": "Admin Center",
+    "subtitle": "Systemverwaltung und Einstellungen",
+    "status": "Systemstatus",
+    "checking": "Prüfe…",
+    "servicesUp": "Aktive Dienste",
+    "version": "Version",
+    "osApps": "OS-Apps",
+    "openApp": "App öffnen",
+    "categories": "Kategorien",
+    "items": "Einträge",
+    "back": "Zurück",
+    "terminal": "Terminal"
   }
 }

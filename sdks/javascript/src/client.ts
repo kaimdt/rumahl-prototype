@@ -144,7 +144,7 @@ export default class IoraClient {
   private onError?: (error: IoraError) => void;
   private circuitBreaker: CircuitBreaker;
 
-  constructor(config: IoraClientConfig = {});
+  constructor(config: IoraClientConfig);
   constructor(baseUrl: string, apiKey?: string);
   constructor(configOrBaseUrl?: IoraClientConfig | string, legacyApiKey?: string) {
     // Support both new and legacy constructor signatures
@@ -192,6 +192,21 @@ export default class IoraClient {
    */
   getAppId(): string | undefined {
     return this.appId;
+  }
+
+  /** App-scoped calls need an app id; throws a clear error otherwise. */
+  private requireAppId(): string {
+    const id = this.getAppId();
+    if (!id) {
+      throw new IoraError(
+        'App ID is required — call setAppId() first',
+        undefined,
+        undefined,
+        undefined,
+        false
+      );
+    }
+    return id;
   }
 
   /**
@@ -1098,6 +1113,395 @@ export default class IoraClient {
         };
         audio.onerror = () => reject(new Error('Audio playback failed'));
       });
+    },
+  };
+
+  /**
+   * System-wide Job Manager API (`ora.jobs`).
+   *
+   * Downloads, file operations, backups, updates and installs run as
+   * background jobs that survive app switches. See the Job Center in the
+   * OS shell and `iora_shared::system_jobs` for the wire format.
+   */
+  jobs = {
+    /**
+     * List system jobs. Optionally filter by status
+     * (`queued | running | paused | completed | failed | cancelled`).
+     */
+    list: async (status?: string): Promise<{ jobs: any[] }> => {
+      const query = status ? `?status=${encodeURIComponent(status)}` : '';
+      return this.request('GET', `/api/jobs${query}`);
+    },
+
+    /**
+     * Get a single job by id.
+     */
+    get: async (jobId: string): Promise<any> => {
+      return this.request('GET', `/api/jobs/${jobId}`);
+    },
+
+    /**
+     * Create a new background job (starts in `queued` state).
+     */
+    create: async (input: {
+      name: string;
+      job_type?: string;
+      source?: string;
+      metadata?: Record<string, unknown>;
+    }): Promise<any> => {
+      return this.request('POST', '/api/jobs', input);
+    },
+
+    /**
+     * Advance a job: update progress (0..100), message and/or status.
+     * Used by the executing side to keep the Job Center fresh.
+     */
+    update: async (
+      jobId: string,
+      patch: { progress?: number; message?: string; status?: string },
+    ): Promise<any> => {
+      return this.request('POST', `/api/jobs/${jobId}/progress`, patch);
+    },
+
+    /**
+     * Pause a running/queued job.
+     */
+    pause: async (jobId: string): Promise<any> => {
+      return this.request('POST', `/api/jobs/${jobId}/pause`);
+    },
+
+    /**
+     * Resume a paused job.
+     */
+    resume: async (jobId: string): Promise<any> => {
+      return this.request('POST', `/api/jobs/${jobId}/resume`);
+    },
+
+    /**
+     * Cancel a queued/running/paused job (terminal state).
+     */
+    cancel: async (jobId: string): Promise<any> => {
+      return this.request('POST', `/api/jobs/${jobId}/cancel`);
+    },
+
+    /**
+     * Delete a single job record.
+     */
+    remove: async (jobId: string): Promise<any> => {
+      return this.request('DELETE', `/api/jobs/${jobId}`);
+    },
+
+    /**
+     * Bulk-delete all terminal jobs (completed / failed / cancelled).
+     */
+    cleanup: async (): Promise<{ deleted: number }> => {
+      return this.request('DELETE', '/api/jobs');
+    },
+  };
+
+  /**
+   * Clipboard Manager API (`ora.clipboard`).
+   *
+   * Personal clipboard history per user, shared across devices through the
+   * same store. The OS shell captures copy/cut events automatically; apps
+   * can read/write/pin entries programmatically.
+   */
+  clipboard = {
+    /**
+     * List clipboard history (newest first, pinned on top).
+     */
+    list: async (limit = 50): Promise<{ entries: any[] }> => {
+      return this.request('GET', `/api/clipboard?limit=${limit}`);
+    },
+
+    /**
+     * Add an entry. Identical content moves the existing entry to the top
+     * instead of duplicating it.
+     */
+    add: async (content: string, source = 'app'): Promise<any> => {
+      return this.request('POST', '/api/clipboard', { content, source });
+    },
+
+    /**
+     * Toggle the pinned flag of an entry.
+     */
+    togglePin: async (entryId: string): Promise<{ id: string; pinned: boolean }> => {
+      return this.request('POST', `/api/clipboard/${entryId}/pin`);
+    },
+
+    /**
+     * Remove a single entry.
+     */
+    remove: async (entryId: string): Promise<{ deleted: boolean }> => {
+      return this.request('DELETE', `/api/clipboard/${entryId}`);
+    },
+
+    /**
+     * Clear the user's clipboard history.
+     */
+    clear: async (): Promise<{ deleted: number }> => {
+      return this.request('DELETE', '/api/clipboard');
+    },
+  };
+
+  /**
+   * Permissions API (`ora.permissions`).
+   *
+   * Android/iOS-style runtime permission dialogs: request an OS permission
+   * the user has not granted yet; the shell shows the Allow/Deny prompt and
+   * approving persists the grant. Apps typically request permissions lazily
+   * right before the action that needs them.
+   */
+  permissions = {
+    /**
+     * List all OS permissions with descriptions (the UI translates labels).
+     */
+    catalog: async (): Promise<{ permissions: Array<{ id: string; description: string }> }> => {
+      return this.request('GET', '/api/os/permissions/catalog');
+    },
+
+    /**
+     * Request an OS permission. Creates a pending request the user answers
+     * in the shell dialog; reuse an existing pending request if one exists.
+     * Rejects (409) when the permission is already granted.
+     */
+    request: async (input: {
+      permission: string;
+      reason?: string;
+      requester?: string;
+      scope?: string;
+    }): Promise<any> => {
+      return this.request('POST', '/api/os/permissions/request', input);
+    },
+
+    /**
+     * List the user's permission requests, optionally filtered by status
+     * (`pending | approved | denied`).
+     */
+    listRequests: async (status?: string): Promise<{ requests: any[] }> => {
+      const query = status ? `?status=${encodeURIComponent(status)}` : '';
+      return this.request('GET', `/api/os/permissions/requests${query}`);
+    },
+
+    /**
+     * Answer a pending request: `approved: true` grants the permission and
+     * persists it in `user_os_permissions`.
+     */
+    respond: async (requestId: string, approved: boolean): Promise<any> => {
+      return this.request('POST', `/api/os/permissions/requests/${requestId}/respond`, { approved });
+    },
+  };
+
+  /**
+   * OS Files API (`ora.files`) — the user's personal files (iora-files).
+   */
+  files = {
+    /**
+     * List files/folders (optionally inside a folder, searchable).
+     */
+    list: async (opts?: {
+      folderId?: string | null;
+      search?: string;
+      limit?: number;
+      includeDeleted?: boolean;
+    }): Promise<{ files: any[] }> => {
+      const params = new URLSearchParams();
+      if (opts?.folderId !== undefined && opts?.folderId !== null) params.set('folder_id', opts.folderId);
+      if (opts?.search) params.set('search', opts.search);
+      if (opts?.limit) params.set('limit', String(opts.limit));
+      if (opts?.includeDeleted) params.set('include_deleted', 'true');
+      const qs = params.toString();
+      return this.request('GET', `/api/files/${qs ? `?${qs}` : ''}`);
+    },
+
+    /** File metadata. */
+    info: async (fileId: string): Promise<any> => {
+      return this.request('GET', `/api/files/${fileId}`);
+    },
+
+    /** Absolute download URL (authenticated clients can fetch it directly). */
+    downloadUrl: (fileId: string): string => {
+      return `${this.baseUrl}/api/files/${fileId}/download`;
+    },
+
+    /** Soft-delete a file/folder. */
+    remove: async (fileId: string): Promise<any> => {
+      return this.request('DELETE', `/api/files/${fileId}`);
+    },
+
+    /** Move a file/folder into another folder (null = root). */
+    move: async (fileId: string, targetFolderId: string | null): Promise<any> => {
+      return this.request('PUT', `/api/files/${fileId}/move`, { target_folder_id: targetFolderId });
+    },
+
+    /** Copy a file/folder into another folder (null = root). */
+    copy: async (fileId: string, targetFolderId: string | null): Promise<any> => {
+      return this.request('POST', `/api/files/${fileId}/copy`, { target_folder_id: targetFolderId });
+    },
+
+    /** Rename a file/folder. */
+    rename: async (fileId: string, newName: string): Promise<any> => {
+      return this.request('PUT', `/api/files/${fileId}/rename`, { new_name: newName });
+    },
+
+    /** Restore a soft-deleted file/folder. */
+    restore: async (fileId: string): Promise<any> => {
+      return this.request('POST', `/api/files/${fileId}/restore`);
+    },
+
+    /** Storage quota for the current user. */
+    quota: async (): Promise<{ quota_bytes: number; used_bytes: number; available_bytes: number; usage_percent: number }> => {
+      return this.request('GET', '/api/files/quota');
+    },
+
+    /** Create a folder. */
+    createFolder: async (name: string, parentFolderId: string | null = null): Promise<any> => {
+      return this.request('POST', '/api/files/folders', { name, parent_folder_id: parentFolderId });
+    },
+
+    /**
+     * Upload a file (multipart). Pass a File/Blob; folder defaults to root.
+     */
+    upload: async (
+      file: File | Blob,
+      opts?: { name?: string; folderId?: string | null }
+    ): Promise<any> => {
+      const form = new FormData();
+      form.append('file', file, opts?.name || (file instanceof File ? file.name : 'upload'));
+      if (opts?.folderId) form.append('folder_id', opts.folderId);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.defaultTimeout);
+      try {
+        const headers: HeadersInit = {};
+        if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+        const res = await fetch(`${this.baseUrl}/api/files/upload`, {
+          method: 'POST',
+          headers,
+          body: form,
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          throw new IoraError(`Upload failed: HTTP ${res.status}`, res.status, '/api/files/upload', 'POST', false);
+        }
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+
+  /**
+   * App Secrets API (`ora.secrets`) — credential vault entries scoped to the
+   * current app (requires `setAppId`).
+   */
+  secrets = {
+    list: async (): Promise<any[]> => {
+      return this.request('GET', `/api/apps/${this.requireAppId()}/secrets`);
+    },
+    create: async (input: { name: string; value: string; description?: string }): Promise<any> => {
+      return this.request('POST', `/api/apps/${this.requireAppId()}/secrets`, input);
+    },
+    update: async (secretId: string, patch: { name?: string; value?: string; description?: string }): Promise<any> => {
+      return this.request('PUT', `/api/apps/${this.requireAppId()}/secrets/${secretId}`, patch);
+    },
+    remove: async (secretId: string): Promise<any> => {
+      return this.request('DELETE', `/api/apps/${this.requireAppId()}/secrets/${secretId}`);
+    },
+    /** Reveal a secret's plaintext value (admin/app permission required). */
+    reveal: async (secretId: string): Promise<any> => {
+      return this.request('POST', `/api/apps/${this.requireAppId()}/secrets/${secretId}/reveal`);
+    },
+  };
+
+  /**
+   * Users API (`ora.users`) — local user accounts.
+   */
+  users = {
+    /** List user accounts (used by the shell user switcher). */
+    list: async (): Promise<Array<{ id: string; username: string; display_name?: string; avatar_url?: string; has_pin: boolean }>> => {
+      return this.request('GET', '/api/auth/users');
+    },
+  };
+
+  /**
+   * Devices API (`ora.devices`) — local network devices (iora-network-monitor).
+   */
+  devices = {
+    list: async (): Promise<any[]> => {
+      return this.request('GET', '/api/network/devices');
+    },
+    active: async (): Promise<any[]> => {
+      return this.request('GET', '/api/network/devices/active');
+    },
+    stats: async (): Promise<{ total_devices: number; active_devices: number; inactive_devices: number; last_scan?: string }> => {
+      return this.request('GET', '/api/network/stats');
+    },
+    /** Trigger an ARP scan (admin permission required). */
+    scan: async (): Promise<any> => {
+      return this.request('POST', '/api/network/scan');
+    },
+  };
+
+  /**
+   * Universal Download Manager API (`ora.downloads`).
+   *
+   * Downloads run in the backend as system jobs and land in the user's
+   * personal Downloads folder — they survive tab closes and app switches.
+   * Progress and history appear in the Job Center automatically.
+   */
+  downloads = {
+    /**
+     * Start a backend download by URL (saved into the user's Downloads folder).
+     */
+    start: async (url: string, opts?: { filename?: string }): Promise<{ job_id: string; status: string }> => {
+      return this.request('POST', '/api/downloads', { url, filename: opts?.filename });
+    },
+    /**
+     * List the user's download jobs (newest first).
+     */
+    list: async (): Promise<{ downloads: any[] }> => {
+      return this.request('GET', '/api/downloads');
+    },
+    /**
+     * Cancel a queued/running download job.
+     */
+    cancel: async (jobId: string): Promise<{ cancelled: boolean }> => {
+      return this.request('POST', `/api/downloads/${jobId}/cancel`);
+    },
+  };
+
+  /**
+   * System API (`ora.system`) — system events, stats and diagnostics.
+   */
+  system = {
+    /** Report an error/warning/info event from this app or client. */
+    reportEvent: async (event: {
+      severity: 'error' | 'warning' | 'info';
+      source: string;
+      message: string;
+      file?: string;
+      line?: number;
+      request_path?: string;
+    }): Promise<any> => {
+      return this.request('POST', '/api/system-events/client', event);
+    },
+    /** List system events (admin only). */
+    listEvents: async (): Promise<any> => {
+      return this.request('GET', '/api/admin/system-events');
+    },
+    /** Resolve/unresolve an event group by fingerprint (admin only). */
+    resolveEvent: async (fingerprint: string, resolved: boolean): Promise<any> => {
+      return this.request('POST', `/api/admin/system-events/${fingerprint}/${resolved ? 'resolve' : 'unresolve'}`);
+    },
+    /** Live system stats (CPU/memory/uptime — requires os.system.read). */
+    stats: async (): Promise<{
+      cpu_usage_percent: number;
+      memory_total_bytes: number;
+      memory_used_bytes: number;
+      uptime_seconds: number;
+      hostname: string;
+    }> => {
+      return this.request('GET', '/api/os/control/system');
     },
   };
 }

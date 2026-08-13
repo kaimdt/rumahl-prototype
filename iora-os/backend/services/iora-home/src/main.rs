@@ -42,12 +42,17 @@ mod app_messaging_handler;
 mod app_runtime_handler;
 mod app_scheduler_handler;
 mod app_storage_handler;
+mod app_system_event_hooks;
 mod app_webhooks_handler;
+mod automation_handler;
 mod auth;
 mod ble_client;
+mod clipboard_handler;
 mod crypto;
 mod db;
 mod desktop_gateway;
+mod device_handler;
+mod download_handler;
 mod tor_manager;
 mod dev_image;
 mod documentation;
@@ -56,19 +61,27 @@ mod frontend_dev_proxy;
 mod ha_cache;
 mod ha_client;
 mod ha_connection;
+mod ha_onboarding_handler;
 mod ha_websocket;
 mod homekit_client;
+mod job_handler;
 mod local_appstore;
 mod location_sync;
 mod logs_handler;
 mod matter_client;
+mod media_handler;
 mod middleware;
 mod mqtt_client;
 mod notification_dispatcher;
+mod permission_requests_handler;
+mod remote_handler;
+mod session_handler;
+mod user_profiles_handler;
 mod person_tracker;
 mod plugin_sandbox;
 mod streaming;
 mod system_events;
+mod terminal_handler;
 mod theme_handler;
 mod websocket;
 mod zigbee_client;
@@ -1061,6 +1074,19 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // ── App system-event hooks ────────────────────────────────────────
+    // Dispatch `on_system_event` lifecycle hooks: apps with a matching
+    // manifest hook get a POST to their runtime target when an event is
+    // recorded. Best-effort fan-out on a dedicated task.
+    if let Some(mut hook_rx) = system_events.subscribe_hooks() {
+        let hook_store = local_appstore.clone();
+        tokio::spawn(async move {
+            while let Some(event) = hook_rx.recv().await {
+                app_system_event_hooks::dispatch_to_apps(&hook_store, &event).await;
+            }
+        });
+    }
+
     // ── plugin_sandbox init ─────────────────────────────────────────
     let plugin_sandbox_base = std::env::var("IORA_LOCAL_APPS_DIR")
         .map(std::path::PathBuf::from)
@@ -1220,6 +1246,30 @@ async fn main() -> anyhow::Result<()> {
             }
             if let Err(e) = store.set_streaming_app(true).await {
                 warn!("bootstrap: streaming-app registration failed: {e:#}");
+            }
+            // Legacy cleanup: the old "IORA Browser" (webbrowser,
+            // jlesage/firefox container) was removed from the store catalog
+            // and replaced by the global iora-browserd based "ORA Browser"
+            // (ora-browser). VMs provisioned before that change can still
+            // hold the legacy app entry + its compose containers, which
+            // makes the browser appear as installed multiple times (once as
+            // webbrowser, once as ora-browser, plus stale containers).
+            // Remove the legacy entry once on every boot (idempotent).
+            {
+                let legacy_installed = store.list().await.iter().any(|a| a.id == "webbrowser");
+                if legacy_installed {
+                    if let Err(e) = store.uninstall_force("webbrowser").await {
+                        warn!("bootstrap: legacy webbrowser app removal failed: {e:#}");
+                    } else {
+                        info!("bootstrap: removed legacy 'webbrowser' app (replaced by ora-browser)");
+                    }
+                }
+                for prefix in ["iora-app-", "iora-bundle-"] {
+                    let _ = tokio::process::Command::new("docker")
+                        .args(["compose", "-p", &format!("{prefix}webbrowser"), "down"])
+                        .output()
+                        .await;
+                }
             }
         });
     }
@@ -1496,9 +1546,19 @@ async fn main() -> anyhow::Result<()> {
             "/api/admin/users/:user_id/os-permissions",
             get(admin_get_user_os_permissions).put(admin_set_user_os_permissions),
         )
+        .route(
+            "/api/admin/users/:user_id/profile",
+            put(user_profiles_handler::update_user_profile),
+        )
+        .route(
+            "/api/admin/users",
+            get(user_profiles_handler::admin_list_users_with_profiles),
+        )
         .route("/api/admin/api-keys", get(admin_list_all_api_keys))
         .route("/api/admin/api-keys/:key_id", delete(admin_delete_api_key))
         .route("/api/admin/ha/config", get(admin_ha_config))
+        .route("/api/admin/ha/discover", post(ha_onboarding_handler::discover))
+        .route("/api/admin/ha/onboard", post(ha_onboarding_handler::onboard))
         .route("/api/admin/ha/integrations", get(admin_ha_integrations))
         .route("/api/admin/ha/devices", get(admin_ha_devices))
         .route("/api/admin/ha/areas", get(admin_ha_areas))
@@ -1749,6 +1809,130 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/keys", post(create_api_key))
         .route("/api/keys/:key_id", put(update_api_key))
         .route("/api/keys/:key_id", delete(delete_api_key))
+        // Visual automation engine (Package 4)
+        .route(
+            "/api/automations",
+            get(automation_handler::list_automations)
+                .post(automation_handler::create_automation),
+        )
+        .route(
+            "/api/automations/:automation_id",
+            get(automation_handler::get_automation)
+                .put(automation_handler::update_automation)
+                .delete(automation_handler::delete_automation),
+        )
+        .route(
+            "/api/automations/:automation_id/run",
+            post(automation_handler::run_automation),
+        )
+        .route(
+            "/api/automations/:automation_id/executions",
+            get(automation_handler::list_executions),
+        )
+        // User-level log viewer (Package 5 — Logs app)
+        .route(
+            "/api/os/logs/sources",
+            get(user_list_log_sources),
+        )
+        .route(
+            "/api/os/logs/source/:source_id",
+            get(user_get_source_logs),
+        )
+        // System-wide job manager (Job Center + ora.jobs SDK)
+        .route("/api/jobs", get(job_handler::list_jobs))
+        .route("/api/jobs", post(job_handler::create_job))
+        .route("/api/jobs", delete(job_handler::cleanup_jobs))
+        .route("/api/jobs/:job_id", get(job_handler::get_job))
+        .route("/api/jobs/:job_id", delete(job_handler::delete_job))
+        .route(
+            "/api/jobs/:job_id/progress",
+            post(job_handler::update_job_progress),
+        )
+        .route("/api/jobs/:job_id/pause", post(job_handler::pause_job))
+        .route("/api/jobs/:job_id/resume", post(job_handler::resume_job))
+        .route("/api/jobs/:job_id/cancel", post(job_handler::cancel_job))
+        // Clipboard manager (history per user, cross-device via same API)
+        .route("/api/clipboard", get(clipboard_handler::list_clipboard))
+        .route("/api/clipboard", post(clipboard_handler::add_clipboard_entry))
+        .route("/api/clipboard", delete(clipboard_handler::clear_clipboard))
+        .route(
+            "/api/clipboard/:entry_id/pin",
+            post(clipboard_handler::toggle_clipboard_pin),
+        )
+        .route(
+            "/api/clipboard/:entry_id",
+            delete(clipboard_handler::delete_clipboard_entry),
+        )
+        // Session restore (persisted OS windows per user)
+        .route(
+            "/api/session/windows",
+            get(session_handler::get_session_windows),
+        )
+        .route(
+            "/api/session/windows",
+            put(session_handler::save_session_windows),
+        )
+        .route(
+            "/api/session/windows",
+            delete(session_handler::clear_session_windows),
+        )
+        // Runtime permission requests (Android/iOS-style dialogs)
+        .route(
+            "/api/os/permissions/catalog",
+            get(permission_requests_handler::get_permission_catalog),
+        )
+        .route(
+            "/api/os/permissions/request",
+            post(permission_requests_handler::create_permission_request),
+        )
+        .route(
+            "/api/os/permissions/requests",
+            get(permission_requests_handler::list_permission_requests),
+        )
+        .route(
+            "/api/os/permissions/requests/:request_id/respond",
+            post(permission_requests_handler::respond_permission_request),
+        )
+        // Device registry (curated devices + Wake-on-LAN)
+        .route("/api/devices", get(device_handler::list_devices))
+        .route("/api/devices", post(device_handler::create_device))
+        .route(
+            "/api/devices/:device_id",
+            put(device_handler::update_device).delete(device_handler::delete_device),
+        )
+        .route(
+            "/api/devices/:device_id/wake",
+            post(device_handler::wake_device),
+        )
+        .route(
+            "/api/devices/:device_id/probe",
+            post(device_handler::probe_device),
+        )
+        // Universal download manager (Package 6)
+        .route("/api/downloads", get(download_handler::list_downloads))
+        .route("/api/downloads", post(download_handler::start_download))
+        .route(
+            "/api/downloads/:job_id/cancel",
+            post(download_handler::cancel_download),
+        )
+        // Web terminal (Package 9) — authenticated via ?token=
+        .route("/api/os/terminal/ws", get(terminal_handler::terminal_ws))
+        // Remote access status (Package 7)
+        .route("/api/remote/status", get(remote_handler::remote_status))
+        .route("/api/remote/config", get(remote_handler::get_remote_config))
+        .route("/api/remote/config", put(remote_handler::save_remote_config))
+        // Media Hub (Package 6): Jellyfin/Plex detection + continue-watching
+        .route("/api/media/hub", get(media_handler::media_hub))
+        .route(
+            "/api/media/continue-watching",
+            get(media_handler::continue_watching),
+        )
+        .route(
+            "/api/media/image/:item_id",
+            get(media_handler::media_image),
+        )
+        .route("/api/media/config", get(media_handler::get_media_config))
+        .route("/api/media/config", put(media_handler::save_media_config))
         // Webhook management
         .route("/api/webhooks", get(list_webhooks))
         .route("/api/webhooks", post(create_webhook))
@@ -2370,6 +2554,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/files/quota", get(proxy_files))
         .route("/api/files/resolve-path", get(proxy_files))
         .route("/api/files/system-path", get(proxy_files))
+        .route("/api/files/system-folder", get(proxy_files))
         .route("/api/files/network/shares", get(proxy_files))
         .route("/api/files/network/mounts", get(proxy_files).post(proxy_files))
         .route("/api/files/network/mounts/:id", delete(proxy_files))
@@ -2442,7 +2627,7 @@ async fn main() -> anyhow::Result<()> {
         // iora-cloud (Port 8120, optional external)
         .route(
             "/api/admin/iora-cloud/config",
-            get(proxy_iora_cloud).post(proxy_iora_cloud),
+            get(proxy_iora_cloud).post(proxy_iora_cloud).put(proxy_iora_cloud),
         )
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
@@ -2518,6 +2703,8 @@ async fn main() -> anyhow::Result<()> {
         // require_authenticated; the exact "/proxy" and "/proxy/" spellings
         // (empty wildcard remainder) are delegated from spa_fallback.
         .route("/api/apps/:app_id/proxy/*path", any(app_proxy_handler))
+        // Public share links (no auth — the download token is the credential)
+        .route("/share/:download_token", get(proxy_files_share))
         // Maintenance status (public – frontend needs this before auth)
         .route("/api/maintenance/status", get(public_maintenance_status))
         .route(
@@ -2557,6 +2744,8 @@ async fn main() -> anyhow::Result<()> {
         // Authentication API (public)
         .route("/api/auth/register", post(auth_register))
         .route("/api/auth/login", post(auth_login))
+        .route("/api/auth/guest", post(auth_guest_login))
+        .route("/api/auth/guest-status", get(auth_guest_status))
         .route("/api/auth/verify", get(auth_verify))
         .route("/api/auth/validate", get(auth_validate_credentials))
         .route("/api/auth/pin-login", post(auth_pin_login))
@@ -5916,6 +6105,34 @@ async fn admin_system_event_detail(
     })))
 }
 
+/// GET /api/os/logs/sources — user-level wrapper (requires os.system.read).
+async fn user_list_log_sources(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> axum::response::Response {
+    match require_user_os_permission(&state, &identity, "os.system.read").await {
+        Ok(()) => logs_handler::list_log_sources(State(state)).await.into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// GET /api/os/logs/source/:source_id — user-level wrapper.
+async fn user_get_source_logs(
+    State(state): State<AppState>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+    axum::extract::Path(source_id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<logs_handler::LogQuery>,
+) -> axum::response::Response {
+    match require_user_os_permission(&state, &identity, "os.system.read").await {
+        Ok(()) => {
+            logs_handler::get_source_logs(State(state), axum::extract::Path(source_id), axum::extract::Query(query))
+                .await
+                .into_response()
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
 /// POST /api/admin/system-events/:fingerprint/resolve
 async fn admin_system_event_resolve(
     State(state): State<AppState>,
@@ -6636,7 +6853,7 @@ async fn forward_request_to(
     }
 }
 
-fn microservice_url(env_var: &str, service: &str, default_port: u16) -> String {
+pub(crate) fn microservice_url(env_var: &str, service: &str, default_port: u16) -> String {
     if let Ok(v) = std::env::var(env_var) {
         if !v.is_empty() {
             return v;
@@ -6686,7 +6903,11 @@ async fn proxy_files_share(
     use axum::body::Body;
     let base = microservice_url("IORA_FILES_URL", "iora-files", 8100);
     let path = req.uri().path().to_string();
-    let new_path = path.replacen("/api/share/", "/api/files/shared/", 1);
+    let new_path = if path.starts_with("/share/") {
+        path.replacen("/share/", "/api/files/shared/", 1)
+    } else {
+        path.replacen("/api/share/", "/api/files/shared/", 1)
+    };
     let query = req
         .uri()
         .query()
@@ -7222,6 +7443,39 @@ async fn local_appstore_app_delete(
     result.map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
     // Best-effort: drop any capabilities this app registered with iora-assist.
     spawn_remove_app_capabilities(state.clone(), app_id.clone());
+    // Remove leftover containers so the supervisor app list (which enumerates
+    // every container labelled `iora.type=app`) cannot resurrect the app as
+    // "installed" after the uninstall. Compose projects are already down;
+    // also remove standalone containers created by the supervisor path.
+    {
+        let filter = format!("label=iora.app.id={app_id}");
+        let list = tokio::process::Command::new("docker")
+            .args(["ps", "-aq", "--filter", &filter])
+            .output()
+            .await;
+        if let Ok(list) = list {
+            let ids: Vec<String> = String::from_utf8_lossy(&list.stdout)
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(String::from)
+                .collect();
+            if !ids.is_empty() {
+                let mut command = tokio::process::Command::new("docker");
+                command.arg("rm").arg("-f");
+                command.args(&ids);
+                if let Ok(output) = command.output().await {
+                    info!(
+                        "uninstall: removed {} leftover container(s) of '{app_id}'",
+                        String::from_utf8_lossy(&output.stdout).lines().count()
+                    );
+                }
+            }
+        }
+    }
+    // Finished install jobs of this app must not linger: a "succeeded" job
+    // would otherwise re-trigger the frontend auto-start/progress logic.
+    let _ = state.local_appstore.clear_jobs_for_app(&app_id).await;
     Ok(Json(
         json!({ "success": true, "app_id": app_id, "force": force }),
     ))
@@ -9965,13 +10219,24 @@ mod app_html_rewrite_tests {
 
 /// True when the request carries an HTTP upgrade (WebSocket) header.
 fn is_ws_upgrade(req: &axum::extract::Request) -> bool {
-    req.headers()
-        .get(axum::http::header::CONNECTION)
+    // A request is a WebSocket upgrade ONLY when it carries real WS markers:
+    // `Upgrade: websocket` plus a `Sec-WebSocket-Key` (the browser always
+    // sends both). The `Connection: upgrade` header alone is NOT sufficient -
+    // older nginx configs set `Connection: 'upgrade'` unconditionally on
+    // EVERY request, which would otherwise misclassify plain GETs (the app
+    // iframe load) as upgrades and answer them with 400.
+    let upgrade_websocket = req
+        .headers()
+        .get(axum::http::header::UPGRADE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_ascii_lowercase()
-        .split(',')
-        .any(|token| token.trim() == "upgrade")
+        .contains("websocket");
+    let has_key = req
+        .headers()
+        .get("sec-websocket-key")
+        .is_some_and(|value| !value.is_empty());
+    upgrade_websocket && has_key
 }
 
 /// Transparent WebSocket tunnel from the ORA desktop client to the app
@@ -10083,7 +10348,8 @@ async fn app_proxy_handler(
             // App URL: custom pages first, then the exposed host port
             // (the standard Docker-app shape: http://localhost:<external>).
             // Stored ports may be stale/empty, so fall back to a live
-            // docker-compose lookup.
+            // docker-compose lookup and finally to the manifest-declared
+            // ports (local non-Docker apps like the ORA Browser).
             let proxy_url = app
                 .custom_pages
                 .first()
@@ -10094,7 +10360,16 @@ async fn app_proxy_handler(
                         .map(|port| format!("http://localhost:{}", port.external))
                 })
                 .or_else(|| {
-                    None
+                    // Accept both the array form ([{external: 8102, ...}]) and
+                    // a single object form from older manifests.
+                    let ports = app.manifest.extra.get("ports");
+                    let first = ports
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first());
+                    let candidate = first.or(ports.filter(|v| v.is_object()));
+                    candidate
+                        .and_then(|port| port.get("external").and_then(|v| v.as_u64()))
+                        .map(|external| format!("http://localhost:{external}"))
                 });
             let proxy_url = if proxy_url.is_some() {
                 proxy_url
@@ -10103,6 +10378,18 @@ async fn app_proxy_handler(
                     .await
                     .map(|host| format!("http://localhost:{host}"))
             };
+            if proxy_url.is_none() {
+                // Diagnosable failure: log exactly why no URL could be
+                // resolved so a stale guest binary / malformed manifest is
+                // identifiable from the journal instead of a bare 404.
+                tracing::warn!(
+                    app_id = %app_id,
+                    stored_ports = ?app.ports.iter().map(|p| p.external).collect::<Vec<_>>(),
+                    manifest_port_keys = ?app.manifest.extra.get("ports").map(|v| v.to_string()),
+                    has_custom_pages = !app.custom_pages.is_empty(),
+                    "app proxy: no URL configured for app"
+                );
+            }
 
             match proxy_url {
                 Some(base_url) => {
@@ -10127,6 +10414,31 @@ async fn app_proxy_handler(
                     // signaling over /ws; reqwest cannot relay upgrades).
                     if is_ws_upgrade(&req) {
                         let (mut parts, _body) = req.into_parts();
+                        // Some proxies (nginx with 'Connection ""') strip the
+                        // Connection / Sec-WebSocket-Version headers while
+                        // keeping Upgrade + Sec-WebSocket-Key - repair them so
+                        // axum accepts the handshake and the tunnel can be
+                        // established.
+                        if parts.headers.get(axum::http::header::CONNECTION).is_none() {
+                            parts.headers.insert(
+                                axum::http::header::CONNECTION,
+                                axum::http::HeaderValue::from_static("upgrade"),
+                            );
+                            tracing::info!(
+                                path = %parts.uri.path(),
+                                "websocket upgrade: repaired missing Connection header"
+                            );
+                        }
+                        if parts.headers.get("sec-websocket-version").is_none() {
+                            parts.headers.insert(
+                                axum::http::HeaderName::from_static("sec-websocket-version"),
+                                axum::http::HeaderValue::from_static("13"),
+                            );
+                            tracing::info!(
+                                path = %parts.uri.path(),
+                                "websocket upgrade: repaired missing Sec-WebSocket-Version"
+                            );
+                        }
                         let upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
                             Ok(upgrade) => upgrade,
                             Err(_) => {
@@ -10295,7 +10607,9 @@ parent.postMessage({{type:'event',event:{{type:'app.proxy.status',data:{{app_id:
                 }
                 None => Response::builder()
                     .status(StatusCode::NOT_FOUND)
-                    .body(Body::from("Keine konfigurierte URL für diese App"))
+                    .body(Body::from(
+                        "Keine konfigurierte URL für diese App — der Service-Port fehlt im Manifest oder die App wurde mit einem älteren Build installiert. Starte die App neu (Admin → Apps → Start) oder führe im Dev Manager 'Force Sync & Rebuild' aus.",
+                    ))
                     .unwrap_or_else(|_| Response::new(Body::empty())),
             }
         }
@@ -12306,6 +12620,7 @@ async fn list_all_users(
         Ok(users) => {
             let entries: Vec<db::models::UserListEntry> = users
                 .into_iter()
+                .filter(|u| u.username != "guest")
                 .map(|u| db::models::UserListEntry {
                     has_pin: u.pin_hash.is_some(),
                     id: u.id,
@@ -12823,6 +13138,94 @@ async fn auth_login(
     }))
 }
 
+/// Whether guest mode is enabled (system preference, default off).
+async fn guest_mode_enabled(state: &AppState) -> bool {
+    match state
+        .config_repo
+        .get_system_preference("security.guest_mode_enabled")
+        .await
+    {
+        Ok(Some(pref)) => serde_json::from_str::<serde_json::Value>(&pref.preference_value)
+            .map(|v| v.as_bool().unwrap_or(false))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// GET /api/auth/guest-status — whether the guest button should be shown.
+async fn auth_guest_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(json!({"enabled": guest_mode_enabled(&state).await}))
+}
+
+/// POST /api/auth/guest — start/continue a guest session.
+///
+/// Guest mode is opt-in (admin toggle). A guest is a real user row with the
+/// fixed username `guest` (role `viewer`, no credentials) so every existing
+/// per-user subsystem (permissions, clipboard, jobs, session restore) works
+/// unchanged. Guests are filtered out of user lists.
+async fn auth_guest_login(
+    State(state): State<AppState>,
+) -> Result<Json<db::models::AuthResponse>, ErrorResponse> {
+    if !guest_mode_enabled(&state).await {
+        return Err(ErrorResponse::forbidden("Guest mode is disabled"));
+    }
+
+    // Reuse the existing guest row or create it on first use.
+    let user = match state.config_repo.get_user_by_username("guest").await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            let created = state
+                .config_repo
+                .create_user(db::models::CreateUserRequest {
+                    username: "guest".to_string(),
+                    display_name: Some("Guest".to_string()),
+                })
+                .await
+                .map_err(|e| ErrorResponse::internal(format!("failed to create guest user: {e}")))?;
+            state
+                .config_repo
+                .set_user_role(&created.id, "viewer")
+                .await
+                .map_err(|e| ErrorResponse::internal(format!("failed to set guest role: {e}")))?;
+            created
+        }
+        Err(e) => {
+            warn!("Failed to load guest user: {}", e);
+            return Err(ErrorResponse::internal("Failed to load guest user"));
+        }
+    };
+
+    let (token, _jti, expires_in) = auth::generate_token(&user.id, &user.username, false)
+        .map_err(|e| {
+            ErrorResponse::internal(format!("Failed to generate authentication token: {e}"))
+        })?;
+    let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_expires =
+        chrono::Utc::now() + chrono::Duration::seconds(auth::REFRESH_TOKEN_TTL_SECS);
+    if let Err(e) = state
+        .config_repo
+        .store_refresh_token(
+            &refresh_id,
+            &user.id,
+            &refresh_hash,
+            None,
+            None,
+            &refresh_expires,
+        )
+        .await
+    {
+        warn!("Failed to store guest refresh token: {}", e);
+    }
+
+    Ok(Json(db::models::AuthResponse {
+        token,
+        refresh_token: raw_refresh,
+        expires_in,
+        user,
+    }))
+}
+
 /// Exchange a refresh token for a new access token (+ optionally rotate the refresh token)
 async fn auth_refresh(
     State(state): State<AppState>,
@@ -13159,6 +13562,15 @@ async fn auth_verify(
 
     // If admin status changed in DB, issue a fresh token
     let mut response = serde_json::to_value(&user).unwrap_or_default();
+    // Attach profile fields (kept out of the User struct so existing
+    // queries stay untouched) — the shell uses them for restrictions.
+    match user_profiles_handler::get_user_profile(&state, &user.id).await {
+        Ok((profile_type, restrictions)) => {
+            response["profile_type"] = serde_json::Value::String(profile_type);
+            response["restrictions"] = restrictions;
+        }
+        Err(e) => warn!("Failed to load profile for {}: {}", user.id, e.error),
+    }
     if user.is_admin != claims.is_admin {
         if let Ok((new_token, _new_jti, _expires_in)) =
             auth::generate_token(&user.id, &user.username, user.is_admin)
@@ -14630,7 +15042,7 @@ async fn delete_api_key(
 // Admin Endpoints
 // ═══════════════════════════════════════════════════════════════════════
 
-const OS_PERMISSIONS: [&str; 8] = [
+const OS_PERMISSIONS: [&str; 10] = [
     "os.files.read",
     "os.files.write",
     "os.network.read",
@@ -14639,6 +15051,8 @@ const OS_PERMISSIONS: [&str; 8] = [
     "os.power",
     "os.updates",
     "os.backups",
+    "os.services",
+    "os.terminal",
 ];
 
 fn role_os_permissions(role: &str) -> Vec<&'static str> {
@@ -14650,6 +15064,8 @@ fn role_os_permissions(role: &str) -> Vec<&'static str> {
             "os.system.read",
             "os.updates",
             "os.backups",
+            "os.services",
+            "os.terminal",
         ],
         "editor" => vec!["os.files.read", "os.files.write", "os.system.read"],
         "viewer" => vec!["os.files.read"],
@@ -14719,7 +15135,7 @@ async fn effective_os_permissions(
     Ok(permissions)
 }
 
-async fn user_has_os_permission(
+pub(crate) async fn user_has_os_permission(
     state: &AppState,
     user_id: &str,
     permission: &str,
@@ -19039,6 +19455,8 @@ async fn user_iora_control_proxy(
             "os.network.read"
         } else if path.starts_with("os/reboot") || path.starts_with("os/shutdown") {
             "os.power"
+        } else if path.starts_with("os/services") {
+            "os.services"
         } else {
             return ErrorResponse::forbidden("OS endpoint is not delegated").into_response();
         };

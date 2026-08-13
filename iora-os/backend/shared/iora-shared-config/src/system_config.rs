@@ -109,6 +109,26 @@ pub fn database_url_for(service: &str) -> String {
 /// Auto-generated JWT secret cache (lazy init, used as fallback before DB is available).
 static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
 
+/// Normalize secrets crossing JSON, shell and systemd EnvironmentFile
+/// boundaries. A JSON preference is commonly serialized as `"secret"`, while
+/// hand-written env files may use `'secret'` or `"secret"`. JWT signing and
+/// verification must use the raw bytes in every service.
+fn normalize_jwt_secret(value: &str) -> String {
+    let mut normalized = value.trim();
+    while normalized.len() >= 2 {
+        let bytes = normalized.as_bytes();
+        if matches!(
+            (bytes[0], bytes[normalized.len() - 1]),
+            (b'"', b'"') | (b'\'', b'\'')
+        ) {
+            normalized = normalized[1..normalized.len() - 1].trim();
+        } else {
+            break;
+        }
+    }
+    normalized.to_string()
+}
+
 /// Returns the JWT secret. Priority:
 /// 1. `IORA_JWT_SECRET` environment variable
 /// 2. Settings cache key `jwt_secret` (populated from system_preferences table)
@@ -119,33 +139,54 @@ static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
 /// back to a per-process random secret and cross-service JWT checks fail
 /// with "InvalidSignature". Path is overridable for dev/tests.
 ///
-/// Lives under /var/lib/iora (NOT /etc/iora): the iora-* services run as
-/// the unprivileged `iora` user, and /var/lib/iora is the chowned,
-/// ReadWritePaths-permitted data directory. A write to root-owned /etc/iora
-/// would fail silently and the shared secret would never materialize.
+/// `/etc/iora/jwt-secret` is the canonical host-level file provisioned by
+/// `iora-config-sync`. `/var/lib/iora/jwt-secret` remains a writable fallback
+/// for first boot, containers and development runs where the unprivileged
+/// service cannot create files below `/etc` yet.
 pub fn jwt_secret_file() -> std::path::PathBuf {
     std::env::var_os("IORA_JWT_SECRET_FILE")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/iora/jwt-secret"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/etc/iora/jwt-secret"))
 }
 
 fn read_jwt_secret_file() -> Option<String> {
-    let value = std::fs::read_to_string(jwt_secret_file()).ok()?;
-    let secret = value.trim().to_string();
-    if secret.is_empty() || secret.len() < 16 {
-        return None;
+    let primary = jwt_secret_file();
+    let mut paths = vec![primary.clone()];
+    if std::env::var_os("IORA_JWT_SECRET_FILE").is_none() {
+        paths.push(std::path::PathBuf::from("/var/lib/iora/jwt-secret"));
     }
-    Some(secret)
+    for path in paths {
+        let Ok(value) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let secret = normalize_jwt_secret(&value);
+        if !secret.is_empty() && secret.len() >= 16 {
+            return Some(secret);
+        }
+    }
+    None
 }
 
 fn write_jwt_secret_file(secret: &str) {
-    let path = jwt_secret_file();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    let primary = jwt_secret_file();
+    let mut paths = vec![primary.clone()];
+    if std::env::var_os("IORA_JWT_SECRET_FILE").is_none() {
+        paths.push(std::path::PathBuf::from("/var/lib/iora/jwt-secret"));
     }
-    if let Err(error) = std::fs::write(&path, secret.as_bytes()) {
-        // Visible in journald so a missing shared secret can never hide
-        // again (previously the error was swallowed -> cross-service 401s).
+    let mut last_error = None;
+    for path in paths {
+        if let Some(parent) = path.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                last_error = Some((path, error));
+                continue;
+            }
+        }
+        match std::fs::write(&path, secret.as_bytes()) {
+            Ok(()) => return,
+            Err(error) => last_error = Some((path, error)),
+        }
+    }
+    if let Some((path, error)) = last_error {
         eprintln!(
             "[iora-shared-config] WARNING: could not persist shared JWT secret to {}: {error}",
             path.display()
@@ -156,11 +197,11 @@ fn write_jwt_secret_file(secret: &str) {
 pub fn jwt_secret() -> String {
     // 1. Env var (highest priority, for explicit override)
     if let Some(secret) = env_optional("IORA_JWT_SECRET") {
-        return secret;
+        return normalize_jwt_secret(&secret);
     }
     // 2. Settings cache (populated by iora-home from system_preferences table)
     if let Some(secret) = get_cached_setting("jwt_secret") {
-        return secret;
+        return normalize_jwt_secret(&secret);
     }
     // 3. Shared secret file — the cross-service source of truth. Checked
     // before the fallback so a late-appearing file always wins (services
@@ -180,12 +221,33 @@ pub fn jwt_secret() -> String {
 /// Updates the settings cache, the auto-generated fallback AND the shared
 /// secret file, so every service on the host uses the same secret.
 pub fn persist_jwt_secret(secret: &str) {
-    update_cached_setting("jwt_secret".to_string(), secret.to_string());
+    let secret = normalize_jwt_secret(secret);
+    update_cached_setting("jwt_secret".to_string(), secret.clone());
     // Also update the auto-generated fallback to match the persisted value.
     // If the OnceLock is already initialized, force-set it (best-effort).
-    let _ = AUTO_JWT_SECRET.set(secret.to_string());
+    let _ = AUTO_JWT_SECRET.set(secret.clone());
     // Share with all services on this host.
-    write_jwt_secret_file(secret);
+    write_jwt_secret_file(&secret);
+}
+
+#[cfg(test)]
+mod jwt_secret_tests {
+    use super::normalize_jwt_secret;
+
+    #[test]
+    fn removes_json_and_environment_file_quotes() {
+        assert_eq!(normalize_jwt_secret(r#""shared-secret-value""#), "shared-secret-value");
+        assert_eq!(normalize_jwt_secret(r#"'shared-secret-value'"#), "shared-secret-value");
+        assert_eq!(normalize_jwt_secret("'shared-secret-value'"), "shared-secret-value");
+        assert_eq!(normalize_jwt_secret("  shared-secret-value\n"), "shared-secret-value");
+    }
+
+    #[test]
+    fn canonical_path_is_etc_iora() {
+        if std::env::var_os("IORA_JWT_SECRET_FILE").is_none() {
+            assert_eq!(super::jwt_secret_file(), std::path::PathBuf::from("/etc/iora/jwt-secret"));
+        }
+    }
 }
 
 /// Master encryption key for the secrets service.

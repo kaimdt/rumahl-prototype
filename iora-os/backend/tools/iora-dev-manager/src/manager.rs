@@ -1,6 +1,6 @@
 use crate::{
     channels,
-    state::{NetworkMode, PortMapping, RuntimeState},
+    state::{DevManagerConfig, NetworkMode, PortMapping, RuntimeState},
 };
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -52,6 +52,7 @@ pub struct Manager {
     pub root: PathBuf,
     pub state_path: PathBuf,
     pub state: RuntimeState,
+    pub config: DevManagerConfig,
 }
 
 impl Manager {
@@ -75,9 +76,10 @@ impl Manager {
                 .and_then(|value| value.trim().parse().ok());
         }
         Ok(Self {
-            root,
+            root: root.clone(),
             state_path,
             state,
+            config: DevManagerConfig::load(&root),
         })
     }
 
@@ -230,8 +232,14 @@ impl Manager {
                 "tcg".to_string()
             }
         };
-        let memory = std::env::var("IORA_DEV_RAM").unwrap_or_else(|_| "8G".into());
-        let cpus = std::env::var("IORA_DEV_CPUS").unwrap_or_else(|_| "4".into());
+        let memory = std::env::var("IORA_DEV_RAM")
+            .unwrap_or_else(|_| format!("{}G", self.config.default_ram_gb.max(4)));
+        let cpus = std::env::var("IORA_DEV_CPUS").unwrap_or_else(|_| {
+            self.config
+                .default_cpus
+                .clamp(1, 64)
+                .to_string()
+        });
         let first_accel = accel_override.clone().unwrap_or_else(default_accel);
         // TCG has no hardware acceleration: clamp RAM to 4-8 GB and vCPUs
         // to 2-8 (dev-local.ps1 uses the same limits for its TCG fallback).
@@ -259,10 +267,19 @@ impl Manager {
                 // Bind every rule to loopback: Windows Firewall silently drops
                 // inbound connections on new ports, while loopback is never
                 // filtered. This also keeps the VM ports off the LAN.
+                let mut extra = extra_ports();
+                extra.extend(
+                    self.config
+                        .extra_ports
+                        .split(',')
+                        .filter_map(|value| value.trim().parse::<u16>().ok()),
+                );
+                extra.sort_unstable();
+                extra.dedup();
                 let plan = forwarding_plan(
                     self.state.ssh_port,
                     self.state.home_port,
-                    extra_ports(),
+                    extra,
                     mappings,
                 );
                 for port in &plan.skipped {
@@ -488,6 +505,18 @@ impl Manager {
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&script)
             .args(if rebuild { vec!["-Rebuild", "-NoWatch"] } else { vec!["-NoWatch"] })
+            // VM sizing comes from dev-manager.json so every NEW disk
+            // creation (first boot / -Rebuild) honors the configured size.
+            // Name and value must be SEPARATE arguments: PowerShell -File
+            // treats a single token with a space (e.g. "-DiskSize 55G") as
+            // ONE parameter name and fails with "A parameter cannot be found
+            // that matches parameter name 'DiskSize 55G'".
+            .arg("-DiskSize")
+            .arg(format!("{}G", self.config.default_disk_gb.max(4)))
+            .arg("-Ram")
+            .arg(format!("{}G", self.config.default_ram_gb.max(4)))
+            .arg("-CpuCount")
+            .arg(self.config.default_cpus.clamp(1, 64).to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log))
@@ -563,6 +592,204 @@ impl Manager {
             command,
         )
         .await
+    }
+
+    /// Virtual + on-disk size of the VM disk image (`qemu-img info`).
+    pub async fn disk_info(&self) -> Value {
+        let disk = self
+            .state
+            .vm_disk
+            .clone()
+            .unwrap_or_else(|| self.root.join(".cache/iora-dev-vm.qcow2"));
+        if !disk.exists() {
+            return serde_json::json!({"exists": false});
+        }
+        let output = tokio::process::Command::new(resolve_qemu_img())
+            .args(["info", "--output", "json"])
+            .arg(&disk)
+            .output()
+            .await;
+        match output {
+            Ok(output) if output.status.success() => {
+                let info: Value = serde_json::from_slice(&output.stdout).unwrap_or(Value::Null);
+                serde_json::json!({
+                    "exists": true,
+                    "path": disk.to_string_lossy(),
+                    "virtualSize": info["virtual-size"].as_u64().unwrap_or(0),
+                    "diskSize": info["actual-size"].as_u64().unwrap_or(0),
+                    "format": info["format"].as_str().unwrap_or("qcow2"),
+                })
+            }
+            _ => serde_json::json!({"exists": false, "path": disk.to_string_lossy()}),
+        }
+    }
+
+    /// Expand the VM disk to `size_gb` and grow the guest root filesystem.
+    ///
+    /// Live VM: the block device is resized via QMP `block_resize` (safe,
+    /// no host-side metadata races), falling back to `qemu-img resize` when
+    /// QMP is unavailable. Stopped VM: `qemu-img resize` directly. Afterwards
+    /// the guest partition + filesystem are grown through QGA; when the
+    /// guest cannot see the new size yet a reboot hint is returned.
+    pub async fn resize_disk(&self, size_gb: u64) -> Result<String> {
+        let disk = self
+            .state
+            .vm_disk
+            .clone()
+            // Same fallback as `disk_info`: the canonical dev-VM disk path.
+            .unwrap_or_else(|| self.root.join(".cache/iora-dev-vm.qcow2"));
+        if !disk.exists() {
+            anyhow::bail!("VM disk missing at {}", disk.display());
+        }
+        let info = self.disk_info().await;
+        let current_gb = info["virtualSize"].as_u64().unwrap_or(0) / (1024 * 1024 * 1024);
+        if size_gb <= current_gb {
+            anyhow::bail!(
+                "new size {size_gb}G is not larger than the current virtual size ({current_gb}G)"
+            );
+        }
+        let running = self.state.process_alive();
+        // Live path: QMP block_resize on the virtio disk. When the VM is
+        // running this is the ONLY safe way - qemu-img on a live qcow2 would
+        // resize the file but QEMU keeps the old size cached, so the guest
+        // would never see the change and the grow step would silently do
+        // nothing. Fail loudly instead of pretending success.
+        let mut method = "qemu-img resize";
+        if running {
+            match self.live_block_device().await {
+                Ok(device) => {
+                    // Try node-name first, then the BlockBackend name -
+                    // QEMU accepts either, depending on how the drive was
+                    // attached.
+                    let mut resized = channels::qmp_command(
+                        self.state.qmp_port,
+                        &self.root.join(".cache/qmp.sock"),
+                        "block_resize",
+                        serde_json::json!({
+                            "node-name": device,
+                            "size": size_gb * 1024 * 1024 * 1024,
+                        }),
+                    )
+                    .await;
+                    if resized.is_err() {
+                        resized = channels::qmp_command(
+                            self.state.qmp_port,
+                            &self.root.join(".cache/qmp.sock"),
+                            "block_resize",
+                            serde_json::json!({
+                                "device": device,
+                                "size": size_gb * 1024 * 1024 * 1024,
+                            }),
+                        )
+                        .await;
+                    }
+                    match resized {
+                        Ok(_) => {
+                            method = "QMP block_resize";
+                        }
+                        Err(error) => {
+                            anyhow::bail!(
+                                "QMP block_resize failed while the VM is running ({error:#}) - stop the VM (or use the terminal) and try again"
+                            );
+                        }
+                    }
+                }
+                Err(error) => {
+                    anyhow::bail!(
+                        "cannot resize a running VM (QMP block device lookup failed: {error:#}) - stop the VM first and try again"
+                    );
+                }
+            }
+        }
+        if method == "qemu-img resize" {
+            let status = tokio::process::Command::new(resolve_qemu_img())
+                .args(["resize", "-f", "qcow2"])
+                .arg(&disk)
+                .arg(format!("{size_gb}G"))
+                .status()
+                .await?;
+            if !status.success() {
+                anyhow::bail!("qemu-img resize failed (exit {status})");
+            }
+        }
+        // Grow the guest root partition + filesystem (best effort; only when
+        // the guest agent is reachable AND the disk already grew there).
+        // When the VM is stopped this step runs automatically after the next
+        // boot (watchdog disk-grow task), so the new size becomes visible
+        // without any manual intervention.
+        let guest_note: String = if self.state.process_alive() {
+            let grow_script = r#"
+set -e
+ROOT=$(findmnt -no SOURCE /)
+case "$ROOT" in
+  /dev/vd[a-z][0-9]*) DISK=${ROOT%[0-9]*}; PART=${ROOT##*[a-z]} ;;
+  /dev/sd[a-z][0-9]*) DISK=${ROOT%[0-9]*}; PART=${ROOT##*[a-z]} ;;
+  /dev/nvme0n[0-9]p[0-9]*) DISK=${ROOT%p[0-9]*}; PART=${ROOT##*p} ;;
+  *) echo "unsupported root device: $ROOT"; exit 0 ;;
+esac
+SIZE=$(blockdev --getsize64 "$ROOT" 2>/dev/null || echo 0)
+printf 'root=%s disk=%s part=%s size=%s\n' "$ROOT" "$DISK" "$PART" "$SIZE"
+command -v growpart >/dev/null 2>&1 || { echo "growpart missing (cloud-guest-utils) - install it to grow the partition"; exit 0; }
+if growpart "$DISK" "$PART" >/dev/null 2>&1; then
+  FSTYPE=$(findmnt -no FSTYPE /)
+  if [ "$FSTYPE" = "xfs" ]; then xfs_growfs / || true; else resize2fs "$ROOT" || true; fi
+  echo "grown"
+else
+  echo "growpart skipped (no change or needs reboot)"
+fi
+"#;
+            match self.guest(grow_script).await {
+                Ok(output) => format!("\nGuest: {}", output.trim()),
+                Err(_) => "\nGuest grow skipped (QGA unreachable - run 'growpart + resize2fs' after the next boot)".to_string(),
+            }
+        } else {
+            "\nVM is stopped - the guest filesystem grows on the next boot (dev-manager grows it automatically via QGA when the VM is running)."
+                .to_string()
+        };
+        Ok(format!(
+            "Disk expanded from {current_gb}G to {size_gb}G via {method}.{guest_note}"
+        ))
+    }
+
+    /// Find the QMP node name of the VM's virtio disk via `query-block`.
+    /// Falls back to the BlockBackend name (`block.device`) so `block_resize`
+    /// can address the disk either way (newer QEMU drops `inserted.device`).
+    async fn live_block_device(&self) -> Result<String> {
+        let response = channels::qmp_command(
+            self.state.qmp_port,
+            &self.root.join(".cache/qmp.sock"),
+            "query-block",
+            serde_json::json!({}),
+        )
+        .await?;
+        let blocks = response
+            .pointer("/return")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("query-block returned no devices"))?;
+        for block in blocks {
+            let device = block["device"].as_str().unwrap_or_default();
+            let inserted_device = block["inserted"]["device"].as_str().unwrap_or_default();
+            let node = block["inserted"]["node-name"]
+                .as_str()
+                .unwrap_or_default();
+            if node.contains("disk")
+                || inserted_device.contains("disk")
+                || device.contains("disk")
+                || device.contains("virtio")
+            {
+                let candidate = if !node.is_empty() {
+                    node.to_string()
+                } else if !inserted_device.is_empty() {
+                    inserted_device.to_string()
+                } else {
+                    device.to_string()
+                };
+                if !candidate.is_empty() {
+                    return Ok(candidate);
+                }
+            }
+        }
+        anyhow::bail!("no matching virtio block device found")
     }
     pub async fn graceful_stop(&self) -> Result<()> {
         if channels::qga(
@@ -684,6 +911,9 @@ fn display_number() -> u16 {
 
 /// Additional Slirp host ports forwarded to the same guest port.
 /// Defaults to 5173 so the Vite dev server is reachable from the host.
+/// Host ports forwarded to the guest by default (env override
+/// `IORA_DEV_FORWARD`). `Manager::start` additionally merges the configured
+/// extra ports from `dev-manager.json`.
 pub fn extra_ports() -> Vec<u16> {
     std::env::var("IORA_DEV_FORWARD")
         .unwrap_or_else(|_| "5173".into())
@@ -1293,6 +1523,7 @@ mod tests {
             state_path: root.join(".cache/runtime-state.json"),
             root: root.clone(),
             state: RuntimeState::default(),
+            config: DevManagerConfig::default(),
         };
         let error = manager.start(NetworkMode::Slirp, &[]).unwrap_err();
         assert!(error.to_string().contains("dev-local.ps1 was not found"));
@@ -1322,10 +1553,12 @@ mod tests {
                 "hostfwd=tcp:127.0.0.1:5173-:5173",
                 "hostfwd=tcp:127.0.0.1:5432-:5432",
                 "hostfwd=tcp:127.0.0.1:8126-:8126",
+                // ORA Browser WebRTC: UDP hop for the GStreamer media stream.
+                "hostfwd=udp:127.0.0.1:40000-:40000",
             ]
         );
         assert_eq!(plan.skipped, vec![5173]);
-        assert_eq!(plan.forwarded.len(), 4);
+        assert_eq!(plan.forwarded.len(), 5);
     }
 
     #[test]

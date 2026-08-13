@@ -85,9 +85,24 @@
   },
   "store_metadata": {
     "category": "Games",
-    "tags": ["idle", "spiel", "entspannung", "strategie", "settler"],
+    "tags": [
+      "idle",
+      "spiel",
+      "entspannung",
+      "strategie",
+      "settler"
+    ],
     "min_iora_version": "2.0.0",
     "source_url": "https://github.com/iora/idle-game",
     "license": "MIT"
+  },
+  "lifecycle_hooks": {
+    "hooks": [
+      {
+        "event": "on_system_event",
+        "handler": "/hooks/system-event",
+        "filter": "error"
+      }
+    ]
   }
 }

@@ -8,7 +8,23 @@ export * from './client';
 export * from './iframe';
 export * from './types';
 export * from './permissions';
-export * from './manifest';
+export {
+  AppManifest,
+  PluginType,
+  DockerConfig,
+  PortConfig,
+  HealthCheck,
+  SandboxConfig,
+  ApiEndpoint,
+  WidgetDefinition,
+  CustomPage,
+  IframeConfig,
+  FieldValidation,
+  SelectOption,
+  NetworkAccessConfig,
+  StoreMetadata,
+  ManifestBuilder,
+} from './manifest';
 export * from './runtime';
 export * from './runtime-manager';
 export * from './theme';

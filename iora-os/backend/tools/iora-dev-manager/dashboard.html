@@ -129,6 +129,7 @@
   <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
   <button id="tab-terminal" onclick="switchTab('terminal')">Terminal</button>
   <button id="tab-services" onclick="switchTab('services')">Services</button>
+  <button id="tab-monitoring" onclick="switchTab('monitoring')">Monitoring</button>
   <button id="tab-logs" onclick="switchTab('logs')">Logs</button>
 </nav>
 
@@ -176,6 +177,25 @@
     <div class="panel">
       <h2>Access &amp; Credentials</h2>
       <div id="access"><div class="field"><div class="k">SSH</div><div class="v">-</div></div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Disk &amp; Storage</h2>
+      <div class="grid" id="disk-info"></div>
+      <div class="map-form" style="margin-top:10px">
+        <input id="disk-size" type="number" min="8" max="4096" placeholder="target size (GB)">
+        <button class="primary" id="disk-resize-btn" onclick="resizeDisk()">Expand disk</button>
+      </div>
+      <div id="disk-result" style="display:none;margin-top:8px;padding:8px 10px;border-radius:6px;font-size:13px"></div>
+      <div class="foot" id="disk-hint">Enter the TARGET size (not the increase), e.g. 50 means 50 GB total. The disk can be expanded while the VM is running (live via QMP) or while stopped. The guest partition/filesystem grows automatically via QGA.</div>
+    </div>
+
+    <div class="panel">
+      <h2>VM Settings <button class="small" style="float:right" onclick="loadSettings()">Refresh</button></h2>
+      <div class="grid" id="settings-form"></div>
+      <div style="height:8px"></div>
+      <button class="primary" id="settings-save-btn" onclick="saveSettings()">Save settings</button>
+      <div class="foot" id="settings-hint">Stored in <span class="f">dev-manager.json</span> next to the tool. RAM/CPUs apply at the next VM start; the disk size applies to every NEW disk creation (first boot / Reinstall).</div>
     </div>
 
     <div class="panel">
@@ -260,6 +280,49 @@
 </main>
 </div>
 
+<div id="page-monitoring" class="tab-page">
+<main style="grid-template-columns:minmax(0,1fr) 320px">
+  <div class="panel">
+    <h2>Guest invariants <button class="small" style="float:right" onclick="loadMonitoring()">Refresh</button></h2>
+    <table id="monitoring-checks">
+      <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
+      <tbody><tr><td colspan="3">Open this page to run diagnostics.</td></tr></tbody>
+    </table>
+  </div>
+  <div>
+    <div class="panel">
+      <h2>Recovery actions</h2>
+      <p class="foot">Re-publish Global Config, create <span class="f">/etc/iora/jwt-secret</span>, reload systemd and restart Home, Files and Supervisor.</p>
+      <div style="height:10px"></div>
+      <button id="config-sync-button" class="primary" onclick="runConfigSync()">Synchronize config &amp; JWT</button>
+      <div style="height:10px"></div>
+      <p class="foot">Install a compatible Compose package when the Docker Engine exists but neither Compose v2 nor <span class="f">docker-compose</span> is available.</p>
+      <div style="height:10px"></div>
+      <button id="compose-install-button" onclick="installDockerCompose()">Install Docker Compose</button>
+      <div style="height:10px"></div>
+      <p class="foot">Push EVERY source file into the guest and rebuild + restart the affected IORA services (repairs missed watcher events / mtime skew).</p>
+      <div style="height:10px"></div>
+      <button id="force-sync-button" class="primary" onclick="forceSyncRebuild()">Force Sync &amp; Rebuild</button>
+      <div id="sync-progress" style="display:none;margin-top:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+        <div class="foot" id="sync-phase" style="margin-bottom:6px">-</div>
+        <div style="background:#2a2f3a;border-radius:4px;height:12px;overflow:hidden">
+          <div id="sync-bar" style="background:linear-gradient(90deg,#6366f1,#22d3ee);height:12px;width:0%;border-radius:4px;transition:width .6s ease"></div>
+        </div>
+        <div class="foot" id="sync-message" style="margin-top:6px">-</div>
+        <div style="margin-top:8px">
+          <button id="sync-cancel-button" class="danger small" style="display:none" onclick="cancelSync()">Cancel</button>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div class="panel">
+      <h2>Coverage</h2>
+      <div class="foot">Monitors the canonical JWT file, Home, Files, Supervisor, Docker, Compose, the Files health endpoint, guest disk usage and failed systemd units.</div>
+    </div>
+  </div>
+</main>
+</div>
+
 <div id="page-logs" class="tab-page">
 <main style="grid-template-columns:1fr">
   <div class="panel">
@@ -291,6 +354,7 @@
   let term = null;
   let termSocket = null;
   let rfb = null;
+  let diskCurrentGb = 0;
 
   function badgeClass(lifecycle) {
     const value = String(lifecycle || '').toLowerCase();
@@ -359,6 +423,15 @@
     });
   }
 
+  // SFTP channel action: copy the sftp:// URL (no native browser handler)
+  // and point the user at the key download for WinSCP/FileZilla.
+  function copySftp() {
+    const sftp = (data.access && data.access.sftp) || 'sftp://root@127.0.0.1:2222/';
+    navigator.clipboard.writeText(sftp).then(function () {
+      message.textContent = 'SFTP URL copied: ' + sftp + ' - download the key via /api/sftp/key and import it into WinSCP/FileZilla.';
+    });
+  }
+
   function renderAccess() {
     const acc = data.access || {};
     const container = document.getElementById('access');
@@ -368,10 +441,180 @@
         '<div class="v"><button class="small" style="float:right" onclick="copyFrom(this)">Copy</button>' +
         '<span class="copyable" data-copy="' + value.replace(/"/g, '&quot;') + '">' + value + '</span></div></div>';
     }
-    container.innerHTML =
+    let html =
       row('SSH', acc.ssh) +
       row('Web portal', acc.webUrl + '  (' + acc.webUser + ' / ' + acc.webPassword + ', PIN ' + acc.webPin + ')') +
       row('SSH key', acc.keyPath);
+    // SFTP auto-link: same SSH channel + key, works with WinSCP/FileZilla/
+    // any SFTP client. The key download lets clients import it directly.
+    if (acc.sftp) {
+      html += row('SFTP (all IORA OS files)', acc.sftp) +
+        '<div class="field"><div class="k">SFTP key</div><div class="v">' +
+        '<a href="/api/sftp/key" download>Download private key (.cache/iora-dev-key)</a>' +
+        ' <span class="foot">import it into WinSCP/FileZilla to browse every file of IORA OS.</span></div></div>';
+    }
+    container.innerHTML = html;
+  }
+
+  async function loadDisk() {
+    try {
+      const response = await fetch('/api/disk');
+      const result = await response.json();
+      const disk = result.disk || {};
+      const box = document.getElementById('disk-info');
+      if (!disk.exists) {
+        box.innerHTML = '<div class="field"><div class="k">Disk</div><div class="v">not created yet (first start)</div></div>';
+        return;
+      }
+      const gb = function (bytes) { return (bytes / 1073741824).toFixed(1) + ' GiB'; };
+      // Remember the current virtual size for client-side validation and
+      // show it as a hint so "target size" is unambiguous.
+      diskCurrentGb = Math.max(1, Math.round((disk.virtualSize || 0) / 1073741824));
+      box.innerHTML = [
+        ['Virtual size', gb(disk.virtualSize || 0)],
+        ['On-disk size', gb(disk.diskSize || 0)],
+        ['Format', disk.format || '-'],
+        ['Path', disk.path ? disk.path.split(/[\\\/]/).pop() : '-'],
+      ].map(function (entry) {
+        return '<div class="field"><div class="k">' + entry[0] + '</div><div class="v">' + entry[1] + '</div></div>';
+      }).join('');
+      const input = document.getElementById('disk-size');
+      if (input) {
+        input.placeholder = 'target size in GB - current: ' + diskCurrentGb;
+        input.min = diskCurrentGb + 1;
+        input.max = 4096;
+      }
+    } catch (error) {
+      document.getElementById('disk-info').innerHTML =
+        '<div class="field"><div class="k">Disk</div><div class="v">' + error + '</div></div>';
+    }
+  }
+
+  function showDiskResult(text, ok) {
+    const box = document.getElementById('disk-result');
+    box.style.display = 'block';
+    box.textContent = text;
+    box.style.background = ok ? '#1c3a2a' : '#3a1c1c';
+    box.style.border = '1px solid ' + (ok ? '#2f7a4d' : '#b82a2a');
+    box.style.color = ok ? '#7ee2a8' : '#ff9b9b';
+  }
+
+  async function resizeDisk() {
+    const input = document.getElementById('disk-size');
+    const sizeGb = parseInt(input.value, 10);
+    const button = document.getElementById('disk-resize-btn');
+    if (!sizeGb || sizeGb < 1) {
+      showDiskResult('Enter a valid target size in GB (e.g. ' + (diskCurrentGb + 5) + ').', false);
+      message.textContent = 'enter a valid size in GB';
+      return;
+    }
+    // Client-side check: the target must be LARGER than the current
+    // virtual size, otherwise the backend rejects it. Fail fast with a
+    // visible message right in the panel instead of a silent confirm.
+    if (diskCurrentGb > 0 && sizeGb <= diskCurrentGb) {
+      showDiskResult('The target size (' + sizeGb + ' GB) must be larger than the current virtual size (' + diskCurrentGb + ' GB). Enter a bigger target, e.g. ' + (diskCurrentGb + 5) + ' GB.', false);
+      message.textContent = 'target size must be larger than ' + diskCurrentGb + ' GB';
+      input.focus();
+      return;
+    }
+    if (!confirm('Expand the VM disk to ' + sizeGb + ' GB?\n\nRunning VM: live resize via QMP, guest filesystem grows automatically.\nStopped VM: image is resized, filesystem grows automatically on next start.')) return;
+    button.disabled = true;
+    button.textContent = 'Expanding...';
+    showDiskResult('Expanding disk to ' + sizeGb + ' GB...', true);
+    try {
+      const response = await fetch('/api/disk/resize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sizeGb: sizeGb }),
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'resize failed');
+      message.textContent = result.message;
+      showDiskResult('✓ ' + result.message, true);
+      input.value = '';
+      // Refresh everything immediately so the new size is visible right
+      // away: disk panel, guest stats (df) and the settings hint.
+      loadDisk();
+      loadSettings();
+      refreshStats();
+      refresh();
+    } catch (error) {
+      showDiskResult('Disk expansion failed: ' + error, false);
+      errorText.textContent = 'Disk expansion failed: ' + error;
+      banner.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Expand disk';
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      const response = await fetch('/api/settings');
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'settings failed');
+      const config = result.config || {};
+      const disk = result.disk || {};
+      const currentGb = Math.max(1, Math.round((disk.virtualSize || 0) / 1073741824));
+      const running = result.state && result.state.running;
+      const box = document.getElementById('settings-form');
+      const field = function (key, label, value, hint) {
+        return '<div class="field"><div class="k">' + label + (hint ? '<br><span style="text-transform:none;color:#667">' + hint + '</span>' : '') + '</div>' +
+          '<div class="v"><input id="set-' + key + '" value="' + value + '" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-family:Consolas,monospace"></div></div>';
+      };
+      box.innerHTML =
+        field('defaultDiskGb', 'Default disk size (GB, new disks)', config.defaultDiskGb || 40, 'current virtual: ' + currentGb + 'G') +
+        field('defaultRamGb', 'Default RAM (GB)', config.defaultRamGb || 8, running ? 'applies at next start' : '') +
+        field('defaultCpus', 'Default CPUs', config.defaultCpus || 4, running ? 'applies at next start' : '') +
+        field('sftpUser', 'SFTP user', config.sftpUser || 'root', '') +
+        field('extraPorts', 'Extra forwarded ports (comma)', config.extraPorts || '', 'e.g. 8100,8126') +
+        '<div class="field"><div class="k">Autostart VM with daemon</div><div class="v">' +
+        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+        '<input id="set-autostart" type="checkbox" style="width:auto"' + (config.autostart ? ' checked' : '') + '> ' +
+        (config.autostart ? 'enabled' : 'disabled') +
+        '</label></div></div>';
+      const auto = document.getElementById('set-autostart');
+      if (auto) auto.checked = !!config.autostart;
+      document.getElementById('settings-hint').textContent =
+        'Stored in dev-manager.json. RAM/CPUs apply at the next VM start; disk size applies to every NEW disk creation (first boot / Reinstall).';
+    } catch (error) {
+      document.getElementById('settings-form').innerHTML =
+        '<div class="field"><div class="k">Settings</div><div class="v">' + error + '</div></div>';
+    }
+  }
+
+  async function saveSettings() {
+    const body = {
+      defaultDiskGb: parseInt(document.getElementById('set-defaultDiskGb').value, 10),
+      defaultRamGb: parseInt(document.getElementById('set-defaultRamGb').value, 10),
+      defaultCpus: parseInt(document.getElementById('set-defaultCpus').value, 10),
+      sftpUser: document.getElementById('set-sftpUser').value.trim(),
+      extraPorts: document.getElementById('set-extraPorts').value.trim(),
+      autostart: document.getElementById('set-autostart') ? document.getElementById('set-autostart').checked : false,
+    };
+    const button = document.getElementById('settings-save-btn');
+    button.disabled = true;
+    button.textContent = 'Saving...';
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'save failed');
+      message.textContent = result.message || 'Settings saved.';
+      // Re-read from the server so the saved values are shown immediately
+      // (the backend now persists them into its in-memory config).
+      await loadSettings();
+      refresh();
+    } catch (error) {
+      errorText.textContent = 'Settings save failed: ' + error;
+      banner.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Save settings';
+    }
   }
 
   function renderActivity() {
@@ -447,12 +690,18 @@
     const homeUp = probe.external_home;
     const natNote = state.networkMode === 'bridge'
       ? '' : ' (NAT: host access via 127.0.0.1 ports) ';
+    // iora-files HTTP UI: forwarded automatically (default mapping 8100).
+    const filesPort = (data.state && data.state.forwardedPorts || [])
+      .map(function (p) { return p.host; })
+      .indexOf(8100) >= 0 ? 8100 : null;
     const channels = [
       ['SSH', conn.host + ':' + conn.ssh, probe.ssh, function () { switchTab('terminal'); }],
       ['Guest IP', (probe.guest_ip || '-') + natNote, !!probe.guest_ip, null],
       ['QMP control', '127.0.0.1:' + state.qmpPort, probe.qmp, null],
       ['QGA rescue', '127.0.0.1:' + state.qgaPort, probe.qga, null],
       ['IORA home', 'http://' + conn.host + ':' + conn.home, homeUp, function () { window.open('http://' + conn.host + ':' + conn.home); }],
+      ['Files (iora-files)', filesPort ? 'http://127.0.0.1:' + filesPort : 'auto-forward 8100 (starts with VM)', !!filesPort, filesPort ? function () { window.open('http://127.0.0.1:' + filesPort); } : null],
+      ['Files (SFTP)', (data.access && data.access.sftp) || 'sftp://root@127.0.0.1:2222/', probe.ssh, function () { copySftp(); }],
       ['VNC console', (stats.vncPort ? '127.0.0.1:' + stats.vncPort : 'off'), !!stats.vncPort, openVnc],
       ['Hot reload', state.watcherStatus || '-', state.watcherStatus === 'Running', function () { switchTab('logs'); }],
     ];
@@ -676,6 +925,159 @@
     document.getElementById('tab-' + name).classList.add('active');
     if (name === 'terminal') ensureTerminal();
     if (name === 'services') loadServices();
+    if (name === 'monitoring') loadMonitoring();
+  }
+
+  async function loadMonitoring() {
+    const body = document.querySelector('#monitoring-checks tbody');
+    body.innerHTML = '<tr><td colspan="3">Running guest diagnostics...</td></tr>';
+    try {
+      const response = await fetch('/api/monitoring');
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'diagnostics failed');
+      const checks = result.checks || [];
+      body.innerHTML = checks.map(function (check) {
+        const color = check.status === 'ok' ? 'ok' : (check.status === 'error' ? 'bad' : 'warn');
+        return '<tr><td class="f">' + escapeHtml(check.id) + '</td><td class="' + color + '">' +
+          escapeHtml(check.status) + '</td><td>' + escapeHtml(check.message) + '</td></tr>';
+      }).join('') || '<tr><td colspan="3">No diagnostic results returned.</td></tr>';
+    } catch (error) {
+      body.innerHTML = '<tr><td colspan="3" class="bad">' + escapeHtml(String(error)) + '</td></tr>';
+    }
+  }
+
+  async function runConfigSync() {
+    const button = document.getElementById('config-sync-button');
+    if (!confirm('Synchronize guest configuration, verify the JWT file and restart Home, Files and Supervisor?')) return;
+    button.disabled = true;
+    button.textContent = 'Synchronizing...';
+    try {
+      const response = await fetch('/api/maintenance/config-sync', { method: 'POST' });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'config sync failed');
+      message.textContent = result.output || 'Configuration synchronized.';
+      await loadMonitoring();
+    } catch (error) {
+      errorText.textContent = 'Config sync failed: ' + error;
+      banner.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Synchronize config & JWT';
+    }
+  }
+
+  async function installDockerCompose() {
+    const button = document.getElementById('compose-install-button');
+    if (!confirm('Install Docker Compose in the guest and restart Supervisor?')) return;
+    button.disabled = true;
+    button.textContent = 'Installing Compose...';
+    try {
+      const response = await fetch('/api/maintenance/docker-compose', { method: 'POST' });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || 'Compose installation failed');
+      message.textContent = result.output || 'Docker Compose installed.';
+      await loadMonitoring();
+    } catch (error) {
+      errorText.textContent = 'Compose installation failed: ' + error;
+      banner.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Install Docker Compose';
+    }
+  }
+
+  async function forceSyncRebuild() {
+    const button = document.getElementById('force-sync-button');
+    if (!confirm('Force Sync & Rebuild?\n\nPushes EVERY source file into the VM and rebuilds + restarts all affected IORA services. This can take several minutes while the guest compiles.')) return;
+    button.disabled = true;
+    button.textContent = 'Starting...';
+    try {
+      const response = await fetch('/api/maintenance/force-sync', { method: 'POST' });
+      const result = await response.json();
+      if (!result.ok) {
+        // Already running (or another error): show the live progress instead.
+        message.textContent = result.message || 'force sync failed';
+        loadSyncStatus();
+        return;
+      }
+      message.textContent = result.message || 'Force sync started.';
+      loadSyncStatus();
+    } catch (error) {
+      errorText.textContent = 'Force sync failed: ' + error;
+      banner.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Force Sync & Rebuild';
+    }
+  }
+
+  let syncPollTimer = null
+  async function loadSyncStatus() {
+    const box = document.getElementById('sync-progress');
+    const bar = document.getElementById('sync-bar');
+    const phaseEl = document.getElementById('sync-phase');
+    const msgEl = document.getElementById('sync-message');
+    const button = document.getElementById('force-sync-button');
+    const cancelButton = document.getElementById('sync-cancel-button');
+    try {
+      const response = await fetch('/api/maintenance/force-sync/status');
+      const result = await response.json();
+      const status = (result && result.status) || {};
+      const running = status.running === true || (status.phase !== 'idle' && status.phase !== 'done' && status.phase !== 'error' && status.phase !== 'cancelled');
+      if (!running) {
+        box.style.display = 'none';
+        cancelButton.style.display = 'none';
+        button.disabled = false;
+        button.textContent = 'Force Sync & Rebuild';
+        if (syncPollTimer) { clearInterval(syncPollTimer); syncPollTimer = null; }
+        if (status.phase === 'done' || status.phase === 'error' || status.phase === 'cancelled') {
+          message.textContent = status.message || '';
+        }
+        return;
+      }
+      // Running: show live progress + keep the button disabled.
+      box.style.display = 'block';
+      cancelButton.style.display = 'inline-block';
+      button.disabled = true;
+      button.textContent = 'Running...';
+      const phaseLabel = {
+        sync: 'Synchronisieren', build: 'Build im Guest', restart: 'Neustart',
+      }[status.phase] || status.phase;
+      const pct = status.percent != null ? status.percent : 0;
+      phaseEl.textContent = phaseLabel + (pct > 0 ? ' · ' + pct + '%' : ' · läuft…');
+      bar.style.width = (status.percent != null ? Math.min(100, status.percent) : 15) + '%';
+      // During the build phase the message is the crate cargo is compiling.
+      msgEl.textContent = status.message || '';
+      if (!syncPollTimer) {
+        syncPollTimer = setInterval(loadSyncStatus, 2000);
+      }
+    } catch (error) {
+      // Endpoint not reachable - keep polling lightly.
+      if (!syncPollTimer) syncPollTimer = setInterval(loadSyncStatus, 5000);
+    }
+  }
+
+  async function cancelSync() {
+    const cancelButton = document.getElementById('sync-cancel-button');
+    if (!confirm('Force Sync & Rebuild abbrechen? Läuft bereits: Der Guest-Build wird gestoppt und der Sync beendet.')) return;
+    cancelButton.disabled = true;
+    cancelButton.textContent = 'Cancelling...';
+    try {
+      const response = await fetch('/api/maintenance/force-sync/cancel', { method: 'POST' });
+      const result = await response.json();
+      message.textContent = result.message || 'Cancel requested.';
+    } catch (error) {
+      message.textContent = 'cancel failed: ' + error;
+    } finally {
+      cancelButton.disabled = false;
+      cancelButton.textContent = 'Cancel';
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
   function ensureTerminal() {
@@ -844,6 +1246,13 @@
   setInterval(refreshStats, 10000);
   loadVms();
   setInterval(loadVms, 10000);
+  loadDisk();
+  setInterval(loadDisk, 30000);
+  loadSettings();
+  loadSyncStatus();
+  setInterval(function () {
+    if (document.getElementById('page-monitoring').classList.contains('active')) loadMonitoring();
+  }, 10000);
 </script>
 </body>
 </html>

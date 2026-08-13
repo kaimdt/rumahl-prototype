@@ -31,6 +31,17 @@
       ]
     },
     {
+      "section": "Roadmap",
+      "icon": "map",
+      "items": [
+        {
+          "title": "Home OS Roadmap",
+          "path": "roadmap/home-os-roadmap.md",
+          "highlight": true
+        }
+      ]
+    },
+    {
       "section": "Development",
       "icon": "code",
       "items": [

@@ -21,10 +21,11 @@ import { OsDock } from '@/components/OsDock'
 import { OsFullscreenBar } from '@/components/OsFullscreenBar'
 import { OsWindowActions } from '@/components/OsWindowActions'
 import { CommandPalette } from '@/components/CommandPalette'
+import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { AppRuntimeView } from '@/components/AppRuntimeView'
 import { OsImagesApp } from '@/components/OsImagesApp'
 import { OsTooltipProvider } from '@/components/OsTooltip'
-import { appOpenUrl, appRuntimeUrls, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
+import { appOpenUrl, appRuntimeUrls, installedAppIds, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { OsAppWindow } from '@/components/OsAppWindow'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
@@ -53,10 +54,19 @@ const MediaPlayerWidget = lazy(() => import('@/components/widgets/MediaPlayerWid
 const SharePage = lazy(() => import('./components/SharePage').then(m => ({ default: m.SharePage })))
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
-const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ default: m.AdminPanel })))
+const AdminCenter = lazy(() => import('@/components/AdminCenter').then(m => ({ default: m.AdminCenter })))
 const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default: m.AgentTab })))
+const AutomationEditorApp = lazy(() => import('@/components/AutomationEditorApp').then(m => ({ default: m.AutomationEditorApp })))
+const OsStorageApp = lazy(() => import('@/components/OsStorageApp').then(m => ({ default: m.OsStorageApp })))
+const OsDevicesApp = lazy(() => import('@/components/OsDevicesApp').then(m => ({ default: m.OsDevicesApp })))
+const OsContainersApp = lazy(() => import('@/components/OsContainersApp').then(m => ({ default: m.OsContainersApp })))
+const OsLogsApp = lazy(() => import('@/components/OsLogsApp').then(m => ({ default: m.OsLogsApp })))
+const OsServicesApp = lazy(() => import('@/components/OsServicesApp').then(m => ({ default: m.OsServicesApp })))
 const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
 const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
+// AppSettingsPage is now rendered inside the Settings app (SettingsAppsSection
+// → SettingsAppDetailPage) at /settings/apps/<id>; the standalone component
+// remains available for compatibility and is no longer routed directly.
 const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
 const AppStoreTab = lazy(() => import('@/components/AppStoreTab').then(m => ({ default: m.AppStoreTab })))
 import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
@@ -163,10 +173,18 @@ function DashboardContent() {
   // without requiring the launcher to have been mounted first.
   const { allApps: installedRuntimeApps } = useInstalledApps()
   const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images']
+  // App pages owned by the app runtime: installed apps + catalog apps render
+  // even without a dashboard page record, so deep links like
+  // /app/ora-browser work directly (also with proxy-only/local apps that
+  // have no host URL in appRuntimeUrls).
+  const isRuntimeAppPage = (id: string) =>
+    installedRuntimeApps.some((app) => app.id === id) ||
+    installedAppIds.has(id) ||
+    STORE_CATALOG.some((app) => app.id === id)
   // Deep-linked Docker apps (/app/<id>) also use the OS chrome (dock, no navbar).
-  const isOsAppPage = standaloneAppPageIds.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
+  const isOsAppPage = standaloneAppPageIds.includes(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
   const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
-  const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId)
+  const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId) && !isRuntimeAppPage(currentPageId)
   const { windows, immersivePageId, setImmersive } = useOsWindows()
 
   // OS app lookup used by the window manager (icons/names for windows + dock).
@@ -202,7 +220,10 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
     : STORE_CATALOG.some((app) => app.id === pageId)
       ? appOpenUrl({ id: pageId, name: pageId, version: '', ports: [] })
       : undefined)
-  if (runtimeUrl) {
+  // Render the runtime also for proxy-only/local apps without a host URL:
+  // AppRuntimeView falls back to the app proxy (/api/apps/<id>/proxy) which
+  // resolves the guest service port server-side.
+  if (runtimeUrl || runtimeApp || STORE_CATALOG.some((app) => app.id === pageId)) {
     const runner = <AppRuntimeView appId={pageId} name={getOsAppName(pageId)} />
     // Full-page (desktop route `/app/<id>`): render through a portal
     // directly on <body>. The page containers apply transforms/filters for
@@ -223,6 +244,11 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
     case 'os-images': return <OsImagesApp />
     case 'os-network': return <OsSystemApp kind="network" />
     case 'os-system': return <OsSystemApp kind="system" />
+    case 'os-storage': return <OsStorageApp />
+    case 'os-devices': return <OsDevicesApp />
+    case 'os-containers': return <OsContainersApp />
+    case 'os-logs': return <OsLogsApp />
+    case 'os-services': return <OsServicesApp />
     case 'os-updates': return <OsMaintenanceApp kind="updates" />
     case 'os-backups': return <OsMaintenanceApp kind="backups" />
     case 'app-store': return <AppStoreTab token={token || ''} />
@@ -258,11 +284,12 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
         theme={theme}
       />
     )
-    case 'admin': return user?.isAdmin ? <AdminPanel /> : null
+    case 'admin': return user?.isAdmin ? <AdminCenter /> : null
     case 'docs': return <DocsPage />
     case 'share': return <SharePage />
     case 'streaming': return <StreamSender />
     case 'ai-agent': return <AgentTab token={token || ''} />
+    case 'automations': return <AutomationEditorApp />
     default: return null
   }
 }
@@ -273,12 +300,13 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
     return <section className="ora-app-frame p-4 sm:p-6"><header className="mb-6 flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h1 className="mt-1 text-3xl font-semibold">{t('os.apps.appStore.name')}</h1><p className="mt-1 text-sm text-foreground/45">{t('os.apps.appStore.description')}</p></div><OsWindowActions pageId={pageId} /></header><AppStoreTab token={token || ''} /></section>
   }
   if (pageId === 'admin') {
-    return user?.isAdmin ? <OsAppWindow pageId={pageId} title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminPanel /></OsAppWindow> : null
+    return user?.isAdmin ? <OsAppWindow pageId={pageId} title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminCenter /></OsAppWindow> : null
   }
   if (pageId === 'docs') return <OsAppWindow pageId={pageId} title={t('navigation.docs')} icon={getOsAppIcon(pageId)}><DocsPage /></OsAppWindow>
   if (pageId === 'share') return <OsAppWindow pageId={pageId} title={t('os.apps.share.name')} icon={getOsAppIcon(pageId)}><SharePage /></OsAppWindow>
   if (pageId === 'streaming') return <OsAppWindow pageId={pageId} title={t('os.apps.streaming.name')} icon={getOsAppIcon(pageId)}><StreamSender /></OsAppWindow>
   if (pageId === 'ai-agent') return <OsAppWindow pageId={pageId} title={t('os.apps.agent.name')} icon={getOsAppIcon(pageId)}><AgentTab token={token || ''} /></OsAppWindow>
+  if (pageId === 'automations') return <OsAppWindow pageId={pageId} title={t('os.apps.automations.name')} icon={getOsAppIcon(pageId)} noClip><AutomationEditorApp /></OsAppWindow>
   return renderOsAppContent(pageId)
 }
 
@@ -333,7 +361,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
     )
     // Check if navigating directly to a specific page (not the dashboard home)
     const isDirectPage = typeof window !== 'undefined' && (
-      window.location.pathname.startsWith('/app-settings/') ||
+      window.location.pathname.startsWith('/settings/apps/') ||
       window.location.pathname.startsWith('/streaming') ||
       window.location.pathname.startsWith('/docs')
     )
@@ -748,11 +776,10 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
           <Suspense fallback={<DashboardSkeleton />}>
           <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {
-            // App Settings standalone page (opened in new tab from AppStoreTab)
-            if (window.location.pathname.startsWith('/app-settings/')) {
-              return <Suspense fallback={null}><AppSettingsPage /></Suspense>
-            }
-
+            // Legacy standalone app-settings route was merged into the
+            // Settings app (/settings/apps/<id>) - the provider redirects
+            // /app-settings/* URLs, so rendering happens via the settings
+            // page below.
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
             const systemPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
 
@@ -779,7 +806,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
             const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
-            const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId)
+            const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
@@ -788,7 +815,8 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
 
             // ── 404 for pages that nobody owns ──────────────────────
             // Built-in HA entity pages always exist; everything else needs a page record.
-            if (!currentPage && !builtinPageIds.includes(currentPageId)) {
+            // Installed / catalog apps are owned by the app runtime (deep links).
+            if (!currentPage && !builtinPageIds.includes(currentPageId) && !isRuntimeAppPage(currentPageId)) {
               return (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-foreground/60">
                   <span className="text-7xl font-bold text-foreground/10">404</span>
@@ -1064,10 +1092,10 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
           getApp={(pageId) => osAppByPageId.get(pageId)}
           getName={getOsAppName}
           renderContent={(pageId) => renderOsAppContent(pageId, { inWindow: true })}
-          onMaximize={(pageId) => setCurrentPageId(pageId)}
         />
       )}
       <CommandPalette />
+      <PermissionRequestDialog />
       <OsSessionLock />
       <ORAAssistant />
       {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}

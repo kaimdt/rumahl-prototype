@@ -12,6 +12,15 @@
     "WriteCache",
     "ReadSystemInfo"
   ],
+  "lifecycle_hooks": {
+    "hooks": [
+      {
+        "event": "on_system_event",
+        "handler": "/hooks/system-event",
+        "filter": "error"
+      }
+    ]
+  },
   "endpoints": [
     {
       "path": "/api/weather/current",

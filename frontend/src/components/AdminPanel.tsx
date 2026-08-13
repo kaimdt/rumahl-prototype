@@ -134,7 +134,7 @@ export interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
+export type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
 
 // ═══ Unified Control Center Design Components ═══
 // Theme-aware, consistent input/button/card primitives for the entire Control Center.
@@ -190,7 +190,7 @@ type TabEntry = { id: Tab; label: string; icon: typeof ShieldCheck; description:
 
 /** Factory: creates the tabs array using the given translation function.
  *  Must not call i18n.t at module level — the bundler mangles it to bare t(). */
-function getTabs(t: (key: string) => string): TabEntry[] {
+export function getTabs(t: (key: string) => string): TabEntry[] {
   return [
     { id: 'services', label: t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
     { id: 'health-intelligence', label: t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
@@ -273,7 +273,7 @@ type TabGroup = {
   items: Tab[]
 }
 
-const tabGroups: TabGroup[] = [
+export const tabGroups: TabGroup[] = [
   { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'health-intelligence', 'global-config', 'developer-mode', 'dev-bridge', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure', 'devices'] },
   { id: 'ai', title: 'KI & Assistent', icon: Brain, items: ['ai-agent', 'ai-overview', 'ai-providers', 'ai-conversations', 'ai-tasks', 'ai-tools', 'ai-voice'] },
   { id: 'extensions', title: 'Apps, Plugins & Themes', icon: Palette, items: ['apps', 'plugins', 'themes', 'registrations', 'security-monitor', 'updates', 'widgets'] },
@@ -460,6 +460,86 @@ function tabToAdminPath(tab: Tab): string {
   if (tab === 'services') return '/admin'
   if (tab === 'cloud-settings') return '/admin/cloud'
   return `/admin/${tab}`
+}
+
+/// Render the content of a single admin tab (used by AdminPanel and
+/// the new AdminCenter shell). The lazy tab components are module-scope.
+export function renderAdminTabContent(tab: Tab, token: string): React.ReactNode {
+  switch (tab) {
+    case 'services': return <Suspense fallback={null}><ServicesTab token={token} /></Suspense>
+    case 'health-intelligence': return <Suspense fallback={null}><HealthIntelligenceTab token={token} /></Suspense>
+    case 'global-config': return <Suspense fallback={null}><GlobalConfigTab token={token} /></Suspense>
+    case 'developer-mode': return <Suspense fallback={null}><DeveloperModeTab token={token} /></Suspense>
+    case 'documentation': return <Suspense fallback={null}><DocumentationTab /></Suspense>
+    case 'tasks': return <Suspense fallback={null}><TasksTab token={token} /></Suspense>
+    case 'control-mode': return <Suspense fallback={null}><ControlModeTab token={token} /></Suspense>
+    case 'system': return <Suspense fallback={null}><SystemTab token={token} /></Suspense>
+    case 'system-info': return <SystemInfoTab token={token} />
+    case 'infrastructure': return <InfrastructureVisualization token={token} />
+    case 'apps': return <AppStoreTab token={token} />
+    case 'plugins': return <PluginsTab token={token} />
+    case 'registrations': return <RegistrationManagementTab token={token} />
+    case 'security-monitor': return <SecurityMonitorTab token={token} />
+    case 'updates': return <UpdateManagementTab token={token} />
+    case 'widgets': return <WidgetManagementTab token={token} />
+    case 'users': return <Suspense fallback={null}><UsersTab token={token} /></Suspense>
+    case 'presence': return <Suspense fallback={null}><PresenceTab token={token} /></Suspense>
+    case 'system-logs': return <Suspense fallback={null}><SystemLogsTab token={token} /></Suspense>
+    case 'api-keys': return <Suspense fallback={null}><ApiKeysTab token={token} /></Suspense>
+    case 'webhooks': return <Suspense fallback={null}><WebhooksTab token={token} /></Suspense>
+    case 'ha-config': return <Suspense fallback={null}><HaConfigTab token={token} /></Suspense>
+    case 'ha-connection': return <Suspense fallback={null}><HaConnectionTab token={token} /></Suspense>
+    case 'integrations': return <Suspense fallback={null}><IntegrationsTab token={token} /></Suspense>
+    case 'entities': return <Suspense fallback={null}><EntitiesTab token={token} /></Suspense>
+    case 'mqtt': return <Suspense fallback={null}><MqttTab token={token} /></Suspense>
+    case 'zigbee': return <Suspense fallback={null}><ZigbeeTab token={token} /></Suspense>
+    case 'zwave': return <Suspense fallback={null}><ZwaveTab token={token} /></Suspense>
+    case 'matter': return <Suspense fallback={null}><MatterTab token={token} /></Suspense>
+    case 'ble': return <Suspense fallback={null}><BleTab token={token} /></Suspense>
+    case 'homekit': return <Suspense fallback={null}><HomekitTab token={token} /></Suspense>
+    case 'scenes': return <Suspense fallback={null}><ScenesTab token={token} /></Suspense>
+    case 'automations': return <Suspense fallback={null}><AutomationsTab token={token} /></Suspense>
+    case 'scheduler': return <Suspense fallback={null}><SchedulerTab token={token} /></Suspense>
+    case 'analytics': return <Suspense fallback={null}><AnalyticsTab token={token} /></Suspense>
+    case 'backups': return <Suspense fallback={null}><BackupsTab token={token} /></Suspense>
+    case 'network': return <Suspense fallback={null}><NetworkTab token={token} /></Suspense>
+    case 'cloud-settings': return <Suspense fallback={null}><CloudSettingsTab token={token} /></Suspense>
+    case 'logs': return <Suspense fallback={null}><LogsTab token={token} /></Suspense>
+    case 'logbook': return <Suspense fallback={null}><LogbookTab token={token} /></Suspense>
+    case 'calendars': return <Suspense fallback={null}><CalendarsTab token={token} /></Suspense>
+    case 'realtime': return <Suspense fallback={null}><RealtimeTab token={token} /></Suspense>
+    case 'database': return <Suspense fallback={null}><DatabaseTab token={token} /></Suspense>
+    case 'warnings': return <Suspense fallback={null}><WarningsTab token={token} /></Suspense>
+    case 'system-notifications': return <Suspense fallback={null}><SystemNotificationsTab token={token} /></Suspense>
+    case 'protocols': return <Suspense fallback={null}><ProtocolsOverviewTab token={token} /></Suspense>
+    case 'ha-tools': return <Suspense fallback={null}><HaDeveloperToolsTab token={token} /></Suspense>
+    case 'global-alert': return <Suspense fallback={null}><GlobalAlertTab token={token} /></Suspense>
+    case 'notifications': return <Suspense fallback={null}><NotificationsTab token={token} /></Suspense>
+    case 'ai-overview': return <Suspense fallback={null}><AiOverviewTab token={token} /></Suspense>
+    case 'ai-providers': return <Suspense fallback={null}><AiProvidersTab token={token} /></Suspense>
+    case 'ai-conversations': return <Suspense fallback={null}><AiConversationsTab token={token} /></Suspense>
+    case 'ai-tasks': return <Suspense fallback={null}><AiTasksTab token={token} /></Suspense>
+    case 'ai-tools': return <Suspense fallback={null}><AiToolsTab token={token} /></Suspense>
+    case 'ai-voice': return <Suspense fallback={null}><AiVoiceTab token={token} /></Suspense>
+    case 'ai-agent': return <AgentTab token={token} />
+    case 'secrets': return <Suspense fallback={null}><SecretsTab token={token} /></Suspense>
+    case 'files': return <Suspense fallback={null}><FilesTab token={token} /></Suspense>
+    case 'gateway': return <Suspense fallback={null}><GatewayTab token={token} /></Suspense>
+    case 'watchdog': return <Suspense fallback={null}><WatchdogTab token={token} /></Suspense>
+    case 'connector': return <Suspense fallback={null}><ConnectorTab token={token} /></Suspense>
+    case 'domain-validator': return <Suspense fallback={null}><DomainValidatorTab token={token} /></Suspense>
+    case 'resources': return <Suspense fallback={null}><ResourcesTab token={token} /></Suspense>
+    case 'api-bridge': return <Suspense fallback={null}><ApiBridgeTab token={token} /></Suspense>
+    case 'os-ssh': return <Suspense fallback={null}><OsSshTab token={token} /></Suspense>
+    case 'os-network-config': return <Suspense fallback={null}><OsNetworkConfigTab token={token} /></Suspense>
+    case 'os-disks': return <Suspense fallback={null}><OsDisksTab token={token} /></Suspense>
+    case 'os-processes': return <Suspense fallback={null}><OsProcessesTab token={token} /></Suspense>
+    case 'os-power': return <Suspense fallback={null}><OsPowerTab token={token} /></Suspense>
+    case 'dev-bridge': return <Suspense fallback={null}><DevBridgeTab token={token} /></Suspense>
+    case 'devices': return <Suspense fallback={null}><DevicesTab token={token} /></Suspense>
+    case 'themes': return <Suspense fallback={null}><ThemesTab token={token} /></Suspense>
+    default: return null
+  }
 }
 
 export function AdminPanel() {
@@ -730,78 +810,7 @@ export function AdminPanel() {
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.15 }}
             >
-              {activeTab === 'services' && <Suspense fallback={null}><ServicesTab token={token} /></Suspense>}
-              {activeTab === 'health-intelligence' && <Suspense fallback={null}><HealthIntelligenceTab token={token} /></Suspense>}
-              {activeTab === 'global-config' && <Suspense fallback={null}><GlobalConfigTab token={token} /></Suspense>}
-              {activeTab === 'developer-mode' && <Suspense fallback={null}><DeveloperModeTab token={token} /></Suspense>}
-              {activeTab === 'documentation' && <Suspense fallback={null}><DocumentationTab /></Suspense>}
-              {activeTab === 'tasks' && <Suspense fallback={null}><TasksTab token={token} /></Suspense>}
-              {activeTab === 'control-mode' && <Suspense fallback={null}><ControlModeTab token={token} /></Suspense>}
-              {activeTab === 'system' && <Suspense fallback={null}><SystemTab token={token} /></Suspense>}
-              {activeTab === 'system-info' && <SystemInfoTab token={token} />}
-              {activeTab === 'infrastructure' && <InfrastructureVisualization token={token} />}
-              {activeTab === 'apps' && <AppStoreTab token={token} />}
-              {activeTab === 'plugins' && <PluginsTab token={token} />}
-              {activeTab === 'registrations' && <RegistrationManagementTab token={token} />}
-              {activeTab === 'security-monitor' && <SecurityMonitorTab token={token} />}
-              {activeTab === 'updates' && <UpdateManagementTab token={token} />}
-              {activeTab === 'widgets' && <WidgetManagementTab token={token} />}
-              {activeTab === 'users' && <Suspense fallback={null}><UsersTab token={token} /></Suspense>}
-              {activeTab === 'presence' && <Suspense fallback={null}><PresenceTab token={token} /></Suspense>}
-              {activeTab === 'system-logs' && <Suspense fallback={null}><SystemLogsTab token={token} /></Suspense>}
-              {activeTab === 'api-keys' && <Suspense fallback={null}><ApiKeysTab token={token} /></Suspense>}
-              {activeTab === 'webhooks' && <Suspense fallback={null}><WebhooksTab token={token} /></Suspense>}
-              {activeTab === 'ha-config' && <Suspense fallback={null}><HaConfigTab token={token} /></Suspense>}
-              {activeTab === 'ha-connection' && <Suspense fallback={null}><HaConnectionTab token={token} /></Suspense>}
-              {activeTab === 'integrations' && <Suspense fallback={null}><IntegrationsTab token={token} /></Suspense>}
-              {activeTab === 'entities' && <Suspense fallback={null}><EntitiesTab token={token} /></Suspense>}
-              {activeTab === 'mqtt' && <Suspense fallback={null}><MqttTab token={token} /></Suspense>}
-              {activeTab === 'zigbee' && <Suspense fallback={null}><ZigbeeTab token={token} /></Suspense>}
-              {activeTab === 'zwave' && <Suspense fallback={null}><ZwaveTab token={token} /></Suspense>}
-              {activeTab === 'matter' && <Suspense fallback={null}><MatterTab token={token} /></Suspense>}
-              {activeTab === 'ble' && <Suspense fallback={null}><BleTab token={token} /></Suspense>}
-              {activeTab === 'homekit' && <Suspense fallback={null}><HomekitTab token={token} /></Suspense>}
-              {activeTab === 'scenes' && <Suspense fallback={null}><ScenesTab token={token} /></Suspense>}
-              {activeTab === 'automations' && <Suspense fallback={null}><AutomationsTab token={token} /></Suspense>}
-              {activeTab === 'scheduler' && <Suspense fallback={null}><SchedulerTab token={token} /></Suspense>}
-              {activeTab === 'analytics' && <Suspense fallback={null}><AnalyticsTab token={token} /></Suspense>}
-              {activeTab === 'backups' && <Suspense fallback={null}><BackupsTab token={token} /></Suspense>}
-              {activeTab === 'network' && <Suspense fallback={null}><NetworkTab token={token} /></Suspense>}
-              {activeTab === 'cloud-settings' && <Suspense fallback={null}><CloudSettingsTab token={token} /></Suspense>}
-              {activeTab === 'logs' && <Suspense fallback={null}><LogsTab token={token} /></Suspense>}
-              {activeTab === 'logbook' && <Suspense fallback={null}><LogbookTab token={token} /></Suspense>}
-              {activeTab === 'calendars' && <Suspense fallback={null}><CalendarsTab token={token} /></Suspense>}
-              {activeTab === 'realtime' && <Suspense fallback={null}><RealtimeTab token={token} /></Suspense>}
-              {activeTab === 'database' && <Suspense fallback={null}><DatabaseTab token={token} /></Suspense>}
-              {activeTab === 'warnings' && <Suspense fallback={null}><WarningsTab token={token} /></Suspense>}
-              {activeTab === 'system-notifications' && <Suspense fallback={null}><SystemNotificationsTab token={token} /></Suspense>}
-              {activeTab === 'protocols' && <Suspense fallback={null}><ProtocolsOverviewTab token={token} /></Suspense>}
-              {activeTab === 'ha-tools' && <Suspense fallback={null}><HaDeveloperToolsTab token={token} /></Suspense>}
-              {activeTab === 'global-alert' && <Suspense fallback={null}><GlobalAlertTab token={token} /></Suspense>}
-              {activeTab === 'notifications' && <Suspense fallback={null}><NotificationsTab token={token} /></Suspense>}
-              {activeTab === 'ai-overview' && <Suspense fallback={null}><AiOverviewTab token={token} /></Suspense>}
-              {activeTab === 'ai-providers' && <Suspense fallback={null}><AiProvidersTab token={token} /></Suspense>}
-              {activeTab === 'ai-conversations' && <Suspense fallback={null}><AiConversationsTab token={token} /></Suspense>}
-              {activeTab === 'ai-tasks' && <Suspense fallback={null}><AiTasksTab token={token} /></Suspense>}
-              {activeTab === 'ai-tools' && <Suspense fallback={null}><AiToolsTab token={token} /></Suspense>}
-              {activeTab === 'ai-voice' && <Suspense fallback={null}><AiVoiceTab token={token} /></Suspense>}
-              {activeTab === 'ai-agent' && <AgentTab token={token} />}
-              {activeTab === 'secrets' && <Suspense fallback={null}><SecretsTab token={token} /></Suspense>}
-              {activeTab === 'files' && <Suspense fallback={null}><FilesTab token={token} /></Suspense>}
-              {activeTab === 'gateway' && <Suspense fallback={null}><GatewayTab token={token} /></Suspense>}
-              {activeTab === 'watchdog' && <Suspense fallback={null}><WatchdogTab token={token} /></Suspense>}
-              {activeTab === 'connector' && <Suspense fallback={null}><ConnectorTab token={token} /></Suspense>}
-              {activeTab === 'domain-validator' && <Suspense fallback={null}><DomainValidatorTab token={token} /></Suspense>}
-              {activeTab === 'resources' && <Suspense fallback={null}><ResourcesTab token={token} /></Suspense>}
-              {activeTab === 'api-bridge' && <Suspense fallback={null}><ApiBridgeTab token={token} /></Suspense>}
-              {activeTab === 'os-ssh' && <Suspense fallback={null}><OsSshTab token={token} /></Suspense>}
-              {activeTab === 'os-network-config' && <Suspense fallback={null}><OsNetworkConfigTab token={token} /></Suspense>}
-              {activeTab === 'os-disks' && <Suspense fallback={null}><OsDisksTab token={token} /></Suspense>}
-              {activeTab === 'os-processes' && <Suspense fallback={null}><OsProcessesTab token={token} /></Suspense>}
-              {activeTab === 'os-power' && <Suspense fallback={null}><OsPowerTab token={token} /></Suspense>}
-              {activeTab === 'dev-bridge' && <Suspense fallback={null}><DevBridgeTab token={token} /></Suspense>}
-              {activeTab === 'devices' && <Suspense fallback={null}><DevicesTab token={token} /></Suspense>}
-              {activeTab === 'themes' && <Suspense fallback={null}><ThemesTab token={token} /></Suspense>}
+              {renderAdminTabContent(activeTab, token)}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -989,9 +998,10 @@ export function SettingInput({ def, value, onChange, disabled }: {
 // On OS-Entwickler-Images (where /etc/iora/os-dev-mode is present and
 // `iora-dev-bridge.service` is shipping) the toggle is locked on and a
 // banner explains the implications.
-export function AdminCard({ children, title, icon: Icon, className = '' }: {
+export function AdminCard({ children, title, description, icon: Icon, className = '' }: {
   children: React.ReactNode
   title?: string
+  description?: string
   icon?: typeof Cpu
   className?: string
 }) {
@@ -1004,7 +1014,10 @@ export function AdminCard({ children, title, icon: Icon, className = '' }: {
               <Icon size={16} weight="fill" className="text-accent" />
             </div>
           )}
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+            {description && <p className="mt-0.5 text-xs text-foreground/45">{description}</p>}
+          </div>
         </div>
       )}
       {children}

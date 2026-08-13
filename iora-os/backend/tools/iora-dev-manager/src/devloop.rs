@@ -1,15 +1,75 @@
 use crate::{channels, state::RuntimeState};
 use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
     sync::atomic::{AtomicBool, Ordering},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{process::Command, sync::mpsc};
+
+/// Live progress of a running "Force Sync & Rebuild" (shared between the
+/// devloop worker and the dashboard via /api/maintenance/force-sync/status).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SyncProgressState {
+    pub running: bool,
+    /// "sync" | "build" | "restart" | "done" | "error" | "cancelled"
+    pub phase: String,
+    pub message: String,
+    pub percent: Option<u8>,
+    pub started_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// Services that were rebuilt (filled at the end).
+    pub services: Vec<String>,
+    /// Files pushed in the sync phase.
+    pub files_pushed: Option<u64>,
+    /// Set by the dashboard's Cancel button; the worker checks it between
+    /// phases and inside the build poll loop.
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SyncProgress {
+    pub inner: Arc<Mutex<SyncProgressState>>,
+}
+
+impl SyncProgress {
+    pub fn update(&self, phase: &str, message: impl Into<String>, percent: Option<u8>) {
+        let mut state = self.inner.lock().unwrap();
+        state.phase = phase.to_string();
+        state.message = message.into();
+        state.percent = percent;
+        state.updated_at = Some(now_iso());
+        if state.started_at.is_none() {
+            state.started_at = Some(now_iso());
+        }
+    }
+    pub fn snapshot(&self) -> SyncProgressState {
+        self.inner.lock().unwrap().clone()
+    }
+    pub fn request_cancel(&self) {
+        let mut state = self.inner.lock().unwrap();
+        state.cancelled = true;
+        state.message = "Abbruch angefordert — wird beendet…".into();
+        state.updated_at = Some(now_iso());
+    }
+    pub fn cancelled(&self) -> bool {
+        self.inner.lock().unwrap().cancelled
+    }
+}
+
+pub fn now_iso() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_default()
+}
 
 #[derive(Debug, Clone)]
 pub enum DevEvent {
@@ -360,14 +420,26 @@ async fn apply_changes(
         return Ok(());
     }
     let services = affected_services(&os_root.join("backend"), &rust_paths).await?;
-    for service in services {
-        let _ = events.send(DevEvent::Building(service.clone()));
-        let unit = native_unit(&service);
-        let command=format!("cd /home/iora/iora/iora-os/backend && sudo -u iora bash -c 'cd /home/iora/iora/iora-os/backend && HOME=/home/iora /home/iora/.cargo/bin/cargo build -p {} --offline' && if ! systemctl cat {} >/dev/null 2>&1; then printf %s {} > /etc/systemd/system/{}.service && systemctl daemon-reload && systemctl enable {}.service; fi && systemctl restart {} && systemctl is-active --quiet {}",shell_quote(&service),shell_quote(&service),shell_quote(&unit),service,service,shell_quote(&service),shell_quote(&service));
-        ssh_run(state, os_root, &command).await?;
-        let _ = events.send(DevEvent::Ready(format!(
-            "{service} rebuilt, restarted and healthy"
-        )));
+    if !services.is_empty() {
+        let _ = events.send(DevEvent::Building(services.join(", ")));
+        // Detached build + poll: survives SSH connection resets during long
+        // compiles (QEMU slirp drops idle sessions).
+        let _ = run_guest_build(state, os_root, &services, None).await?;
+        for service in services {
+            let unit = native_unit(&service);
+            let command = format!(
+                "printf %s {} > /etc/systemd/system/{}.service && systemctl daemon-reload && systemctl enable {}.service && systemctl restart {} && systemctl is-active --quiet {}",
+                shell_quote(&unit),
+                service,
+                service,
+                shell_quote(&service),
+                shell_quote(&service)
+            );
+            ssh_run(state, os_root, &command).await?;
+            let _ = events.send(DevEvent::Ready(format!(
+                "{service} rebuilt, restarted and healthy"
+            )));
+        }
     }
     Ok(())
 }
@@ -386,6 +458,12 @@ fn ssh_args(state: &RuntimeState, os_root: &Path) -> Vec<String> {
         "ConnectTimeout=5".into(),
         "-o".into(),
         "ConnectionAttempts=2".into(),
+        // Keep idle sessions alive: QEMU slirp resets SSH connections that
+        // stay silent for a while (seen as 'Connection reset', exit 255).
+        "-o".into(),
+        "ServerAliveInterval=15".into(),
+        "-o".into(),
+        "ServerAliveCountMax=10".into(),
         "-p".into(),
         port.to_string(),
         "-i".into(),
@@ -632,6 +710,246 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
     Ok(())
 }
 
+/// Explicit "Force Sync & Rebuild" (dashboard button): transfer every
+/// relevant source file UNCONDITIONALLY (no drift check - repairs mtime
+/// skew and missed watcher events), then rebuild all affected IORA services
+/// in the guest (cargo build, offline) and restart them. Returns a summary
+/// line; the caller decides how long to wait / where to surface progress.
+pub async fn force_full_sync(
+    repo: &Path,
+    os_root: &Path,
+    state: &RuntimeState,
+    progress: Option<&SyncProgress>,
+) -> Result<String> {
+    let started = std::time::Instant::now();
+    if let Some(progress) = progress {
+        progress.update("sync", "Sammle Quelldateien…", Some(2));
+    }
+    if !state.process_alive() {
+        if let Some(progress) = progress {
+            progress.update("error", "VM läuft nicht — zuerst starten.", None);
+        }
+        anyhow::bail!("VM is not running - start it before forcing a sync");
+    }
+    // 1) Push EVERY relevant file (not just the drift set).
+    let files = collect_local_files(repo);
+    let paths: Vec<PathBuf> = files
+        .iter()
+        .map(|(relative, _, _)| repo.join(relative))
+        .collect();
+    if paths.is_empty() {
+        anyhow::bail!("no synchronizable files found in {}", repo.display());
+    }
+    if let Some(progress) = progress {
+        progress.update(
+            "sync",
+            format!("Übertrage {} Dateien in die VM…", paths.len()),
+            Some(10),
+        );
+    }
+    if progress.is_some_and(|p| p.cancelled()) {
+        anyhow::bail!("Force Sync abgebrochen");
+    }
+    bulk_sync(repo, os_root, state, &paths).await?;
+    // Run the idempotent guest self-heal BEFORE building: it installs the
+    // GStreamer packages iora-browserd needs for WebRTC (webrtcbin/vp8enc/
+    // jpegdec + -dev for cargo) on guests that predate the provisioning
+    // change, and applies the other one-time fixes.
+    if let Ok(content) = std::fs::read_to_string(os_root.join("iora-dev-selfheal.sh")) {
+        let command = format!(
+            "echo {} | base64 -d > /tmp/iora-dev-selfheal.sh && chmod 755 /tmp/iora-dev-selfheal.sh && bash /tmp/iora-dev-selfheal.sh --apply",
+            channels::base64_encode(content.as_bytes())
+        );
+        let _ = ssh_run(state, os_root, &command).await;
+    }
+    if progress.is_some_and(|p| p.cancelled()) {
+        anyhow::bail!("Force Sync abgebrochen");
+    }
+    // 2) Rebuild every service whose sources just arrived (cargo metadata
+    //    resolves the workspace + reverse dependencies). Built detached so
+    //    the multi-minute compile survives SSH connection resets.
+    let backend = os_root.join("backend");
+    let services = affected_services(&backend, &paths).await?;
+    let mut rebuilt: Vec<String> = Vec::new();
+    if !services.is_empty() {
+        if let Some(progress) = progress {
+            progress.update(
+                "build",
+                format!("Starte Build für {} Service(s)…", services.len()),
+                Some(40),
+            );
+        }
+        let _ = run_guest_build(state, os_root, &services, progress).await?;
+        rebuilt = services;
+    }
+    // 3) Restart the rebuilt services - the unit file is ALWAYS rewritten
+    //    so environment/unit changes (e.g. iora-nginx NGINX_TEMPLATE_PATH)
+    //    take effect on an existing unit too.
+    if let Some(progress) = progress {
+        progress.update(
+            "restart",
+            format!("Starte {} Service(s) neu…", rebuilt.len()),
+            Some(90),
+        );
+    }
+    for service in &rebuilt {
+        let unit = format!("{service}.service");
+        let restart = format!(
+            "printf %s {} > /etc/systemd/system/{} && systemctl daemon-reload && systemctl enable {} && systemctl restart {} && systemctl is-active --quiet {}",
+            shell_quote(&native_unit(service)),
+            shell_quote(&unit),
+            shell_quote(&unit),
+            shell_quote(&unit),
+            shell_quote(&unit)
+        );
+        let _ = ssh_run(state, os_root, &restart).await;
+    }
+    // 4) Frontend dev server picks up config/package changes.
+    let _ = ssh_run(
+        state,
+        os_root,
+        "systemctl restart iora-frontend-dev 2>/dev/null || true",
+    )
+    .await;
+    let summary = format!(
+        "Force sync: {} file(s) pushed, {} service(s) rebuilt & restarted ({}) in {:.0}s",
+        paths.len(),
+        rebuilt.len(),
+        rebuilt.join(", "),
+        started.elapsed().as_secs_f64()
+    );
+    if let Some(progress) = progress {
+        let mut snapshot = progress.snapshot();
+        snapshot.running = false;
+        snapshot.phase = "done".into();
+        snapshot.message = summary.clone();
+        snapshot.percent = Some(100);
+        snapshot.services = rebuilt;
+        snapshot.files_pushed = Some(paths.len() as u64);
+        snapshot.updated_at = Some(now_iso());
+        *progress.inner.lock().unwrap() = snapshot;
+    }
+    Ok(summary)
+}
+
+/// Run a cargo build for the given services in the guest DETACHED (nohup)
+/// and poll until it finishes. The SSH channel is only used for short status
+/// checks, so multi-minute compiles cannot be killed by connection resets
+/// (QEMU slirp drops idle SSH sessions - seen as 'client_loop: send
+/// disconnect: Connection reset', exit 255). Returns the build log tail.
+async fn run_guest_build(
+    state: &RuntimeState,
+    os_root: &Path,
+    services: &[String],
+    progress: Option<&SyncProgress>,
+) -> Result<String> {
+    if services.is_empty() {
+        return Ok(String::new());
+    }
+    if let Some(progress) = progress {
+        progress.update(
+            "build",
+            format!(
+                "Baue {} Service(s): {} …",
+                services.len(),
+                services.join(", ")
+            ),
+            Some(45),
+        );
+    }
+    let packages: Vec<String> = services
+        .iter()
+        .flat_map(|service| ["-p".to_string(), service.clone()])
+        .collect();
+    let spec = packages.join(" ");
+    let log = "/tmp/iora-dev-build.log";
+    // Start the build detached: the SSH command returns immediately, the
+    // compile keeps running inside the guest regardless of the channel.
+    ssh_run(
+        state,
+        os_root,
+        &format!(
+            "rm -f {log} && nohup sudo -u iora bash -c 'cd /home/iora/iora/iora-os/backend && HOME=/home/iora /home/iora/.cargo/bin/cargo build {spec} --offline' >{log} 2>&1 & echo started"
+        ),
+    )
+    .await?;
+    // Poll with short SSH calls (up to 60 min for cold workspace builds).
+    // While waiting, surface the live build log tail so the dashboard can
+    // show what cargo is currently compiling. If the VM becomes unreachable
+    // (e.g. stopped by the user) the loop aborts instead of hanging until
+    // the timeout.
+    let mut finished = false;
+    let mut last_tail_at = std::time::Instant::now();
+    let mut ssh_failures = 0_u32;
+    for _ in 0..720 {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        if let Some(progress) = progress {
+            if progress.cancelled() {
+                let _ = ssh_run(state, os_root, "pkill -f 'cargo build' 2>/dev/null || true").await;
+                anyhow::bail!("Force Sync abgebrochen");
+            }
+        }
+        if progress.is_some() && last_tail_at.elapsed() >= Duration::from_secs(15) {
+            last_tail_at = std::time::Instant::now();
+            if let Ok(tail) = ssh_run(state, os_root, &format!("tail -c 2000 {log}")).await {
+                let last_line = tail
+                    .lines()
+                    .rev()
+                    .find(|line| line.contains("Compiling"))
+                    .or_else(|| tail.lines().rev().find(|line| !line.trim().is_empty()))
+                    .unwrap_or("Build läuft…");
+                if let Some(progress) = progress {
+                    progress.update("build", last_line.trim().to_string(), None);
+                }
+            }
+        }
+        let running = match ssh_run(
+            state,
+            os_root,
+            "pgrep -f 'cargo build' >/dev/null && echo RUNNING || echo DONE",
+        )
+        .await
+        {
+            Ok(output) => {
+                ssh_failures = 0;
+                output
+            }
+            Err(_) => {
+                // Guest unreachable (VM stopped / SSH broken): abort quickly
+                // instead of pretending the build is still running.
+                ssh_failures += 1;
+                if ssh_failures >= 3 {
+                    anyhow::bail!("VM nicht erreichbar — Force Sync abgebrochen (läuft die VM?)");
+                }
+                "RUNNING".to_string()
+            }
+        };
+        if running.trim() == "DONE" {
+            finished = true;
+            break;
+        }
+    }
+    if !finished {
+        anyhow::bail!("guest build timed out after 60 minutes");
+    }
+    let tail = ssh_run(state, os_root, &format!("tail -c 8000 {log}")).await?;
+    let failed = tail.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("error") || line.starts_with("error[")
+    });
+    if failed {
+        if let Some(progress) = progress {
+            progress.update(
+                "error",
+                format!("Guest-Build fehlgeschlagen:\n{}", tail.chars().take(300).collect::<String>()),
+                None,
+            );
+        }
+        anyhow::bail!("guest build failed:\n{tail}");
+    }
+    Ok(tail)
+}
+
 async fn affected_services(backend: &Path, changed: &[PathBuf]) -> Result<Vec<String>> {
     let output = Command::new("cargo")
         .args(["metadata", "--format-version", "1"])
@@ -656,9 +974,7 @@ async fn affected_services(backend: &Path, changed: &[PathBuf]) -> Result<Vec<St
             name.clone(),
             manifest.parent().unwrap_or(backend).to_path_buf(),
         );
-        if manifest.to_string_lossy().contains("/services/")
-            || manifest.to_string_lossy().contains("/apps/system/")
-        {
+        if is_service_manifest(&manifest.to_string_lossy()) {
             services.insert(name.clone());
         }
         for dep in package["dependencies"].as_array().into_iter().flatten() {
@@ -694,11 +1010,40 @@ async fn affected_services(backend: &Path, changed: &[PathBuf]) -> Result<Vec<St
     Ok(result)
 }
 
+/// A cargo package counts as a deployable IORA service when its manifest
+/// lives under `backend/services/` or `backend/apps/system/`. Path separators
+/// are matched platform-independently (Windows uses backslashes, the guest
+/// and CI use slashes) - a missed match here silently skipped every rebuild
+/// on Windows hosts.
+fn is_service_manifest(manifest: &str) -> bool {
+    let forward = manifest.replace('\\', "/");
+    forward.contains("/services/") || forward.contains("/apps/system/")
+}
+
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 fn native_unit(service: &str) -> String {
-    format!("[Unit]\nDescription=IORA development service {service}\nAfter=network-online.target postgresql.service\nWants=network-online.target\n\n[Service]\nType=simple\nUser=iora\nWorkingDirectory=/home/iora/iora/iora-os/backend\nEnvironment=IORA_ENV=development\nExecStart=/home/iora/iora/iora-os/backend/target/debug/{service}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n")
+    // iora-nginx renders /etc/nginx/nginx.conf from a template. In the dev
+    // VM the template must come from the synced sources (services/iora-nginx/
+    // nginx-config/), NOT the stale /usr/share image snapshot - otherwise
+    // the WebSocket upgrade headers (Connection/Upgrade relay) are missing
+    // and app proxy tunnels fail with 'websocket upgrade required'.
+    let environment = match service {
+        "iora-nginx" => {
+            "\nEnvironment=NGINX_TEMPLATE_PATH=/home/iora/iora/iora-os/backend/services/iora-nginx/nginx-config/nginx.conf.template"
+        }
+        // iora-browserd WebRTC in the dev VM: the guest IP is unreachable
+        // from the host browser, so ICE candidates must be rewritten to
+        // 127.0.0.1:40000 (QEMU UDP forward + socat hop in the guest).
+        // Without this the WebRTC session never connects and only the
+        // canvas fallback remains.
+        "iora-browserd" => "\nEnvironment=IORA_WEBRTC_CANDIDATE_HOST=127.0.0.1",
+        _ => "",
+    };
+    format!(
+        "[Unit]\nDescription=IORA development service {service}\nAfter=network-online.target postgresql.service\nWants=network-online.target\n\n[Service]\nType=simple\nUser=iora\nWorkingDirectory=/home/iora/iora/iora-os/backend{environment}\nEnvironment=IORA_ENV=development\nExecStart=/home/iora/iora/iora-os/backend/target/debug/{service}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n"
+    )
 }
 fn encode_base64(bytes: &[u8]) -> String {
     const MAP: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -729,6 +1074,26 @@ mod tests {
     #[test]
     fn base64_matches_qga_payload() {
         assert_eq!(encode_base64(b"IORA"), "SU9SQQ==");
+    }
+    #[test]
+    fn service_manifest_detection_is_separator_agnostic() {
+        // Windows cargo metadata returns backslash paths - a missed match
+        // here silently skipped every guest rebuild on Windows hosts.
+        assert!(is_service_manifest(
+            r"C:\repo\iora-os\backend\services\iora-home\Cargo.toml"
+        ));
+        assert!(is_service_manifest(
+            "C:/repo/iora-os/backend/services/iora-home/Cargo.toml"
+        ));
+        assert!(is_service_manifest(
+            r"C:\repo\iora-os\backend\apps\system\iora-developer-app\Cargo.toml"
+        ));
+        assert!(!is_service_manifest(
+            "C:/repo/iora-os/backend/tools/iora-dev-manager/Cargo.toml"
+        ));
+        assert!(!is_service_manifest(
+            "C:/repo/iora-os/backend/shared/iora-shared/Cargo.toml"
+        ));
     }
     #[test]
     fn ignores_build_outputs() {
