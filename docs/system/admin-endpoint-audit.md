@@ -57,6 +57,18 @@ Zusätzlich geprüft wurden die expliziten `method:`-Aufrufe (96):
   - Auth/Permission-Checks pro Endpoint
 - Diese Punkte erfordern einen laufenden Backend-Server bzw. Integrationstests.
 
+## Vollständiger Scan (alle Frontend-Dateien)
+
+Das Endpoint-Audit scannt automatisch **alle `.ts`/`.tsx`-Dateien** unter
+`frontend/src` (Admin-Tabs, Native Apps, Widgets, Shell, Settings, Docs,
+AppStore, Launcher, AI-Oberflächen …) und prüft jeden API-Pfad. Zusätzlich
+werden Rocket-Macro-Routen (`#[post("/…")]`) und `*path`-Wildcard-Routen
+erkannt; die Proxies zu iora-backup, iora-control, iora-files,
+iora-network-monitor, iora-secrets, iora-appstore, iora-connector,
+iora-assist, iora-watchdog, iora-updater und iora-resource-manager sind
+abgebildet. **Ergebnis: alle API-Pfade der gesamten Frontend-Codebase
+existieren als Backend-Routen.**
+
 ## Erweiterung: Native Apps & Widgets auditiert
 
 Das Endpoint-Audit deckt zusätzlich alle neuen OS-Oberflächen ab:
@@ -75,9 +87,13 @@ Jobs ↔ `system_jobs`, Files/quota, Network-Devices, Device-Registry,
 systemd-Services, Supervisor-Apps, Container-Resources, Media-Items,
 Log-Sources.
 
-**Ergebnis:** alle Frontend-Interfaces sind von den Backend-JSON-Feldern
-gedeckt. Union-/Array-Felder (z. B. `ports?: Array<string | {…}>`) und
-optional-Felder werden als tolerant behandelt.
+Das Format-Audit deckt inzwischen **16 Endpoint-Paare** (zusätzlich:
+JobCenter ↔ `system_jobs`, AppStore ↔ local_appstore, Maintenance ↔
+update-system). **Ergebnis:** alle Frontend-Interfaces sind von den
+Backend-JSON-Feldern gedeckt. Union-/Array-Felder (z. B.
+`ports?: Array<string | {…}>`) und optional-Felder werden als tolerant
+behandelt; Frontend-Mapping-Typen (z. B. OsImagesApp.ImageEntry) sind
+dokumentiert ausgeklammert.
 
 ## Wiederholen
 

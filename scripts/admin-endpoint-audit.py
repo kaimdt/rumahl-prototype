@@ -15,26 +15,21 @@ import sys
 ROOT = 'iora-os/backend'
 FRONTEND = 'frontend/src'
 route_re = re.compile(r'\.route\(\s*"([^"]+)"')
-ADMIN_FILES = [
-    'components/AdminPanel.tsx', 'components/AdminPanelTabs.tsx',
-    'components/adminTabs/ai.tsx', 'components/adminTabs/core.tsx',
-    'components/adminTabs/homeAssistant.tsx', 'components/adminTabs/iot.tsx',
-    'components/adminTabs/network.tsx', 'components/adminTabs/os.tsx',
-    'components/adminTabs/services.tsx', 'components/adminTabs/tools.tsx',
-    # Native OS apps + widgets (Packages 3/5/6) + OS shell surfaces
-    'components/OsStorageApp.tsx', 'components/OsContainersApp.tsx',
-    'components/OsLogsApp.tsx', 'components/OsServicesApp.tsx',
-    'components/OsDevicesApp.tsx', 'components/OsSystemApp.tsx',
-    'components/OsImagesApp.tsx', 'components/OsFileExplorer.tsx',
-    'components/JobCenterPanel.tsx', 'components/ClipboardManager.tsx',
-    'components/PermissionRequestDialog.tsx', 'components/CommandPalette.tsx',
-    'components/OsSystemShell.tsx', 'components/OsTerminal.tsx',
-    'components/widgets/OraMediaWidget.tsx', 'components/widgets/OraJobsWidget.tsx',
-    'components/widgets/OraStorageWidget.tsx', 'components/widgets/OraSystemWidget.tsx',
-    'components/widgets/OraRecentFilesWidget.tsx', 'components/widgets/OraPresenceWidget.tsx',
-    'components/settings/SettingsSystem.tsx', 'components/SettingsPage.tsx',
-    'contexts/AuthContext.tsx', 'contexts/OsWindowContext.tsx',
-]
+def all_frontend_files():
+    files = []
+    for root, dirs, names in os.walk(FRONTEND):
+        dirs[:] = [d for d in dirs if d not in ('test', '__tests__')]
+        for name in names:
+            if not (name.endswith('.tsx') or name.endswith('.ts')):
+                continue
+            if '.bak.' in name or name.endswith('.test.ts') or name.endswith('.test.tsx'):
+                continue
+            rel = os.path.relpath(os.path.join(root, name), FRONTEND)
+            files.append(rel)
+    return sorted(files)
+
+
+ADMIN_FILES = all_frontend_files()
 
 
 def extract_routes(base):
@@ -46,6 +41,8 @@ def extract_routes(base):
             except Exception:
                 continue
             for m in route_re.finditer(src):
+                routes.add(m.group(1))
+            for m in re.finditer(r'#\[(?:get|post|put|delete|patch)\(\s*"([^"]+)"', src):
                 routes.add(m.group(1))
     return routes
 
@@ -69,6 +66,7 @@ def main():
     def norm(p):
         p = p.split('?')[0]
         p = re.sub(r':[A-Za-z_][A-Za-z0-9_]*', '{}', p)
+        p = re.sub(r'\*[A-Za-z_][A-Za-z0-9_]*', '{}', p)
         p = re.sub(r'\$\{[^}]*\}', '{}', p)
         return p.rstrip('/')
 
@@ -96,7 +94,8 @@ def main():
         if fp.startswith('/api/os/control/'):
             return control, '/api/control/' + fp[len('/api/os/control/'):]
         if fp.startswith('/api/os/backups/'):
-            return None, None
+            backup = extract_routes(os.path.join(ROOT, 'services/iora-backup/src'))
+            return backup, '/api/backup/' + fp[len('/api/os/backups/'):]
         if fp.startswith('/api/files'):
             return files, fp
         if fp.startswith('/api/network/') or fp.startswith('/api/metrics') or fp.startswith('/api/interfaces') or fp.startswith('/api/mqtt/topics'):

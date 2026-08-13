@@ -31,6 +31,12 @@ PAIRS = [
     ('services/iora-resource-manager/src/main.rs', 'components/OsContainersApp.tsx', ['ContainerResource']),
     ('services/iora-home/src/media_handler.rs', 'components/widgets/OraMediaWidget.tsx', ['MediaItem']),
     ('services/iora-home/src/logs_handler.rs', 'components/OsLogsApp.tsx', ['LogSource']),
+    # Additional components
+    ('services/iora-home/src/job_handler.rs', 'components/JobCenterPanel.tsx', ['SystemJob']),
+    # OsImagesApp maps FileRecords into ImageEntry/FolderEntry (frontend
+    # transformation types, not 1:1 JSON) — covered by the files pair above.
+    ('services/iora-home/src/local_appstore.rs', 'components/AppStoreTab.tsx', ['AppInfo', 'PortInfo']),
+    ('services/iora-home/src/update_system.rs', 'components/OsMaintenanceApp.tsx', ['UpdateInfo', 'BackupInfo']),
 ]
 
 
