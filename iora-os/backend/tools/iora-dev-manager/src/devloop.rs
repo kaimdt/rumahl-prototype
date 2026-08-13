@@ -194,6 +194,26 @@ fn relevant(path: &Path) -> bool {
     }) {
         return false;
     }
+    // Host-only development tooling under iora-os/tools (vscode-iora-dev,
+    // iora-dev-deploy) must NOT be mirrored: the guest-side timestamp map
+    // only tracks iora-os/backend/tools. Without this exclusion those files
+    // are permanently "stale" (missing from the guest map), so the periodic
+    // drift check re-pushes and re-touches them (plus everything else in the
+    // touch window) every ~45s — the guest chokidar sees spurious writes,
+    // Vite restarts on package.json/vite.config.ts "changes" and the
+    // browser's dynamic imports fail with "Failed to fetch dynamically
+    // imported module".
+    {
+        let comps: Vec<&str> = path
+            .components()
+            .filter_map(|part| part.as_os_str().to_str())
+            .collect();
+        if let Some(i) = comps.iter().position(|name| *name == "iora-os") {
+            if comps.get(i + 1).map(|name| *name) == Some("tools") {
+                return false;
+            }
+        }
+    }
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
         Some("ts" | "tsx" | "css" | "rs" | "sql" | "json" | "service" | "html" | "js" | "yaml" | "yml")
@@ -510,10 +530,13 @@ async fn bulk_sync(repo: &Path, os_root: &Path, state: &RuntimeState, paths: &[P
     let mut ssh = Command::new("ssh");
     ssh.args(ssh_args(state, os_root))
         .arg(format!("root@{host}"))
-        // The tar preserves the local (UTC+2) mtimes — on the UTC guest the
-        // files look older than they are, so cargo would never rebuild.
-        // Touching everything that just arrived fixes incremental builds.
-        .arg("tar -xf - -C /home/iora/iora && chown -R iora:iora /home/iora/iora/frontend /home/iora/iora/iora-os/backend /home/iora/iora/custom_components && find /home/iora/iora/frontend /home/iora/iora/iora-os/backend /home/iora/iora/custom_components -mmin -2 -exec touch -m {} + 2>/dev/null")
+        // The tar preserves the local mtimes — on the UTC guest the files
+        // look older than they are, so cargo would never rebuild. `--touch`
+        // stamps exactly the extracted files with the guest's current time
+        // (the previous `find -mmin -2 -exec touch -m` re-touched every file
+        // inside the 2-minute window on each cycle, keeping the guest
+        // chokidar busy and restarting Vite on spurious config changes).
+        .arg("tar -xf - -C /home/iora/iora --touch && chown -R iora:iora /home/iora/iora/frontend /home/iora/iora/iora-os/backend /home/iora/iora/custom_components")
         .stdin(Stdio::piped());
     let mut ssh_child = ssh.spawn().context("spawn ssh")?;
     {

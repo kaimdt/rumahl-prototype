@@ -1828,6 +1828,7 @@ apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
     python3 python3-pip htop vim mold nginx openssl socat \
     sudo systemd-container \
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-tools
 systemctl enable --now docker postgresql nginx 2>/dev/null || true
@@ -1955,14 +1956,33 @@ incremental = false
         Write-Dim "  (no host cargo registry found - skipping seeding)"
     }
 
-    Write-Info "Pre-building all services (first boot after reset starts fast)..."
-    $prebuildOut = Invoke-SSH 'su - iora -c ''cd /home/iora/iora/iora-os/backend && cargo build --workspace 2>&1 | tail -2'''
-    $prebuildOut | Select-Object -Last 3
-    if (($prebuildOut -join "`n") -match "Finished") {
-        Write-Success "Workspace prebuilt - services start instantly after a reset"
-    } else {
-        Write-Warn "Workspace prebuild did not finish cleanly - the first boot after a reset will build services serially (slow)"
-    }
+    Write-Info "Pre-building all services IN THE BACKGROUND (full log: /home/iora/.iora-prebuild.log)..."
+    # Background prebuild: the FULL cargo output goes to the VM-side log file
+    # (no more tail -2 truncation). The result is awaited and reported in
+    # full before Step 10 (Verification) below.
+    $prebuildStarted = $true
+    $startPrebuild = @'
+set -e
+# Idempotent: re-runs of dev-local must not start a second build.
+if pgrep -f '/home/iora/.iora-prebuild.sh' >/dev/null 2>&1; then
+    echo "prebuild already running - reusing it"
+    exit 0
+fi
+rm -f /home/iora/.iora-prebuild.log /home/iora/.iora-prebuild.pid
+cat > /home/iora/.iora-prebuild.sh <<'EOF'
+#!/bin/bash
+# Background workspace prebuild (warm cargo cache = fast first boot).
+# Runs as root via nohup; the cargo build itself runs as `iora` (su -).
+su - iora -c 'cd /home/iora/iora/iora-os/backend && cargo build --workspace' >> /home/iora/.iora-prebuild.log 2>&1
+echo "PREBUILD_EXIT=$?" >> /home/iora/.iora-prebuild.log
+rm -f /home/iora/.iora-prebuild.pid
+EOF
+chmod 755 /home/iora/.iora-prebuild.sh
+setsid nohup /home/iora/.iora-prebuild.sh >/dev/null 2>&1 &
+echo $! > /home/iora/.iora-prebuild.pid
+echo "prebuild started (pid $!) - provisioning continues in parallel"
+'@
+    Invoke-SSHStdin $startPrebuild | Select-Object -Last 1
 
     Write-Info "Applying IORA OS compat layer + improvements (one SSH session)..."
     $compatScript = @'
@@ -2314,6 +2334,40 @@ fi
         } finally { Pop-Location }
     } else {
         Write-Warn "npm not available - skipping frontend build."
+    }
+}
+
+# -- Step 10: Background prebuild report ------------------------------------
+# The workspace prebuild runs in the background during provisioning; its
+# FULL output lives in /home/iora/.iora-prebuild.log. Wait for it here and
+# print the complete error context on failure (no more tail -2 truncation).
+if ($prebuildStarted) {
+    Write-Info "Waiting for the background workspace prebuild to finish..."
+    $prebuildDone = $false
+    $prebuildWaitStart = Get-Date
+    while (((Get-Date) - $prebuildWaitStart).TotalMinutes -lt 45) {
+        $prebuildState = Invoke-SSH 'grep -q PREBUILD_EXIT= /home/iora/.iora-prebuild.log 2>/dev/null && echo DONE || echo RUNNING'
+        if ("$prebuildState" -match "DONE") { $prebuildDone = $true; break }
+        Start-Sleep -Seconds 15
+    }
+    if (-not $prebuildDone) {
+        Write-Warn "Prebuild still running after 45 min - continuing. Log: /home/iora/.iora-prebuild.log"
+    } else {
+        $prebuildExit = (Invoke-SSH 'grep "PREBUILD_EXIT=" /home/iora/.iora-prebuild.log 2>/dev/null | tail -1').ToString().Trim()
+        if ($prebuildExit -match "PREBUILD_EXIT=0") {
+            Write-Success "Workspace prebuilt - services start instantly after a reset"
+        } else {
+            Write-Warn "Workspace prebuild FAILED ($prebuildExit) - first boot after a reset will build services serially (slow)"
+            Write-Info "Full error from the background prebuild log:"
+            (Invoke-SSH "grep -nE '^error|^warning: build failed|-->|could not compile|failed to run custom build command' /home/iora/.iora-prebuild.log 2>/dev/null | head -60") | ForEach-Object { Write-Dim "  $_" }
+            Write-Dim "  --- last log lines ---"
+            (Invoke-SSH 'tail -n 15 /home/iora/.iora-prebuild.log 2>/dev/null') | ForEach-Object { Write-Dim "  $_" }
+            # Keep the full log on the host for inspection
+            $logDest = Join-Path $CACHE "logs\prebuild.log"
+            New-Item -ItemType Directory -Force -Path (Split-Path $logDest) | Out-Null
+            & $SCP_BIN @SSH_OPTS -i $SSH_KEY -P $VM_SSH_PORT "root@${VM_HOST}:/home/iora/.iora-prebuild.log" $logDest 2>&1 | Out-Null
+            Write-Info "Full prebuild log copied to: $logDest"
+        }
     }
 }
 

@@ -173,7 +173,7 @@ function DashboardContent() {
   // Keeps deep-linked `/app/<id>` routes resolvable after a browser reload,
   // without requiring the launcher to have been mounted first.
   const { allApps: installedRuntimeApps } = useInstalledApps()
-  const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images']
+  const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images', 'os-security', 'os-storage', 'os-devices', 'os-containers', 'os-logs', 'os-services']
   // App pages owned by the app runtime: installed apps + catalog apps render
   // even without a dashboard page record, so deep links like
   // /app/ora-browser work directly (also with proxy-only/local apps that
@@ -783,7 +783,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
             // /app-settings/* URLs, so rendering happens via the settings
             // page below.
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
-            const systemPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+            const systemPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images', 'os-security', 'os-storage', 'os-devices', 'os-containers', 'os-logs', 'os-services']
 
             const resolvePageType = (): 'dashboard' | 'app' | 'system' | 'custom' => {
               if (currentPage?.pageType) return currentPage.pageType
@@ -807,7 +807,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
 
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
-            const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups']
+            const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images', 'os-security', 'os-storage', 'os-devices', 'os-containers', 'os-logs', 'os-services']
             const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──

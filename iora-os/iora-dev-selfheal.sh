@@ -244,6 +244,7 @@ gstreamer_check() {
     apt-get update -qq 2>/dev/null || true
     apt-get install -y -qq --no-install-recommends \
         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+        libgstreamer-plugins-bad1.0-dev \
         gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
         gstreamer1.0-plugins-bad gstreamer1.0-tools 2>&1 | tail -2 || true
     if pkg-config --exists gstreamer-1.0 gstreamer-webrtc-1.0 2>/dev/null; then
