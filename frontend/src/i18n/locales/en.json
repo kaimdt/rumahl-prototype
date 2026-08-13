@@ -219,7 +219,28 @@
         "os.backups": "Manage backups"
       }
     },
+    "securityCenter": {
+      "title": "Security Center",
+      "description": "Firewall, malware protection, integrity monitoring and automated containment",
+      "loadFailed": "Security status could not be loaded.",
+      "scanFailed": "The malware scan could not be completed.",
+      "updateFailed": "The scanner configuration could not be updated.",
+      "protection": "Protection status",
+      "active": "Active",
+      "degraded": "Degraded",
+      "health": { "healthy": "Healthy", "degraded": "Degraded", "compromised": "Compromised" },
+      "compromisedTitle": "Security protection is compromised",
+      "compromisedDescription": "Critical protection controls are ineffective. Review the reported causes immediately.",
+      "reasons": { "audit_chain_invalid": "Audit chain invalid", "helper_unavailable": "Enforcement helper unavailable", "firewall_ineffective": "Firewall ineffective", "scanner_unavailable": "Scanner unavailable", "integrity_stale": "Integrity monitor stale", "definitions_outdated": "Malware definitions outdated" },
+      "policies": "Active policies",
+      "quarantine": "Quarantine items",
+      "scanners": "Scanner providers",
+      "priority": "Priority {{value}}",
+      "scanNow": "Scan now",
+      "responsePolicies": "Response policies"
+    },
     "apps": {
+      "security": { "name": "Security Center", "description": "Firewall, malware and integrity protection" },
       "home": {
         "name": "Home",
         "description": "Smart home dashboard and automations"

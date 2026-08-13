@@ -219,7 +219,28 @@
         "os.backups": "Backups verwalten"
       }
     },
+    "securityCenter": {
+      "title": "Security Center",
+      "description": "Firewall, Malware-Schutz, Integritätsüberwachung und automatische Eindämmung",
+      "loadFailed": "Der Sicherheitsstatus konnte nicht geladen werden.",
+      "scanFailed": "Der Malware-Scan konnte nicht abgeschlossen werden.",
+      "updateFailed": "Die Scanner-Konfiguration konnte nicht aktualisiert werden.",
+      "protection": "Schutzstatus",
+      "active": "Aktiv",
+      "degraded": "Eingeschränkt",
+      "health": { "healthy": "Geschützt", "degraded": "Eingeschränkt", "compromised": "Kompromittiert" },
+      "compromisedTitle": "Der Sicherheitsschutz ist kompromittiert",
+      "compromisedDescription": "Kritische Schutzkontrollen sind unwirksam. Prüfe die gemeldeten Ursachen sofort.",
+      "reasons": { "audit_chain_invalid": "Audit-Kette ungültig", "helper_unavailable": "Enforcement-Helper nicht verfügbar", "firewall_ineffective": "Firewall unwirksam", "scanner_unavailable": "Scanner nicht verfügbar", "integrity_stale": "Integritätsmonitor veraltet", "definitions_outdated": "Malware-Definitionen veraltet" },
+      "policies": "Aktive Policies",
+      "quarantine": "Quarantäne-Elemente",
+      "scanners": "Scanner-Provider",
+      "priority": "Priorität {{value}}",
+      "scanNow": "Jetzt scannen",
+      "responsePolicies": "Reaktions-Policies"
+    },
     "apps": {
+      "security": { "name": "Security Center", "description": "Firewall-, Malware- und Integritätsschutz" },
       "home": {
         "name": "Home",
         "description": "Smart-Home-Dashboard und Automationen"

@@ -1794,6 +1794,20 @@ async fn main() -> anyhow::Result<()> {
             "/api/admin/logs/source/:source_id",
             get(logs_handler::get_source_logs),
         )
+        // Security Center is admin-only. Authorization is enforced here before
+        // the trusted proxy marker is attached for iora-security.
+        .route("/api/core/security/center/overview", get(proxy_core_security))
+        .route(
+            "/api/core/security/center/providers",
+            get(proxy_core_security).post(proxy_core_security),
+        )
+        .route(
+            "/api/core/security/center/policies",
+            get(proxy_core_security).post(proxy_core_security),
+        )
+        .route("/api/core/security/center/scans", post(proxy_core_security))
+        .route("/api/core/security/center/quarantine/restore", post(proxy_core_security))
+        .route("/api/core/security/center/firewall", post(proxy_core_security))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::require_admin,
@@ -6923,6 +6937,10 @@ async fn proxy_files_share(
         .unwrap_or_else(|_| req.uri().clone());
     let (mut parts, body) = req.into_parts();
     parts.uri = new_uri;
+    // These routes live in the authenticated admin router. The downstream
+    // service rejects direct requests and trusts only this explicit marker.
+    parts.headers.insert("x-iora-proxy", axum::http::HeaderValue::from_static("iora-home"));
+    parts.headers.insert("x-iora-permissions", axum::http::HeaderValue::from_static("security_admin"));
     let new_req = axum::extract::Request::<Body>::from_parts(parts, body);
     forward_request_to(&state, &base, new_req).await
 }

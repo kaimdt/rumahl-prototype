@@ -1185,7 +1185,8 @@ build_service_binaries() {
                     iora-api iora-appstore iora-backup iora-connector \
                     iora-dev-bridge iora-domain-validator iora-files \
                     iora-network-monitor iora-nginx iora-resource-manager \
-                    iora-updater iora-developer-app iora-intelligence"
+                    iora-updater iora-developer-app iora-intelligence \
+                    iora-runtime-sensor iora-runtime-identity iora-runtime-policy iora-incident-engine"
     # CLI tools as `package:binary` pairs (binary may differ from crate name —
     # iora-cli ships its binary as `ora`, the user-facing command).
     local CLI_TOOLS="iora-cli:ora iora-sign:iora-sign iora-verify:iora-verify"

@@ -156,3 +156,8 @@ BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_IORA_PATH)/board/iora-rpi/rootfs-overlay"
 
 # External tree
 BR2_EXTERNAL_IORA_PATH="$(BR2_EXTERNAL)"
+
+# IORA Security Center providers
+BR2_PACKAGE_NFTABLES=y
+BR2_PACKAGE_CLAMAV=y
+BR2_PACKAGE_YARA=y

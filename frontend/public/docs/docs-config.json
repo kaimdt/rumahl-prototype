@@ -148,6 +148,35 @@
           "path": "security/README.md"
         },
         {
+          "title": "ORA OS Security Center",
+          "path": "security/security-center.md",
+          "highlight": true
+        },
+        {
+          "title": "Security Foundation Baseline",
+          "path": "security/security-foundation-baseline.md"
+        },
+        {
+          "title": "Runtime Sensor 2.1",
+          "path": "security/runtime-sensor.md"
+        },
+        {
+          "title": "Runtime Identity 2.2",
+          "path": "security/runtime-identity.md"
+        },
+        {
+          "title": "App Security Profiles 2.3",
+          "path": "security/app-security-profiles.md"
+        },
+        {
+          "title": "Runtime Detection 2.4",
+          "path": "security/runtime-detection.md"
+        },
+        {
+          "title": "Incident Correlation 2.5",
+          "path": "security/incident-correlation.md"
+        },
+        {
           "title": "Permission System",
           "path": "security/permissions.md"
         },

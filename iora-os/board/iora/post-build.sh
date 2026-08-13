@@ -3843,6 +3843,27 @@ grep -q '^iora:' "${TARGET_DIR}/etc/group" 2>/dev/null || \
 grep -q '^iora:' "${TARGET_DIR}/etc/shadow" 2>/dev/null || \
     echo 'iora:!:19000:0:99999:7:::' >> "${TARGET_DIR}/etc/shadow"
 
+# Security uses a dedicated UID as a kernel-enforced trust boundary for the
+# privileged helper socket. No other IORA service runs under this identity.
+if awk -F: '$3 == 919 && $1 != "iora-security" { found=1 } END { exit !found }' "${TARGET_DIR}/etc/passwd"; then
+    echo "IORA OS: ERROR: reserved security UID 919 is already assigned" >&2
+    exit 1
+fi
+if awk -F: '$3 == 919 && $1 != "iora-security" { found=1 } END { exit !found }' "${TARGET_DIR}/etc/group"; then
+    echo "IORA OS: ERROR: reserved security GID 919 is already assigned" >&2
+    exit 1
+fi
+grep -q '^iora-security:' "${TARGET_DIR}/etc/passwd" 2>/dev/null || \
+    echo 'iora-security:x:919:919:IORA Security:/var/lib/iora/iora-security:/sbin/nologin' \
+        >> "${TARGET_DIR}/etc/passwd"
+grep -q '^iora-security:' "${TARGET_DIR}/etc/group" 2>/dev/null || \
+    echo 'iora-security:x:919:' >> "${TARGET_DIR}/etc/group"
+grep -q '^iora-security:' "${TARGET_DIR}/etc/shadow" 2>/dev/null || \
+    echo 'iora-security:!:19000:0:99999:7:::' >> "${TARGET_DIR}/etc/shadow"
+# Database credentials remain group-readable by the shared `iora` group; add
+# only the Security UID as a supplementary member.
+sed -i 's/^iora:x:900:.*$/iora:x:900:iora-security/' "${TARGET_DIR}/etc/group"
+
 # Per-service data directories (on the ZRAM /var, created at runtime by zram.service).
 # We also create them here so they exist on the rootfs overlay as a fallback.
 for svc in iora-core iora-home iora-control iora-assist \
@@ -4230,7 +4251,7 @@ OnFailure=iora-security.service
 EOF
 
 # iora-security — security monitoring (AppArmor profile applies)
-write_iora_service "iora-security" "8095" "iora" "" "Security Monitor"
+write_iora_service "iora-security" "8095" "iora-security" "" "Security Monitor"
 
 # iora-gateway — sandboxed external integrations (AppArmor profile applies)
 write_iora_service "iora-gateway" "8096" "iora" "" "External Gateway"
@@ -4576,7 +4597,8 @@ ExecStart=/bin/sh -c '\
   tmp=$(mktemp); \
   echo "# IORA binary integrity manifest — generated $(date -Iseconds)" > "$tmp"; \
   for svc in iora-core iora-home iora-control iora-assist \
-              iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor; do \
+              iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor \
+              iora-runtime-sensor iora-runtime-identity iora-runtime-policy iora-incident-engine; do \
     bin="/opt/iora/build/${svc}/bin/${svc}"; \
     [ -f "$bin" ] || continue; \
     sha256sum "$bin" >> "$tmp"; \
@@ -4776,5 +4798,273 @@ _link_unit "plymouth-quit.service"       "${MULTIUSER_WANTS}"
 _link_unit "plymouth-quit-wait.service"  "${MULTIUSER_WANTS}"
 
 echo "IORA OS: Plymouth boot splash configured (theme: iora)."
+
+# ── IORA Security enforcement plane ─────────────────────────────────────────
+# The API service is unprivileged. Only this socket-activated companion runs as
+# root, with a closed command protocol and no shell execution capability.
+mkdir -p "${TARGET_DIR}/etc/iora/security/yara" "${TARGET_DIR}/var/lib/iora-security/quarantine"
+cat > "${TARGET_DIR}/etc/iora/security/firewall.nft" <<'NFT'
+table inet iora_security {
+  set blocked_v4 { type ipv4_addr; flags timeout; }
+  set blocked_v6 { type ipv6_addr; flags timeout; }
+  set allowed_tcp_ports { type inet_service; elements = { 80, 443, 8126 }; }
+  chain input {
+    type filter hook input priority -10; policy drop;
+    ct state invalid drop
+    ct state established,related accept
+    iifname "lo" accept
+    ip saddr @blocked_v4 drop
+    ip6 saddr @blocked_v6 drop
+    tcp flags & (fin|syn|rst|ack) == syn limit rate 100/second burst 200 packets accept
+    tcp dport @allowed_tcp_ports ct state new limit rate 50/second burst 100 packets accept
+    ip protocol icmp limit rate 10/second accept
+    ip6 nexthdr ipv6-icmp limit rate 10/second accept
+  }
+  chain forward {
+    type filter hook forward priority -10; policy drop;
+    ct state established,related accept
+    iifname "docker*" oifname "docker*" accept
+    iifname "docker*" oifname != "docker*" ct state new limit rate 200/second burst 400 packets accept
+  }
+}
+NFT
+cat > "${TARGET_DIR}/etc/iora/security/lockdown.nft" <<'NFT'
+table inet iora_lockdown {
+  chain input {
+    type filter hook input priority -100; policy drop;
+    iifname "lo" accept
+    ct state established,related accept
+    ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } tcp dport 8126 ct state new limit rate 5/minute burst 10 packets accept
+  }
+  chain forward { type filter hook forward priority -100; policy drop; }
+}
+NFT
+cat > "${TARGET_DIR}/etc/iora/security/yara/iora-baseline.yar" <<'YARA'
+rule IORA_Suspicious_Remote_Script {
+  meta: description = "Remote download followed by script execution"
+  strings: $download = /(?:curl|wget)[^\n]{0,256}(?:sh|bash|python)/ nocase
+  condition: $download
+}
+rule IORA_Reverse_Shell {
+  strings: $tcp = "/dev/tcp/" ascii $netcat = /nc\s+-e\s+/ ascii
+  condition: any of them
+}
+YARA
+cat > "${TARGET_DIR}/etc/systemd/system/iora-security-helper.service" <<'EOF'
+[Unit]
+Description=IORA Security privileged enforcement helper
+Before=iora-security.service docker.service
+After=local-fs.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/opt/iora/build/iora-security-helper/bin/iora-security-helper
+Restart=always
+RestartSec=2
+User=root
+Group=root
+UMask=007
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadWritePaths=/run/iora /etc/iora/security /var/lib/iora-security
+
+[Install]
+WantedBy=multi-user.target
+EOF
+cat > "${TARGET_DIR}/etc/systemd/system/iora-security-firewall.service" <<'EOF'
+[Unit]
+Description=IORA nftables baseline and container firewall
+Before=docker.service network-online.target
+After=iora-security-helper.service
+Requires=iora-security-helper.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -c -f /etc/iora/security/firewall.nft
+ExecStart=/usr/sbin/nft -f /etc/iora/security/firewall.nft
+RemainAfterExit=yes
+User=root
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+for unit in iora-security-helper.service iora-security-firewall.service; do
+  ln -sf "/etc/systemd/system/${unit}" "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/${unit}"
+done
+
+mkdir -p "${TARGET_DIR}/etc/systemd/system/iora-security.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/iora-security.service.d/20-hardening.conf" <<'EOF'
+[Unit]
+Requires=iora-security-helper.service
+After=iora-security-helper.service
+
+[Service]
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadWritePaths=/var/lib/iora-security /run/iora
+EOF
+
+echo "IORA OS: Security enforcement plane and baseline policies installed."
+
+# Phase 2.1 consumer is deliberately unprivileged and read-only. A separately
+# reviewed CAP_BPF/CAP_PERFMON loader forwards normalized ring-buffer records
+# to its root-owned 0600 ingest socket; the consumer has no enforcement access.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-runtime-sensor.service" <<'EOF'
+[Unit]
+Description=IORA Runtime Sensor event consumer
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/opt/iora/build/iora-runtime-sensor/bin/iora-runtime-sensor
+User=iora-security
+Group=iora-security
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RuntimeDirectory=iora/runtime-sensor
+ReadWritePaths=/run/iora/runtime-sensor
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-runtime-sensor.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-runtime-sensor.service"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-runtime-identity.service" <<'EOF'
+[Unit]
+Description=IORA Runtime Identity Resolver
+After=iora-runtime-sensor.service iora-supervisor.service
+Wants=iora-runtime-sensor.service
+
+[Service]
+Type=simple
+ExecStart=/opt/iora/build/iora-runtime-identity/bin/iora-runtime-identity
+User=iora-security
+Group=iora-security
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-runtime-identity.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-runtime-identity.service"
+
+mkdir -p "${TARGET_DIR}/etc/iora/security-profiles" "${TARGET_DIR}/usr/share/iora/security"
+cp "${BOARD_DIR}/../../security-profiles/profile-v1.schema.json" \
+   "${TARGET_DIR}/usr/share/iora/security/profile-v1.schema.json"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-runtime-policy.service" <<'EOF'
+[Unit]
+Description=IORA App Security Profiles and Runtime Detection
+After=iora-runtime-identity.service
+Wants=iora-runtime-identity.service
+
+[Service]
+Type=simple
+ExecStart=/opt/iora/build/iora-runtime-policy/bin/iora-runtime-policy
+User=iora-security
+Group=iora-security
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-runtime-policy.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-runtime-policy.service"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-incident-engine.service" <<'EOF'
+[Unit]
+Description=IORA Runtime Incident Correlation Engine
+After=iora-runtime-policy.service
+Wants=iora-runtime-policy.service
+
+[Service]
+Type=simple
+ExecStart=/opt/iora/build/iora-incident-engine/bin/iora-incident-engine
+User=iora-security
+Group=iora-security
+StateDirectory=iora-incidents
+StateDirectoryMode=0700
+UMask=0077
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-incident-engine.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-incident-engine.service"
 
 echo "IORA OS: Post-build script completed successfully"

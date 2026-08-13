@@ -62,6 +62,29 @@ jobs:
         working-directory: iora-os/backend
         run: cargo test --locked
 
+      - name: Security Phase 1 regression gate
+        working-directory: iora-os/backend
+        run: cargo test --locked -p iora-security -p iora-security-helper
+
+      - name: Enforce Security Foundation boundary
+        run: python3 iora-os/tests/validate-security-baseline.py
+
+      - name: Runtime Sensor 2.1 regression gate
+        working-directory: iora-os/backend
+        run: cargo test --locked -p iora-runtime-sensor
+
+      - name: Runtime Identity 2.2 regression gate
+        working-directory: iora-os/backend
+        run: cargo test --locked -p iora-runtime-identity
+
+      - name: Runtime Profiles and Detection 2.3/2.4 regression gate
+        working-directory: iora-os/backend
+        run: cargo test --locked -p iora-runtime-policy
+
+      - name: Incident Correlation 2.5 regression gate
+        working-directory: iora-os/backend
+        run: cargo test --locked -p iora-incident-engine
+
   # ── Frontend ────────────────────────────────────────────────────────
   frontend-check:
     name: Frontend — build + lint
@@ -106,3 +129,14 @@ jobs:
           fi
           echo "Found $count defconfigs:"
           ls iora-os/configs/iora_defconfig*
+
+      - name: Validate Security image integration
+        run: |
+          bash -n iora-os/board/iora/post-build.sh iora-os/tests/security-firewall-integration.sh
+          for config in iora-os/configs/*defconfig*; do
+            grep -qx 'BR2_PACKAGE_NFTABLES=y' "$config"
+            grep -qx 'BR2_PACKAGE_CLAMAV=y' "$config"
+            grep -qx 'BR2_PACKAGE_YARA=y' "$config"
+          done
+          grep -q 'iora-security:x:919:919' iora-os/board/iora/post-build.sh
+          grep -q 'reserved security UID 919 is already assigned' iora-os/board/iora/post-build.sh

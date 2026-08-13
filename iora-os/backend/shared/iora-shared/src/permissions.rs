@@ -32,6 +32,14 @@ pub enum Permission {
     SystemControl,
     SystemRestart,
 
+    // Security Center permissions (system apps only; never granted to plugins)
+    SecurityRead,
+    SecurityPolicyManage,
+    SecurityScanExecute,
+    SecurityQuarantineManage,
+    SecurityFirewallManage,
+    SecurityLockdownManage,
+
     // Database permissions
     DatabaseRead,
     DatabaseWrite,
@@ -415,6 +423,12 @@ impl Permission {
             Permission::SystemInfo => "Lesen von Systeminformationen",
             Permission::SystemControl => "Steuerung des Systems",
             Permission::SystemRestart => "Neustart des Systems",
+            Permission::SecurityRead => "Security-Status und Audit-Ereignisse lesen",
+            Permission::SecurityPolicyManage => "Security-Policies verwalten",
+            Permission::SecurityScanExecute => "Malware- und Integritätsscans ausführen",
+            Permission::SecurityQuarantineManage => "Security-Quarantäne verwalten",
+            Permission::SecurityFirewallManage => "Host- und Container-Firewall verwalten",
+            Permission::SecurityLockdownManage => "System-Lockdown auslösen und aufheben",
             Permission::DatabaseRead => "Lesen aus der Datenbank",
             Permission::DatabaseWrite => "Schreiben in die Datenbank",
             Permission::DatabaseCreate => "Erstellen von Datenbanktabellen",
@@ -531,7 +545,8 @@ impl Permission {
             | Permission::AssistContextRead
             | Permission::AssistEventsSubscribe
             | Permission::GitHubRead
-            | Permission::GitHubPullRequestRead => RiskLevel::Low,
+            | Permission::GitHubPullRequestRead
+            | Permission::SecurityRead => RiskLevel::Low,
 
             Permission::ControlEntities
             | Permission::StorageWrite
@@ -595,6 +610,11 @@ impl Permission {
 
             Permission::SystemControl
             | Permission::SystemRestart
+            | Permission::SecurityPolicyManage
+            | Permission::SecurityScanExecute
+            | Permission::SecurityQuarantineManage
+            | Permission::SecurityFirewallManage
+            | Permission::SecurityLockdownManage
             | Permission::PluginManager
             | Permission::CreateUser
             | Permission::ModifyUser

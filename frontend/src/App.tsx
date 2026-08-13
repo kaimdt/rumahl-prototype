@@ -34,6 +34,7 @@ import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { OsSessionLock } from '@/components/OsSessionLock'
 import { OsSystemApp } from '@/components/OsSystemApp'
+import { OsSecurityApp } from '@/components/OsSecurityApp'
 import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
 import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
 import { LoginPage } from '@/components/LoginPage'
@@ -244,6 +245,7 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
     case 'os-images': return <OsImagesApp />
     case 'os-network': return <OsSystemApp kind="network" />
     case 'os-system': return <OsSystemApp kind="system" />
+    case 'os-security': return <OsSecurityApp />
     case 'os-storage': return <OsStorageApp />
     case 'os-devices': return <OsDevicesApp />
     case 'os-containers': return <OsContainersApp />

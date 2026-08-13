@@ -18,6 +18,7 @@ import {
   Storefront,
   VideoCamera,
   WifiHigh,
+  ShieldCheck,
 } from '@phosphor-icons/react'
 import type { DashboardPage } from '@/lib/types'
 
@@ -106,6 +107,18 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     accent: 'oklch(0.65 0.2 285)',
     iconUrl: '/icons/appstore.png',
     iconPad: true,
+    order: 22,
+  },
+  {
+    id: 'iora-security-center',
+    pageId: 'os-security',
+    nameKey: 'os.apps.security.name',
+    fallbackName: 'Security Center',
+    descriptionKey: 'os.apps.security.description',
+    icon: ShieldCheck,
+    kind: 'system',
+    adminOnly: true,
+    accent: 'oklch(0.68 0.17 155)',
     order: 22,
   },
   {

@@ -3876,6 +3876,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "iora-incident-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "iora-shared-config",
+ "iora-shared-heartbeat",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "iora-installer"
 version = "0.1.0"
 dependencies = [
@@ -4020,6 +4037,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "iora-runtime-identity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "iora-shared-config",
+ "iora-shared-heartbeat",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "iora-runtime-policy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "iora-shared-config",
+ "iora-shared-heartbeat",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "iora-runtime-sensor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "hex",
+ "iora-shared-config",
+ "iora-shared-heartbeat",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "iora-secrets"
 version = "0.1.0"
 dependencies = [
@@ -4054,6 +4126,7 @@ dependencies = [
  "chrono",
  "dotenv",
  "hex",
+ "hmac",
  "iora-shared-config",
  "iora-shared-heartbeat",
  "ipnetwork",
@@ -4071,6 +4144,21 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "iora-security-helper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
