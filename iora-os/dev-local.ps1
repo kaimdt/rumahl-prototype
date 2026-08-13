@@ -1716,6 +1716,9 @@ function Get-WslSyncHost {
 $wslHost = Get-WslSyncHost
 $syncOut = ""
 if ($wslHost) {
+    # The rsync receiver must exist INSIDE the guest too — install it there
+    # first (waiting out any cloud-init dpkg lock) so the fast path works.
+    wsl bash -c "ssh $syncSsh root@$wslHost 'command -v rsync >/dev/null 2>&1 || { for i in \$(seq 1 160); do fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1 || break; sleep 3; done; apt-get update -qq -o DPkg::Lock::Timeout=300; apt-get install -y -qq rsync -o DPkg::Lock::Timeout=300; }'" 2>&1 | Out-Null
     $syncOut = wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@${wslHost}:/home/iora/iora/ && ssh $syncSsh root@${wslHost} 'chown -R iora:iora /home/iora/iora'" 2>&1
 }
 $mainSyncOk = ($LASTEXITCODE -eq 0) -and $wslHost
@@ -1802,8 +1805,10 @@ if ($needProvision) {
     $installScript = @'
 set -e
 export DEBIAN_FRONTEND=noninteractive
-for i in 1 2 3 4 5 6 7 8 9 10; do
-    fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+# Wait for dpkg/apt locks (cloud-init may hold them while it installs
+# packages on first boot) — up to 8 minutes, then let apt wait itself.
+for i in $(seq 1 160); do
+    fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1 || break
     sleep 3
 done
     if [ -f /etc/systemd/system/postgresql.service.d/20-iora-init.conf ] && \
@@ -1814,9 +1819,10 @@ done
         systemctl daemon-reload 2>/dev/null || true
         systemctl reset-failed postgresql postgresql@15-main 2>/dev/null || true
     fi
-apt-get update -qq
+apt-get update -qq -o DPkg::Lock::Timeout=300 -o Acquire::Lock::Timeout=300
 # --no-install-recommends + retries: smaller download, faster provisioning
 apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
+    -o DPkg::Lock::Timeout=300 -o Acquire::Lock::Timeout=300 \
     curl git ca-certificates build-essential pkg-config libssl-dev \
     nodejs npm docker.io docker-compose postgresql postgresql-client rsync \
     python3 python3-pip htop vim mold nginx openssl socat \

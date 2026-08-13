@@ -328,12 +328,20 @@ async fn verify_and_sync_inner(
 ) -> Result<bool> {
     let remote = match remote_timestamps(os_root, state).await {
         Ok(map) => map,
-        // Guest not reachable (VM still booting, SSH down) — the
-        // incremental watcher keeps working, the caller retries soon.
+        // Guest not reachable (VM still booting, SSH down) or not provisioned
+        // yet (the /home/iora/iora mirror does not exist) — the incremental
+        // watcher keeps working, the caller retries soon.
         Err(error) => {
-            let _ = events.send(DevEvent::Error(format!(
-                "full sync skipped (guest not reachable): {error:#}"
-            )));
+            let message = format!("{error:#}");
+            if message.contains("No such file or directory") || message.contains("No such file") {
+                let _ = events.send(DevEvent::Error(
+                    "full sync skipped (guest not provisioned yet)".to_string(),
+                ));
+            } else {
+                let _ = events.send(DevEvent::Error(format!(
+                    "full sync skipped (guest not reachable): {error:#}"
+                )));
+            }
             return Ok(false);
         }
     };
