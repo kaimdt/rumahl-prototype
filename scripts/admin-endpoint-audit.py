@@ -64,12 +64,6 @@ def check_duplicate_routes():
                 src = open(os.path.join(base, fname)).read()
             except Exception:
                 continue
-            # Track nest() prefixes so nested routes are compared with their
-            # full path (avoids false positives for the /api/files trailing-
-            # slash workaround).
-            nest_stack = ['']
-            for m in re.finditer(r'\.nest\s*\(\s*"([^"]+)"|route_re_full', src):
-                pass
             for m in route_re_full.finditer(src):
                 handlers = m.group(2).strip()
                 methods = set(re.findall(r'\b(get|post|put|delete|patch|any)\s*\(', handlers))
