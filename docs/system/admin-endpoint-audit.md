@@ -57,8 +57,31 @@ Zusätzlich geprüft wurden die expliziten `method:`-Aufrufe (96):
   - Auth/Permission-Checks pro Endpoint
 - Diese Punkte erfordern einen laufenden Backend-Server bzw. Integrationstests.
 
+## Erweiterung: Native Apps & Widgets auditiert
+
+Das Endpoint-Audit deckt zusätzlich alle neuen OS-Oberflächen ab:
+`OsStorageApp`, `OsContainersApp`, `OsLogsApp`, `OsServicesApp`,
+`OsDevicesApp`, `OsSystemApp`, `OsImagesApp`, `OsFileExplorer`,
+`JobCenterPanel`, `ClipboardManager`, `PermissionRequestDialog`,
+`CommandPalette`, `OsSystemShell`, `OsTerminal`, alle `Ora*`-Widgets,
+Settings + Auth/Window-Kontexte. Auch hier: **alle API-Pfade existieren**.
+
+## Antwortformat-Audit (`scripts/response-format-audit.py`)
+
+Vergleicht die JSON-Felder, die das Frontend aus seinen TS-Interfaces
+erwartet, mit den Feldern, die das Backend tatsächlich produziert
+(`json!({...})`-Literale + serialisierte Struct-Felder). Geprüfte Paare:
+Jobs ↔ `system_jobs`, Files/quota, Network-Devices, Device-Registry,
+systemd-Services, Supervisor-Apps, Container-Resources, Media-Items,
+Log-Sources.
+
+**Ergebnis:** alle Frontend-Interfaces sind von den Backend-JSON-Feldern
+gedeckt. Union-/Array-Felder (z. B. `ports?: Array<string | {…}>`) und
+optional-Felder werden als tolerant behandelt.
+
 ## Wiederholen
 
 ```bash
 python3 scripts/admin-endpoint-audit.py
+python3 scripts/response-format-audit.py
 ```

@@ -21,6 +21,19 @@ ADMIN_FILES = [
     'components/adminTabs/homeAssistant.tsx', 'components/adminTabs/iot.tsx',
     'components/adminTabs/network.tsx', 'components/adminTabs/os.tsx',
     'components/adminTabs/services.tsx', 'components/adminTabs/tools.tsx',
+    # Native OS apps + widgets (Packages 3/5/6) + OS shell surfaces
+    'components/OsStorageApp.tsx', 'components/OsContainersApp.tsx',
+    'components/OsLogsApp.tsx', 'components/OsServicesApp.tsx',
+    'components/OsDevicesApp.tsx', 'components/OsSystemApp.tsx',
+    'components/OsImagesApp.tsx', 'components/OsFileExplorer.tsx',
+    'components/JobCenterPanel.tsx', 'components/ClipboardManager.tsx',
+    'components/PermissionRequestDialog.tsx', 'components/CommandPalette.tsx',
+    'components/OsSystemShell.tsx', 'components/OsTerminal.tsx',
+    'components/widgets/OraMediaWidget.tsx', 'components/widgets/OraJobsWidget.tsx',
+    'components/widgets/OraStorageWidget.tsx', 'components/widgets/OraSystemWidget.tsx',
+    'components/widgets/OraRecentFilesWidget.tsx', 'components/widgets/OraPresenceWidget.tsx',
+    'components/settings/SettingsSystem.tsx', 'components/SettingsPage.tsx',
+    'contexts/AuthContext.tsx', 'contexts/OsWindowContext.tsx',
 ]
 
 
@@ -147,6 +160,10 @@ def main():
     ALLOWLIST = {
         ('components/adminTabs/homeAssistant.tsx', '/api/admin/ha/registry/{}'):
             'kind in {entities, devices, areas} — three concrete routes exist',
+        ('components/OsSystemShell.tsx', '/api/os/control/os/{}'):
+            'dynamic os/* path — any() proxy to iora-control with concrete os/* routes',
+        ('components/SettingsPage.tsx', '/api/os/control/os/{}'):
+            'dynamic os/* path — any() proxy to iora-control with concrete os/* routes',
     }
 
     real_misses = [(f, m) for (f, m) in misses if (f, m) not in ALLOWLIST]
