@@ -69,6 +69,9 @@ def check_duplicate_routes():
                 methods = set(re.findall(r'\b(get|post|put|delete|patch|any)\s*\(', handlers))
                 if 'any(' in handlers:
                     methods = {'any'}
+                # nested routes: join with the current nest prefix when a
+                # nest block is open (simplified: any preceding .nest("…")
+                # in the same source with the route registered on its Router)
                 by_path[m.group(1)].append(methods)
         for path, entries in by_path.items():
             for i in range(len(entries)):
