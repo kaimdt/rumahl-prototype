@@ -873,13 +873,22 @@ export function RemoteAccessSection() {
     tailscale: { installed?: boolean; running?: boolean; online?: boolean; hostname?: string; ip?: string }
     wireguard: { installed?: boolean; interfaces?: string[] }
   } | null>(null)
+  const [externalUrl, setExternalUrl] = useState('')
   const [loading, setLoading] = useState(true)
+  const [savingUrl, setSavingUrl] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const response = await authFetch('/api/remote/status')
-      if (response.ok) setStatus(await response.json())
+      const [statusResponse, configResponse] = await Promise.all([
+        authFetch('/api/remote/status'),
+        authFetch('/api/remote/config'),
+      ])
+      if (statusResponse.ok) setStatus(await statusResponse.json())
+      if (configResponse.ok) {
+        const config = await configResponse.json()
+        setExternalUrl(config.external_url || '')
+      }
     } catch {
       // offline
     } finally {
@@ -887,11 +896,45 @@ export function RemoteAccessSection() {
     }
   }, [])
 
+  const saveExternalUrl = async () => {
+    setSavingUrl(true)
+    try {
+      const response = await authFetch('/api/remote/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ external_url: externalUrl.trim() }),
+      })
+      if (response.ok) toast.success(t('settings.remoteUrlSaved'))
+      else toast.error(t('settings.remoteUrlFailed'))
+    } catch {
+      toast.error(t('settings.remoteUrlFailed'))
+    } finally {
+      setSavingUrl(false)
+    }
+  }
+
   useEffect(() => { void load() }, [load])
 
   return (
     <SettingsSection icon={Globe} title={t('settings.remoteAccess')} description={t('settings.remoteAccessDesc')}>
       <div className="space-y-3 px-5 pb-5">
+        {/* External base URL (domain / TLS) */}
+        <div className="rounded-2xl border border-white/8 bg-foreground/4 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground/90">{t('settings.remoteExternalUrl')}</p>
+            <button type="button" disabled={savingUrl} onClick={() => void saveExternalUrl()} className="rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+              {savingUrl ? t('common.saving') : t('common.save')}
+            </button>
+          </div>
+          <input
+            value={externalUrl}
+            onChange={(event) => setExternalUrl(event.target.value)}
+            placeholder="https://ora.meinedomain.de"
+            className="mt-2 w-full rounded-xl border border-white/10 bg-foreground/5 px-3 py-2 text-xs outline-none focus:border-accent/40"
+          />
+          <p className="mt-2 text-[11px] text-foreground/40">{t('settings.remoteExternalUrlHint')}</p>
+        </div>
+
         {/* Tailscale */}
         <div className="rounded-2xl border border-white/8 bg-foreground/4 p-4">
           <div className="flex items-center justify-between">

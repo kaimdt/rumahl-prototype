@@ -15,6 +15,8 @@ interface MediaItem {
   season?: number
   episode?: number
   progress_percent?: number
+  provider?: string
+  image_url?: string | null
 }
 
 interface MediaHub {
@@ -76,11 +78,20 @@ export function OraMediaWidget() {
             return (
               <div key={item.id} className="rounded-xl bg-white/4 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <PlayCircle size={14} className="shrink-0 text-accent" />
+                  {item.image_url ? (
+                    <img src={item.image_url} alt="" className="size-7 shrink-0 rounded-md object-cover" />
+                  ) : (
+                    <PlayCircle size={14} className="shrink-0 text-accent" />
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-semibold text-foreground/85">{item.title}</p>
                     {item.series && <p className="truncate text-[10px] text-foreground/45">{label}</p>}
                   </div>
+                  {item.provider && (
+                    <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground/40">
+                      {item.provider === 'plex' ? 'Plex' : 'Jellyfin'}
+                    </span>
+                  )}
                   <span className="shrink-0 text-[10px] tabular-nums text-foreground/45">{Math.round(progress)}%</span>
                 </div>
                 <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-foreground/10">

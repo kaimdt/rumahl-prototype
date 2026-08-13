@@ -11,6 +11,7 @@
 //!   GET /api/media/config           → saved config (secrets redacted)
 //!   PUT /api/media/config           → save Jellyfin/Plex connection config
 
+use crate::middleware::AuthIdentity;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -175,14 +176,108 @@ pub async fn continue_watching(
                 "season": item.get("SeasonNumber").and_then(|v| v.as_i64()).unwrap_or(0),
                 "episode": item.get("EpisodeNumber").and_then(|v| v.as_i64()).unwrap_or(0),
                 "progress_percent": (progress as f64).round(),
+                "provider": "jellyfin",
+                // Proxied image — the media token stays server-side.
                 "image_url": if id.is_empty() { None } else {
-                    Some(format!("{base}/Items/{id}/Images/Primary?maxWidth=320&tag=0"))
+                    Some(format!("/api/media/image/{id}"))
                 },
             })
         })
         .collect();
 
-    Ok(Json(json!({ "configured": true, "items": items })))
+    let mut result = json!({ "configured": true, "items": items });
+
+    // Plex on-deck (continue watching) when a token is configured.
+    if !config.plex_token.trim().is_empty() {
+        let plex_base = config.plex_url.trim_end_matches('/');
+        if !plex_base.is_empty() {
+            let on_deck_url = format!(
+                "{plex_base}/library/onDeck?X-Plex-Token={}&limit=8",
+                config.plex_token.trim()
+            );
+            if let Ok(deck_response) = client
+                .get(&on_deck_url)
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+            {
+                if deck_response.status().is_success() {
+                    let deck: Value = deck_response.json().await.unwrap_or_else(|_| json!({}));
+                    let plex_items: Vec<Value> = deck
+                        .pointer("/MediaContainer/Metadata")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|item| {
+                            let offset = item.get("viewOffset").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let duration = item.get("duration").and_then(|v| v.as_i64()).unwrap_or(1).max(1);
+                            let progress = ((offset as f64 / duration as f64) * 100.0).clamp(0.0, 100.0);
+                            json!({
+                                "id": item.get("ratingKey").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                "title": item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                "series": item.get("grandparentTitle").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                "season": item.get("parentIndex").and_then(|v| v.as_i64()).unwrap_or(0),
+                                "episode": item.get("index").and_then(|v| v.as_i64()).unwrap_or(0),
+                                "progress_percent": (progress as f64).round(),
+                                "provider": "plex",
+                            })
+                        })
+                        .collect();
+                    // Jellyfin items have provider "jellyfin"; merge both.
+                    if let Some(existing) = result.get_mut("items").and_then(|v| v.as_array_mut()) {
+                        existing.extend(plex_items);
+                    }
+                    result["plex_configured"] = json!(true);
+                }
+            }
+        }
+    }
+
+    Ok(Json(result))
+}
+
+/// GET /api/media/image/:item_id — proxy a Jellyfin primary image so the
+/// media token never reaches the browser. Requires the caller to have
+/// os.system.read (the same gate as continue-watching).
+pub async fn media_image(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<AuthIdentity>,
+    axum::extract::Path(item_id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    use axum::http::{header, StatusCode};
+    use axum::response::IntoResponse;
+
+    let allowed = crate::user_has_os_permission(&state, identity.user_id(), "os.system.read")
+        .await
+        .unwrap_or(false);
+    if !allowed {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let config = load_config(&state).await;
+    let base = config.jellyfin_url.trim_end_matches('/');
+    if base.is_empty() || config.jellyfin_api_key.trim().is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let url = format!("{base}/Items/{item_id}/Images/Primary?maxWidth=480");
+    let client = reqwest::Client::new();
+    match client
+        .get(&url)
+        .header("X-Emby-Token", config.jellyfin_api_key.trim())
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => {
+            let bytes = match response.bytes().await {
+                Ok(bytes) => bytes,
+                Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
+            };
+            let content_type = "image/jpeg";
+            ([(header::CONTENT_TYPE, content_type)], bytes.to_vec()).into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// GET /api/media/config — saved config with secrets redacted.

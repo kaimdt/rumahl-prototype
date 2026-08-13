@@ -107,3 +107,92 @@ pub async fn remote_status(
         "wireguard": wireguard_status(),
     })))
 }
+
+const EXTERNAL_URL_KEY: &str = "remote.external_url";
+
+/// GET /api/remote/config — the configured external base URL (e.g.
+/// https://ora.meinedomain.de) used for external share links.
+pub async fn get_remote_config(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let external_url = match state
+        .config_repo
+        .get_system_preference(EXTERNAL_URL_KEY)
+        .await
+    {
+        Ok(Some(pref)) => serde_json::from_str::<Value>(&pref.preference_value)
+            .and_then(|v| {
+                Ok(v.get("url")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .to_string())
+            })
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
+    Ok(Json(json!({ "external_url": external_url })))
+}
+
+/// PUT /api/remote/config — save the external base URL.
+pub async fn save_remote_config(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let url = body
+        .get("external_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    // Accept http(s) URLs only, no path.
+    if !url.is_empty() {
+        let parsed = reqwest::Url::parse(&url)
+            .map_err(|e| ErrorResponse::bad_request(format!("invalid external URL: {e}")))?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(ErrorResponse::bad_request("external URL must be http(s)"));
+        }
+    }
+    let value = json!({ "url": url });
+    state
+        .config_repo
+        .save_system_preference(crate::db::models::SaveSystemPreferenceRequest {
+            preference_key: EXTERNAL_URL_KEY.to_string(),
+            preference_value: value,
+        })
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("failed to save remote config: {e}")))?;
+    Ok(Json(json!({ "saved": true, "external_url": url })))
+}
+
+/// Resolve the preferred external base URL for share links:
+/// configured external URL > tailnet IP > None (caller falls back to local).
+pub async fn resolve_external_base(state: &AppState) -> Option<String> {
+    // 1. Configured external URL
+    if let Ok(Some(pref)) = state
+        .config_repo
+        .get_system_preference(EXTERNAL_URL_KEY)
+        .await
+    {
+        if let Ok(value) = serde_json::from_str::<Value>(&pref.preference_value) {
+            if let Some(url) = value
+                .get("url")
+                .and_then(|u| u.as_str())
+                .filter(|u| !u.is_empty())
+            {
+                return Some(url.to_string());
+            }
+        }
+    }
+    // 2. Tailscale IP (only when online)
+    let ts = tailscale_status();
+    if ts.get("online").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if let Some(ip) = ts
+            .get("ip")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+        {
+            return Some(format!("http://{ip}"));
+        }
+    }
+    None
+}

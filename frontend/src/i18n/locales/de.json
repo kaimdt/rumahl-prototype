@@ -656,7 +656,11 @@
     "remoteConfigured": "Konfiguriert",
     "remoteNotConfigured": "Nicht konfiguriert",
     "remoteTailscaleHint": "Installiere Tailscale auf dem Host, um von überall auf ORA zuzugreifen (tailscale.com).",
-    "remoteWireguardHint": "Keine WireGuard-Konfiguration in /etc/wireguard gefunden."
+    "remoteWireguardHint": "Keine WireGuard-Konfiguration in /etc/wireguard gefunden.",
+    "remoteExternalUrl": "Externe Basis-URL (Domain / TLS)",
+    "remoteExternalUrlHint": "Wird für externe Freigabe-Links genutzt — z. B. https://ora.meinedomain.de. Benötigt einen Reverse-Proxy (nginx) mit deiner Domain + TLS.",
+    "remoteUrlSaved": "Externe URL gespeichert",
+    "remoteUrlFailed": "Externe URL konnte nicht gespeichert werden"
   },
   "dashboard": {
     "noEntities": "Keine Entitäten gefunden",

@@ -1919,11 +1919,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/os/terminal/ws", get(terminal_handler::terminal_ws))
         // Remote access status (Package 7)
         .route("/api/remote/status", get(remote_handler::remote_status))
+        .route("/api/remote/config", get(remote_handler::get_remote_config))
+        .route("/api/remote/config", put(remote_handler::save_remote_config))
         // Media Hub (Package 6): Jellyfin/Plex detection + continue-watching
         .route("/api/media/hub", get(media_handler::media_hub))
         .route(
             "/api/media/continue-watching",
             get(media_handler::continue_watching),
+        )
+        .route(
+            "/api/media/image/:item_id",
+            get(media_handler::media_image),
         )
         .route("/api/media/config", get(media_handler::get_media_config))
         .route("/api/media/config", put(media_handler::save_media_config))

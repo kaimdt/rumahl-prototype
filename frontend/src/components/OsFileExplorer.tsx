@@ -761,22 +761,33 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       const share = await shareResponse.json() as { token?: string }
       if (!share.token) throw new Error(t('os.files.shareLinkFailed'))
 
-      // Prefer the tailnet IP when Tailscale is online so the link works
-      // from outside the LAN.
-      let host: string | null = null
+      // Prefer the configured external URL (domain/TLS), then the tailnet
+      // IP when Tailscale is online, then the local host.
+      let externalBase: string | null = null
       try {
-        const remoteResponse = await authFetch('/api/remote/status')
-        if (remoteResponse.ok) {
-          const remote = await remoteResponse.json() as { tailscale?: { online?: boolean; ip?: string } }
-          if (remote.tailscale?.online && remote.tailscale.ip) host = remote.tailscale.ip
+        const configResponse = await authFetch('/api/remote/config')
+        if (configResponse.ok) {
+          const config = await configResponse.json() as { external_url?: string }
+          if (config.external_url) externalBase = config.external_url.replace(/\/$/, '')
         }
       } catch {
-        // remote status unavailable — fall back to the local host
+        // fall through
+      }
+      if (!externalBase) {
+        try {
+          const remoteResponse = await authFetch('/api/remote/status')
+          if (remoteResponse.ok) {
+            const remote = await remoteResponse.json() as { tailscale?: { online?: boolean; ip?: string } }
+            if (remote.tailscale?.online && remote.tailscale.ip) externalBase = `http://${remote.tailscale.ip}`
+          }
+        } catch {
+          // fall through
+        }
       }
 
-      const backend = new URL(getBackendUrl() || window.location.origin)
-      if (host) backend.hostname = host
-      const url = `${backend.protocol}//${backend.host}/share/${share.token}`
+      const url = externalBase
+        ? `${externalBase}/share/${share.token}`
+        : `${getBackendUrl() || window.location.origin}/share/${share.token}`
       await navigator.clipboard.writeText(url)
       toast.success(t('os.files.shareLinkCopied'))
     } catch (shareError) {
