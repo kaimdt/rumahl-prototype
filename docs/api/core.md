@@ -593,6 +593,10 @@ media widget shows continue-watching items and detected servers.
 # Mapped to iora-files /api/files/shared/:token for external access
 GET /share/{token}
 
+# External base URL for share links (domain/TLS, saved in remote.external_url)
+GET /api/remote/config
+PUT /api/remote/config   { "external_url": "https://ora.meinedomain.de" }
+
 # Tunnel status (requires os.network.read)
 GET /api/remote/status
 → { "tailscale": { "installed": true, "running": true, "online": true, "hostname": "ora", "ip": "100.x.y.z" },

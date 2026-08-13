@@ -433,7 +433,11 @@ requiring SSH or direct configuration-file edits.
   Jellyfin resume items (API key + user id config, stored redacted in
   `media.servers`); the `ora_media` Home widget shows continue-watching with
   progress bars + detected server chips; Settings → System → **Media Hub**
-  configures the connections. Plex continue-watching is a follow-up.
+  configures the connections.
+  - **Polish ✅:** **Plex continue-watching** via `/library/onDeck`
+    (provider badge, merged with Jellyfin items); **proxied media images**
+    (`GET /api/media/image/{id}` — the media token never reaches the
+    browser) rendered as thumbnails in the widget.
 
 ### Package 7 — Remote Access & Device-to-Device
 
@@ -450,7 +454,9 @@ requiring SSH or direct configuration-file edits.
     iora-home (maps to iora-files, no auth — token is the credential);
     the Files selection bar offers **"Create external link"** — builds a
     72 h share and copies a URL that prefers the tailnet IP when Tailscale
-    is online. Domains/TLS still open.
+    is online, then the local host. **External base URL (domain/TLS)** is
+    configurable (`/api/remote/config`, `remote.external_url`) and preferred
+    by share links; automated TLS provisioning (Let's Encrypt) still open.
 - Device agents (Windows/macOS/Linux): send-to-device, open-on-device,
   clipboard sync, wake, remote terminal (AirDrop + KDE Connect feel).
 
