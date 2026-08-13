@@ -2627,7 +2627,7 @@ async fn main() -> anyhow::Result<()> {
         // iora-cloud (Port 8120, optional external)
         .route(
             "/api/admin/iora-cloud/config",
-            get(proxy_iora_cloud).post(proxy_iora_cloud),
+            get(proxy_iora_cloud).post(proxy_iora_cloud).put(proxy_iora_cloud),
         )
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
