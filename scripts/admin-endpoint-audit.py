@@ -47,7 +47,43 @@ def extract_routes(base):
     return routes
 
 
+def check_duplicate_routes():
+    """Axum panics at startup on overlapping method routes (same path+
+    method registered twice) — scan all .route(...) registrations."""
+    from collections import defaultdict
+    route_re_full = re.compile(r'\.route\(\s*"([^"]+)"\s*,\s*([^)]+)\)')
+    problems = 0
+    for base, label in [(os.path.join(ROOT, 'services/iora-home/src'), 'iora-home')]:
+        if not os.path.isdir(base):
+            continue
+        by_path = defaultdict(list)
+        for fname in os.listdir(base):
+            if not fname.endswith('.rs'):
+                continue
+            try:
+                src = open(os.path.join(base, fname)).read()
+            except Exception:
+                continue
+            for m in route_re_full.finditer(src):
+                handlers = m.group(2).strip()
+                methods = set(re.findall(r'\b(get|post|put|delete|patch|any)\s*\(', handlers))
+                if 'any(' in handlers:
+                    methods = {'any'}
+                by_path[m.group(1)].append(methods)
+        for path, entries in by_path.items():
+            for i in range(len(entries)):
+                for j in range(i + 1, len(entries)):
+                    a, b = entries[i], entries[j]
+                    if a == {'any'} or b == {'any'} or (a & b):
+                        problems += 1
+                        print(f"DUPLICATE ROUTE {label}: {path} ({a} vs {b})")
+    return problems
+
+
 def main():
+    dup = check_duplicate_routes()
+    if dup:
+        sys.exit(1)
     home = extract_routes(os.path.join(ROOT, 'services/iora-home/src'))
     control = extract_routes(os.path.join(ROOT, 'services/iora-control/src'))
     files = extract_routes(os.path.join(ROOT, 'services/iora-files/src'))
