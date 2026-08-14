@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useTheme } from '@/contexts/ThemeContext'
+import { storage } from '@/lib/storage'
 
 interface GlassSettings {
   enabled: boolean
   blurIntensity: number // 0-60 in px
+  /** Surface transparency multiplier (1 = theme default, <1 clearer, >1 more opaque). */
+  transparency: number // 0.5-1.5
   cardRadius: number // 8-28 in px
   borderAlpha: number // 0-0.3
 }
@@ -10,32 +14,61 @@ interface GlassSettings {
 const DEFAULT_SETTINGS: GlassSettings = {
   enabled: true,
   blurIntensity: 40,
+  transparency: 1,
   cardRadius: 12,
   borderAlpha: 0.12,
 }
 
+/** Glass surface variables whose fill alpha is scaled by the transparency
+ *  setting. Each is a plain `oklch(L C H / A)` custom property. */
+const SURFACE_VARIABLES = ['--ora-glass-bg', '--ora-glass-hover', '--glass-bg', '--glass-bg-end']
+
+/**
+ * Scales the alpha channel of a glass surface variable by a multiplier.
+ * It first removes any previous inline override so the current theme's base
+ * value is re-read (never double-scaling across theme changes), then writes
+ * back the adjusted color.
+ */
+function scaleSurfaceAlpha(variable: string, multiplier: number) {
+  const el = document.documentElement
+  el.style.removeProperty(variable)
+  const raw = getComputedStyle(el).getPropertyValue(variable).trim()
+  if (!raw) return
+
+  const clamp = (value: number) => Math.max(0.04, Math.min(0.98, value))
+
+  if (/\/\s*[\d.]+\s*\)\s*$/.test(raw)) {
+    const baseAlpha = parseFloat(raw.match(/\/\s*([\d.]+)\s*\)\s*$/)?.[1] || '1')
+    const nextAlpha = clamp(baseAlpha * multiplier)
+    el.style.setProperty(variable, raw.replace(/\/\s*[\d.]+\s*\)\s*$/, ` / ${nextAlpha.toFixed(3)})`))
+  } else {
+    // No explicit alpha channel → treat as opaque and append the scaled alpha.
+    el.style.setProperty(variable, raw.replace(/\)\s*$/, ` / ${clamp(0.74 * multiplier).toFixed(3)})`))
+  }
+}
+
 export function useGlassSettings() {
+  const { theme } = useTheme()
   const [settings, setSettings] = useState<GlassSettings>(() => {
-    try {
-      const stored = localStorage.getItem('glass-settings')
-      return stored
-        ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) }
-        : DEFAULT_SETTINGS
-    } catch (err) {
-      console.warn('useGlassSettings: failed to parse stored settings, using defaults', err)
-      return DEFAULT_SETTINGS
-    }
+    const stored = storage.get<GlassSettings>('glass-settings', DEFAULT_SETTINGS)
+    return stored ? { ...DEFAULT_SETTINGS, ...stored } : DEFAULT_SETTINGS
   })
 
-  // Persist + apply whenever settings change (also runs on mount).
   useEffect(() => {
-    try {
-      localStorage.setItem('glass-settings', JSON.stringify(settings))
-    } catch (err) {
-      console.warn('useGlassSettings: failed to persist settings', err)
-    }
+    storage.set('glass-settings', settings)
     applyGlassSettings(settings)
-  }, [settings])
+  }, [settings, theme])
+
+  // Re-read when the backend sync finishes (admin global defaults may have
+  // been applied as fallback for keys the user hasn't customized).
+  useEffect(() => {
+    const onSynced = () => {
+      const stored = storage.get<GlassSettings>('glass-settings', DEFAULT_SETTINGS)
+      if (stored) setSettings({ ...DEFAULT_SETTINGS, ...stored })
+    }
+    window.addEventListener('iora:settings-synced', onSynced)
+    return () => window.removeEventListener('iora:settings-synced', onSynced)
+  }, [])
 
   const setBlurIntensity = useCallback((value: number) => {
     setSettings(prev => ({ ...prev, blurIntensity: value }))
@@ -43,6 +76,10 @@ export function useGlassSettings() {
 
   const setEnabled = useCallback((value: boolean) => {
     setSettings(prev => ({ ...prev, enabled: value }))
+  }, [])
+
+  const setTransparency = useCallback((value: number) => {
+    setSettings(prev => ({ ...prev, transparency: value }))
   }, [])
 
   const setCardRadius = useCallback((value: number) => {
@@ -56,26 +93,30 @@ export function useGlassSettings() {
   return useMemo(() => ({
     enabled: settings.enabled,
     blurIntensity: settings.blurIntensity,
+    transparency: settings.transparency,
     cardRadius: settings.cardRadius,
     borderAlpha: settings.borderAlpha,
     setEnabled,
     setBlurIntensity,
+    setTransparency,
     setCardRadius,
     setBorderAlpha,
   }), [
     settings.enabled,
     settings.blurIntensity,
+    settings.transparency,
     settings.cardRadius,
     settings.borderAlpha,
     setEnabled,
     setBlurIntensity,
+    setTransparency,
     setCardRadius,
     setBorderAlpha,
   ])
 }
 
 function applyGlassSettings(settings: GlassSettings) {
-  const { enabled, blurIntensity, cardRadius, borderAlpha } = settings
+  const { enabled, blurIntensity, transparency, cardRadius, borderAlpha } = settings
 
   document.documentElement.setAttribute('data-glass', enabled ? 'on' : 'off')
 
@@ -112,4 +153,9 @@ function applyGlassSettings(settings: GlassSettings) {
     '--glass-toast-blur',
     `blur(${toastBlur}px)`
   )
+
+  // Surface transparency: scale the glass fill alpha (theme-relative).
+  for (const variable of SURFACE_VARIABLES) {
+    scaleSurfaceAlpha(variable, transparency)
+  }
 }

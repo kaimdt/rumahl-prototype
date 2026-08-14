@@ -289,7 +289,7 @@ export function ApiKeysTab({ token }: { token: string }) {
           <span className="text-sm font-medium text-foreground">{keys.length} API Key{keys.length !== 1 ? 's' : ''}</span>
           <button
             onClick={() => setShowCreate(!showCreate)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-white shadow-md shadow-accent/25 hover:bg-accent/85 transition-all"
+            className="ora-primary-button-sm"
           >
             <Plus size={14} weight="bold" /> Neuer Key
           </button>
@@ -306,7 +306,7 @@ export function ApiKeysTab({ token }: { token: string }) {
                 value={form.name}
                 onChange={e => setForm({ ...form, name: e.target.value })}
                 placeholder="z.B. Mein ESP32 Gerät"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                className="ora-field-sm w-full text-sm"
               />
             </div>
             <div>
@@ -339,7 +339,7 @@ export function ApiKeysTab({ token }: { token: string }) {
                   type="number"
                   value={form.rate_limit}
                   onChange={e => setForm({ ...form, rate_limit: parseInt(e.target.value) || 60 })}
-                  className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                  className="ora-field-sm w-full text-sm"
                 />
               </div>
               <div className="flex-1">
@@ -348,21 +348,21 @@ export function ApiKeysTab({ token }: { token: string }) {
                   type="number"
                   value={form.expires_in_days}
                   onChange={e => setForm({ ...form, expires_in_days: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                  className="ora-field-sm w-full text-sm"
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowCreate(false)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all"
+                className="ora-secondary-button-sm"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleCreate}
                 disabled={!form.name.trim() || actionLoading === 'create'}
-                className="px-4 py-1.5 rounded-lg text-xs font-medium bg-accent text-white disabled:opacity-40 hover:bg-accent/80 transition-all flex items-center gap-1.5"
+                className="ora-primary-button-sm"
               >
                 {actionLoading === 'create' && <InlineSpinner size={12} />}
                 Erstellen
@@ -632,7 +632,7 @@ export function LogsTab({ token }: { token: string }) {
                 <div className="relative flex-1">
                   <MagnifyingGlass size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/40" />
                   <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Logs durchsuchen..."
-                    className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 font-mono" />
+                    className="ora-field-sm w-full pl-7 pr-2 text-[11px] font-mono" />
                 </div>
                 {liveMode && (
                   <div className="flex items-center gap-1.5">
@@ -862,7 +862,7 @@ export function SourceLogsView({ token }: { token: string }) {
             </div>
             <div className="flex items-center gap-2">
               <select value={lines} onChange={e => setLines(Number(e.target.value))}
-                className="px-2 py-1 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground/80 focus:outline-none focus:border-accent/50">
+                className="ora-field-sm text-[10px]">
                 {[100, 200, 500, 1000, 2000, 5000].map(n => (
                   <option key={n} value={n}>{n} {t('admin.logsSources.lines', 'Zeilen')}</option>
                 ))}
@@ -881,7 +881,7 @@ export function SourceLogsView({ token }: { token: string }) {
             <MagnifyingGlass size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/40" />
             <input value={filter} onChange={e => setFilter(e.target.value)}
               placeholder={t('admin.logsSources.filterPlaceholder', 'Logs filtern...')}
-              className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 font-mono" />
+              className="ora-field-sm w-full pl-7 pr-2 text-[11px] font-mono" />
           </div>
         </AdminCard>
 
@@ -1046,21 +1046,21 @@ export function DatabaseTab({ token }: { token: string }) {
                   placeholder="Benutzername (a-z, 0-9, _)"
                   value={newUser.username}
                   onChange={e => setNewUser(u => ({ ...u, username: e.target.value }))}
-                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                  className="ora-field-sm text-xs"
                 />
                 <input
                   type="password"
                   placeholder="Passwort (min. 8 Zeichen)"
                   value={newUser.password}
                   onChange={e => setNewUser(u => ({ ...u, password: e.target.value }))}
-                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                  className="ora-field-sm text-xs"
                 />
                 <input
                   type="text"
                   placeholder="Beschreibung (optional)"
                   value={newUser.description}
                   onChange={e => setNewUser(u => ({ ...u, description: e.target.value }))}
-                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                  className="ora-field-sm text-xs"
                 />
                 <select
                   value={newUser.permissions}
@@ -1636,7 +1636,7 @@ export function WarningsTab({ token }: { token: string }) {
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
                 activeOnly
                   ? 'bg-accent/20 text-accent border border-accent/30'
-                  : 'bg-white/5 text-foreground/60 border border-white/10 hover:bg-white/10'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10 hover:bg-foreground/10'
               }`}
             >
               {activeOnly ? <ToggleRight size={14} weight="fill" /> : <ToggleLeft size={14} />}
@@ -1644,7 +1644,7 @@ export function WarningsTab({ token }: { token: string }) {
             </button>
             <button
               onClick={() => fetchWarnings()}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/5 text-foreground/60 border border-white/10 hover:bg-white/10 transition-colors"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-foreground/5 text-foreground/60 border border-foreground/10 hover:bg-foreground/10 transition-colors"
             >
               <ArrowClockwise size={14} />
               Aktualisieren
@@ -1677,7 +1677,7 @@ export function WarningsTab({ token }: { token: string }) {
             <AdminCard key={w.id}>
               <div className="flex items-start gap-3">
                 {/* Level icon */}
-                <div className="flex-shrink-0 mt-0.5 w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+                <div className="flex-shrink-0 mt-0.5 w-8 h-8 rounded-lg bg-foreground/5 border border-foreground/10 flex items-center justify-center">
                   {levelIcon(w.level)}
                 </div>
 
@@ -1723,7 +1723,7 @@ export function WarningsTab({ token }: { token: string }) {
               <button
                 onClick={() => setPage(p => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-foreground/60 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="ora-secondary-button-sm"
               >
                 Zurück
               </button>
@@ -1733,7 +1733,7 @@ export function WarningsTab({ token }: { token: string }) {
               <button
                 onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
-                className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-foreground/60 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="ora-secondary-button-sm"
               >
                 Weiter
               </button>
@@ -1883,7 +1883,7 @@ export function WebhooksTab({ token }: { token: string }) {
           <span className="text-sm font-medium text-foreground">{webhooks.length} Webhook{webhooks.length !== 1 ? 's' : ''}</span>
           <button
             onClick={() => setShowCreate(!showCreate)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-white shadow-md shadow-accent/25 hover:bg-accent/85 transition-all"
+            className="ora-primary-button-sm"
           >
             <Plus size={14} weight="bold" /> Neuer Webhook
           </button>
@@ -1897,34 +1897,34 @@ export function WebhooksTab({ token }: { token: string }) {
               <label className="text-xs text-foreground/80 mb-1 block">Name</label>
               <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
                 placeholder="z.B. Discord Benachrichtigung"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                className="ora-field-sm w-full text-sm" />
             </div>
             <div>
               <label className="text-xs text-foreground/80 mb-1 block">URL</label>
               <input type="url" value={form.url} onChange={e => setForm({ ...form, url: e.target.value })}
                 placeholder="https://example.com/webhook"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                className="ora-field-sm w-full text-sm" />
             </div>
             <div>
               <label className="text-xs text-foreground/80 mb-1 block">Secret (optional, für HMAC-SHA256 Signatur)</label>
               <input type="text" value={form.secret} onChange={e => setForm({ ...form, secret: e.target.value })}
                 placeholder="Geheimes Token..."
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                className="ora-field-sm w-full text-sm font-mono" />
             </div>
             <div>
               <label className="text-xs text-foreground/80 mb-1 block">Event-Filter (kommagetrennt, * = alle)</label>
               <input type="text" value={form.events} onChange={e => setForm({ ...form, events: e.target.value })}
                 placeholder="* oder state_changed, domain.light"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                className="ora-field-sm w-full text-sm font-mono" />
               <p className="text-[10px] text-foreground/50 mt-1">Filter: *, state_changed, domain.light, light.wohnzimmer, state_changed.light.wohnzimmer</p>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowCreate(false)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all">
+                className="ora-secondary-button-sm">
                 Abbrechen
               </button>
               <button onClick={handleCreate} disabled={!form.name.trim() || !form.url.trim() || actionLoading === 'create'}
-                className="px-4 py-1.5 rounded-lg text-xs font-medium bg-accent text-white disabled:opacity-40 hover:bg-accent/80 transition-all flex items-center gap-1.5">
+                className="ora-primary-button-sm">
                 {actionLoading === 'create' && <InlineSpinner size={12} />}
                 Erstellen
               </button>
@@ -2237,20 +2237,20 @@ export function RealtimeTab({ token }: { token: string }) {
             <>
               {/* Key Metrics Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="ora-card rounded-2xl p-4 theme-transition text-center">
                   <div className="text-2xl font-bold text-foreground">{metrics.http.requests_total.toLocaleString()}</div>
                   <div className="text-[10px] text-foreground/50 mt-0.5">HTTP Requests</div>
                   {metrics.http.errors_total > 0 && <div className="text-[9px] text-red-400 mt-0.5">{metrics.http.errors_total} Fehler</div>}
                 </div>
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="ora-card rounded-2xl p-4 theme-transition text-center">
                   <div className="text-2xl font-bold text-foreground">{metrics.entities.state_changes.toLocaleString()}</div>
                   <div className="text-[10px] text-foreground/50 mt-0.5">State Changes</div>
                 </div>
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="ora-card rounded-2xl p-4 theme-transition text-center">
                   <div className="text-2xl font-bold text-foreground">{metrics.services.calls_total.toLocaleString()}</div>
                   <div className="text-[10px] text-foreground/50 mt-0.5">Service Calls</div>
                 </div>
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="ora-card rounded-2xl p-4 theme-transition text-center">
                   <div className={`text-2xl font-bold ${metrics.live?.ha_connected ? 'text-green-400' : 'text-red-400'}`}>
                     {metrics.live?.ha_connected ? 'Online' : 'Offline'}
                   </div>
@@ -2365,7 +2365,7 @@ export function RealtimeTab({ token }: { token: string }) {
                   <input type="text" value={sseFilter} onChange={e => setSseFilter(e.target.value)}
                     placeholder="Domain-Filter: light,switch,sensor (leer = alle)"
                     disabled={sseConnected}
-                    className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono disabled:opacity-50" />
+                    className="ora-field-sm w-full text-xs font-mono" />
                 </div>
                 <button onClick={toggleSse}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
@@ -2444,7 +2444,7 @@ export function RealtimeTab({ token }: { token: string }) {
                   <input type="text" value={wsDomainFilter} onChange={e => setWsDomainFilter(e.target.value)}
                     placeholder="light,switch,sensor"
                     disabled={wsConnected}
-                    className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono disabled:opacity-50" />
+                    className="ora-field-sm w-full text-xs font-mono" />
                 </div>
               )}
               <div className="flex items-center gap-2">
@@ -2611,7 +2611,7 @@ export function SchedulerTab({ token }: { token: string }) {
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-xs font-semibold text-foreground">Zeitpläne</h4>
               <button onClick={() => setShowCreateSchedule(!showCreateSchedule)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-accent text-white rounded-lg text-[10px] font-semibold hover:bg-accent/85 transition-colors">
+                className="ora-primary-button-sm">
                 <Plus size={12} /> Neuer Zeitplan
               </button>
             </div>
@@ -2619,23 +2619,23 @@ export function SchedulerTab({ token }: { token: string }) {
             {showCreateSchedule && (
               <div className="space-y-2 p-3 rounded-lg bg-foreground/5 border border-foreground/10 mb-3">
                 <input value={newSchedule.name} onChange={e => setNewSchedule(s => ({...s, name: e.target.value}))}
-                  placeholder="Name (optional)" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                  placeholder="Name (optional)" className="ora-field-sm w-full text-xs" />
                 <input value={newSchedule.entity_id} onChange={e => setNewSchedule(s => ({...s, entity_id: e.target.value}))}
-                  placeholder="Entity ID (z.B. light.wohnzimmer)" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                  placeholder="Entity ID (z.B. light.wohnzimmer)" className="ora-field-sm w-full text-xs font-mono" />
                 <div className="grid grid-cols-2 gap-2">
                   <select value={newSchedule.action} onChange={e => setNewSchedule(s => ({...s, action: e.target.value}))}
-                    className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground">
+                    className="ora-field-sm text-xs">
                     <option value="turn_on">Einschalten</option>
                     <option value="turn_off">Ausschalten</option>
                     <option value="toggle">Umschalten</option>
                   </select>
                   <input value={newSchedule.cron} onChange={e => setNewSchedule(s => ({...s, cron: e.target.value}))}
-                    placeholder="Cron (z.B. 0 8 * * *)" className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                    placeholder="Cron (z.B. 0 8 * * *)" className="ora-field-sm text-xs font-mono" />
                 </div>
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setShowCreateSchedule(false)} className="px-3 py-1.5 text-xs text-foreground/50 hover:text-foreground transition-colors">Abbrechen</button>
                   <button onClick={createSchedule} disabled={!newSchedule.entity_id || !newSchedule.cron || actionLoading === 'create-schedule'}
-                    className="px-4 py-1.5 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                    className="ora-primary-button-sm">
                     {actionLoading === 'create-schedule' && <InlineSpinner size={12} />}
                     Erstellen</button>
                 </div>
@@ -2696,7 +2696,7 @@ export function SchedulerTab({ token }: { token: string }) {
                   {actionLoading === 'check-watchdogs' ? <InlineSpinner size={12} /> : <Heartbeat size={12} />} Jetzt prüfen
                 </button>
                 <button onClick={() => setShowCreateWatchdog(!showCreateWatchdog)}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-accent text-white rounded-lg text-[10px] font-semibold hover:bg-accent/85 transition-colors">
+                  className="ora-primary-button-sm">
                   <Plus size={12} /> Neuer Watchdog
                 </button>
               </div>
@@ -2705,16 +2705,16 @@ export function SchedulerTab({ token }: { token: string }) {
             {showCreateWatchdog && (
               <div className="space-y-2 p-3 rounded-lg bg-foreground/5 border border-foreground/10 mb-3">
                 <input value={newWatchdog.name} onChange={e => setNewWatchdog(w => ({...w, name: e.target.value}))}
-                  placeholder="Name (optional)" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                  placeholder="Name (optional)" className="ora-field-sm w-full text-xs" />
                 <input value={newWatchdog.entity_id} onChange={e => setNewWatchdog(w => ({...w, entity_id: e.target.value}))}
-                  placeholder="Entity ID" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                  placeholder="Entity ID" className="ora-field-sm w-full text-xs font-mono" />
                 <div className="grid grid-cols-3 gap-2">
                   <input value={newWatchdog.expected_state} onChange={e => setNewWatchdog(w => ({...w, expected_state: e.target.value}))}
-                    placeholder="Erwarteter Zustand" className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                    placeholder="Erwarteter Zustand" className="ora-field-sm text-xs" />
                   <input type="number" value={newWatchdog.timeout_minutes} onChange={e => setNewWatchdog(w => ({...w, timeout_minutes: parseInt(e.target.value) || 30}))}
-                    placeholder="Timeout (Min)" className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                    placeholder="Timeout (Min)" className="ora-field-sm text-xs" />
                   <select value={newWatchdog.action} onChange={e => setNewWatchdog(w => ({...w, action: e.target.value}))}
-                    className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground">
+                    className="ora-field-sm text-xs">
                     <option value="notify">Benachrichtigen</option>
                     <option value="restart">Neustarten</option>
                     <option value="turn_on">Einschalten</option>
@@ -2723,7 +2723,7 @@ export function SchedulerTab({ token }: { token: string }) {
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setShowCreateWatchdog(false)} className="px-3 py-1.5 text-xs text-foreground/50 hover:text-foreground transition-colors">Abbrechen</button>
                   <button onClick={createWatchdog} disabled={!newWatchdog.entity_id || actionLoading === 'create-watchdog'}
-                    className="px-4 py-1.5 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                    className="ora-primary-button-sm">
                     {actionLoading === 'create-watchdog' && <InlineSpinner size={12} />}
                     Erstellen</button>
                 </div>
@@ -2804,7 +2804,7 @@ export function AnalyticsTab({ token }: { token: string }) {
       {dashboard && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {Object.entries(dashboard).filter(([, v]) => typeof v === 'number' || typeof v === 'string').slice(0, 8).map(([key, val]) => (
-            <div key={key} className="glass-card rounded-xl p-3 text-center">
+            <div key={key} className="ora-card rounded-xl p-3 text-center">
               <div className="text-lg font-bold text-accent">{String(val)}</div>
               <div className="text-[10px] text-foreground/50 mt-0.5">{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
             </div>
@@ -2859,7 +2859,7 @@ export function AnalyticsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          className="ora-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
         </button>
       </div>
@@ -2968,7 +2968,7 @@ export function GlobalAlertTab({ token }: { token: string }) {
                 }`}>{l}</button>
             ))}
             <button onClick={send} disabled={busy || !title.trim() || !message.trim()}
-              className="ml-auto px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="ora-ghost-button-sm ml-auto">
               {busy ? 'Sende…' : 'Senden'}
             </button>
           </div>

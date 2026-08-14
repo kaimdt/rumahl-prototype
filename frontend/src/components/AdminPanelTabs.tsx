@@ -219,7 +219,7 @@ export function SystemInfoTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          className="ora-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
         </button>
       </div>
@@ -321,13 +321,13 @@ export function AppsTab({ token }: { token: string }) {
           <div>
             <label className="text-[10px] text-foreground/40 mb-1 block">App Name</label>
             <input type="text" value={newAppName} onChange={e => setNewAppName(e.target.value)}
-              className="w-full px-3 py-2 bg-foreground/5 border border-foreground/10 rounded-lg text-xs text-foreground placeholder:text-foreground/30"
+              className="ora-field-sm w-full text-xs"
               placeholder="z.B. my-weather-app" />
           </div>
           <div>
             <label className="text-[10px] text-foreground/40 mb-1 block">Docker Image</label>
             <input type="text" value={newAppImage} onChange={e => setNewAppImage(e.target.value)}
-              className="w-full px-3 py-2 bg-foreground/5 border border-foreground/10 rounded-lg text-xs text-foreground placeholder:text-foreground/30"
+              className="ora-field-sm w-full text-xs"
               placeholder="z.B. ghcr.io/user/weather-app:latest" />
           </div>
           <button onClick={installApp} disabled={installing || !newAppImage || !newAppName}
@@ -397,7 +397,7 @@ export function AppsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          className="ora-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
         </button>
       </div>
@@ -488,32 +488,32 @@ export function PluginsTab({ token }: { token: string }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('navigation.plugins')}</div>
           <div className="text-lg font-semibold text-foreground">{plugins.length}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.executions')}</div>
           <div className="text-lg font-semibold text-accent">{executions}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.failures')}</div>
           <div className="text-lg font-semibold text-red-300">{failures}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.network')}</div>
           <div className="text-lg font-semibold text-cyan-300">{networkEnabled}</div>
         </div>
       </div>
 
-      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+      <div className="ora-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
         <div className="relative flex-1">
           <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('plugins.overview.search')}
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+            className="ora-field-sm w-full pl-9 pr-3 text-xs"
           />
         </div>
         <div className="flex gap-1 overflow-x-auto">
@@ -627,7 +627,7 @@ export function PluginsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          className="ora-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
         </button>
       </div>

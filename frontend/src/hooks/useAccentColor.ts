@@ -2,13 +2,17 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { getPalette } from 'colorthief'
 import { useCurrentBackground } from '@/contexts/CurrentBackgroundContext'
 import { useTheme } from '@/contexts/ThemeContext'
+import { storage } from '@/lib/storage'
 
 interface AccentColorSettings {
   mode: 'auto' | 'static'
   staticColor: string
+  /** Accent intensity 0 (subtle/desaturated) – 100 (vivid). */
+  intensity: number
 }
 
 const DEFAULT_ACCENT = '#3b82f6'
+const DEFAULT_ACCENT_SETTINGS: AccentColorSettings = { mode: 'auto', staticColor: DEFAULT_ACCENT, intensity: 60 }
 
 /** Theme-appropriate fallback accents (used when no image is available).
  * Warm amber — Umbrel-style brand color for the near-black themes. */
@@ -43,23 +47,32 @@ export function useAccentColor() {
   const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT)
   const [extractedPalette, setExtractedPalette] = useState<string[]>([])
   const [settings, setSettings] = useState<AccentColorSettings>(() => {
-    try {
-      const stored = localStorage.getItem('accent-color-settings')
-      return stored ? JSON.parse(stored) : { mode: 'auto', staticColor: DEFAULT_ACCENT }
-    } catch (err) {
-      console.warn('useAccentColor: failed to parse stored settings, using defaults', err)
-      return { mode: 'auto', staticColor: DEFAULT_ACCENT }
-    }
+    const stored = storage.get<AccentColorSettings>('accent-color-settings', DEFAULT_ACCENT_SETTINGS)
+    return stored ? { ...DEFAULT_ACCENT_SETTINGS, ...stored } : DEFAULT_ACCENT_SETTINGS
   })
 
   // Counter to discard stale async extractions
   const extractionIdRef = useRef(0)
   // Track the last URL we extracted from to avoid duplicate work
   const lastExtractedUrlRef = useRef<string | null>(null)
+  // Latest intensity, read by updateCSSVariable without forcing re-extraction.
+  const intensityRef = useRef(settings.intensity)
+  intensityRef.current = settings.intensity
 
   useEffect(() => {
-    localStorage.setItem('accent-color-settings', JSON.stringify(settings))
+    storage.set('accent-color-settings', settings)
   }, [settings])
+
+  // Re-read when the backend sync finishes (admin global defaults may have
+  // been applied as fallback for keys the user hasn't customized).
+  useEffect(() => {
+    const onSynced = () => {
+      const stored = storage.get<AccentColorSettings>('accent-color-settings', DEFAULT_ACCENT_SETTINGS)
+      if (stored) setSettings({ ...DEFAULT_ACCENT_SETTINGS, ...stored })
+    }
+    window.addEventListener('iora:settings-synced', onSynced)
+    return () => window.removeEventListener('iora:settings-synced', onSynced)
+  }, [])
 
   // The theme panel locks the accent (data-accent-locked) when the user picks
   // one — the wallpaper extraction must not override the user's choice.
@@ -187,8 +200,9 @@ export function useAccentColor() {
     }
 
     const maxChroma = getMaxChroma(currentTheme)
+    const intensityMult = 0.3 + intensityRef.current / 100
     const l = parseFloat(Math.max(minLightness, Math.min(maxLightness, oklch.l)).toFixed(2))
-    const c = parseFloat(Math.max(0.10, Math.min(maxChroma, oklch.c)).toFixed(2))
+    const c = parseFloat(Math.max(0.05, Math.min(maxChroma, oklch.c * intensityMult)).toFixed(2))
     const h = parseFloat(oklch.h.toFixed(1))
 
     document.documentElement.style.setProperty('--accent', `oklch(${l} ${c} ${h})`)
@@ -207,6 +221,20 @@ export function useAccentColor() {
       lastExtractedUrlRef.current = null
     }
   }, [])
+
+  const setIntensity = useCallback((intensity: number) => {
+    setSettings(prev => ({ ...prev, intensity }))
+  }, [])
+
+  // Re-apply the current accent whenever intensity or theme changes, without
+  // re-extracting the wallpaper (the main effect above owns extraction).
+  const intensityAppliedRef = useRef(false)
+  useEffect(() => {
+    if (!intensityAppliedRef.current) { intensityAppliedRef.current = true; return }
+    if (accentLocked()) return
+    const color = settings.mode === 'static' ? settings.staticColor : accentColor
+    updateCSSVariable(color, theme)
+  }, [settings.intensity, theme])
 
   const setStaticColor = useCallback((color: string) => {
     setSettings(prev => ({ ...prev, staticColor: color }))
@@ -245,11 +273,13 @@ export function useAccentColor() {
     extractedPalette,
     mode: settings.mode,
     staticColor: settings.staticColor,
+    intensity: settings.intensity,
     setMode,
     setStaticColor,
+    setIntensity,
     selectFromPalette,
     resetToAuto,
-  }), [accentColor, extractedPalette, settings.mode, settings.staticColor, setMode, setStaticColor, selectFromPalette, resetToAuto])
+  }), [accentColor, extractedPalette, settings.mode, settings.staticColor, settings.intensity, setMode, setStaticColor, setIntensity, selectFromPalette, resetToAuto])
 }
 
 // --- Helpers ---

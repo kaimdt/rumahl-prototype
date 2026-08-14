@@ -3,39 +3,23 @@ import { createPortal } from 'react-dom'
 import '@/i18n'
 import { useTranslation } from 'react-i18next'
 import { getBackendUrl } from '@/lib/config'
-import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
-import { ThemeIframeProvider } from '@/components/ThemeIframeProvider'
-import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { setAutoContrastUser } from '@/lib/autoContrast'
-import { PageNavigationProvider, usePageNavigation, iconMap } from '@/contexts/PageNavigationContext'
-import { ConnectionProvider, useConnection } from '@/contexts/ConnectionContext'
-import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
+import { usePageNavigation, iconMap } from '@/contexts/PageNavigationContext'
+import { useConnection } from '@/contexts/ConnectionContext'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
-import { EntityDiscoveryProvider, useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
-import { DynamicOverviewProvider, useDynamicOverview, getVisibleWidgetTypes } from '@/contexts/DynamicOverviewContext'
+import { useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
+import { useDynamicOverview, getVisibleWidgetTypes } from '@/contexts/DynamicOverviewContext'
 import { useEntityStore } from '@/hooks/useEntityStore'
-import { NavigationMenu } from '@/components/NavigationMenu'
-import { OsHomeScreen } from '@/components/OsHomeScreen'
-import { OsSystemShell } from '@/components/OsSystemShell'
-import { OsDock } from '@/components/OsDock'
-import { OsFullscreenBar } from '@/components/OsFullscreenBar'
-import { OsWindowActions } from '@/components/OsWindowActions'
-import { CommandPalette } from '@/components/CommandPalette'
-import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { AppRuntimeView } from '@/components/AppRuntimeView'
-import { OsImagesApp } from '@/components/OsImagesApp'
 import { OsTooltipProvider } from '@/components/OsTooltip'
 import { appOpenUrl, appRuntimeUrls, installedAppIds, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
-import { OsAppWindow } from '@/components/OsAppWindow'
-import { OsWindowOverlay } from '@/components/OsWindowOverlay'
-import { OsWindowProvider, useOsWindows } from '@/contexts/OsWindowContext'
+import { useOsWindows } from '@/contexts/OsWindowContext'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
-import { OsSessionLock } from '@/components/OsSessionLock'
-import { OsSystemApp } from '@/components/OsSystemApp'
-import { OsSecurityApp } from '@/components/OsSecurityApp'
-import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
+import { isBuiltinPageId, renderBuiltinPage, renderBuiltinPageFullscreen, type PageRenderContext } from '@/lib/osPageRegistry'
 import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
 import { LoginPage } from '@/components/LoginPage'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
@@ -51,50 +35,30 @@ const ClimateWidget = lazy(() => import('@/components/widgets/ClimateWidget').th
 const SwitchWidget = lazy(() => import('@/components/widgets/SwitchWidget').then(m => ({ default: m.SwitchWidget })))
 const SensorWidget = lazy(() => import('@/components/widgets/SensorWidget').then(m => ({ default: m.SensorWidget })))
 const MediaPlayerWidget = lazy(() => import('@/components/widgets/MediaPlayerWidget').then(m => ({ default: m.MediaPlayerWidget })))
-// Share page for the Apps & Features app menu
-const SharePage = lazy(() => import('./components/SharePage').then(m => ({ default: m.SharePage })))
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
-const AdminCenter = lazy(() => import('@/components/AdminCenter').then(m => ({ default: m.AdminCenter })))
-const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default: m.AgentTab })))
-const AutomationEditorApp = lazy(() => import('@/components/AutomationEditorApp').then(m => ({ default: m.AutomationEditorApp })))
-const OsStorageApp = lazy(() => import('@/components/OsStorageApp').then(m => ({ default: m.OsStorageApp })))
-const OsDevicesApp = lazy(() => import('@/components/OsDevicesApp').then(m => ({ default: m.OsDevicesApp })))
-const OsContainersApp = lazy(() => import('@/components/OsContainersApp').then(m => ({ default: m.OsContainersApp })))
-const OsLogsApp = lazy(() => import('@/components/OsLogsApp').then(m => ({ default: m.OsLogsApp })))
-const OsServicesApp = lazy(() => import('@/components/OsServicesApp').then(m => ({ default: m.OsServicesApp })))
-const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
-const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
 // AppSettingsPage is now rendered inside the Settings app (SettingsAppsSection
 // → SettingsAppDetailPage) at /settings/apps/<id>; the standalone component
 // remains available for compatibility and is no longer routed directly.
 const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
-const AppStoreTab = lazy(() => import('@/components/AppStoreTab').then(m => ({ default: m.AppStoreTab })))
-import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
-import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PageTransitionWrapper } from '@/components/PageTransitionWrapper'
-import { CurrentBackgroundProvider } from '@/contexts/CurrentBackgroundContext'
 import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
+import { useAppSettings } from '@/hooks/useAppSettings'
 import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity, MediaPlayerEntity } from '@/lib/types'
 import { Sparkle, ShieldCheck, Wrench, X } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Toaster } from '@/components/ui/sonner'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { wsOnMessage } from '@/lib/wsConnection'
 import { toast } from 'sonner'
+import { AppProviders } from '@/components/AppProviders'
+import { AppChrome } from '@/components/AppChrome'
 import { installGlobalErrorHandlers } from '@/lib/errorReporter'
 import { startSystemEventListener } from '@/lib/systemEventListener'
-import { ORAAssistant } from '@/components/ORAAssistant'
-const CodingAgent = lazy(() =>
-  import('@/components/CodingAgent')
-    .then((m) => ({ default: m.CodingAgent }))
-    .catch(() => ({ default: (() => <></>) as unknown as typeof import('@/components/CodingAgent').CodingAgent })),
-)
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
@@ -138,14 +102,6 @@ function DashboardSkeleton() {
   )
 }
 
-async function hashPin(pin: string): Promise<string> {
-  const encoded = new TextEncoder().encode(pin)
-  const digest = await crypto.subtle.digest('SHA-256', encoded)
-  return Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, '0'))
-    .join('')
-}
-
 function DashboardContent() {
   const { t } = useTranslation()
   const { background, savePreference, getPreference } = useConfiguration()
@@ -173,7 +129,6 @@ function DashboardContent() {
   // Keeps deep-linked `/app/<id>` routes resolvable after a browser reload,
   // without requiring the launcher to have been mounted first.
   const { allApps: installedRuntimeApps } = useInstalledApps()
-  const standaloneAppPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images', 'os-security', 'os-storage', 'os-devices', 'os-containers', 'os-logs', 'os-services']
   // App pages owned by the app runtime: installed apps + catalog apps render
   // even without a dashboard page record, so deep links like
   // /app/ora-browser work directly (also with proxy-only/local apps that
@@ -183,7 +138,7 @@ function DashboardContent() {
     installedAppIds.has(id) ||
     STORE_CATALOG.some((app) => app.id === id)
   // Deep-linked Docker apps (/app/<id>) also use the OS chrome (dock, no navbar).
-  const isOsAppPage = standaloneAppPageIds.includes(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
+  const isOsAppPage = isBuiltinPageId(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
   const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
   const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId) && !isRuntimeAppPage(currentPageId)
   const { windows, immersivePageId, setImmersive } = useOsWindows()
@@ -206,6 +161,48 @@ function DashboardContent() {
     const Icon = app.icon
     return <Icon size={15} weight="duotone" />
   }
+
+const renderSettings = (): React.ReactNode => (
+  <SettingsPage
+    user={user}
+    userName={userName}
+    logout={logout}
+    updateProfile={updateProfile}
+    deviceLockMode={deviceLockMode}
+    lockLoading={lockLoading}
+    updateDeviceLockMode={updateDeviceLockMode}
+    pinHash={pinHash}
+    savePin={savePin}
+    pinCode={pinCode}
+    setPinCode={setPinCode}
+    pinConfirm={pinConfirm}
+    setPinConfirm={setPinConfirm}
+    isSavingProfile={isSavingProfile}
+    profileUsername={profileUsername}
+    setProfileUsername={setProfileUsername}
+    profileDisplayName={profileDisplayName}
+    setProfileDisplayName={setProfileDisplayName}
+    saveUserProfile={saveUserProfile}
+    aiEnabled={aiEnabled}
+    setAiEnabled={setAiEnabled}
+    accentColorSettings={accentColorSettings}
+    glassSettings={glassSettings}
+    nightModeSettings={nightModeSettings}
+    screensaverSettings={screensaverSettings}
+    setShowPageDesigner={setShowPageDesigner}
+    entities={entities}
+    theme={theme}
+  />
+)
+
+const pageCtx: PageRenderContext = {
+  token: token || null,
+  isAdmin: Boolean(user?.isAdmin),
+  t,
+  getOsAppName,
+  getOsAppIcon,
+  renderSettings,
+}
 
 // Raw app content (no window chrome) — used by the window manager.
 // `opts.inWindow` is set when rendered inside a floating/split window:
@@ -239,79 +236,11 @@ const renderOsAppContent = (pageId: string, opts?: { inWindow?: boolean }): Reac
       document.body,
     )
   }
-  switch (pageId) {
-    case 'launcher': return <OsHomeScreen />
-    case 'os-files': return <OsSystemApp kind="files" />
-    case 'os-images': return <OsImagesApp />
-    case 'os-network': return <OsSystemApp kind="network" />
-    case 'os-system': return <OsSystemApp kind="system" />
-    case 'os-security': return <OsSecurityApp />
-    case 'os-storage': return <OsStorageApp />
-    case 'os-devices': return <OsDevicesApp />
-    case 'os-containers': return <OsContainersApp />
-    case 'os-logs': return <OsLogsApp />
-    case 'os-services': return <OsServicesApp />
-    case 'os-updates': return <OsMaintenanceApp kind="updates" />
-    case 'os-backups': return <OsMaintenanceApp kind="backups" />
-    case 'app-store': return <AppStoreTab token={token || ''} />
-    case 'settings': return (
-      <SettingsPage
-        user={user}
-        userName={userName}
-        logout={logout}
-        updateProfile={updateProfile}
-        deviceLockMode={deviceLockMode}
-        lockLoading={lockLoading}
-        updateDeviceLockMode={updateDeviceLockMode}
-        pinHash={pinHash}
-        savePin={savePin}
-        pinCode={pinCode}
-        setPinCode={setPinCode}
-        pinConfirm={pinConfirm}
-        setPinConfirm={setPinConfirm}
-        isSavingProfile={isSavingProfile}
-        profileUsername={profileUsername}
-        setProfileUsername={setProfileUsername}
-        profileDisplayName={profileDisplayName}
-        setProfileDisplayName={setProfileDisplayName}
-        saveUserProfile={saveUserProfile}
-        aiEnabled={aiEnabled}
-        setAiEnabled={setAiEnabled}
-        accentColorSettings={accentColorSettings}
-        glassSettings={glassSettings}
-        nightModeSettings={nightModeSettings}
-        screensaverSettings={screensaverSettings}
-        setShowPageDesigner={setShowPageDesigner}
-        entities={entities}
-        theme={theme}
-      />
-    )
-    case 'admin': return user?.isAdmin ? <AdminCenter /> : null
-    case 'docs': return <DocsPage />
-    case 'share': return <SharePage />
-    case 'streaming': return <StreamSender />
-    case 'ai-agent': return <AgentTab token={token || ''} />
-    case 'automations': return <AutomationEditorApp />
-    default: return null
-  }
+  return renderBuiltinPage(pageId, pageCtx)
 }
 
 // Fullscreen OS pages: embedded apps get an OS window chrome.
-const renderOsAppPage = (pageId: string): React.ReactNode => {
-  if (pageId === 'app-store') {
-    return <section className="ora-app-frame p-4 sm:p-6"><header className="mb-6 flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p><h1 className="mt-1 text-3xl font-semibold">{t('os.apps.appStore.name')}</h1><p className="mt-1 text-sm text-foreground/45">{t('os.apps.appStore.description')}</p></div><OsWindowActions pageId={pageId} /></header><AppStoreTab token={token || ''} /></section>
-  }
-  if (pageId === 'admin') {
-    return user?.isAdmin ? <OsAppWindow pageId={pageId} title={t('navigation.admin')} icon={getOsAppIcon(pageId)} noClip><AdminCenter /></OsAppWindow> : null
-  }
-  if (pageId === 'docs') return <OsAppWindow pageId={pageId} title={t('navigation.docs')} icon={getOsAppIcon(pageId)}><DocsPage /></OsAppWindow>
-  if (pageId === 'share') return <OsAppWindow pageId={pageId} title={t('os.apps.share.name')} icon={getOsAppIcon(pageId)}><SharePage /></OsAppWindow>
-  if (pageId === 'streaming') return <OsAppWindow pageId={pageId} title={t('os.apps.streaming.name')} icon={getOsAppIcon(pageId)}><StreamSender /></OsAppWindow>
-  if (pageId === 'ai-agent') return <OsAppWindow pageId={pageId} title={t('os.apps.agent.name')} icon={getOsAppIcon(pageId)}><AgentTab token={token || ''} /></OsAppWindow>
-  if (pageId === 'automations') return <OsAppWindow pageId={pageId} title={t('os.apps.automations.name')} icon={getOsAppIcon(pageId)} noClip><AutomationEditorApp /></OsAppWindow>
-  return renderOsAppContent(pageId)
-}
-
+const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFullscreen(pageId, pageCtx)
 
 
   // Apply global card style class on <html> so it covers portals/modals/dialogs
@@ -370,197 +299,17 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
     return !isNewTab && !isDirectPage
   })
   const [showPageDesigner, setShowPageDesigner] = useState(false)
-  const [maintenanceMode, setMaintenanceMode] = useState(false)
-  const [maintenanceMessage, setMaintenanceMessage] = useState('')
-  const [deviceLockMode, setDeviceLockMode] = useState(false)
-  const [lockLoading, setLockLoading] = useState(false)
-  const [isSavingProfile, setIsSavingProfile] = useState(false)
-  const [profileUsername, setProfileUsername] = useState('')
-  const [profileDisplayName, setProfileDisplayName] = useState('')
-  const [pinCode, setPinCode] = useState('')
-  const [pinConfirm, setPinConfirm] = useState('')
-  const [pinHash, setPinHash] = useState<string | null>(null)
-  const [unlockPinInput, setUnlockPinInput] = useState('')
-  const [showUnlockDialog, setShowUnlockDialog] = useState(false)
-  const [aiEnabled, setAiEnabled] = useLocalStorage('ha-ai-enabled', true)
+  const {
+    maintenanceMode, maintenanceMessage, canBypassMaintenance,
+    deviceLockMode, lockLoading, updateDeviceLockMode,
+    isSavingProfile, profileUsername, setProfileUsername, profileDisplayName, setProfileDisplayName, saveUserProfile,
+    pinCode, setPinCode, pinConfirm, setPinConfirm, pinHash, savePin,
+    unlockPinInput, setUnlockPinInput, showUnlockDialog, setShowUnlockDialog, verifyUnlockPin,
+    aiEnabled, setAiEnabled,
+    haConfigured, haEnabled,
+  } = useAppSettings()
   const lastEvalRef = useRef(0)
   const hasActiveCustomBackground = Boolean(background?.is_active)
-
-  // Whether IORA Home has Home Assistant configured and enabled.
-  const [haConfigured, setHaConfigured] = useState<boolean | null>(null)
-  const [haEnabled, setHaEnabled] = useState<boolean>(true)
-  useEffect(() => {
-    let cancelled = false
-    const refreshHaStatus = () => {
-      fetch(`${getBackendUrl()}/api/integration/ha/configured`)
-        .then(r => (r.ok ? r.json() : null))
-        .then((data: { configured?: boolean; enabled?: boolean } | null) => {
-          if (cancelled || !data) return
-          setHaConfigured(Boolean(data.configured))
-          setHaEnabled(data.enabled !== false)
-        })
-        .catch(() => { if (!cancelled) setHaConfigured(false) })
-    }
-    refreshHaStatus()
-    const onFocus = () => refreshHaStatus()
-    window.addEventListener('focus', onFocus)
-    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
-  }, [])
-
-  // Check if current user can bypass maintenance mode
-  const canBypassMaintenance = user?.isAdmin || user?.role === 'maintenance' || user?.role === 'admin'
-
-  // Fetch maintenance status on mount + listen for WebSocket events
-  useEffect(() => {
-    let mounted = true
-    // Initial fetch
-    fetch(`${getBackendUrl()}/api/maintenance/status`)
-      .then(r => r.json())
-      .then((data: { active: boolean; message: string }) => {
-        if (!mounted) return
-        setMaintenanceMode(data.active)
-        setMaintenanceMessage(data.message || '')
-      })
-      .catch(() => {})
-    // WebSocket listener
-    const unsub = wsOnMessage((data: unknown) => {
-      const msg = data as Record<string, unknown>
-      if (msg.type === 'maintenance_mode') {
-        setMaintenanceMode(msg.active as boolean)
-        setMaintenanceMessage((msg.message as string) || '')
-      }
-    })
-    return () => { mounted = false; unsub() }
-  }, [])
-
-  useEffect(() => {
-    let mounted = true
-    if (!user) return
-    ;(async () => {
-      try {
-        const pref = await getPreference('device_lock_mode')
-        if (mounted && typeof pref === 'boolean') {
-          setDeviceLockMode(pref)
-        }
-      } catch {
-        // ignore preference load errors
-      }
-    })()
-    return () => {
-      mounted = false
-    }
-  }, [user, getPreference])
-
-  useEffect(() => {
-    setProfileUsername(user?.username ?? '')
-    setProfileDisplayName(user?.displayName ?? '')
-  }, [user?.username, user?.displayName])
-
-  useEffect(() => {
-    let mounted = true
-    if (!user) return
-    ;(async () => {
-      try {
-        const pref = await getPreference('settings_pin_hash')
-        if (mounted && typeof pref === 'string') {
-          setPinHash(pref)
-        }
-      } catch {
-        // ignore preference load errors
-      }
-    })()
-    return () => {
-      mounted = false
-    }
-  }, [user, getPreference])
-
-  const updateDeviceLockMode = async (next: boolean) => {
-    if (!next && deviceLockMode && pinHash) {
-      setUnlockPinInput('')
-      setShowUnlockDialog(true)
-      return
-    }
-
-    setLockLoading(true)
-    setDeviceLockMode(next)
-    try {
-      await savePreference('device_lock_mode', next)
-    } catch {
-      setDeviceLockMode(!next)
-    } finally {
-      setLockLoading(false)
-    }
-  }
-
-  const saveUserProfile = async () => {
-    const nextUsername = profileUsername.trim()
-    if (!nextUsername) {
-      toast.error('Benutzername darf nicht leer sein')
-      return
-    }
-
-    setIsSavingProfile(true)
-    try {
-      await updateProfile({
-        username: nextUsername,
-        displayName: profileDisplayName.trim() || undefined,
-      })
-      toast.success('Benutzerprofil aktualisiert')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Profil konnte nicht gespeichert werden'
-      toast.error(message)
-    } finally {
-      setIsSavingProfile(false)
-    }
-  }
-
-  const savePin = async () => {
-    if (!/^\d{4,8}$/.test(pinCode)) {
-      toast.error('PIN muss 4 bis 8 Ziffern enthalten')
-      return
-    }
-    if (pinCode !== pinConfirm) {
-      toast.error('PIN und Bestaetigung stimmen nicht ueberein')
-      return
-    }
-
-    try {
-      const hashedPin = await hashPin(pinCode)
-      await savePreference('settings_pin_hash', hashedPin)
-      setPinHash(hashedPin)
-      setPinCode('')
-      setPinConfirm('')
-      toast.success('PIN gespeichert')
-    } catch {
-      toast.error('PIN konnte nicht gespeichert werden')
-    }
-  }
-
-  const verifyUnlockPin = async () => {
-    if (!pinHash) {
-      setShowUnlockDialog(false)
-      return
-    }
-
-    const enteredHash = await hashPin(unlockPinInput)
-    if (enteredHash !== pinHash) {
-      toast.error('Falsche PIN')
-      return
-    }
-
-    setLockLoading(true)
-    try {
-      setDeviceLockMode(false)
-      await savePreference('device_lock_mode', false)
-      setShowUnlockDialog(false)
-      setUnlockPinInput('')
-      toast.success('Einstellungen entsperrt')
-    } catch {
-      toast.error('Entsperren fehlgeschlagen')
-    } finally {
-      setLockLoading(false)
-    }
-  }
 
   // Run discovery checks and trigger evaluation when entities update (throttled to max once per 5s)
   useEffect(() => {
@@ -783,13 +532,12 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
             // /app-settings/* URLs, so rendering happens via the settings
             // page below.
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
-            const systemPageIds = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images', 'os-security', 'os-storage', 'os-devices', 'os-containers', 'os-logs', 'os-services']
 
             const resolvePageType = (): 'dashboard' | 'app' | 'system' | 'custom' => {
               if (currentPage?.pageType) return currentPage.pageType
               if (currentPage?.pageSource?.kind === 'app') return 'app'
               if (currentPage?.pageSource?.kind === 'iora') return 'system'
-              if (systemPageIds.includes(currentPageId)) return 'system'
+              if (isBuiltinPageId(currentPageId)) return 'system'
 
               // Backward compatibility for already persisted app pages without metadata.
               const isLegacyAppPage = Boolean(
@@ -807,8 +555,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
 
             const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
-            const nonHAPages = ['launcher', 'settings', 'app-store', 'admin', 'docs', 'share', 'streaming', 'ai-agent', 'os-files', 'os-network', 'os-system', 'os-updates', 'os-backups', 'os-images', 'os-security', 'os-storage', 'os-devices', 'os-containers', 'os-logs', 'os-services']
-            const isNonHAPage = nonHAPages.includes(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
+            const isNonHAPage = isBuiltinPageId(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
@@ -1074,33 +821,18 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
           )
         })()}
       </AnimatePresence>
-      <NavigationMenu hidden={showPageDesigner || isOsAppPage || isNotFoundPage} />
-      {!showPageDesigner && !immersivePageId && <OsSystemShell />}
-      {/* Dock only on launcher & OS pages — it must never cover the navbar in apps */}
-      {!showPageDesigner && !immersivePageId && (isOsAppPage || isNotFoundPage) && <OsDock />}
-      {/* Slim OS status bar on every page (like the launcher). Window actions
-         only appear inside immersive (true fullscreen) apps. */}
-      {!showPageDesigner && (
-        <OsFullscreenBar
-          pageId={immersivePageId || currentPageId}
-          name={getOsAppName(immersivePageId || currentPageId)}
-          icon={getOsAppIcon(immersivePageId || currentPageId) ? (
-            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent/15 text-accent">{getOsAppIcon(immersivePageId || currentPageId)}</span>
-          ) : undefined}
-        />
-      )}
-      {currentPageId === 'launcher' && !showPageDesigner && !immersivePageId && (
-        <OsWindowOverlay
-          getApp={(pageId) => osAppByPageId.get(pageId)}
-          getName={getOsAppName}
-          renderContent={(pageId) => renderOsAppContent(pageId, { inWindow: true })}
-        />
-      )}
-      <CommandPalette />
-      <PermissionRequestDialog />
-      <OsSessionLock />
-      <ORAAssistant />
-      {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}
+      <AppChrome
+        showPageDesigner={showPageDesigner}
+        immersivePageId={immersivePageId}
+        isOsAppPage={isOsAppPage}
+        isNotFoundPage={isNotFoundPage}
+        currentPageId={currentPageId}
+        aiEnabled={aiEnabled}
+        getOsAppName={getOsAppName}
+        getOsAppIcon={getOsAppIcon}
+        osAppByPageId={osAppByPageId}
+        renderOsAppContent={renderOsAppContent}
+      />
     </>
   )
 }
@@ -1109,143 +841,6 @@ const renderOsAppPage = (pageId: string): React.ReactNode => {
 /// Detects first-boot setup state and shows a dedicated screen with the
 /// setup wizard URL. Automatically re-checks every 15 seconds and
 /// hides once setup is complete.
-function SetupWizardOverlay({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<{
-    checking: boolean
-    setupComplete: boolean
-    setupUrl: string | null
-    setupReachable: boolean | null
-  }>({ checking: true, setupComplete: true, setupUrl: null, setupReachable: null })
-  const API_BASE = getBackendUrl()
-
-  const checkSetup = useCallback(async () => {
-    // Use the health endpoint to check setup status
-    const healthUrl = API_BASE ? `${API_BASE}/health` : '/health'
-    try {
-      const res = await fetch(healthUrl, { signal: AbortSignal.timeout(5_000) })
-      if (!res.ok) {
-        // Backend/proxy not ready: don't block the app with the setup gate.
-        setState(prev => ({ ...prev, checking: false, setupComplete: true }))
-        return
-      }
-      const data = await res.json()
-      if (data.setup_required === true) {
-        setState({
-          checking: false,
-          setupComplete: false,
-          setupUrl: data.setup_url || null,
-          setupReachable: data.setup_reachable ?? false,
-        })
-      } else {
-        setState({ checking: false, setupComplete: true, setupUrl: null, setupReachable: false })
-      }
-    } catch {
-      // Fetch failed: let the normal backend-unavailable UI handle it.
-      setState(prev => ({ ...prev, checking: false, setupComplete: true }))
-    }
-  }, [API_BASE])
-
-  useEffect(() => {
-    checkSetup()
-    // Re-check every 15 seconds while setup is pending
-    const interval = setInterval(checkSetup, 15_000)
-    return () => clearInterval(interval)
-  }, [checkSetup])
-
-  // When setup is complete, render children normally
-  if (!state.checking && state.setupComplete) {
-    return <>{children}</>
-  }
-
-  // Show setup screen
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <div className="w-full max-w-lg">
-        <div className="glass-card rounded-3xl p-8 border border-white/10">
-          {/* Logo / Icon */}
-          <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/10 mx-auto mb-6">
-            <Wrench size={32} className="text-accent" weight="fill" />
-          </div>
-
-          <h1 className="text-xl font-semibold text-center mb-2">IORA OS Ersteinrichtung</h1>
-          <p className="text-sm text-foreground/60 text-center mb-6">
-            Das System wurde gestartet, aber die Ersteinrichtung wurde noch nicht abgeschlossen.
-            Bitte öffne den Setup-Assistenten, um die Konfiguration abzuschließen.
-          </p>
-
-          {state.checking ? (
-            <div className="flex flex-col items-center gap-3 py-8">
-              <div className="animate-spin w-8 h-8 border-2 border-accent border-t-transparent rounded-full" />
-              <p className="text-sm text-foreground/50">Prüfe Systemstatus…</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Setup URL (reachable) */}
-              {state.setupReachable && state.setupUrl ? (
-                <div className="p-4 rounded-xl bg-success/10 border border-success/20 text-center">
-                  <div className="flex items-center justify-center gap-2 mb-2">
-                    <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                    <span className="text-sm font-medium text-success">Setup-Assistent läuft</span>
-                  </div>
-                  <a
-                    href={state.setupUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors"
-                  >
-                    <Sparkle size={16} weight="fill" />
-                    Setup öffnen
-                  </a>
-                  <p className="text-[10px] text-foreground/40 mt-2">{state.setupUrl}</p>
-                </div>
-              ) : state.setupUrl ? (
-                // Setup URL known but not reachable yet
-                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
-                    <span className="text-sm font-medium text-amber-400">Setup wird gestartet…</span>
-                  </div>
-                  <p className="text-xs text-foreground/50 mb-3">
-                    Der Setup-Assistent sollte unter folgender Adresse erreichbar sein:
-                  </p>
-                  <code className="block text-sm text-center font-mono bg-foreground/5 rounded-lg p-2">{state.setupUrl}</code>
-                  <p className="text-[10px] text-foreground/40 mt-2">
-                    Automatische Prüfung alle 15 Sekunden
-                  </p>
-                </div>
-              ) : (
-                // No URL found at all
-                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
-                    <span className="text-sm font-medium text-amber-400">Warte auf Setup…</span>
-                  </div>
-                  <p className="text-xs text-foreground/50">
-                    Der Setup-Assistent konnte noch nicht gefunden werden.
-                    Bitte stelle sicher, dass das System vollständig hochgefahren ist.
-                    Die Prüfung erfolgt automatisch.
-                  </p>
-                </div>
-              )}
-
-              <button
-                onClick={checkSetup}
-                className="w-full py-2 rounded-xl border border-foreground/10 text-xs text-foreground/50 hover:bg-foreground/5 transition-colors"
-              >
-                Jetzt prüfen
-              </button>
-            </div>
-          )}
-
-          <p className="text-[10px] text-foreground/30 text-center mt-6">
-            IORA OS v{typeof APP_VERSION !== 'undefined' ? APP_VERSION : '?'}
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // Install global error handlers and start the backend system-event listener
 // once, at module load. They are idempotent and safe to call before React
 // mounts.
@@ -1254,33 +849,9 @@ startSystemEventListener()
 
 function App() {
   return (
-    <GlobalConfigProvider>
-    <ConnectionProvider>
-      <AuthProvider>
-        <ThemeProvider>
-          <ThemeIframeProvider />
-          <PageNavigationProvider>
-            <ConfigurationProvider>
-              <CurrentBackgroundProvider>
-              <EntityDiscoveryProvider>
-                <DynamicOverviewProvider>
-                  <NotificationProvider>
-                    <SetupWizardOverlay>
-                      <OsWindowProvider>
-                        <DashboardContent />
-                      </OsWindowProvider>
-                    </SetupWizardOverlay>
-                  </NotificationProvider>
-                  <Toaster />
-                </DynamicOverviewProvider>
-              </EntityDiscoveryProvider>
-              </CurrentBackgroundProvider>
-            </ConfigurationProvider>
-          </PageNavigationProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </ConnectionProvider>
-    </GlobalConfigProvider>
+    <AppProviders>
+      <DashboardContent />
+    </AppProviders>
   )
 }
 

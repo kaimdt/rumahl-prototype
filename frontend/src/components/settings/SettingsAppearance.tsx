@@ -1,8 +1,8 @@
 // Theme picker section of the Settings page (lazy-loaded chunk).
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Info, Palette } from '@phosphor-icons/react'
-import { useTheme } from '@/contexts/ThemeContext'
+import { Clock, Info, Palette } from '@phosphor-icons/react'
+import { readTimeThemeConfig, writeTimeThemeConfig, useTheme, type TimeThemeConfig } from '@/contexts/ThemeContext'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { getCustomThemePreview, MapThemeIcon, SettingsSection, THEME_OPTIONS } from '../SettingsPage'
 
@@ -10,6 +10,15 @@ export function ThemePickerSection() {
   const { t } = useTranslation()
   const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes } = useTheme()
   const [editorOpen, setEditorOpen] = useState(false)
+  const [timeConfig, setTimeConfig] = useState<TimeThemeConfig>(() => readTimeThemeConfig())
+
+  const updateTimeBoundary = (key: keyof TimeThemeConfig, value: number) => {
+    setTimeConfig((prev) => {
+      const next = { ...prev, [key]: value }
+      writeTimeThemeConfig(next)
+      return next
+    })
+  }
 
   // Combine builtin THEME_OPTIONS with custom installed themes
   const allThemeOptions = useMemo(() => {
@@ -68,6 +77,36 @@ export function ThemePickerSection() {
       </button>
 
       <ThemeEditor open={editorOpen} onOpenChange={setEditorOpen} />
+
+      {/* Time-of-day boundaries for the auto theme */}
+      {selectedTheme === 'auto' && (
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Clock size={14} className="text-accent" />
+            <p className="text-[11px] font-medium text-foreground/55">{t("settings.timeOfDay")}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { key: 'dayStart' as const, label: t("settings.dayFrom"), range: [0, 12] as const },
+              { key: 'eveningStart' as const, label: t("settings.eveningFrom"), range: [12, 22] as const },
+              { key: 'nightStart' as const, label: t("settings.nightFrom"), range: [18, 23] as const },
+            ]).map(({ key, label, range }) => (
+              <label key={key} className="flex flex-col gap-1">
+                <span className="text-[10px] text-foreground/45">{label}</span>
+                <select
+                  value={timeConfig[key]}
+                  onChange={(e) => updateTimeBoundary(key, Number(e.target.value))}
+                  className="rounded-lg bg-foreground/5 border border-foreground/10 px-2 py-1.5 text-xs text-foreground outline-none focus:border-accent/50"
+                >
+                  {Array.from({ length: range[1] - range[0] + 1 }, (_, i) => range[0] + i).map((h) => (
+                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </SettingsSection>
   )
 }

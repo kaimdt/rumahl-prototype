@@ -99,7 +99,7 @@ export function SecretsTab({ token }: { token: string }) {
         </div>
         <div className="mt-2">
           <button onClick={create} disabled={!name.trim() || !value}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            className="ora-ghost-button-sm">
             Speichern
           </button>
         </div>
@@ -247,7 +247,7 @@ export function FilesTab({ token }: { token: string }) {
               <input value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="Neuer Ordner-Name…"
                 className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
               <button onClick={createFolder} disabled={!folderName.trim()}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">Ordner anlegen</button>
+                className="ora-ghost-button-sm">Ordner anlegen</button>
             </div>
             {files.length === 0 ? (
               <p className="text-xs text-foreground/50">Keine Dateien.</p>
@@ -386,7 +386,7 @@ export function GatewayTab({ token }: { token: string }) {
             <textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={4} placeholder="Inhalt…"
               className="w-full text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
             <button onClick={sendEmail} disabled={busy || !emailTo.trim() || !emailSubject.trim()}
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">{busy ? '…' : 'Senden'}</button>
+              className="ora-ghost-button-sm">{busy ? '…' : 'Senden'}</button>
           </div>
         )}
         {view === 'search' && (
@@ -394,7 +394,7 @@ export function GatewayTab({ token }: { token: string }) {
             <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} placeholder="Suchbegriff…"
               className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={search} disabled={busy || !searchQ.trim()}
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">{busy ? '…' : 'Suchen'}</button>
+              className="ora-ghost-button-sm">{busy ? '…' : 'Suchen'}</button>
           </div>
         )}
         {view === 'http' && (
@@ -402,7 +402,7 @@ export function GatewayTab({ token }: { token: string }) {
             <input value={httpUrl} onChange={(e) => setHttpUrl(e.target.value)}
               className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={httpGet} disabled={busy || !httpUrl.trim()}
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">{busy ? '…' : 'GET'}</button>
+              className="ora-ghost-button-sm">{busy ? '…' : 'GET'}</button>
           </div>
         )}
         {view === 'log' && requestLog !== null && <ServiceJsonBlock data={requestLog} max="max-h-96" />}
@@ -665,7 +665,7 @@ export function DomainValidatorTab({ token }: { token: string }) {
             className="text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
         </div>
         <button onClick={validate} disabled={busy || !validateUrl.trim() || !validateApp.trim()}
-          className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">{busy ? '…' : 'Validieren'}</button>
+          className="ora-ghost-button-sm mt-2">{busy ? '…' : 'Validieren'}</button>
         {validation !== null && <div className="mt-3"><ServiceJsonBlock data={validation} /></div>}
       </AdminCard>
 
@@ -674,7 +674,7 @@ export function DomainValidatorTab({ token }: { token: string }) {
           <input value={appId} onChange={(e) => setAppId(e.target.value)} placeholder="App-ID eingeben…"
             className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
           <button onClick={loadFor} disabled={busy || !appId.trim()}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">{busy ? '…' : 'Laden'}</button>
+            className="ora-ghost-button-sm">{busy ? '…' : 'Laden'}</button>
         </div>
         {error && <p className="text-xs text-red-300 mb-2">{error}</p>}
         {policy !== null && (
@@ -733,7 +733,7 @@ export function ResourcesTab({ token }: { token: string }) {
         {error && <p className="text-xs text-red-300">{error}</p>}
         {system !== null && <ServiceJsonBlock data={system} max="max-h-40" />}
         <div className="mt-3 flex justify-end">
-          <button onClick={reallocate} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">Reallokation auslösen</button>
+          <button onClick={reallocate} className="ora-ghost-button-sm">Reallokation auslösen</button>
         </div>
       </AdminCard>
 

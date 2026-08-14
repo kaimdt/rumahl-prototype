@@ -65,6 +65,8 @@ import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { OsWindowActions } from '@/components/OsWindowActions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { cachedGet } from '@/lib/apiCache'
 import { useAuth } from '@/contexts/AuthContext'
 import { readAccentIcons, applyAccentIcons } from '@/lib/accentIcons'
 import { useLocalStorage } from '@/lib/storage'
@@ -96,7 +98,7 @@ function ThemeSettingsPanelWrapper() {
   )
   if (!hasContent) return null
   return (
-    <div className="p-4 rounded-2xl glass-card border-foreground/10">
+    <div className="p-4 rounded-2xl ora-card border-foreground/10">
       <ThemeSettingsPanel />
     </div>
   )
@@ -178,14 +180,15 @@ interface HAInfo {
 function useSystemStats(enabled: boolean) {
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [haInfo, setHaInfo] = useState<HAInfo | null>(null)
+  const [osInfo, setOsInfo] = useState<{ hostname: string; os_name: string; os_version: string; kernel_version: string } | null>(null)
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
       const [statsRes, haRes] = await Promise.all([
-        authFetch(`/api/system/stats`),
-        authFetch(`/api/system/ha-info`),
+        cachedGet(`/api/system/stats`, 8000),
+        cachedGet(`/api/system/ha-info`, 8000),
       ])
       if (statsRes.ok) setStats(await statsRes.json())
       if (haRes.ok) setHaInfo(await haRes.json())
@@ -194,16 +197,20 @@ function useSystemStats(enabled: boolean) {
     } finally {
       setLoading(false)
     }
+    // OS details (hostname, distro, kernel) — separate so a permission
+    // failure never blocks the other stats.
+    try {
+      const osRes = await cachedGet('/api/os/control/system', 15000)
+      if (osRes.ok) setOsInfo(await osRes.json())
+    } catch {
+      // ignore — OS info is optional
+    }
   }, [])
 
-  useEffect(() => {
-    if (!enabled) return
-    refresh()
-    const interval = setInterval(refresh, 10000)
-    return () => clearInterval(interval)
-  }, [enabled, refresh])
+  // Poll system stats only while the tab is visible (saves requests).
+  useVisibleInterval(refresh, enabled ? 10000 : null)
 
-  return { stats, haInfo, loading, refresh }
+  return { stats, haInfo, osInfo, loading, refresh }
 }
 
 export function formatBytes(bytes: number): string {
@@ -446,8 +453,10 @@ interface SettingsPageProps {
     extractedPalette: string[]
     mode: 'auto' | 'static'
     staticColor: string
+    intensity: number
     setMode: (m: 'auto' | 'static') => void
     setStaticColor: (c: string) => void
+    setIntensity: (v: number) => void
     selectFromPalette: (c: string) => void
     resetToAuto: () => void
   }
@@ -457,6 +466,8 @@ interface SettingsPageProps {
     setEnabled: (v: boolean) => void
     blurIntensity: number
     setBlurIntensity: (v: number) => void
+    transparency: number
+    setTransparency: (v: number) => void
     cardRadius: number
     setCardRadius: (v: number) => void
     borderAlpha: number
@@ -582,7 +593,7 @@ export function SettingsPage(props: SettingsPageProps) {
     }
   }
   const [yamlEditorOpen, setYamlEditorOpen] = useState(false)
-  const { stats, haInfo, loading: statsLoading, refresh: refreshStats } = useSystemStats(settingsTab === 'system')
+  const { stats, haInfo, osInfo, loading: statsLoading, refresh: refreshStats } = useSystemStats(settingsTab === 'system')
 
   return (
     <section className="ora-settings-app">
@@ -730,7 +741,7 @@ export function SettingsPage(props: SettingsPageProps) {
             )}
             <button
               onClick={savePin}
-              className="w-full px-4 py-2.5 rounded-xl bg-foreground/8 hover:bg-foreground/12 text-foreground text-sm font-medium transition-colors"
+              className="ora-secondary-button w-full"
             >
               PIN speichern
             </button>
@@ -818,8 +829,8 @@ export function SettingsPage(props: SettingsPageProps) {
                   }`}
                 >
                   <Sparkle size={22} weight="fill" className={`mx-auto mb-1.5 ${accentColorSettings.mode === 'auto' ? 'text-accent' : 'text-foreground/50'}`} />
-                  <p className="text-xs font-medium">Automatisch</p>
-                  <p className="text-[10px] text-foreground/40 mt-0.5">Aus dem Hintergrund</p>
+                  <p className="text-xs font-medium">{t("settings.autoAccent")}</p>
+                  <p className="text-[10px] text-foreground/40 mt-0.5">{t("settings.autoAccentDesc")}</p>
                 </button>
                 <button
                   onClick={() => accentColorSettings.setMode('static')}
@@ -830,10 +841,19 @@ export function SettingsPage(props: SettingsPageProps) {
                   }`}
                 >
                   <PaintBucket size={22} weight="fill" className={`mx-auto mb-1.5 ${accentColorSettings.mode === 'static' ? 'text-accent' : 'text-foreground/50'}`} />
-                  <p className="text-xs font-medium">Eigene Farbe</p>
-                  <p className="text-[10px] text-foreground/40 mt-0.5">Manuell wählen</p>
+                  <p className="text-xs font-medium">{t("settings.customColor")}</p>
+                  <p className="text-[10px] text-foreground/40 mt-0.5">{t("settings.customColorDesc")}</p>
                 </button>
               </div>
+
+              <SliderRow
+                label={t("settings.accentIntensity")}
+                value={accentColorSettings.intensity}
+                min={0}
+                max={100}
+                unit="%"
+                onChange={accentColorSettings.setIntensity}
+              />
 
               {/* Current accent preview */}
               <div className="flex items-center gap-3 p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8">
@@ -886,7 +906,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     className="w-14 h-14 rounded-lg cursor-pointer border-2 border-foreground/10"
                   />
                   <div>
-                    <p className="text-xs font-medium text-foreground">Eigene Farbe wählen</p>
+                    <p className="text-xs font-medium text-foreground">{t("settings.customColor")}</p>
                     <p className="text-xs font-mono text-foreground/60 mt-0.5">{accentColorSettings.staticColor}</p>
                   </div>
                 </div>
@@ -896,7 +916,7 @@ export function SettingsPage(props: SettingsPageProps) {
             {/* Glass Effect */}
             <SettingsSection icon={Eye} title={t("settings.glassEffects")} description={t("settings.glassEffectsDesc")}>
               <ToggleRow
-                label="Glaseffekt aktivieren"
+                label={t("settings.glassEnable")}
                 description={t("settings.frostedGlassDesc")}
                 checked={glassSettings.enabled}
                 onCheckedChange={glassSettings.setEnabled}
@@ -904,7 +924,7 @@ export function SettingsPage(props: SettingsPageProps) {
               {glassSettings.enabled && (
                 <div className="space-y-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
                   <SliderRow
-                    label="Unschärfe"
+                    label={t("settings.glassBlur")}
                     value={glassSettings.blurIntensity}
                     min={0}
                     max={60}
@@ -912,7 +932,15 @@ export function SettingsPage(props: SettingsPageProps) {
                     onChange={glassSettings.setBlurIntensity}
                   />
                   <SliderRow
-                    label="Kartenradius"
+                    label={t("settings.glassTransparency")}
+                    value={Math.round(glassSettings.transparency * 100)}
+                    min={50}
+                    max={150}
+                    unit="%"
+                    onChange={(v) => glassSettings.setTransparency(v / 100)}
+                  />
+                  <SliderRow
+                    label={t("settings.glassCardRadius")}
                     value={glassSettings.cardRadius}
                     min={8}
                     max={28}
@@ -920,7 +948,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     onChange={glassSettings.setCardRadius}
                   />
                   <SliderRow
-                    label="Rahmen-Sichtbarkeit"
+                    label={t("settings.glassBorderAlpha")}
                     value={Math.round(glassSettings.borderAlpha * 100)}
                     min={0}
                     max={30}
@@ -1288,19 +1316,38 @@ export function SettingsPage(props: SettingsPageProps) {
             <Suspense fallback={null}><NinaSettingsSection /></Suspense>
 
             {/* System Info */}
-            <SettingsSection icon={Info} title="System-Information" description="Gerät, Theme und Status" defaultOpen={false}>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-                  <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Benutzer</p>
-                  <p className="text-sm font-medium text-foreground truncate">{userName}</p>
+            <SettingsSection icon={Info} title={t("settings.about")} description={t("settings.aboutDesc")}>
+              <div className="space-y-3">
+                {/* Device specs — Windows About-style list */}
+                <div className="overflow-hidden rounded-2xl border border-foreground/8 bg-foreground/[0.03] divide-y divide-foreground/6">
+                  {[
+                    { label: t("settings.deviceName"), value: osInfo?.hostname || '–' },
+                    { label: t("settings.operatingSystem"), value: osInfo ? `${osInfo.os_name} ${osInfo.os_version}` : '–' },
+                    { label: t("settings.kernel"), value: osInfo?.kernel_version || '–' },
+                    { label: t("settings.processor"), value: stats ? `${stats.cpu.cores} ${t("settings.cores")} · ${Math.round(stats.cpu.usage_percent)}%` : '–' },
+                    { label: t("settings.memory"), value: stats ? formatBytes(stats.memory.total_bytes) : '–' },
+                    { label: t("settings.uptime"), value: stats ? formatUptime(stats.uptime_seconds) : '–' },
+                    { label: t("settings.backendVersion"), value: stats?.backend?.version ? `v${stats.backend.version}` : '–' },
+                  ].map((row) => (
+                    <div key={row.label} className="flex items-center justify-between gap-4 px-4 py-2.5">
+                      <span className="text-xs text-foreground/50">{row.label}</span>
+                      <span className="min-w-0 truncate text-right text-xs font-medium text-foreground/90">{row.value}</span>
+                    </div>
+                  ))}
                 </div>
-                <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-                  <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Theme</p>
-                  <p className="text-sm font-medium text-foreground capitalize">{theme}</p>
-                </div>
-                <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-                  <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Entitäten</p>
-                  <p className="text-sm font-medium text-foreground">{(entities as unknown[]).length}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+                    <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">{t("settings.user")}</p>
+                    <p className="text-sm font-medium text-foreground truncate">{userName}</p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+                    <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">{t("settings.theme")}</p>
+                    <p className="text-sm font-medium text-foreground capitalize">{theme}</p>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+                    <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">{t("settings.entities")}</p>
+                    <p className="text-sm font-medium text-foreground">{(entities as unknown[]).length}</p>
+                  </div>
                 </div>
               </div>
             </SettingsSection>

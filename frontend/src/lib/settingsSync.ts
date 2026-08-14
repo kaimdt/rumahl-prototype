@@ -35,6 +35,7 @@ const SYNCED_KEYS = [
   'iora-os-custom-launchers',
   'iora-os-launcher-widgets',
   'iora-os-launcher-folders',
+  'iora-time-theme-boundaries',
 ]
 
 let syncUserId: string | null = null
@@ -58,10 +59,37 @@ async function getUserId(): Promise<string | null> {
   return null
 }
 
-/** Safely convert a backend preference_value to a localStorage string */
+/** Safely convert a backend preference_value to a localStorage string.
+ *  Always JSON-serialize to match storage.set()/storage.get() round-tripping
+ *  (a string value must be stored quoted so JSON.parse restores it). */
 function toLocalStorageValue(val: unknown): string {
-  if (typeof val === 'string') return val
   return JSON.stringify(val)
+}
+
+/** Global (admin-set) default keys in system_preferences → local preference key. */
+const GLOBAL_DEFAULT_MAP: Record<string, string> = {
+  'defaults.accent': 'accent-color-settings',
+  'defaults.glass': 'glass-settings',
+  'defaults.theme': 'ha-selected-theme',
+  'defaults.auto_theme': 'ha-auto-theme',
+  'defaults.time_boundaries': 'iora-time-theme-boundaries',
+}
+
+/** Apply admin global defaults for any appearance key the user hasn't set. */
+async function applyGlobalDefaults(userKeys: Set<string>) {
+  try {
+    const res = await authFetch('/api/config/system/preferences')
+    if (!res.ok) return
+    const prefs = (await res.json()) as Array<{ preference_key: string; preference_value: unknown }>
+    for (const pref of prefs) {
+      const localKey = GLOBAL_DEFAULT_MAP[pref.preference_key]
+      if (!localKey || userKeys.has(localKey)) continue
+      // Match storage.set()'s JSON serialization so storage.get() parses it back.
+      localStorage.setItem(localKey, JSON.stringify(pref.preference_value))
+    }
+  } catch {
+    // Global defaults are optional
+  }
 }
 
 /** Load all preferences from backend and populate localStorage for missing/stale keys */
@@ -74,10 +102,12 @@ export async function loadSettingsFromBackend() {
     if (!res.ok) return
 
     const prefs: Array<{ preference_key: string; preference_value: unknown }> = await res.json()
+    const userKeys = new Set<string>()
 
     for (const pref of prefs) {
       if (!SYNCED_KEYS.includes(pref.preference_key)) continue
 
+      userKeys.add(pref.preference_key)
       const backendVal = toLocalStorageValue(pref.preference_value)
       const localVal = localStorage.getItem(pref.preference_key)
 
@@ -87,6 +117,10 @@ export async function loadSettingsFromBackend() {
         console.log('[SettingsSync] Restored', pref.preference_key, 'from backend')
       }
     }
+
+    // Fall back to admin global defaults for appearance keys the user hasn't set.
+    await applyGlobalDefaults(userKeys)
+
     window.dispatchEvent(new CustomEvent('iora:settings-synced'))
   } catch (err) {
     console.warn('[SettingsSync] Failed to load settings from backend:', err)

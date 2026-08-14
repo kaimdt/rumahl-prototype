@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useLocalStorage } from '@/lib/storage'
+import { storage, useLocalStorage } from '@/lib/storage'
 import { authFetch } from '@/lib/authHelpers'
 import { getBackendUrl } from '@/lib/config'
 import type { ThemeMode } from '@/lib/types'
@@ -431,10 +431,37 @@ interface ThemeActionContextType {
 const ThemeActionContext = createContext<ThemeActionContextType | undefined>(undefined)
 
 function getThemeFromTime(): string {
+  const cfg = readTimeThemeConfig()
   const hour = new Date().getHours()
-  if (hour >= 6 && hour < 18) return 'day'
-  if (hour >= 18 && hour < 21) return 'evening'
+  if (hour >= cfg.dayStart && hour < cfg.eveningStart) return 'day'
+  if (hour >= cfg.eveningStart && hour < cfg.nightStart) return 'evening'
   return 'night'
+}
+
+// ─── Configurable day/evening/night boundaries (per user) ───────────────
+export interface TimeThemeConfig {
+  dayStart: number
+  eveningStart: number
+  nightStart: number
+}
+
+const TIME_THEME_KEY = 'iora-time-theme-boundaries'
+const DEFAULT_TIME_THEME: TimeThemeConfig = { dayStart: 6, eveningStart: 18, nightStart:21 }
+
+export function readTimeThemeConfig(): TimeThemeConfig {
+  const stored = storage.get<Partial<TimeThemeConfig>>(TIME_THEME_KEY)
+  if (stored) {
+    return {
+      dayStart: typeof stored.dayStart === 'number' ? stored.dayStart : DEFAULT_TIME_THEME.dayStart,
+      eveningStart: typeof stored.eveningStart === 'number' ? stored.eveningStart : DEFAULT_TIME_THEME.eveningStart,
+      nightStart: typeof stored.nightStart === 'number' ? stored.nightStart : DEFAULT_TIME_THEME.nightStart,
+    }
+  }
+  return DEFAULT_TIME_THEME
+}
+
+export function writeTimeThemeConfig(config: TimeThemeConfig): void {
+  storage.set(TIME_THEME_KEY, config)
 }
 
 /** Get the design mode for the current time based on theme capabilities */

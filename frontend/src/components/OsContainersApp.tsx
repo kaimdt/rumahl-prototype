@@ -10,7 +10,7 @@ import {
   Stop,
 } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { toast } from 'sonner'
 
 interface SupervisorApp {
@@ -124,29 +124,32 @@ export function OsContainersApp() {
   const runningCount = apps.filter((app) => app.status === 'running').length
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl p-4 pb-10 sm:p-6">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{t('containersApp.title')}</h1>
-          <p className="mt-1 text-sm text-foreground/45">{t('containersApp.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-full bg-foreground/6 p-1">
-            {(['all', 'running', 'stopped'] as const).map((kind) => (
-              <button key={kind} type="button" onClick={() => setFilter(kind)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${filter === kind ? 'bg-accent text-white' : 'text-foreground/55 hover:text-foreground'}`}>
-                {t(`containersApp.filter.${kind}`)}
-              </button>
-            ))}
-          </div>
-          <button type="button" onClick={() => void load()} disabled={loading} className="glass-card rounded-full p-3" title={t('containersApp.refresh')}>
+    <section className="ora-app-frame mx-auto max-w-7xl overflow-hidden">
+      <OsAppNavbar
+        pageId="os-containers"
+        title={t('os.apps.containers.name')}
+        description={t('os.apps.containers.description')}
+        icon={<Cube size={24} weight="duotone" />}
+        accent="oklch(0.63 0.15 265)"
+        trailing={
+          <button type="button" onClick={() => void load()} disabled={loading} className="ora-icon-button" title={t('containersApp.refresh')}>
             <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
           </button>
-          <OsWindowActions pageId="os-containers" />
-        </div>
-      </header>
+        }
+      />
 
+      <div className="p-4 pb-10 sm:p-6">
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-full bg-foreground/6 p-1">
+          {(['all', 'running', 'stopped'] as const).map((kind) => (
+            <button key={kind} type="button" onClick={() => setFilter(kind)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${filter === kind ? 'bg-accent text-white' : 'text-foreground/55 hover:text-foreground'}`}>
+              {t(`containersApp.filter.${kind}`)}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <Summary icon={Cube} label={t('containersApp.total')} value={String(apps.length)} />
@@ -164,7 +167,7 @@ export function OsContainersApp() {
             .map((port) => typeof port === 'string' ? port : `${port.external}:${port.internal}/${port.protocol}`)
             .join(', ')
           return (
-            <article key={app.id} className={`glass-card rounded-3xl p-5 ${running ? 'border-emerald-400/15' : ''}`}>
+            <article key={app.id} className={`ora-card rounded-3xl p-5 ${running ? 'border-emerald-400/15' : ''}`}>
               <div className="flex items-start gap-3">
                 <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${running ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/7 text-foreground/45'}`}>
                   {app.icon ? <img src={app.icon} alt="" className="size-6 object-contain" /> : <Cube size={20} weight="duotone" />}
@@ -212,13 +215,14 @@ export function OsContainersApp() {
           )
         })}
         {!loading && filtered.length === 0 && (
-          <div className="glass-card col-span-full rounded-3xl p-8 text-center text-sm text-foreground/40">{t('containersApp.empty')}</div>
+          <div className="ora-card col-span-full rounded-3xl p-8 text-center text-sm text-foreground/40">{t('containersApp.empty')}</div>
         )}
+      </div>
       </div>
     </section>
   )
 }
 
 function Summary({ icon: Icon, label, value }: { icon: typeof Cube; label: string; value: string }) {
-  return <div className="glass-card rounded-2xl p-4"><Icon size={20} className="text-cyan-300" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="ora-card rounded-2xl p-4"><Icon size={20} className="text-accent" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }

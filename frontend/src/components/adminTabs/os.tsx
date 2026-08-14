@@ -1046,7 +1046,7 @@ export function DevBridgeJournal({ devToken }: { devToken: string | null }) {
         {/* Filter */}
         <div className="flex items-center gap-2 flex-wrap">
           <select value={priority} onChange={e => { setPriority(e.target.value); loadLogs(tail, e.target.value) }}
-            className="px-2.5 py-1.5 rounded-lg text-xs bg-foreground/5 border border-foreground/10 text-foreground">
+            className="ora-secondary-button-sm">
             <option value="emerg">emerg</option>
             <option value="alert">alert</option>
             <option value="crit">crit</option>
@@ -1057,7 +1057,7 @@ export function DevBridgeJournal({ devToken }: { devToken: string | null }) {
             <option value="debug">debug</option>
           </select>
           <select value={tail} onChange={e => { setTail(Number(e.target.value)); loadLogs(Number(e.target.value), priority) }}
-            className="px-2.5 py-1.5 rounded-lg text-xs bg-foreground/5 border border-foreground/10 text-foreground">
+            className="ora-secondary-button-sm">
             <option value={50}>50 Zeilen</option>
             <option value={200}>200 Zeilen</option>
             <option value={500}>500 Zeilen</option>
@@ -1316,7 +1316,7 @@ export function OsSshTab({ token }: { token: string }) {
             className="sm:col-span-2 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
         </div>
         <button onClick={addUser} disabled={busy || !newUser.trim() || !pubKey.trim()}
-          className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">Hinzufuegen</button>
+          className="ora-ghost-button-sm mt-2">Hinzufuegen</button>
       </AdminCard>
 
       <AdminCard title="Bestehende SSH-Benutzer" icon={Users}>
@@ -1618,7 +1618,7 @@ export function OsNetworkConfigTab({ token }: { token: string }) {
                 <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Gateway (Standardroute)</label>
                 <input value={gateway4} onChange={e => setGateway4(e.target.value)}
                   placeholder="z.B. 192.168.1.1"
-                  className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+                  className="ora-field-sm w-full text-xs font-mono" />
               </div>
             </div>
           </div>
@@ -1646,7 +1646,7 @@ export function OsNetworkConfigTab({ token }: { token: string }) {
                 <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Gateway IPv6</label>
                 <input value={gateway6} onChange={e => setGateway6(e.target.value)}
                   placeholder="z.B. 2001:db8::1"
-                  className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+                  className="ora-field-sm w-full text-xs font-mono" />
               </div>
             </div>
           </div>
@@ -1820,7 +1820,7 @@ export function OsProcessesTab({ token }: { token: string }) {
     <div className="space-y-3">
       <AdminCard title="Top-Prozesse (CPU)" icon={Pulse}>
         <div className="flex items-center gap-3 mb-3">
-          <button onClick={load} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">Aktualisieren</button>
+          <button onClick={load} className="ora-ghost-button-sm">Aktualisieren</button>
           <label className="text-xs text-foreground/70 flex items-center gap-1.5">
             <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
             Auto-Refresh (3s)
@@ -1908,7 +1908,7 @@ export function OsPowerTab({ token }: { token: string }) {
           <input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="iora-os"
             className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
           <button onClick={saveHostname} disabled={busy || !hostname.trim() || hostname === current}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">Speichern</button>
+            className="ora-ghost-button-sm">Speichern</button>
         </div>
         <p className="text-[10px] text-foreground/50 mt-2">Erfordert Root-Rechte auf dem Host (hostnamectl/hostname). Persistiert in <code>/etc/hostname</code>.</p>
       </AdminCard>

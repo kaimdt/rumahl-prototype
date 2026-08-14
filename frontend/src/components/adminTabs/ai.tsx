@@ -281,7 +281,7 @@ export function AiProvidersTab({ token }: { token: string }) {
                 placeholder="openai | anthropic | local | desktop"
                 className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
               <button onClick={switchProvider} disabled={switching || !switchTarget.trim()}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                className="ora-ghost-button-sm">
                 {switching ? 'Wechsle…' : 'Provider wechseln'}
               </button>
             </div>
@@ -300,7 +300,7 @@ export function AiProvidersTab({ token }: { token: string }) {
             onClick={async () => {
               try { await adminFetch('/api/assist/models/refresh', token, { method: 'POST' }); toast.success('Refresh angestoßen'); await load() } catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
             }}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30"
+            className="ora-ghost-button-sm"
           >
             Alle Modelle jetzt aktualisieren
           </button>
@@ -310,7 +310,7 @@ export function AiProvidersTab({ token }: { token: string }) {
       <AdminCard title="Konfigurierte Provider" icon={Database}>
         <div className="flex items-center gap-2 mb-3">
           <button onClick={() => setShowForm((s) => !s)}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">
+            className="ora-ghost-button-sm">
             {showForm ? 'Abbrechen' : <span className="flex items-center gap-1"><Plus size={12} /> Neu</span>}
           </button>
           <button onClick={load} disabled={loading}
@@ -369,7 +369,7 @@ export function AiProvidersTab({ token }: { token: string }) {
               </p>
             </div>
             <button onClick={create} disabled={saving}
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="ora-ghost-button-sm">
               {saving ? 'Speichere…' : 'Provider anlegen + Modelle laden'}
             </button>
           </div>
@@ -564,7 +564,7 @@ export function AiConversationsTab({ token }: { token: string }) {
               <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} rows={2} placeholder="Test-Nachricht an den Assistenten…"
                 className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
               <button onClick={sendChat} disabled={chatBusy || !chatInput.trim()}
-                className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                className="ora-ghost-button-sm">
                 {chatBusy ? '…' : 'Senden'}
               </button>
             </div>
@@ -620,7 +620,7 @@ export function AiConversationsTab({ token }: { token: string }) {
                 <input type="number" min={1} max={10} value={notifPrio} onChange={(e) => setNotifPrio(Number(e.target.value))}
                   className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-2 py-1.5 text-foreground" />
                 <button onClick={sendNotif} disabled={!notifMsg.trim()}
-                  className="ml-auto px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                  className="ora-ghost-button-sm ml-auto">
                   Senden
                 </button>
               </div>
@@ -778,7 +778,7 @@ export function AiToolsTab({ token }: { token: string }) {
             <input type="number" min={1} max={20} value={maxResults} onChange={(e) => setMaxResults(Number(e.target.value))}
               className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={run} disabled={busy || !query.trim()}
-              className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="ora-ghost-button-sm">
               {busy ? '…' : 'Suchen'}
             </button>
           </div>
@@ -787,7 +787,7 @@ export function AiToolsTab({ token }: { token: string }) {
             <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…"
               className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={run} disabled={busy || !url.trim()}
-              className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="ora-ghost-button-sm">
               {busy ? '…' : (tab === 'scrape' ? 'Scrapen' : 'Aufnehmen')}
             </button>
           </div>
@@ -882,7 +882,7 @@ export function AiVoiceTab({ token }: { token: string }) {
           <input value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="Stimme (default)"
             className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
           <button onClick={synthesize} disabled={busy || !text.trim()}
-            className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            className="ora-ghost-button-sm">
             {busy ? 'Synthetisiere…' : 'Sprechen'}
           </button>
         </div>

@@ -120,6 +120,21 @@ export function OsHomeScreen() {
   }, [widgetIds])
   const now = useClock()
 
+  // Launcher hero: briefly show the username after login, then settle on a
+  // large lock-screen style clock (MacBook-like). Only on the first mount of
+  // a session so returning to the launcher doesn't re-flash the greeting.
+  const [greetingVisible, setGreetingVisible] = useState(
+    () => typeof window !== 'undefined' && window.sessionStorage.getItem('iora-launcher-greeted') !== 'true',
+  )
+  useEffect(() => {
+    if (!greetingVisible) return
+    const timer = window.setTimeout(() => {
+      setGreetingVisible(false)
+      window.sessionStorage.setItem('iora-launcher-greeted', 'true')
+    }, 2500)
+    return () => window.clearTimeout(timer)
+  }, [greetingVisible])
+
   const [folders, setFolders] = useLocalStorage<LauncherFolder[]>(LAUNCHER_FOLDERS_KEY, [])
   const [editMode, setEditMode] = useState(false)
   const [storeLaunchers, setStoreLaunchers] = useState<StoreLauncherPackage[]>([])
@@ -395,8 +410,23 @@ export function OsHomeScreen() {
       {layout === 'default' && (
         <div className="mx-auto mt-5 max-w-6xl px-1">
           <div className="ora-home-hero mb-6 text-center">
-            <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-4xl">{t('os.greeting', { name: user?.displayName || user?.username || t('os.defaultUser') })}</h1>
-            <p className="mx-auto mt-2 max-w-xl text-sm text-white/50">{t('os.subtitle')}</p>
+            <AnimatePresence mode="wait" initial={false}>
+              {greetingVisible ? (
+                <motion.div key="greeting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.45 }}>
+                  <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-4xl">{t('os.greeting', { name: user?.displayName || user?.username || t('os.defaultUser') })}</h1>
+                  <p className="mx-auto mt-2 max-w-xl text-sm text-white/50">{t('os.subtitle')}</p>
+                </motion.div>
+              ) : (
+                <motion.div key="clock" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.45 }}>
+                  <h1 className="text-5xl font-semibold tabular-nums tracking-tight text-white sm:text-7xl">
+                    {now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
+                  </h1>
+                  <p className="mt-2 text-sm font-medium text-white/60 sm:text-base">
+                    {now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <span className="ora-status-chip"><Heartbeat size={15} weight="duotone" /><i className={backend === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.backendStatus')}</span>
               <span className="ora-status-chip"><WifiHigh size={15} weight="duotone" /><i className={homeAssistant === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.homeAssistantStatus')}</span>

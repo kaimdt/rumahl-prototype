@@ -6,6 +6,7 @@ import { wsOnMessage } from '@/lib/wsConnection'
 import { loadSettingsFromBackend, pushAllSettingsToBackend } from '@/lib/settingsSync'
 import { loadLightEnhancementSettingsFromBackend } from '@/lib/lightEnhancements'
 import { parseStoredToken, authFetch } from '@/lib/authHelpers'
+import { matchRoute, buildPath } from '@/lib/router'
 import {
   House,
   Lightbulb,
@@ -115,6 +116,8 @@ export interface PageSettings {
 
 interface PageNavigationContextType {
   currentPageId: string
+  /** Named `:params` captured from the current route (e.g. appId). */
+  params: Record<string, string>
   setCurrentPageId: (id: string) => void
   /** Deep-link inside a system app, e.g. ('settings', 'apps/ora-browser') → /settings/apps/ora-browser. */
   currentSubPath: string
@@ -295,8 +298,6 @@ export const iconMap = {
   Megaphone,
 }
 
-const builtInPages = ['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'docs', 'streaming']
-
 const SYSTEM_PAGE_PATHS: Record<string, string> = {
   launcher: '/',
   admin: '/admin',
@@ -319,29 +320,13 @@ const SYSTEM_PAGE_PATHS: Record<string, string> = {
   'os-services': '/services',
   'os-updates': '/updates',
   'os-backups': '/backups',
+  'os-info': '/info',
 }
 
-const SYSTEM_PATH_PAGE_IDS = new Map(
-  Object.entries(SYSTEM_PAGE_PATHS).map(([pageId, path]) => [path, pageId]),
-)
-
 function pageIdToPath(id: string, targetPage?: DashboardPage, docPath?: string, subPath?: string): string {
-  if (id === 'docs' && docPath) return `/docs/${docPath}`
-  let base: string
-  if (SYSTEM_PAGE_PATHS[id]) {
-    base = SYSTEM_PAGE_PATHS[id]
-  } else if (builtInPages.includes(id)) {
-    base = `/${id}`
-  } else {
-    const isAppPage = targetPage?.pageType === 'app' || targetPage?.pageSource?.kind === 'app'
-    if (isAppPage || STORE_CATALOG.some((app) => app.id === id) || installedAppIds.has(id)) base = `/app/${id}`
-    else base = `/page/${id}`
-  }
-  if (subPath) {
-    const clean = subPath.replace(/^\/+|\/+$/g, '')
-    return clean ? `${base}/${clean}` : base
-  }
-  return base
+  const isAppPage = targetPage?.pageType === 'app' || targetPage?.pageSource?.kind === 'app'
+    || STORE_CATALOG.some((app) => app.id === id) || installedAppIds.has(id)
+  return buildPath(id, { docPath, subPath, isAppPage })
 }
 
 /** Extract the sub-path after a system page path, e.g. '/settings/apps/ora-browser' → 'apps/ora-browser'. */
@@ -358,24 +343,7 @@ function pathToSubPath(path: string): string {
 }
 
 function pathToPageId(path: string): string {
-  const normalizedPath = path.length > 1 ? path.replace(/\/+$/, '') : path
-  if (normalizedPath === '') return 'launcher'
-  // System pages may carry a sub-path (/settings/apps/ora-browser) - the
-  // page id is the system page, the remainder is the deep link.
-  for (const [pageId, pagePath] of Object.entries(SYSTEM_PAGE_PATHS)) {
-    if (pagePath === '/') continue
-    if (normalizedPath === pagePath || normalizedPath.startsWith(`${pagePath}/`)) {
-      return pageId
-    }
-  }
-  const systemPageId = SYSTEM_PATH_PAGE_IDS.get(normalizedPath)
-  if (systemPageId) return systemPageId
-  if (normalizedPath.startsWith('/docs/') || normalizedPath.startsWith('/docs')) return 'docs'
-  if (normalizedPath.startsWith('/app/')) return normalizedPath.slice(5)
-  // Compatibility only: legacy app links used the plural route.
-  if (normalizedPath.startsWith('/apps/')) return normalizedPath.slice(6)
-  if (normalizedPath.startsWith('/page/')) return normalizedPath.slice(6)
-  return normalizedPath.slice(1)
+  return matchRoute(path).pageId
 }
 
 function extractDocPath(path: string): string | null {
@@ -629,6 +597,9 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   const [currentPageId, setCurrentPageIdState] = useState<string>(() =>
     pathToPageId(window.location.pathname)
   )
+  const [currentParams, setCurrentParams] = useState<Record<string, string>>(() =>
+    matchRoute(window.location.pathname).params
+  )
   const [currentSubPath, setCurrentSubPath] = useState<string>(() =>
     pathToSubPath(window.location.pathname)
   )
@@ -681,6 +652,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setModalPageId(null) // Close any open modal
     setCurrentPageIdState(id)
     setCurrentSubPath('')
+    setCurrentParams({})
     const path = pageIdToPath(id, targetPage)
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
@@ -698,6 +670,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setCurrentPageIdState(id)
     setCurrentSubPath(subPath || '')
     const path = pageIdToPath(id, targetPage, undefined, subPath)
+    setCurrentParams(matchRoute(path).params)
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
     }
@@ -720,6 +693,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     const handlePopState = () => {
       setCurrentPageIdState(pathToPageId(window.location.pathname))
       setCurrentSubPath(pathToSubPath(window.location.pathname))
+      setCurrentParams(matchRoute(window.location.pathname).params)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -1139,6 +1113,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
 
   const contextValue = useMemo(() => ({
     currentPageId,
+    params: currentParams,
     setCurrentPageId,
     currentSubPath,
     navigateToPage,
@@ -1160,7 +1135,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setGlobalCustomCss,
     userCustomCss,
     setUserCustomCss,
-  }), [currentPageId, setCurrentPageId, currentSubPath, navigateToPage, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
+  }), [currentPageId, currentParams, setCurrentPageId, currentSubPath, navigateToPage, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
 
   return (
     <PageNavigationContext.Provider value={contextValue}>

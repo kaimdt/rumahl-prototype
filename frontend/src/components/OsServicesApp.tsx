@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowClockwise, CircleNotch, Play, Power, Square, Triangle } from '@phosphor-icons/react'
+import { ArrowClockwise, CircleNotch, GearSix, MagnifyingGlass, Play, Power, Square, Triangle } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { toast } from 'sonner'
 
 interface SystemdService {
@@ -86,21 +86,27 @@ export function OsServicesApp() {
   const failedCount = services.filter((service) => service.active === 'failed').length
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl p-4 pb-10 sm:p-6">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{t('servicesApp.title')}</h1>
-          <p className="mt-1 text-sm text-foreground/45">{t('servicesApp.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void load()} disabled={loading} className="glass-card rounded-full p-3" title={t('servicesApp.refresh')}>
+    <section className="ora-app-frame mx-auto max-w-7xl overflow-hidden">
+      <OsAppNavbar
+        pageId="os-services"
+        title={t('os.apps.services.name')}
+        description={t('os.apps.services.description')}
+        icon={<GearSix size={24} weight="duotone" />}
+        accent="oklch(0.65 0.15 220)"
+        search={
+          <label className="ora-toolbar-search">
+            <MagnifyingGlass size={17} />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('servicesApp.search')} />
+          </label>
+        }
+        trailing={
+          <button type="button" onClick={() => void load()} disabled={loading} className="ora-icon-button" title={t('servicesApp.refresh')}>
             <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
           </button>
-          <OsWindowActions pageId="os-services" />
-        </div>
-      </header>
+        }
+      />
 
+      <div className="p-4 pb-10 sm:p-6">
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
 
       <div className="mb-5 grid gap-3 sm:grid-cols-4">
@@ -118,19 +124,13 @@ export function OsServicesApp() {
             </button>
           ))}
         </div>
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={t('servicesApp.search')}
-          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-foreground/5 px-3 py-2 text-xs outline-none focus:border-accent/40 sm:max-w-xs"
-        />
       </div>
 
       <div className="space-y-2">
         {filtered.map((service) => {
           const running = isRunning(service)
           return (
-            <article key={service.name} className={`glass-card rounded-2xl p-4 ${running ? 'border-emerald-400/10' : ''}`}>
+            <article key={service.name} className={`ora-card rounded-2xl p-4 ${running ? 'border-emerald-400/10' : ''}`}>
               <div className="flex flex-wrap items-center gap-3">
                 <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusBadge(service)}`}>
                   {t(`servicesApp.state.${service.active}`)}
@@ -161,10 +161,11 @@ export function OsServicesApp() {
         })}
         {!loading && filtered.length === 0 && <p className="py-8 text-center text-sm text-foreground/40">{t('servicesApp.empty')}</p>}
       </div>
+      </div>
     </section>
   )
 }
 
 function Summary({ icon: Icon, label, value, warning = false }: { icon: typeof Power; label: string; value: string; warning?: boolean }) {
-  return <div className="glass-card rounded-2xl p-4"><Icon size={20} className={warning ? 'text-red-400' : 'text-cyan-300'} /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="ora-card rounded-2xl p-4"><Icon size={20} className={warning ? 'text-red-400' : 'text-accent'} /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }

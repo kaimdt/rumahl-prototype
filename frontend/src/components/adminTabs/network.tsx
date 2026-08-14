@@ -157,7 +157,7 @@ export function UsersTab({ token }: { token: string }) {
                     type="text"
                     value={editForm.display_name}
                     onChange={e => setEditForm({ ...editForm, display_name: e.target.value })}
-                    className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                    className="ora-field-sm w-full text-xs"
                   />
                 </div>
                 <div>
@@ -167,7 +167,7 @@ export function UsersTab({ token }: { token: string }) {
                     value={editForm.new_password}
                     onChange={e => setEditForm({ ...editForm, new_password: e.target.value })}
                     placeholder="Leer = nicht ändern"
-                    className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground placeholder:text-foreground/85"
+                    className="ora-field-sm w-full text-xs"
                   />
                 </div>
                 <div>
@@ -175,7 +175,7 @@ export function UsersTab({ token }: { token: string }) {
                   <select
                     value={editForm.role}
                     onChange={e => setEditForm({ ...editForm, role: e.target.value })}
-                    className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                    className="ora-field-sm w-full text-xs"
                   >
                     <option value="viewer">Betrachter</option>
                     <option value="user">Benutzer</option>
@@ -187,7 +187,7 @@ export function UsersTab({ token }: { token: string }) {
               </div>
               <OsPermissionEditor userId={u.id} isAdmin={u.is_admin} />
               <div className="flex justify-end gap-2">
-                <button onClick={() => setEditingUser(null)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all">Abbrechen</button>
+                <button onClick={() => setEditingUser(null)} className="ora-secondary-button-sm">Abbrechen</button>
                 <button onClick={() => handleEdit(u.id)} disabled={actionLoading === u.id} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-white shadow-sm shadow-accent/25 hover:bg-accent/85 transition-all disabled:opacity-50 flex items-center gap-1.5">
                   {actionLoading === u.id && <InlineSpinner size={12} />} Speichern
                 </button>
@@ -200,7 +200,7 @@ export function UsersTab({ token }: { token: string }) {
             <div className="mt-3 pt-3 border-t border-red-500/20 flex items-center justify-between">
               <span className="text-xs text-red-400">Benutzer wirklich löschen?</span>
               <div className="flex gap-2">
-                <button onClick={() => setConfirmDelete(null)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all">Nein</button>
+                <button onClick={() => setConfirmDelete(null)} className="ora-secondary-button-sm">Nein</button>
                 <button onClick={() => handleDelete(u.id)} disabled={actionLoading === u.id} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500 text-white shadow-sm shadow-red-500/25 hover:bg-red-600 transition-all disabled:opacity-50 flex items-center gap-1.5">
                   {actionLoading === u.id && <InlineSpinner size={12} />} Ja, löschen
                 </button>

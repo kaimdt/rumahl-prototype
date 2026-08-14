@@ -19,7 +19,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { toast } from 'sonner'
 
 interface NetworkDevice {
@@ -215,24 +215,26 @@ export function OsDevicesApp() {
   )
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl p-4 pb-10 sm:p-6">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{t('devicesApp.title')}</h1>
-          <p className="mt-1 text-sm text-foreground/45">{t('devicesApp.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void load()} disabled={loading} className="glass-card rounded-full p-3" title={t('devicesApp.refresh')}>
-            <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <button type="button" onClick={() => { setEditing(null); setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '', agent_type: '', agent_host: '', agent_port: '22', agent_url: '' }); setShowForm((value) => !value) }} className="ora-primary-button">
-            <Plus size={16} />{t('devicesApp.addDevice')}
-          </button>
-          <OsWindowActions pageId="os-devices" />
-        </div>
-      </header>
+    <section className="ora-app-frame mx-auto max-w-7xl overflow-hidden">
+      <OsAppNavbar
+        pageId="os-devices"
+        title={t('os.apps.devices.name')}
+        description={t('os.apps.devices.description')}
+        icon={<Desktop size={24} weight="duotone" />}
+        accent="oklch(0.66 0.17 250)"
+        trailing={
+          <>
+            <button type="button" onClick={() => void load()} disabled={loading} className="ora-icon-button" title={t('devicesApp.refresh')}>
+              <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
+            </button>
+            <button type="button" onClick={() => { setEditing(null); setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '', agent_type: '', agent_host: '', agent_port: '22', agent_url: '' }); setShowForm((value) => !value) }} className="ora-primary-button">
+              <Plus size={16} />{t('devicesApp.addDevice')}
+            </button>
+          </>
+        }
+      />
 
+      <div className="p-4 pb-10 sm:p-6">
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
@@ -246,7 +248,7 @@ export function OsDevicesApp() {
         <h2 className="mb-3 text-sm font-semibold">{t('devicesApp.myDevices')}</h2>
         <div className="grid gap-3 md:grid-cols-2">
           {sortedRegistry.map((device) => (
-            <article key={device.id} className="glass-card rounded-3xl p-5">
+            <article key={device.id} className="ora-card rounded-3xl p-5">
               <div className="flex items-start gap-4">
                 <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent/12 text-accent">
                   {deviceIcon(device.device_type)}
@@ -295,38 +297,38 @@ export function OsDevicesApp() {
             </article>
           ))}
           {!loading && sortedRegistry.length === 0 && (
-            <div className="glass-card rounded-3xl p-8 text-center text-sm text-foreground/40">{t('devicesApp.noDevices')}</div>
+            <div className="ora-card rounded-3xl p-8 text-center text-sm text-foreground/40">{t('devicesApp.noDevices')}</div>
           )}
         </div>
       </div>
 
       {/* Add / edit form */}
       {showForm && (
-        <form onSubmit={saveDevice} className="glass-card mb-6 rounded-3xl p-5">
+        <form onSubmit={saveDevice} className="ora-card mb-6 rounded-3xl p-5">
           <h2 className="flex items-center justify-between font-semibold">
             <span>{editing ? t('devicesApp.editDevice') : t('devicesApp.addDevice')}</span>
             <button type="button" onClick={() => setShowForm(false)} className="rounded-xl p-2 text-foreground/45 hover:bg-foreground/7"><X size={16} /></button>
           </h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Field label={t('devicesApp.name')}>
-              <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="ora-input" placeholder={t('devicesApp.namePlaceholder')} />
+              <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="ora-field" placeholder={t('devicesApp.namePlaceholder')} />
             </Field>
             <Field label={t('devicesApp.type')}>
-              <select value={form.device_type} onChange={(event) => setForm((current) => ({ ...current, device_type: event.target.value }))} className="ora-input">
+              <select value={form.device_type} onChange={(event) => setForm((current) => ({ ...current, device_type: event.target.value }))} className="ora-field">
                 {DEVICE_TYPES.map((type) => <option key={type} value={type}>{t(`devicesApp.types.${type}`)}</option>)}
               </select>
             </Field>
             <Field label={t('devicesApp.macAddress')}>
-              <input value={form.mac_address} onChange={(event) => setForm((current) => ({ ...current, mac_address: event.target.value }))} className="ora-input" placeholder="AA:BB:CC:DD:EE:FF" />
+              <input value={form.mac_address} onChange={(event) => setForm((current) => ({ ...current, mac_address: event.target.value }))} className="ora-field" placeholder="AA:BB:CC:DD:EE:FF" />
             </Field>
             <Field label={t('devicesApp.ipAddress')}>
-              <input value={form.ip_address} onChange={(event) => setForm((current) => ({ ...current, ip_address: event.target.value }))} className="ora-input" placeholder="192.168.1.10" />
+              <input value={form.ip_address} onChange={(event) => setForm((current) => ({ ...current, ip_address: event.target.value }))} className="ora-field" placeholder="192.168.1.10" />
             </Field>
             <Field label={t('devicesApp.notes')}>
-              <input value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="ora-input" />
+              <input value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="ora-field" />
             </Field>
             <Field label={t('devicesApp.agent')}>
-              <select value={form.agent_type} onChange={(event) => setForm((current) => ({ ...current, agent_type: event.target.value }))} className="ora-input">
+              <select value={form.agent_type} onChange={(event) => setForm((current) => ({ ...current, agent_type: event.target.value }))} className="ora-field">
                 <option value="">{t('devicesApp.agentNone')}</option>
                 <option value="tcp">TCP</option>
                 <option value="http">HTTP</option>
@@ -335,16 +337,16 @@ export function OsDevicesApp() {
             {form.agent_type === 'tcp' && (
               <>
                 <Field label={t('devicesApp.agentHost')}>
-                  <input value={form.agent_host} onChange={(event) => setForm((current) => ({ ...current, agent_host: event.target.value }))} className="ora-input" placeholder="192.168.1.10" />
+                  <input value={form.agent_host} onChange={(event) => setForm((current) => ({ ...current, agent_host: event.target.value }))} className="ora-field" placeholder="192.168.1.10" />
                 </Field>
                 <Field label={t('devicesApp.agentPort')}>
-                  <input value={form.agent_port} onChange={(event) => setForm((current) => ({ ...current, agent_port: event.target.value }))} className="ora-input" placeholder="22" />
+                  <input value={form.agent_port} onChange={(event) => setForm((current) => ({ ...current, agent_port: event.target.value }))} className="ora-field" placeholder="22" />
                 </Field>
               </>
             )}
             {form.agent_type === 'http' && (
               <Field label={t('devicesApp.agentUrl')}>
-                <input value={form.agent_url} onChange={(event) => setForm((current) => ({ ...current, agent_url: event.target.value }))} className="ora-input" placeholder="http://192.168.1.20:8080" />
+                <input value={form.agent_url} onChange={(event) => setForm((current) => ({ ...current, agent_url: event.target.value }))} className="ora-field" placeholder="http://192.168.1.20:8080" />
               </Field>
             )}
             <label className="flex items-end gap-2 pb-2 text-sm text-foreground/60">
@@ -364,7 +366,7 @@ export function OsDevicesApp() {
         <h2 className="mb-3 text-sm font-semibold">{t('devicesApp.networkDevices')}</h2>
         <div className="grid gap-3 md:grid-cols-2">
           {network.map((device) => (
-            <article key={device.id} className="glass-card rounded-3xl p-5">
+            <article key={device.id} className="ora-card rounded-3xl p-5">
               <div className="flex items-start gap-4">
                 <span className={`grid size-11 shrink-0 place-items-center rounded-2xl ${device.is_active ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/6 text-foreground/40'}`}>
                   {device.is_active ? <WifiHigh size={22} weight="duotone" /> : <WifiSlash size={22} weight="duotone" />}
@@ -386,16 +388,17 @@ export function OsDevicesApp() {
             </article>
           ))}
           {!loading && network.length === 0 && (
-            <div className="glass-card rounded-3xl p-8 text-center text-sm text-foreground/40">{t('devicesApp.noNetworkDevices')}</div>
+            <div className="ora-card rounded-3xl p-8 text-center text-sm text-foreground/40">{t('devicesApp.noNetworkDevices')}</div>
           )}
         </div>
+      </div>
       </div>
     </section>
   )
 }
 
 function Summary({ icon: Icon, label, value }: { icon: typeof Cpu; label: string; value: string }) {
-  return <div className="glass-card rounded-2xl p-4"><Icon size={20} className="text-cyan-300" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="ora-card rounded-2xl p-4"><Icon size={20} className="text-accent" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="text-xs text-foreground/55"><span className="mb-1 block">{label}</span>{children}</label>

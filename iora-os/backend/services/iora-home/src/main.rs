@@ -1495,6 +1495,11 @@ async fn main() -> anyhow::Result<()> {
         stale_ws_manager,
     ));
 
+    // Background system-stats broadcaster — pushes CPU/memory/uptime over WS so
+    // the frontend no longer needs to poll /api/system/stats.
+    let sysstats_ws_manager = state.ws_manager.clone();
+    tokio::spawn(background_system_stats_broadcaster(sysstats_ws_manager));
+
     // Background NINA warning poller (checks NINA API every 5 min for configured regions)
     let nina_http_client = state.http_client.clone();
     let nina_config_repo = state.config_repo.clone();
@@ -14870,6 +14875,50 @@ async fn background_analytics_aggregation(entity_cache: Arc<EntityStateCache>, d
 
 /// Background stale entity monitor — detects entities that haven't updated in >1 hour
 /// and sends warnings to connected dashboard clients every 60 seconds.
+async fn background_system_stats_broadcaster(ws_manager: Arc<websocket::WebSocketManager>) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        let sys_info = tokio::task::spawn_blocking(|| {
+            use sysinfo::System;
+            let mut sys = System::new();
+            sys.refresh_cpu();
+            sys.refresh_memory();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            sys.refresh_cpu();
+            let cpu_usage: f32 = if sys.cpus().is_empty() {
+                0.0
+            } else {
+                sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
+            };
+            (cpu_usage, sys.cpus().len(), sys.total_memory(), sys.used_memory())
+        })
+        .await
+        .unwrap_or((0.0, 0, 0, 0));
+
+        let (cpu_usage, cpu_cores, total_memory, used_memory) = sys_info;
+        let memory_usage_pct = if total_memory > 0 {
+            (used_memory as f64 / total_memory as f64) * 100.0
+        } else {
+            0.0
+        };
+        let uptime_secs = APP_START.elapsed().as_secs();
+
+        let event = serde_json::json!({
+            "type": "system_stats",
+            "data": {
+                "cpu_usage_percent": cpu_usage,
+                "cpu_cores": cpu_cores,
+                "memory_total_bytes": total_memory,
+                "memory_used_bytes": used_memory,
+                "memory_usage_percent": memory_usage_pct,
+                "uptime_seconds": uptime_secs,
+            }
+        });
+        ws_manager.broadcast_json(&event).await;
+    }
+}
+
 async fn background_stale_entity_monitor(
     entity_cache: Arc<EntityStateCache>,
     ws_manager: Arc<websocket::WebSocketManager>,

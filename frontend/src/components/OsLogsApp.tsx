@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowClockwise, FileText, ListBullets, Play, Square, Terminal, Triangle } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 
 interface LogSource {
   id: string
@@ -82,25 +82,27 @@ export function OsLogsApp() {
   const active = sources.find((source) => source.id === activeSource)
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl p-4 pb-10 sm:p-6">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{t('logsApp.title')}</h1>
-          <p className="mt-1 text-sm text-foreground/45">{t('logsApp.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-foreground/55">
-            <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
-            {t('logsApp.autoRefresh')}
-          </label>
-          <button type="button" onClick={() => { void loadSources(); if (activeSource) void loadLines(activeSource) }} disabled={loading} className="glass-card rounded-full p-3" title={t('logsApp.refresh')}>
-            <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <OsWindowActions pageId="os-logs" />
-        </div>
-      </header>
+    <section className="ora-app-frame mx-auto max-w-7xl overflow-hidden">
+      <OsAppNavbar
+        pageId="os-logs"
+        title={t('os.apps.logs.name')}
+        description={t('os.apps.logs.description')}
+        icon={<Terminal size={24} weight="duotone" />}
+        accent="oklch(0.6 0.14 40)"
+        trailing={
+          <>
+            <label className="flex items-center gap-2 text-xs text-foreground/55">
+              <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
+              {t('logsApp.autoRefresh')}
+            </label>
+            <button type="button" onClick={() => { void loadSources(); if (activeSource) void loadLines(activeSource) }} disabled={loading} className="ora-icon-button" title={t('logsApp.refresh')}>
+              <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </>
+        }
+      />
 
+      <div className="p-4 pb-10 sm:p-6">
       {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
@@ -151,6 +153,7 @@ export function OsLogsApp() {
             )}
           </div>
         </div>
+      </div>
       </div>
     </section>
   )

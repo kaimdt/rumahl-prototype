@@ -710,7 +710,7 @@ export function TasksTab({ token }: { token: string }) {
       {/* Task List */}
       <div className="space-y-2">
         {filtered.length === 0 ? (
-          <div className="glass-card rounded-2xl p-8 text-center text-xs text-foreground/50">Keine Aufgaben gefunden.</div>
+          <div className="ora-card rounded-2xl p-8 text-center text-xs text-foreground/50">Keine Aufgaben gefunden.</div>
         ) : filtered.map(task => (
           <AdminCard key={task.id}>
             <div className="flex items-start justify-between gap-3">
@@ -881,7 +881,7 @@ export function ControlModeTab({ token }: { token: string }) {
               key={mode}
               onClick={() => setMode(mode)}
               disabled={saving}
-              className={`glass-card rounded-2xl p-4 text-left transition-all border-2 ${
+              className={`ora-card rounded-2xl p-4 text-left transition-all border-2 ${
                 isActive
                   ? `${colorClasses.activeBg} ${colorClasses.border} shadow-lg`
                   : 'border-transparent hover:border-foreground/15 hover:bg-foreground/3'
@@ -1056,7 +1056,7 @@ export function SystemTab({ token }: { token: string }) {
                 value={maintenanceMsg}
                 onChange={e => setMaintenanceMsg(e.target.value)}
                 placeholder="Nachricht für Benutzer..."
-                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground focus:outline-none focus:border-accent"
+                className="ora-field-sm w-full text-xs"
               />
             </div>
             <button
@@ -1344,7 +1344,7 @@ export function ThemeMarketplace({ token, onInstall }: { token: string; onInstal
             localStorage.setItem('iora-store-url', e.target.value)
           }}
           placeholder="Store URL (z.B. http://localhost:3100)"
-          className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-foreground/[0.04] border border-foreground/10 text-foreground focus:outline-none focus:border-accent"
+          className="ora-field-sm flex-1 text-xs"
         />
         <button
           onClick={() => iframeRef.current?.contentWindow?.location.reload()}
@@ -1612,32 +1612,32 @@ export function ThemesTab({ token }: { token: string }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.installed')}</div>
           <div className="text-lg font-semibold text-foreground">{installed.length}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.active')}</div>
           <div className="text-lg font-semibold text-success">{enabledInstalled}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.builtin')}</div>
           <div className="text-lg font-semibold text-accent">{builtin.length}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="ora-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('common.default')}</div>
           <div className="text-sm font-semibold text-foreground truncate mt-1">{defaultTheme?.theme_id || 'auto'}</div>
         </div>
       </div>
 
-      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+      <div className="ora-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
         <div className="relative flex-1">
           <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
           <input
             value={themeSearch}
             onChange={(event) => setThemeSearch(event.target.value)}
             placeholder={tr('themes.overview.search')}
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+            className="ora-field-sm w-full pl-9 pr-3 text-xs"
           />
         </div>
         <div className="flex gap-1 overflow-x-auto">

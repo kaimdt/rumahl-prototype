@@ -31,6 +31,7 @@ import { authFetch } from '@/lib/authHelpers'
 import { OsPermissionEditor } from '@/components/OsPermissionEditor'
 
 // Admin tabs are lazy-loaded per module to keep the initial AdminPanel chunk small.
+const AppearanceStandardsTab = lazy(() => import('./adminTabs/AppearanceStandards').then((m) => ({ default: m.AppearanceStandardsTab })))
 const AiConversationsTab = lazy(() => import('./adminTabs/ai').then((m) => ({ default: m.AiConversationsTab })))
 const AiOverviewTab = lazy(() => import('./adminTabs/ai').then((m) => ({ default: m.AiOverviewTab })))
 const AiProvidersTab = lazy(() => import('./adminTabs/ai').then((m) => ({ default: m.AiProvidersTab })))
@@ -134,7 +135,7 @@ export interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-export type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
+export type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes' | 'appearance-standards'
 
 // ═══ Unified Control Center Design Components ═══
 // Theme-aware, consistent input/button/card primitives for the entire Control Center.
@@ -195,6 +196,7 @@ export function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'services', label: t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
     { id: 'health-intelligence', label: t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
     { id: 'themes', label: t('admin.themes'), icon: Palette, description: t('admin.themesDesc') },
+    { id: 'appearance-standards', label: t('admin.appearanceStandards'), icon: Palette, description: t('admin.appearanceStandardsDesc') },
     { id: 'developer-mode', label: t('admin.developerMode'), icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
     { id: 'documentation', label: t('admin.documentation'), icon: BookOpen, description: t('admin.docsDesc') },
     { id: 'protocols', label: t('admin.protocols'), icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
@@ -475,6 +477,7 @@ export function renderAdminTabContent(tab: Tab, token: string): React.ReactNode 
     case 'control-mode': return <Suspense fallback={null}><ControlModeTab token={token} /></Suspense>
     case 'system': return <Suspense fallback={null}><SystemTab token={token} /></Suspense>
     case 'system-info': return <SystemInfoTab token={token} />
+    case 'appearance-standards': return <Suspense fallback={null}><AppearanceStandardsTab /></Suspense>
     case 'infrastructure': return <InfrastructureVisualization token={token} />
     case 'apps': return <AppStoreTab token={token} />
     case 'plugins': return <PluginsTab token={token} />
@@ -1058,7 +1061,7 @@ export function ConfigModal({ open, onClose, title, icon: Icon, children }: {
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="glass-card rounded-2xl p-5 w-full max-w-md max-h-[80vh] overflow-y-auto"
+          className="ora-card rounded-2xl p-5 w-full max-w-md max-h-[80vh] overflow-y-auto"
           onClick={e => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-4">
