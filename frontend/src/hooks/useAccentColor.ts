@@ -48,7 +48,8 @@ export function useAccentColor() {
   const [extractedPalette, setExtractedPalette] = useState<string[]>([])
   const [settings, setSettings] = useState<AccentColorSettings>(() => {
     const stored = storage.get<AccentColorSettings>('accent-color-settings', DEFAULT_ACCENT_SETTINGS)
-    return stored ? { ...DEFAULT_ACCENT_SETTINGS, ...stored } : DEFAULT_ACCENT_SETTINGS
+    const valid = stored && typeof stored === 'object' && !Array.isArray(stored) && typeof (stored as AccentColorSettings).mode === 'string'
+    return valid ? { ...DEFAULT_ACCENT_SETTINGS, ...stored } : DEFAULT_ACCENT_SETTINGS
   })
 
   // Counter to discard stale async extractions
@@ -68,7 +69,9 @@ export function useAccentColor() {
   useEffect(() => {
     const onSynced = () => {
       const stored = storage.get<AccentColorSettings>('accent-color-settings', DEFAULT_ACCENT_SETTINGS)
-      if (stored) setSettings({ ...DEFAULT_ACCENT_SETTINGS, ...stored })
+      if (stored && typeof stored === 'object' && !Array.isArray(stored) && typeof (stored as AccentColorSettings).mode === 'string') {
+        setSettings({ ...DEFAULT_ACCENT_SETTINGS, ...stored })
+      }
     }
     window.addEventListener('iora:settings-synced', onSynced)
     return () => window.removeEventListener('iora:settings-synced', onSynced)

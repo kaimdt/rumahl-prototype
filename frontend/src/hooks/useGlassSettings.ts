@@ -51,7 +51,8 @@ export function useGlassSettings() {
   const { theme } = useTheme()
   const [settings, setSettings] = useState<GlassSettings>(() => {
     const stored = storage.get<GlassSettings>('glass-settings', DEFAULT_SETTINGS)
-    return stored ? { ...DEFAULT_SETTINGS, ...stored } : DEFAULT_SETTINGS
+    const valid = stored && typeof stored === 'object' && !Array.isArray(stored) && typeof (stored as GlassSettings).enabled === 'boolean'
+    return valid ? { ...DEFAULT_SETTINGS, ...stored } : DEFAULT_SETTINGS
   })
 
   useEffect(() => {
@@ -64,7 +65,9 @@ export function useGlassSettings() {
   useEffect(() => {
     const onSynced = () => {
       const stored = storage.get<GlassSettings>('glass-settings', DEFAULT_SETTINGS)
-      if (stored) setSettings({ ...DEFAULT_SETTINGS, ...stored })
+      if (stored && typeof stored === 'object' && !Array.isArray(stored) && typeof (stored as GlassSettings).enabled === 'boolean') {
+        setSettings({ ...DEFAULT_SETTINGS, ...stored })
+      }
     }
     window.addEventListener('iora:settings-synced', onSynced)
     return () => window.removeEventListener('iora:settings-synced', onSynced)

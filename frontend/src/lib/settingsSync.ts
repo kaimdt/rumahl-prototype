@@ -87,8 +87,14 @@ async function applyGlobalDefaults(userKeys: Set<string>) {
     for (const pref of prefs) {
       const localKey = GLOBAL_DEFAULT_MAP[pref.preference_key]
       if (!localKey || userKeys.has(localKey)) continue
+      // Normalize: if the backend stored a JSON string, parse it so the
+      // object round-trips correctly (avoids double-encoded values).
+      let value = pref.preference_value
+      if (typeof value === 'string') {
+        try { value = JSON.parse(value) } catch { /* keep the raw string */ }
+      }
       // Match storage.set()'s JSON serialization so storage.get() parses it back.
-      localStorage.setItem(localKey, JSON.stringify(pref.preference_value))
+      localStorage.setItem(localKey, JSON.stringify(value))
     }
   } catch {
     // Global defaults are optional
