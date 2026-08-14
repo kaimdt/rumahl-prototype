@@ -49,6 +49,7 @@ import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useUiScale } from '@/hooks/useUiScale'
+import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
 import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity, MediaPlayerEntity } from '@/lib/types'
 import { Sparkle, ShieldCheck, Wrench, X } from '@phosphor-icons/react'
@@ -121,6 +122,7 @@ function DashboardContent() {
   const nightModeSettings = useNightModeSettings()
   const glassSettings = useGlassSettings()
   useUiScale()
+  useDeviceCapabilities()
   const [fontSize] = useLocalStorage<'small' | 'normal' | 'large'>('ha-font-size', 'normal')
   const [reducedAnimations] = useLocalStorage('ha-animations-reduced', false)
   const [compactWidgets] = useLocalStorage('ha-widget-compact', false)

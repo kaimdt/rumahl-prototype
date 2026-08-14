@@ -667,6 +667,14 @@ html {
   html { transition: none; }
 }
 
+/* Touch devices: comfortable tap targets for the compact window controls. */
+@media (pointer: coarse) {
+  .ora-window-action {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}
+
 /* Smooth crossfade for custom-theme variable application (View Transitions). */
 ::view-transition-old(root),
 ::view-transition-new(root) {
