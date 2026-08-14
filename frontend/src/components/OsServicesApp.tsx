@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowClockwise, CircleNotch, GearSix, MagnifyingGlass, Play, Power, Square, Triangle } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { toast } from 'sonner'
 
@@ -48,11 +49,7 @@ export function OsServicesApp() {
     }
   }, [t])
 
-  useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => { void load() }, 10_000)
-    return () => window.clearInterval(timer)
-  }, [load])
+  useVisibleInterval(load, 10_000)
 
   const runAction = async (service: SystemdService, action: 'start' | 'stop' | 'restart') => {
     setWorking(service.name)

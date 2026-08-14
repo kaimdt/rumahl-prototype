@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowClockwise, FileText, ListBullets, Play, Square, Terminal, Triangle } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 
 interface LogSource {
@@ -67,12 +68,13 @@ export function OsLogsApp() {
   }, [loadSources])
 
   useEffect(() => {
-    if (!activeSource) return
-    void loadLines(activeSource)
-    if (!autoRefresh) return
-    const timer = window.setInterval(() => { void loadLines(activeSource) }, 4000)
-    return () => window.clearInterval(timer)
-  }, [activeSource, autoRefresh, loadLines])
+    if (activeSource) void loadLines(activeSource)
+  }, [activeSource, loadLines])
+
+  // Poll log lines only while the tab is visible and auto-refresh is on.
+  useVisibleInterval(() => {
+    if (activeSource && autoRefresh) void loadLines(activeSource)
+  }, activeSource && autoRefresh ? 4000 : null)
 
   const selectSource = (sourceId: string) => {
     setActiveSource(sourceId)

@@ -66,6 +66,7 @@ import { CssSettingsSection } from '@/components/CssSettings'
 import { OsWindowActions } from '@/components/OsWindowActions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { useRealtime } from '@/hooks/useRealtime'
 import { cachedGet } from '@/lib/apiCache'
 import { useAuth } from '@/contexts/AuthContext'
 import { readAccentIcons, applyAccentIcons } from '@/lib/accentIcons'
@@ -182,6 +183,7 @@ function useSystemStats(enabled: boolean) {
   const [haInfo, setHaInfo] = useState<HAInfo | null>(null)
   const [osInfo, setOsInfo] = useState<{ hostname: string; os_name: string; os_version: string; kernel_version: string } | null>(null)
   const [loading, setLoading] = useState(false)
+  const realtime = useRealtime<{ cpu_usage_percent: number; cpu_cores: number; memory_total_bytes: number; memory_used_bytes: number; memory_usage_percent: number; uptime_seconds: number }>('system_stats')
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -207,10 +209,21 @@ function useSystemStats(enabled: boolean) {
     }
   }, [])
 
-  // Poll system stats only while the tab is visible (saves requests).
-  useVisibleInterval(refresh, enabled ? 10000 : null)
+  // Poll system stats only while the tab is visible; fast values (CPU/memory)
+  // arrive in real time over the WebSocket, so a slower fallback is enough.
+  useVisibleInterval(refresh, enabled ? 30000 : null)
 
-  return { stats, haInfo, osInfo, loading, refresh }
+  // Merge real-time WS values over the polled snapshot (slow fields stay polled).
+  const statsView = stats && realtime
+    ? {
+        ...stats,
+        cpu: { usage_percent: realtime.cpu_usage_percent, cores: realtime.cpu_cores },
+        memory: { total_bytes: realtime.memory_total_bytes, used_bytes: realtime.memory_used_bytes, usage_percent: realtime.memory_usage_percent },
+        uptime_seconds: realtime.uptime_seconds,
+      }
+    : stats
+
+  return { stats: statsView, haInfo, osInfo, loading, refresh }
 }
 
 export function formatBytes(bytes: number): string {

@@ -19,6 +19,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { toast } from 'sonner'
 
@@ -103,11 +104,7 @@ export function OsDevicesApp() {
     }
   }, [t])
 
-  useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => { void load() }, 10_000)
-    return () => window.clearInterval(timer)
-  }, [load])
+  useVisibleInterval(load, 10_000)
 
   const wakeDevice = async (device: RegistryDevice) => {
     setWaking(device.id)

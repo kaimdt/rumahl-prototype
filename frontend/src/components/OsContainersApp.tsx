@@ -10,6 +10,7 @@ import {
   Stop,
 } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { toast } from 'sonner'
 
@@ -86,11 +87,7 @@ export function OsContainersApp() {
     }
   }, [t])
 
-  useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => { void load() }, 8_000)
-    return () => window.clearInterval(timer)
-  }, [load])
+  useVisibleInterval(load, 8_000)
 
   const resourceByContainer = useMemo(() => {
     const map = new Map<string, ContainerResource>()
