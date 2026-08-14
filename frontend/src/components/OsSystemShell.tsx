@@ -414,21 +414,21 @@ export function OsSystemShell() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => openApp('launcher')} className="rounded-2xl bg-foreground/7 p-3 text-left hover:bg-foreground/12">
-                  <SquaresFour size={20} weight="duotone" className="mb-2 text-accent" />
+              <div className="grid grid-cols-2 gap-2.5">
+                <button type="button" onClick={() => openApp('launcher')} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
+                  <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-accent/15 text-accent"><SquaresFour size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.shell.apps')}</span>
                 </button>
-                <button type="button" onClick={() => setSleepMode(!sleepMode)} className={`rounded-2xl p-3 text-left ${sleepMode ? 'bg-indigo-500/25 text-indigo-100' : 'bg-foreground/7 hover:bg-foreground/12'}`}>
-                  <Moon size={20} weight="duotone" className="mb-2" />
+                <button type="button" onClick={() => setSleepMode(!sleepMode)} className={`rounded-[1.35rem] p-4 text-left transition-colors ${sleepMode ? 'bg-accent text-white' : 'bg-foreground/6 hover:bg-foreground/10'}`}>
+                  <span className={`mb-3 grid h-10 w-10 place-items-center rounded-full ${sleepMode ? 'bg-white/25 text-white' : 'bg-foreground/10 text-foreground/70'}`}><Moon size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{sleepMode ? t('os.shell.sleepOn') : t('os.shell.sleepOff')}</span>
                 </button>
-                <button type="button" onClick={() => openApp('settings')} className="rounded-2xl bg-foreground/7 p-3 text-left hover:bg-foreground/12">
-                  <Gear size={20} weight="duotone" className="mb-2 text-foreground/70" />
+                <button type="button" onClick={() => openApp('settings')} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
+                  <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-foreground/10 text-foreground/70"><Gear size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.apps.settings.name')}</span>
                 </button>
-                <button type="button" onClick={() => { window.dispatchEvent(new Event('iora:lock-session')); setOpen(false) }} className="rounded-2xl bg-foreground/7 p-3 text-left hover:bg-foreground/12">
-                  <LockKey size={20} weight="duotone" className="mb-2 text-foreground/70" />
+                <button type="button" onClick={() => { window.dispatchEvent(new Event('iora:lock-session')); setOpen(false) }} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
+                  <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-foreground/10 text-foreground/70"><LockKey size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.shell.lock')}</span>
                 </button>
               </div>
