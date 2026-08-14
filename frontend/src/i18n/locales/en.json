@@ -171,6 +171,7 @@
     },
     "shell": {
       "openQuickSettings": "Open quick settings",
+      "showDate": "Show date",
       "quickSettings": "Quick settings",
       "systemReady": "Native system services available",
       "systemLimited": "Limited system connection",

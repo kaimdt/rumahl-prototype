@@ -171,6 +171,7 @@
     },
     "shell": {
       "openQuickSettings": "Schnelleinstellungen öffnen",
+      "showDate": "Datum anzeigen",
       "quickSettings": "Schnelleinstellungen",
       "systemReady": "Native Systemdienste verfügbar",
       "systemLimited": "Eingeschränkte Systemverbindung",

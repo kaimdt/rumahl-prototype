@@ -66,7 +66,7 @@ function formatUptime(seconds: number, t: (key: string, options?: Record<string,
 }
 
 export function OsSystemShell() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { theme, sleepMode, setSleepMode } = useTheme()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const [open, setOpen] = useState(false)
@@ -78,6 +78,7 @@ export function OsSystemShell() {
   const [systemReachable, setSystemReachable] = useState<boolean | null>(null)
   const [online, setOnline] = useState(() => navigator.onLine)
   const now = useClock()
+  const [showClock, setShowClock] = useState(false)
   const [powerConfirmation, setPowerConfirmation] = useState<'reboot' | null>(null)
   const [powerPending, setPowerPending] = useState(false)
   const { can } = useOsPermissions()
@@ -283,11 +284,8 @@ export function OsSystemShell() {
   return (
     <>
       <div className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3" style={{ height: 'var(--topbar-height, 2rem)' }}>
-        <div className="pointer-events-auto flex min-w-0 items-center gap-3 text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
+        <div className="pointer-events-auto flex min-w-0 items-center text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
           <span className="font-semibold tracking-[0.1em]">ORA OS</span>
-          <span className="tabular-nums text-foreground/60">
-            {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
         </div>
         <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button
@@ -325,8 +323,27 @@ export function OsSystemShell() {
           >
             {online ? <WifiHigh size={15} weight="bold" /> : <WifiSlash size={15} weight="bold" />}
           </button>
+          <button
+            type="button"
+            onClick={() => setShowClock((value) => !value)}
+            className="flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]"
+            aria-expanded={showClock}
+            title={t('os.shell.showDate')}
+          >
+            {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </button>
         </div>
       </div>
+
+      {showClock && (
+        <>
+          <button type="button" aria-label={t('common.close')} className="fixed inset-0 z-[73] cursor-default" onClick={() => setShowClock(false)} />
+          <div className="pointer-events-auto fixed right-3 top-[calc(var(--topbar-height)+0.5rem)] z-[75] w-72 rounded-2xl border border-foreground/10 bg-background/90 p-4 shadow-xl backdrop-blur-xl text-foreground">
+            <p className="text-2xl font-semibold tabular-nums">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+            <p className="mt-1 text-sm text-foreground/60">{now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          </div>
+        </>
+      )}
       <AnimatePresence>
         {open && (
           <>
