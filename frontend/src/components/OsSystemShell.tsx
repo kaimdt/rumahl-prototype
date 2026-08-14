@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   ArrowClockwise,
+  ArrowsIn,
   BatteryCharging,
   Bell,
   CaretRight,
@@ -20,6 +21,7 @@ import {
   Pause,
   MusicNotes,
   DownloadSimple,
+  X,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
@@ -84,7 +86,28 @@ export function OsSystemShell() {
   const { can } = useOsPermissions()
   const { user, logout } = useAuth()
   const activeJobCount = useActiveSystemJobCount()
-  const { windows, snapWindow, toggleMaximize } = useOsWindows()
+  const { windows, snapWindow, toggleMaximize, immersivePageId, setImmersive, closeWindow, minimizeWindow } = useOsWindows()
+
+  // In immersive (fullscreen) the top bar auto-hides and slides in when the
+  // pointer hits the top edge (macOS-style).
+  const [barVisible, setBarVisible] = useState(true)
+  const hideTimer = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!immersivePageId) { setBarVisible(true); return }
+    const scheduleHide = () => {
+      if (hideTimer.current) window.clearTimeout(hideTimer.current)
+      hideTimer.current = window.setTimeout(() => setBarVisible(false), 2500)
+    }
+    const onMouseMove = (event: MouseEvent) => {
+      if (event.clientY < 64) { setBarVisible(true); scheduleHide() }
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    scheduleHide()
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      if (hideTimer.current) window.clearTimeout(hideTimer.current)
+    }
+  }, [immersivePageId])
   const { entities } = useEntityStore()
   const [activeDownloads, setActiveDownloads] = useState<Array<{ id: string; name: string; progress: number }>>([])
   useClipboardCapture()
@@ -283,9 +306,25 @@ export function OsSystemShell() {
 
   return (
     <>
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3" style={{ height: 'var(--topbar-height, 2rem)' }}>
-        <div className="pointer-events-auto flex min-w-0 items-center text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
-          <span className="hidden font-semibold tracking-[0.1em] sm:inline">ORA OS</span>
+      <AnimatePresence>
+        {barVisible && (
+          <motion.div
+            initial={{ y: -40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -40, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3"
+            style={{ height: 'var(--topbar-height, 2rem)' }}
+          >
+        <div className="pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
+          {immersivePageId ? (
+            <>
+              <button type="button" onClick={() => { setImmersive(null); setCurrentPageId('launcher') }} className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
+              <button type="button" onClick={() => { closeWindow(immersivePageId); setImmersive(null); setCurrentPageId('launcher') }} className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/70 transition-colors hover:bg-red-500/15 hover:text-red-400" title={t('os.window.close')}><X size={15} weight="bold" /></button>
+            </>
+          ) : (
+            <span className="hidden font-semibold tracking-[0.1em] sm:inline">ORA OS</span>
+          )}
         </div>
         <div className="ora-topbar-actions pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button
@@ -333,7 +372,9 @@ export function OsSystemShell() {
             {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </button>
         </div>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {showClock && (
         <>

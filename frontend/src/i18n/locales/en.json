@@ -516,6 +516,7 @@
     },
     "window": {
       "asWindow": "Open as window",
+      "exitFullscreen": "Exit fullscreen",
       "splitLeft": "Split left",
       "splitRight": "Split right",
       "immersive": "Immersive mode",

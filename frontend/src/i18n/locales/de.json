@@ -516,6 +516,7 @@
     },
     "window": {
       "asWindow": "Als Fenster öffnen",
+      "exitFullscreen": "Vollbild verlassen",
       "splitLeft": "Links teilen",
       "splitRight": "Rechts teilen",
       "immersive": "Ohne Leiste öffnen",

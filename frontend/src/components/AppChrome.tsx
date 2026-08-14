@@ -2,8 +2,9 @@ import { Suspense, lazy, type ReactNode } from 'react'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { OsSystemShell } from '@/components/OsSystemShell'
 import { OsDock } from '@/components/OsDock'
-import { OsFullscreenBar } from '@/components/OsFullscreenBar'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
+import { MobileBottomNav } from '@/components/MobileBottomNav'
+import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
 import { CommandPalette } from '@/components/CommandPalette'
 import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { OsSessionLock } from '@/components/OsSessionLock'
@@ -42,23 +43,15 @@ export function AppChrome({
   osAppByPageId,
   renderOsAppContent,
 }: AppChromeProps) {
+  const { isPhone } = useDeviceCapabilities()
   return (
     <>
       <NavigationMenu hidden={showPageDesigner || isOsAppPage || isNotFoundPage} />
-      {!showPageDesigner && !immersivePageId && <OsSystemShell />}
-      {/* Dock only on launcher & OS pages — it must never cover the navbar in apps */}
-      {!showPageDesigner && !immersivePageId && (isOsAppPage || isNotFoundPage) && <OsDock />}
-      {/* Slim OS status bar on every page (like the launcher). Window actions
-         only appear inside immersive (true fullscreen) apps. */}
-      {!showPageDesigner && (
-        <OsFullscreenBar
-          pageId={immersivePageId || currentPageId}
-          name={getOsAppName(immersivePageId || currentPageId)}
-          icon={getOsAppIcon(immersivePageId || currentPageId) ? (
-            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent/15 text-accent">{getOsAppIcon(immersivePageId || currentPageId)}</span>
-          ) : undefined}
-        />
-      )}
+      {!showPageDesigner && <OsSystemShell />}
+      {/* Dock only on launcher & OS pages — it must never cover the navbar in apps.
+         On phones the bottom tab bar replaces it. */}
+      {!isPhone && !showPageDesigner && !immersivePageId && (isOsAppPage || isNotFoundPage) && <OsDock />}
+      <MobileBottomNav />
       {currentPageId === 'launcher' && !showPageDesigner && !immersivePageId && (
         <OsWindowOverlay
           getApp={(pageId) => osAppByPageId.get(pageId)}
