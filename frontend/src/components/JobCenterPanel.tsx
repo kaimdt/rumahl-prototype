@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  Bell,
   CheckCircle,
   CircleNotch,
   Clock,
   HourglassHigh,
-  ListBullets,
   Pause,
   Play,
   Trash,
@@ -15,6 +15,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { authFetch } from '@/lib/authHelpers'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
+import { useClock } from '@/hooks/useClock'
 
 /**
  * JobCenterPanel – system-wide background jobs (downloads, file operations,
@@ -79,7 +80,7 @@ function jobIcon(job: Pick<SystemJob, 'status'>, size = 15) {
 }
 
 export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { activeJobs } = useInstalledApps()
   const [jobs, setJobs] = useState<SystemJob[]>([])
   const [loading, setLoading] = useState(false)
@@ -142,6 +143,7 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
 
   const activeCount = jobs.filter((job) => !TERMINAL.has(job.status)).length
   const storeJobs = activeJobs.filter((job) => job.status !== 'finished' && job.status !== 'succeeded')
+  const now = useClock()
 
   return (
     <AnimatePresence>
@@ -166,13 +168,12 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
             <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
               <div>
                 <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <ListBullets size={16} className="text-foreground/60" />
-                  {t('jobs.title')}
+                  <Bell size={16} className="text-foreground/60" />
+                  {t('notifications.title')}
                 </p>
                 <p className="text-[11px] text-foreground/45">
-                  {activeCount > 0
-                    ? t('jobs.activeCount', { count: activeCount })
-                    : t('jobs.subtitle')}
+                  {now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}
+                  {activeCount > 0 ? ` · ${t('jobs.activeCount', { count: activeCount })}` : ''}
                 </p>
               </div>
               <div className="flex items-center gap-1">

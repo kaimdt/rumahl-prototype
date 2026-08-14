@@ -9,7 +9,6 @@ import {
   ClipboardText,
   Cpu,
   Gear,
-  ListBullets,
   LockKey,
   Moon,
   Power,
@@ -341,11 +340,11 @@ export function OsSystemShell() {
             type="button"
             onClick={() => { setShowJobCenter((value) => !value); setOpen(false); setShowClipboard(false) }}
             className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-foreground/10 hover:text-white focus-ring ${showJobCenter ? 'bg-foreground/12 text-foreground' : ''}`}
-            aria-label={t('jobs.title')}
+            aria-label={t('notifications.title')}
             aria-expanded={showJobCenter}
-            title={t('jobs.title')}
+            title={t('notifications.title')}
           >
-            <ListBullets size={15} weight="bold" />
+            <Bell size={15} weight="bold" />
             {activeJobCount > 0 && (
               <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-1 text-[8px] font-bold text-white shadow">
                 {activeJobCount > 9 ? '9+' : activeJobCount}

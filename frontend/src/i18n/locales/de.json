@@ -1463,7 +1463,11 @@
     "offline": "Offline",
     "searching": "Suche…"
   },
-  "jobs": {
+      "notifications": {
+      "title": "Benachrichtigungen",
+      "subtitle": "Systembenachrichtigungen und Hintergrund-Jobs"
+    },
+    "jobs": {
     "title": "Job Center",
     "subtitle": "Hintergrund-Jobs",
     "activeCount_one": "{{count}} aktiver Job",
