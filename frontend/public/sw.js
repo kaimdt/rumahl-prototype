@@ -1,8 +1,10 @@
-const CACHE_VERSION = 'iora-shell-v1'
-const APP_SHELL = ['/', '/home', '/manifest.webmanifest', '/iora-icon.svg']
+const CACHE_VERSION = 'iora-shell-v2'
+const APP_SHELL = ['/', '/home', '/settings', '/manifest.webmanifest', '/iora-icon.svg']
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)))
+  event.waitUntil(
+    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)).catch(() => {}),
+  )
   self.skipWaiting()
 })
 
@@ -18,13 +20,17 @@ self.addEventListener('fetch', (event) => {
   const request = event.request
   if (request.method !== 'GET') return
   const url = new URL(request.url)
+  // Never cache API or WebSocket traffic — apps always need the backend.
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) return
 
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).catch(() => caches.match('/') ))
+    // Network-first for navigations, fall back to the cached app shell so the
+    // OS still loads when the backend/frontend is offline.
+    event.respondWith(fetch(request).catch(() => caches.match('/')))
     return
   }
 
+  // Cache-first for static assets, network fallback + cache-put on success.
   event.respondWith(
     caches.match(request).then((cached) => cached || fetch(request).then((response) => {
       if (response.ok) {

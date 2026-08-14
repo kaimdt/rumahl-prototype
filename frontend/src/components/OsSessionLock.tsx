@@ -3,13 +3,14 @@ import { motion } from 'motion/react'
 import { Fingerprint, LockKey, Password, UserCircle } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
+import { useClock } from '@/hooks/useClock'
 
 const LOCKED_KEY = 'iora-os-session-locked'
 const LAST_ACTIVITY_KEY = 'iora-os-last-activity'
 const AUTO_LOCK_MS = 15 * 60 * 1000
 
 export function OsSessionLock() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { user, login, loginWithPin } = useAuth()
   const [locked, setLocked] = useState(() => localStorage.getItem(LOCKED_KEY) === 'true')
   const [credential, setCredential] = useState('')
@@ -17,6 +18,7 @@ export function OsSessionLock() {
   const [error, setError] = useState('')
   const [unlocking, setUnlocking] = useState(false)
   const activityWriteRef = useRef(0)
+  const now = useClock()
 
   const lock = useCallback(() => {
     localStorage.setItem(LOCKED_KEY, 'true')
@@ -78,20 +80,30 @@ export function OsSessionLock() {
 
   return (
     <motion.div
-      className="fixed inset-0 z-[300] flex items-center justify-center overflow-hidden bg-background p-5"
+      className="fixed inset-0 z-[300] flex flex-col items-center justify-center overflow-hidden bg-background p-6"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,color-mix(in_oklch,var(--accent)_20%,transparent),transparent_55%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,color-mix(in_oklch,var(--accent)_22%,transparent),transparent_60%)]" />
+
+      {/* Lock-screen clock (macOS/iOS style) */}
+      <div className="relative mb-12 text-center">
+        <p className="text-6xl font-semibold tabular-nums tracking-tight text-foreground sm:text-8xl">
+          {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </p>
+        <p className="mt-2 text-base font-medium text-foreground/60 sm:text-lg">
+          {now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}
+        </p>
+      </div>
+
       <form onSubmit={unlock} className="glass-card relative w-full max-w-sm rounded-[2rem] border border-white/15 p-6 text-center shadow-2xl sm:p-8">
-        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-white/15 bg-foreground/8">
-          <UserCircle size={52} weight="duotone" className="text-foreground/75" />
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-white/15 bg-foreground/8">
+          <UserCircle size={42} weight="duotone" className="text-foreground/75" />
         </div>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-        <h1 className="mt-2 text-2xl font-semibold text-foreground">{user.displayName || user.username}</h1>
+        <h1 className="text-xl font-semibold text-foreground">{user.displayName || user.username}</h1>
         <p className="mt-1 text-sm text-foreground/45">{t('os.lock.sessionLocked')}</p>
 
-        <label className="mt-7 flex items-center gap-3 rounded-2xl border border-foreground/10 bg-foreground/5 px-4">
+        <label className="mt-6 flex items-center gap-3 rounded-2xl border border-foreground/10 bg-foreground/5 px-4">
           {mode === 'pin' ? <Fingerprint size={20} /> : <Password size={20} />}
           <span className="sr-only">{mode === 'pin' ? t('os.lock.pin') : t('os.lock.password')}</span>
           <input

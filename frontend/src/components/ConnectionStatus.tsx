@@ -19,76 +19,12 @@ export function ConnectionStatus() {
   }
 
   return (
-    <AnimatePresence>
-      {(showBackendError || showHAError || showDevBridge) && (
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          className="fixed top-4 right-4 z-50 flex flex-col gap-2"
-        >
-          {showBackendError && (
-            <motion.div
-              className="glass-card px-4 py-3 rounded-lg border border-destructive/20 bg-destructive/10 backdrop-blur-xl"
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-            >
-              <div className="flex items-center gap-3">
-                <Warning size={20} weight="fill" className="text-destructive" />
-                <div>
-                  <p className="text-sm font-medium text-destructive">
-                    Backend nicht erreichbar
-                  </p>
-                  <p className="text-xs text-destructive/80">
-                    Verbindung wird wiederhergestellt...
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {showHAError && (
-            <motion.div
-              className="glass-card px-4 py-3 rounded-lg border border-destructive/20 bg-destructive/10 backdrop-blur-xl"
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-            >
-              <div className="flex items-center gap-3">
-                <WifiSlash size={20} weight="fill" className="text-destructive" />
-                <div>
-                  <p className="text-sm font-medium text-destructive">
-                    Home Assistant nicht erreichbar
-                  </p>
-                  <p className="text-xs text-destructive/80">
-                    Prüfe deine Verbindung
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {showDevBridge && (
-            <motion.div
-              className="glass-card px-4 py-3 rounded-lg border border-green-500/20 bg-green-500/10 backdrop-blur-xl"
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-            >
-              <div className="flex items-center gap-3">
-                <Terminal size={20} weight="fill" className="text-green-400" />
-                <div>
-                  <p className="text-sm font-medium text-green-400">
-                    Dev Bridge verfügbar
-                  </p>
-                  <p className="text-xs text-green-400/60">
-                    Entwickler-Funktionen sind bereit
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div className="pointer-events-none fixed inset-x-0 bottom-[max(4.5rem,env(safe-area-inset-bottom))] z-[76] flex justify-center px-3">
+      <div className="pointer-events-auto flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-full border border-destructive/30 bg-background/90 px-4 py-2 text-xs font-medium text-foreground shadow-xl backdrop-blur-xl">
+        <WifiSlash size={15} weight="fill" className="shrink-0 text-destructive" />
+        <span className="truncate">Backend nicht erreichbar — Apps derzeit nicht verfügbar</span>
+      </div>
+    </div>
   )
 }
 

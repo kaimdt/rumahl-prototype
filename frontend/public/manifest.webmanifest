@@ -1,8 +1,9 @@
 {
-  "name": "ORA Home",
-  "short_name": "ORA Home",
-  "description": "Native smart home system app for ORA OS",
-  "start_url": "/home",
+  "name": "ORA OS",
+  "short_name": "ORA OS",
+  "description": "Privates, vernetztes Smart-Home-Betriebssystem",
+  "id": "/",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
@@ -15,7 +16,13 @@
       "src": "/iora-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/iora-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
@@ -28,6 +35,11 @@
       "name": "ORA Home",
       "short_name": "Home",
       "url": "/home"
+    },
+    {
+      "name": "Einstellungen",
+      "short_name": "Settings",
+      "url": "/settings"
     }
   ]
 }

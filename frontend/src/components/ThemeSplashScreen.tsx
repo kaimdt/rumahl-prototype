@@ -22,9 +22,9 @@ interface ThemeSplashScreenProps {
 
 /** Default status messages in German (if theme doesn't provide custom ones) */
 const DEFAULT_STATUS_MESSAGES = [
-  'IORA Core wird geladen...',
-  'IORA Home verbindet...',
-  'IORA Assist initialisiert...',
+  'ORA OS wird geladen…',
+  'Dienste werden verbunden…',
+  'Oberfläche wird vorbereitet…',
   'System bereit.',
 ]
 
@@ -122,7 +122,7 @@ export function ThemeSplashScreen({ onComplete, duration }: ThemeSplashScreenPro
   const exitVariant = getExitVariant(config?.exit_animation || 'fade')
   const exitTransition = getExitTransition(config?.exit_animation || 'fade')
   const showProgress = config?.show_progress !== false
-  const brandText = config?.brand_text || 'IORA'
+  const brandText = config?.brand_text || 'ORA OS'
   const tagline = config?.tagline
 
   useEffect(() => {
