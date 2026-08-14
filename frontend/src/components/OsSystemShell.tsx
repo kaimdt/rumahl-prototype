@@ -285,7 +285,7 @@ export function OsSystemShell() {
     <>
       <div className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3" style={{ height: 'var(--topbar-height, 2rem)' }}>
         <div className="pointer-events-auto flex min-w-0 items-center text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
-          <span className="font-semibold tracking-[0.1em]">ORA OS</span>
+          <span className="hidden font-semibold tracking-[0.1em] sm:inline">ORA OS</span>
         </div>
         <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button

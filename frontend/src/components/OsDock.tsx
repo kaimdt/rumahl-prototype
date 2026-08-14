@@ -268,7 +268,7 @@ export function OsDock() {
 
   return (
     <div className="fixed bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-1/2 z-[60] -translate-x-1/2 select-none">
-      <div className="flex items-end gap-1.5 rounded-2xl border border-white/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl">
+      <div className="flex items-end gap-1.5 rounded-2xl border border-white/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl max-w-[calc(100vw-1rem)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {renderItem(launcherApp, false)}
         {pinned.map((app) => renderItem(app, true))}
         {recents.length > 0 && (

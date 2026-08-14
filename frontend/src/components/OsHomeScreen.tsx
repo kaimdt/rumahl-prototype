@@ -468,7 +468,7 @@ export function OsHomeScreen() {
               </div>
             </div>
           )}
-          <label className="ora-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd>⌘K</kbd></label>
+          <label className="ora-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd className="hidden sm:inline">⌘K</kbd></label>
           {appGrid}
         </div>
       )}
