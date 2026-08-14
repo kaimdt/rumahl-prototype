@@ -14,6 +14,7 @@ import {
   FolderOpen,
   GridFour,
   House,
+  List,
   ListBullets,
   MagnifyingGlass,
   PencilSimple,
@@ -199,6 +200,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [sortMode, setSortMode] = useState<SortMode>('name')
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null)
   const [trashMode, setTrashMode] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [netMode, setNetMode] = useState(false)
   const [activeSystemFolder, setActiveSystemFolder] = useState<string | null>(null)
   const [mounts, setMounts] = useState<Array<{ id: string; ip: string; share: string; name: string; mounted: boolean }>>([])
@@ -504,6 +506,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const navigate = (folderId: string | null, path: Breadcrumb[], push = true) => {
     setTrashMode(false)
     setNetMode(false)
+    setSidebarOpen(false)
     if (folderId === null) setActiveSystemFolder(null)
     setCurrentFolderId(folderId)
     setBreadcrumbs(path)
@@ -920,7 +923,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     <>
     <section className={`ora-files-app ${pickerMode ? 'flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-[1.6rem] border border-white/12 bg-background/95 text-foreground shadow-2xl backdrop-blur-xl' : 'ora-app-frame'}`} onClick={() => setContextEntry(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
       <header className="ora-app-navbar">
-        <div className="flex min-w-0 items-center gap-3"><span className="ora-app-mark ora-app-mark-files"><FolderOpen size={24} weight="duotone" /></span><div><p className="text-lg font-semibold">{t('os.apps.files.name')}</p><p className="hidden text-xs text-foreground/45 sm:block">{t('os.apps.files.description')}</p></div></div>
+        <div className="flex min-w-0 items-center gap-3"><button type="button" onClick={() => setSidebarOpen(true)} className="ora-icon-button sm:hidden" aria-label={t('os.files.sidebar')}><List size={20} /></button><span className="ora-app-mark ora-app-mark-files"><FolderOpen size={24} weight="duotone" /></span><div><p className="text-lg font-semibold">{t('os.apps.files.name')}</p><p className="hidden text-xs text-foreground/45 sm:block">{t('os.apps.files.description')}</p></div></div>
         <div className="flex items-center gap-2">
           <button type="button" disabled={historyIndex === 0} onClick={() => moveHistory(-1)} className="ora-icon-button" aria-label={t('os.files.back')}><ArrowLeft size={18} /></button>
           <button type="button" disabled={historyIndex >= history.length - 1} onClick={() => moveHistory(1)} className="ora-icon-button" aria-label={t('os.files.forward')}><ArrowRight size={18} /></button>
@@ -936,7 +939,8 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       </header>
 
       <div className="ora-files-layout">
-        <aside className="ora-files-sidebar">
+        {sidebarOpen && <div className="fixed inset-0 z-[79] bg-black/50 backdrop-blur-sm sm:hidden" onClick={() => setSidebarOpen(false)} aria-label={t('common.close')} />}
+        <aside className={`ora-files-sidebar ${sidebarOpen ? 'is-mobile-open' : ''}`}>
           <p className="ora-sidebar-label">ORA</p>
           <button type="button" className={`ora-sidebar-item ${currentFolderId === null ? 'is-active' : ''}`} onClick={() => navigate(null, [])}><House size={18} weight="duotone" />{t('os.files.home')}</button>
           {SYSTEM_FOLDERS.map((folder) => (

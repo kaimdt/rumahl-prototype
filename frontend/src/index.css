@@ -2616,6 +2616,17 @@ body {
   .ora-app-navbar { grid-template-columns: 1fr auto; }
   .ora-app-navbar > :last-child { grid-column: 1 / -1; overflow-x: auto; }
   .ora-files-sidebar { display: none; }
+  .ora-files-sidebar.is-mobile-open {
+    display: flex;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 80;
+    width: 16rem;
+    max-width: 85vw;
+    border-right: 1px solid var(--ora-glass-border);
+    background: var(--ora-surface-0);
+    box-shadow: var(--ora-shadow-floating);
+  }
   .ora-settings-layout { display: block; }
   .ora-settings-sidebar { position: sticky; z-index: 5; top: 0; display: grid !important; grid-template-columns: repeat(4, minmax(5.5rem, 1fr)); overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--ora-glass-border); padding: 0.6rem !important; }
   .ora-settings-sidebar [role="tab"] { justify-content: center; }

@@ -423,6 +423,7 @@
       "restoreFailed": "The backup could not be prepared for restoration."
     },
     "files": {
+      "sidebar": "Show sidebar",
       "connectionError": "Could not connect to the Files service ({{detail}}). Your existing files remain visible.",
       "operationError": "The file operation failed ({{detail}}).",
       "back": "Back",

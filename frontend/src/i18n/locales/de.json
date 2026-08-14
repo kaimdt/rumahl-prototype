@@ -423,6 +423,7 @@
       "restoreFailed": "Das Backup konnte nicht zur Wiederherstellung vorbereitet werden."
     },
     "files": {
+      "sidebar": "Seitenleiste anzeigen",
       "connectionError": "Der Files-Dienst ist nicht erreichbar ({{detail}}). Bereits geladene Dateien bleiben sichtbar.",
       "operationError": "Die Dateioperation ist fehlgeschlagen ({{detail}}).",
       "back": "Zurück",
