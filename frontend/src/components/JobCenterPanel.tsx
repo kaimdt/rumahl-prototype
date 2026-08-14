@@ -6,14 +6,19 @@ import {
   CircleNotch,
   Clock,
   HourglassHigh,
+  Info,
   Pause,
   Play,
+  SignOut,
   Trash,
+  Warning,
   X,
   XCircle,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { authFetch } from '@/lib/authHelpers'
+import { useNotifications } from '@/contexts/NotificationContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { useClock } from '@/hooks/useClock'
 
@@ -82,6 +87,8 @@ function jobIcon(job: Pick<SystemJob, 'status'>, size = 15) {
 export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t, i18n } = useTranslation()
   const { activeJobs } = useInstalledApps()
+  const { notifications, unreadCount, markAsRead, dismissNotification, clearAll } = useNotifications()
+  const { user, logout } = useAuth()
   const [jobs, setJobs] = useState<SystemJob[]>([])
   const [loading, setLoading] = useState(false)
   const pollRef = useRef<number | null>(null)
@@ -196,6 +203,30 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
               </div>
             </div>
 
+            {/* Notifications (grouped, latest 3) */}
+            {notifications.length > 0 && (
+              <div className="border-b border-white/5 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between px-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground/45">{t('notifications.title')}</p>
+                  {unreadCount > 3 && <span className="text-[10px] text-foreground/40">+{unreadCount - 3}</span>}
+                </div>
+                <div className="space-y-0.5">
+                  {notifications.slice(0, 3).map((n) => (
+                    <button key={n.id} type="button" onClick={() => void markAsRead(n.id)} className="group flex w-full items-start gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-foreground/6">
+                      <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg ${n.level === 'critical' || n.level === 'emergency' ? 'bg-red-500/15 text-red-400' : n.level === 'warning' ? 'bg-amber-500/15 text-amber-400' : 'bg-accent/15 text-accent'}`}>
+                        {n.level === 'critical' || n.level === 'emergency' ? <Warning size={13} weight="fill" /> : n.level === 'warning' ? <Warning size={13} weight="fill" /> : <Info size={13} />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-foreground/85">{n.title}</span>
+                        <span className="block truncate text-[10px] text-foreground/45">{n.message}</span>
+                      </span>
+                      {!n.read && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Job list */}
             <div className="flex-1 space-y-2 overflow-y-auto p-3">
               {jobs.length === 0 && storeJobs.length === 0 && (
@@ -303,6 +334,13 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Logout */}
+            <div className="border-t border-white/5 p-2">
+              <button type="button" onClick={() => { logout(); onClose() }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground/70 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <SignOut size={15} /> {t('os.shell.logout')}{user && ` · ${user.displayName || user.username}`}
+              </button>
             </div>
           </motion.aside>
         </>
