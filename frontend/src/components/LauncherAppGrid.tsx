@@ -24,8 +24,9 @@ export type LauncherItem =
 
 export function buildLauncherItems(apps: OsAppDefinition[], folders: LauncherFolder[]): LauncherItem[] {
   const availableIds = new Set(apps.map((app) => app.id))
-  const normalizedFolders = folders
-    .map((folder) => ({ ...folder, appIds: folder.appIds.filter((id) => availableIds.has(id)) }))
+  const safeFolders = Array.isArray(folders) ? folders : []
+  const normalizedFolders = safeFolders
+    .map((folder) => ({ ...folder, appIds: (folder.appIds || []).filter((id) => availableIds.has(id)) }))
     .filter((folder) => folder.appIds.length > 0)
   const folderAppIds = new Set(normalizedFolders.flatMap((folder) => folder.appIds))
   return [
@@ -89,6 +90,7 @@ export function LauncherAppGrid({
   installJobs?: InstallJobInfo[]
 }) {
   const { t } = useTranslation()
+  const safeFolders = Array.isArray(folders) ? folders : []
   const [openFolderId, setOpenFolderId] = useState<string | null>(null)
   const [draggedAppId, setDraggedAppId] = useState<string | null>(null)
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null)
@@ -123,11 +125,11 @@ export function LauncherAppGrid({
       window.removeEventListener('keydown', onKey)
     }
   }, [quickMenu])
-  const openFolder = folders.find((folder) => folder.id === openFolderId)
+  const openFolder = safeFolders.find((folder) => folder.id === openFolderId)
   const folderApps = openFolder?.appIds.map((id) => apps.find((app) => app.id === id)).filter((app): app is OsAppDefinition => Boolean(app)) || []
 
   const updateFolder = (folderId: string, update: (folder: LauncherFolder) => LauncherFolder) => {
-    onFoldersChange(folders.map((folder) => folder.id === folderId ? update(folder) : folder))
+    onFoldersChange(safeFolders.map((folder) => folder.id === folderId ? update(folder) : folder))
   }
 
   const itemIdOf = (item: LauncherItem) => (item.type === 'app' ? item.app.id : item.folder.id)
@@ -146,7 +148,7 @@ export function LauncherAppGrid({
         onReorder(draggedFolderId, targetId)
       } else {
         // Folder over folder → reorder folders
-        const current = [...folders]
+        const current = [...safeFolders]
         const from = current.findIndex((f) => f.id === draggedFolderId)
         const to = current.findIndex((f) => f.id === targetId)
         if (from !== -1 && to !== -1) {
@@ -328,7 +330,7 @@ export function LauncherAppGrid({
               {editMode && <button type="button" onClick={() => updateFolder(openFolder.id, (folder) => ({ ...folder, appIds: folder.appIds.filter((id) => id !== app.id) }))} className="absolute -right-1 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background text-foreground shadow-lg" aria-label={t('os.launcher.removeFromFolder', { app: getAppName(app) })}><X size={14} /></button>}
             </div>)}
           </div>
-          {editMode && <button type="button" onClick={() => { onFoldersChange(folders.filter((folder) => folder.id !== openFolder.id)); setOpenFolderId(null) }} className="mt-7 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 text-sm font-semibold text-red-300 hover:bg-red-500/15"><Trash size={17} />{t('os.launcher.deleteFolder')}</button>}
+          {editMode && <button type="button" onClick={() => { onFoldersChange(safeFolders.filter((folder) => folder.id !== openFolder.id)); setOpenFolderId(null) }} className="mt-7 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 text-sm font-semibold text-red-300 hover:bg-red-500/15"><Trash size={17} />{t('os.launcher.deleteFolder')}</button>}
         </motion.section>
       </>}</AnimatePresence>,
       document.body

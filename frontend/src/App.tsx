@@ -48,6 +48,7 @@ import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useAppSettings } from '@/hooks/useAppSettings'
+import { useUiScale } from '@/hooks/useUiScale'
 import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity, MediaPlayerEntity } from '@/lib/types'
 import { Sparkle, ShieldCheck, Wrench, X } from '@phosphor-icons/react'
@@ -119,6 +120,7 @@ function DashboardContent() {
   const accentColorSettings = useAccentColor()
   const nightModeSettings = useNightModeSettings()
   const glassSettings = useGlassSettings()
+  useUiScale()
   const [fontSize] = useLocalStorage<'small' | 'normal' | 'large'>('ha-font-size', 'normal')
   const [reducedAnimations] = useLocalStorage('ha-animations-reduced', false)
   const [compactWidgets] = useLocalStorage('ha-widget-compact', false)
@@ -523,7 +525,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
         >
           
 
-          <main className={`${isOsAppPage ? 'max-w-[1700px]' : 'max-w-[1500px]'} mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32`} style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
+          <main className={`${isOsAppPage ? 'max-w-[1700px]' : 'max-w-[1500px]'} mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-[calc(var(--topbar-height)+0.5rem)] pb-28 sm:pb-32`} style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
           <Suspense fallback={<DashboardSkeleton />}>
           <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {

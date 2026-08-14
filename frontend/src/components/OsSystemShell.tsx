@@ -283,68 +283,51 @@ export function OsSystemShell() {
 
   return (
     <>
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex justify-center px-3 pt-2">
-        <div className="pointer-events-auto flex w-full max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-full border border-white/10 bg-background/70 px-1.5 py-1 shadow-xl shadow-black/15 backdrop-blur-2xl">
-          <span className="flex shrink-0 items-center gap-2 pl-2 pr-1.5">
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-[10px] font-bold text-accent">I</span>
-            <span className="hidden text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground/60 sm:inline">ORA OS</span>
-          </span>
-          <span className="h-4 w-px bg-foreground/10" aria-hidden="true" />
-          <span className="px-2 text-[11px] font-medium tabular-nums text-foreground/60">
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3" style={{ height: 'var(--topbar-height, 2rem)' }}>
+        <div className="pointer-events-auto flex min-w-0 items-center gap-3 text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
+          <span className="font-semibold tracking-[0.1em]">ORA OS</span>
+          <span className="tabular-nums text-foreground/60">
             {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-          <span className="min-w-0 flex-1" aria-hidden="true" />
-
+        </div>
+        <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button
             type="button"
-            onClick={() => {
-              setShowClipboard((value) => !value)
-              setOpen(false)
-              setShowJobCenter(false)
-            }}
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${showClipboard ? 'bg-foreground/12 text-foreground' : ''}`}
+            onClick={() => { setShowClipboard((value) => !value); setOpen(false); setShowJobCenter(false) }}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${showClipboard ? 'bg-foreground/12 text-foreground' : ''}`}
             aria-label={t('clipboard.title')}
             aria-expanded={showClipboard}
             title={t('clipboard.shortcutHint')}
           >
-            <ClipboardText size={17} weight="bold" />
+            <ClipboardText size={15} weight="bold" />
           </button>
           <button
             type="button"
-            onClick={() => {
-              setShowJobCenter((value) => !value)
-              setOpen(false)
-              setShowClipboard(false)
-            }}
-            className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${showJobCenter ? 'bg-foreground/12 text-foreground' : ''}`}
+            onClick={() => { setShowJobCenter((value) => !value); setOpen(false); setShowClipboard(false) }}
+            className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${showJobCenter ? 'bg-foreground/12 text-foreground' : ''}`}
             aria-label={t('jobs.title')}
             aria-expanded={showJobCenter}
             title={t('jobs.title')}
           >
-            <ListBullets size={17} weight="bold" />
+            <ListBullets size={15} weight="bold" />
             {activeJobCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-white shadow">
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-1 text-[8px] font-bold text-white shadow">
                 {activeJobCount > 9 ? '9+' : activeJobCount}
               </span>
             )}
           </button>
           <button
             type="button"
-            onClick={() => {
-              setOpen((value) => !value)
-              setShowJobCenter(false)
-              setShowClipboard(false)
-            }}
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${open ? 'bg-foreground/12 text-foreground' : ''}`}
+            onClick={() => { setOpen((value) => !value); setShowJobCenter(false); setShowClipboard(false) }}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${open ? 'bg-foreground/12 text-foreground' : ''}`}
             aria-label={t('os.shell.openQuickSettings')}
             aria-expanded={open}
             title={t('os.shell.openQuickSettings')}
           >
-            {online ? <WifiHigh size={17} weight="bold" /> : <WifiSlash size={17} weight="bold" />}
+            {online ? <WifiHigh size={15} weight="bold" /> : <WifiSlash size={15} weight="bold" />}
           </button>
         </div>
       </div>
-
       <AnimatePresence>
         {open && (
           <>

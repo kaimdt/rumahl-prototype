@@ -1,14 +1,16 @@
 // Theme picker section of the Settings page (lazy-loaded chunk).
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Clock, Info, Palette } from '@phosphor-icons/react'
+import { ArrowsOutSimple, Clock, Info, Palette } from '@phosphor-icons/react'
 import { readTimeThemeConfig, writeTimeThemeConfig, useTheme, type TimeThemeConfig } from '@/contexts/ThemeContext'
+import { useUiScale } from '@/hooks/useUiScale'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { getCustomThemePreview, MapThemeIcon, SettingsSection, THEME_OPTIONS } from '../SettingsPage'
 
 export function ThemePickerSection() {
   const { t } = useTranslation()
   const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes } = useTheme()
+  const { preset: uiScale, setPreset: setUiScale } = useUiScale()
   const [editorOpen, setEditorOpen] = useState(false)
   const [timeConfig, setTimeConfig] = useState<TimeThemeConfig>(() => readTimeThemeConfig())
 
@@ -107,6 +109,34 @@ export function ThemePickerSection() {
           </div>
         </div>
       )}
+
+      {/* UI scale (adapts to monitor resolution) */}
+      <div className="mt-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <ArrowsOutSimple size={14} className="text-accent" />
+          <p className="text-[11px] font-medium text-foreground/55">UI-Skalierung</p>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {([
+            { id: 'auto' as const, label: 'Auto' },
+            { id: 'compact' as const, label: 'Kompakt' },
+            { id: 'normal' as const, label: 'Normal' },
+            { id: 'large' as const, label: 'Groß' },
+          ]).map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setUiScale(opt.id)}
+              className={`rounded-lg px-2 py-1.5 text-xs font-medium border transition-all ${
+                uiScale === opt.id
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'border-foreground/10 bg-foreground/[0.03] text-foreground/60 hover:border-foreground/20'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </SettingsSection>
   )
 }

@@ -18,6 +18,7 @@
   --ora-radius-md: 1rem;
   --ora-radius-lg: 1.5rem;
   --ora-radius-xl: 2rem;
+  --topbar-height: 2rem;
   --ora-blur: 48px;
   --ora-shadow-card: 0 18px 48px rgb(0 0 0 / 0.22), inset 0 1px 0 rgb(255 255 255 / 0.06);
   --ora-shadow-floating: 0 18px 54px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.08);
@@ -636,6 +637,7 @@
 }
 
 html {
+  font-size: calc(16px * var(--ui-scale, 1));
   transition:
     --background 0.7s ease,
     --foreground 0.7s ease,

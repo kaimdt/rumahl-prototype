@@ -438,7 +438,63 @@ export function OsHomeScreen() {
               {t('os.launcher.widgetsEditHint')}
             </div>
           )}
-          {widgetIds.length > 0 && <div className="mb-5 grid gap-3 sm:grid-cols-2">
+          {installedApps.length === 0 && (
+            <div className="mb-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <span className="h-4 w-1 rounded-full bg-accent" />
+                  {t('os.launcher.discoverApps')}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPageId('app-store')}
+                  className="text-[11px] font-semibold text-accent transition-colors hover:text-accent/80"
+                >
+                  {t('os.apps.appStore.name')} <ArrowRight size={11} className="inline" />
+                </button>
+              </div>
+              <p className="mb-3 text-xs text-foreground/45">{t('os.launcher.discoverAppsHint')}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {STORE_CATALOG.map((def) => (
+                  <button
+                    key={def.id}
+                    type="button"
+                    onClick={() => setCurrentPageId('app-store')}
+                    className="glass-card flex items-center gap-3 rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5 hover:border-foreground/15"
+                  >
+                    <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl shadow-lg" style={{ background: appGradient(def.id) }}>
+                      {def.iconUrl && <img src={def.iconUrl} alt="" className="h-full w-full object-cover" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-foreground">{def.name}</span>
+                      <span className="mt-0.5 block truncate text-xs text-foreground/50">{def.description}</span>
+                    </span>
+                    <ArrowRight size={16} className="shrink-0 text-foreground/30" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <label className="ora-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd>⌘K</kbd></label>
+          {appGrid}
+        </div>
+      )}
+
+      {layout === 'deck' && (
+        <div className="mx-auto mt-7 grid max-w-7xl gap-5 px-1 lg:grid-cols-[0.85fr_1.15fr]">
+          <div className="glass-card rounded-[2rem] p-5 sm:p-7"><p className="text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.intelligent')}</p><h2 className="mt-2 text-2xl font-semibold sm:text-3xl">{t('os.launcher.whatToDo')}</h2><label className="mt-6 flex min-h-14 items-center gap-3 rounded-2xl border border-foreground/12 bg-foreground/5 px-4"><MagnifyingGlass size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm outline-none" /></label><div className="mt-5 flex flex-wrap gap-2">{apps.slice(0, 4).map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="rounded-full border border-foreground/10 bg-foreground/5 px-3 py-2 text-xs hover:bg-foreground/10">{getName(app)}</button>)}</div></div>
+          <div className="space-y-2"><p className="mb-3 px-2 text-sm font-semibold">{t('os.allApps')}</p>{visibleApps.map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="glass-card flex min-h-20 w-full touch-manipulation items-center gap-4 rounded-2xl p-3 text-left hover:bg-foreground/10 focus-ring"><AppIcon app={app} /><span className="min-w-0 flex-1"><span className="block font-semibold">{getName(app)}</span><span className="block truncate text-xs text-foreground/45">{getDescription(app)}</span></span><ArrowRight size={18} className="text-foreground/35" /></button>)}</div>
+        </div>
+      )}
+
+      {layout === 'canvas' && (
+        <div className="mx-auto mt-8 max-w-7xl overflow-hidden px-1"><label className="glass-card mx-auto mb-10 flex min-h-12 max-w-sm items-center gap-3 rounded-full px-4"><MagnifyingGlass size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.search')} className="w-full bg-transparent text-sm outline-none" /></label><div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-[10vw] pb-6 [scrollbar-width:none]">{visibleApps.map((app, index) => <button key={app.id} type="button" onClick={() => openApp(app)} className={`glass-card group min-h-72 shrink-0 snap-center rounded-[2rem] p-5 text-left focus-ring ${index === 0 ? 'w-[min(78vw,28rem)]' : 'w-[min(68vw,20rem)]'}`}><AppIcon app={app} size="large" /><span className="mt-20 block text-2xl font-semibold">{getName(app)}</span><span className="mt-2 block text-sm text-foreground/50">{getDescription(app)}</span><span className="mt-5 inline-flex items-center gap-2 text-sm text-accent">{t('os.launcher.open')}<ArrowRight size={16} /></span></button>)}</div></div>
+      )}
+
+      {layout === 'default' && appPages.length > 1 && <div className="mt-7 flex justify-center gap-2" aria-label={t('os.launcher.pages')}>{appPages.map((_, index) => <button key={index} type="button" onClick={() => setPage(index)} className={`h-2.5 rounded-full transition-all ${index === activePage ? 'w-7 bg-accent' : 'w-2.5 bg-foreground/25'}`} aria-label={t('os.launcher.page', { page: index + 1 })} />)}</div>}
+      {layout === 'default' && (
+        <div className="mx-auto max-w-6xl px-1">
+          {widgetIds.length > 0 && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2">
             {widgetIds.includes('home') && <button type="button" onClick={() => homeApp && openApp(homeApp)} className="glass-card group relative flex min-h-32 touch-manipulation items-center gap-4 rounded-[2rem] p-5 text-left focus-ring sm:p-6">
               {homeApp && <AppIcon app={homeApp} size="large" />}
               <span className="min-w-0 flex-1"><span className="block text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.nativeHome')}</span><span className="mt-1 block text-xl font-semibold sm:text-2xl">{t('os.apps.home.name')}</span><span className="mt-1 block text-sm text-foreground/50">{t('os.apps.home.description')}</span></span>
@@ -500,61 +556,9 @@ export function OsHomeScreen() {
               </div>
             )}
           </div>}
-          {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-[2rem] border border-white/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
-          {installedApps.length === 0 && (
-            <div className="mb-5">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <span className="h-4 w-1 rounded-full bg-accent" />
-                  {t('os.launcher.discoverApps')}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPageId('app-store')}
-                  className="text-[11px] font-semibold text-accent transition-colors hover:text-accent/80"
-                >
-                  {t('os.apps.appStore.name')} <ArrowRight size={11} className="inline" />
-                </button>
-              </div>
-              <p className="mb-3 text-xs text-foreground/45">{t('os.launcher.discoverAppsHint')}</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {STORE_CATALOG.map((def) => (
-                  <button
-                    key={def.id}
-                    type="button"
-                    onClick={() => setCurrentPageId('app-store')}
-                    className="glass-card flex items-center gap-3 rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5 hover:border-foreground/15"
-                  >
-                    <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl shadow-lg" style={{ background: appGradient(def.id) }}>
-                      {def.iconUrl && <img src={def.iconUrl} alt="" className="h-full w-full object-cover" />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-foreground">{def.name}</span>
-                      <span className="mt-0.5 block truncate text-xs text-foreground/50">{def.description}</span>
-                    </span>
-                    <ArrowRight size={16} className="shrink-0 text-foreground/30" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <label className="ora-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd>⌘K</kbd></label>
-          {appGrid}
+          {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-[2rem] border border-white/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
         </div>
       )}
-
-      {layout === 'deck' && (
-        <div className="mx-auto mt-7 grid max-w-7xl gap-5 px-1 lg:grid-cols-[0.85fr_1.15fr]">
-          <div className="glass-card rounded-[2rem] p-5 sm:p-7"><p className="text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.intelligent')}</p><h2 className="mt-2 text-2xl font-semibold sm:text-3xl">{t('os.launcher.whatToDo')}</h2><label className="mt-6 flex min-h-14 items-center gap-3 rounded-2xl border border-foreground/12 bg-foreground/5 px-4"><MagnifyingGlass size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm outline-none" /></label><div className="mt-5 flex flex-wrap gap-2">{apps.slice(0, 4).map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="rounded-full border border-foreground/10 bg-foreground/5 px-3 py-2 text-xs hover:bg-foreground/10">{getName(app)}</button>)}</div></div>
-          <div className="space-y-2"><p className="mb-3 px-2 text-sm font-semibold">{t('os.allApps')}</p>{visibleApps.map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="glass-card flex min-h-20 w-full touch-manipulation items-center gap-4 rounded-2xl p-3 text-left hover:bg-foreground/10 focus-ring"><AppIcon app={app} /><span className="min-w-0 flex-1"><span className="block font-semibold">{getName(app)}</span><span className="block truncate text-xs text-foreground/45">{getDescription(app)}</span></span><ArrowRight size={18} className="text-foreground/35" /></button>)}</div>
-        </div>
-      )}
-
-      {layout === 'canvas' && (
-        <div className="mx-auto mt-8 max-w-7xl overflow-hidden px-1"><label className="glass-card mx-auto mb-10 flex min-h-12 max-w-sm items-center gap-3 rounded-full px-4"><MagnifyingGlass size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.search')} className="w-full bg-transparent text-sm outline-none" /></label><div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-[10vw] pb-6 [scrollbar-width:none]">{visibleApps.map((app, index) => <button key={app.id} type="button" onClick={() => openApp(app)} className={`glass-card group min-h-72 shrink-0 snap-center rounded-[2rem] p-5 text-left focus-ring ${index === 0 ? 'w-[min(78vw,28rem)]' : 'w-[min(68vw,20rem)]'}`}><AppIcon app={app} size="large" /><span className="mt-20 block text-2xl font-semibold">{getName(app)}</span><span className="mt-2 block text-sm text-foreground/50">{getDescription(app)}</span><span className="mt-5 inline-flex items-center gap-2 text-sm text-accent">{t('os.launcher.open')}<ArrowRight size={16} /></span></button>)}</div></div>
-      )}
-
-      {layout === 'default' && appPages.length > 1 && <div className="mt-7 flex justify-center gap-2" aria-label={t('os.launcher.pages')}>{appPages.map((_, index) => <button key={index} type="button" onClick={() => setPage(index)} className={`h-2.5 rounded-full transition-all ${index === activePage ? 'w-7 bg-accent' : 'w-2.5 bg-foreground/25'}`} aria-label={t('os.launcher.page', { page: index + 1 })} />)}</div>}
 
       {settingsOpen && <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-[82] max-h-[52dvh] w-[min(23.5rem,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-background/95 p-3 shadow-2xl backdrop-blur-xl">
         <div className="mb-3 flex items-center justify-between gap-2 px-1"><p className="text-xs font-semibold uppercase tracking-wider text-foreground/45">{t('os.launcher.sync')}</p><span className={`text-[10px] ${storeReachable ? 'text-emerald-400' : storeReachable === false ? 'text-amber-400' : 'text-foreground/40'}`}>{storeReachable ? t('os.launcher.synced') : storeReachable === false ? t('os.launcher.offline') : t('os.launcher.syncing')}</span></div>
