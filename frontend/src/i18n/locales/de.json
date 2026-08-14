@@ -196,6 +196,10 @@
       "nowPlaying": "Läuft gerade",
       "downloads": "Downloads"
     },
+        "kiosk": {
+      "exit": "Kiosk-Modus verlassen",
+      "wrongPin": "Falsche PIN"
+    },
     "lock": {
       "sessionLocked": "Sitzung gesperrt",
       "password": "Passwort",
@@ -548,6 +552,12 @@
     "language": "Sprache",
     "theme": "Theme",
     "themeMode": "Design-Modus",
+    "autoLock": "Automatisch sperren",
+    "autoLockDesc": "Sitzung nach Inaktivität sperren",
+    "autoScreensaver": "Bildschirmschoner automatisch",
+    "autoScreensaverDesc": "Bildschirmschoner bei Inaktivität anzeigen",
+    "kioskMode": "Kiosk-Modus",
+    "kioskModeDesc": "Dashboard im Vollbild starten und Navigation sperren (Tablet/Wandpanel)",
     "sleepMode": "Schlafmodus",
     "sleepModeDesc": "OLED-schwarzes, entsättigtes Design",
     "accentColor": "Akzentfarbe",

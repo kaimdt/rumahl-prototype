@@ -196,6 +196,10 @@
       "nowPlaying": "Now playing",
       "downloads": "Downloads"
     },
+        "kiosk": {
+      "exit": "Exit kiosk mode",
+      "wrongPin": "Wrong PIN"
+    },
     "lock": {
       "sessionLocked": "Session locked",
       "password": "Password",
@@ -548,6 +552,12 @@
     "language": "Language",
     "theme": "Theme",
     "themeMode": "Theme Mode",
+    "autoLock": "Auto-lock",
+    "autoLockDesc": "Lock the session after inactivity",
+    "autoScreensaver": "Screensaver automatically",
+    "autoScreensaverDesc": "Show the screensaver after inactivity",
+    "kioskMode": "Kiosk mode",
+    "kioskModeDesc": "Start the dashboard fullscreen and lock navigation (tablet/wall panel)",
     "sleepMode": "Sleep mode",
     "sleepModeDesc": "OLED-black, desaturated design",
     "accentColor": "Accent Color",

@@ -6,6 +6,10 @@ import { OsWindowOverlay } from '@/components/OsWindowOverlay'
 import { MobileBottomNav } from '@/components/MobileBottomNav'
 import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
 import { useLocalStorage } from '@/lib/storage'
+import { useAppSettings } from '@/hooks/useAppSettings'
+import { LockKey, X } from '@phosphor-icons/react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CommandPalette } from '@/components/CommandPalette'
 import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { OsSessionLock } from '@/components/OsSessionLock'
@@ -45,11 +49,63 @@ export function AppChrome({
   renderOsAppContent,
 }: AppChromeProps) {
   const { isPhone } = useDeviceCapabilities()
-  const [kioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
+  const [kioskMode, setKioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
+  const { verifyPin } = useAppSettings()
+  const { t } = useTranslation()
+  const [exitPrompt, setExitPrompt] = useState(false)
+  const [exitPin, setExitPin] = useState('')
+  const [exitError, setExitError] = useState(false)
+
+  useEffect(() => {
+    if (!kioskMode) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExitPrompt((v) => !v) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [kioskMode])
+
+  const tryExitKiosk = async () => {
+    const ok = await verifyPin(exitPin)
+    if (ok) {
+      setKioskMode(false)
+      setExitPrompt(false)
+      setExitPin('')
+      setExitError(false)
+    } else {
+      setExitError(true)
+      setExitPin('')
+    }
+  }
+
   if (kioskMode) {
-    // Kiosk mode: full-screen dashboard without navigation chrome.
+    // Kiosk mode: full-screen dashboard without navigation chrome. Escape
+    // opens a PIN prompt to leave kiosk (PIN = the account/device PIN).
     return <>
       <OsSessionLock />
+      {exitPrompt && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4 backdrop-blur-md" onClick={() => setExitPrompt(false)}>
+          <div className="ora-card w-full max-w-xs rounded-2xl p-5 text-foreground" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold">{t('os.kiosk.exit')}</p>
+              <button type="button" onClick={() => setExitPrompt(false)} className="rounded-lg p-1.5 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"><X size={16} /></button>
+            </div>
+            <input
+              autoFocus
+              type="password"
+              inputMode="numeric"
+              value={exitPin}
+              onChange={(e) => { setExitPin(e.target.value.replace(/\D/g, '').slice(0, 8)); setExitError(false) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void tryExitKiosk() }}
+              placeholder="PIN"
+              className="w-full rounded-xl border border-foreground/10 bg-foreground/5 px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent"
+            />
+            {exitError && <p className="mt-2 text-xs text-red-400">{t('os.kiosk.wrongPin')}</p>}
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={() => setExitPrompt(false)} className="flex-1 rounded-xl bg-foreground/8 px-3 py-2 text-sm">{t('common.cancel')}</button>
+              <button type="button" onClick={() => void tryExitKiosk()} className="flex-1 rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white">{t('common.confirm')}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   }
   return (

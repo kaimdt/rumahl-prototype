@@ -198,6 +198,12 @@ export function useAppSettings() {
     }
   }, [pinHash, unlockPinInput, savePreference])
 
+  /** Verify a PIN against the stored hash (for kiosk exit etc.). */
+  const verifyPin = useCallback(async (pin: string): Promise<boolean> => {
+    if (!pinHash) return true
+    return (await hashPin(pin)) === pinHash
+  }, [pinHash])
+
   return {
     maintenanceMode,
     maintenanceMessage,
@@ -222,6 +228,7 @@ export function useAppSettings() {
     showUnlockDialog,
     setShowUnlockDialog,
     verifyUnlockPin,
+    verifyPin,
     aiEnabled,
     setAiEnabled,
     haConfigured,

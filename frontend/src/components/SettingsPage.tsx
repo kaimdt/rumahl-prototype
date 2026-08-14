@@ -771,7 +771,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 disabled={lockLoading}
               />
               <SliderRow
-                label="Automatisch sperren"
+                label={t("settings.autoLock")}
                 value={autoLockMinutes}
                 min={0}
                 max={60}
@@ -779,14 +779,14 @@ export function SettingsPage(props: SettingsPageProps) {
                 onChange={setAutoLockMinutes}
               />
               <ToggleRow
-                label="Kiosk-Modus"
-                description="Dashboard im Vollbild starten und Navigation sperren (Tablet/Wandpanel)"
+                label={t("settings.kioskMode")}
+                description={t("settings.kioskModeDesc")}
                 checked={kioskMode}
                 onCheckedChange={setKioskMode}
               />
               <ToggleRow
-                label="Bildschirmschoner automatisch"
-                description="Bildschirmschoner bei Inaktivität anzeigen"
+                label={t("settings.autoScreensaver")}
+                description={t("settings.autoScreensaverDesc")}
                 checked={screensaverSettings.enabled}
                 onCheckedChange={screensaverSettings.setEnabled}
               />
