@@ -1,15 +1,15 @@
 // Theme picker section of the Settings page (lazy-loaded chunk).
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowsOutSimple, Clock, Info, Palette } from '@phosphor-icons/react'
+import { ArrowsOutSimple, Clock, Info, Moon, Palette } from '@phosphor-icons/react'
 import { readTimeThemeConfig, writeTimeThemeConfig, useTheme, type TimeThemeConfig } from '@/contexts/ThemeContext'
 import { useUiScale } from '@/hooks/useUiScale'
 import { ThemeEditor } from '@/components/ThemeEditor'
-import { getCustomThemePreview, MapThemeIcon, SettingsSection, THEME_OPTIONS } from '../SettingsPage'
+import { getCustomThemePreview, MapThemeIcon, SettingsSection, THEME_OPTIONS, ToggleRow } from '../SettingsPage'
 
 export function ThemePickerSection() {
   const { t } = useTranslation()
-  const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes } = useTheme()
+  const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes, sleepMode, setSleepMode } = useTheme()
   const { preset: uiScale, setPreset: setUiScale } = useUiScale()
   const [editorOpen, setEditorOpen] = useState(false)
   const [timeConfig, setTimeConfig] = useState<TimeThemeConfig>(() => readTimeThemeConfig())
@@ -68,6 +68,13 @@ export function ThemePickerSection() {
         <Info size={12} className="shrink-0" />
         <span>Aktiv: <span className="font-medium text-foreground/60 capitalize">{activeTheme}</span> — Einstellung wird pro Benutzer gespeichert</span>
       </div>
+
+      <ToggleRow
+        label={t("settings.sleepMode")}
+        description={t("settings.sleepModeDesc")}
+        checked={sleepMode}
+        onCheckedChange={setSleepMode}
+      />
 
       {/* Theme Editor Button */}
       <button

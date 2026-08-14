@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Archive, ArrowClockwise, DownloadSimple, ShieldCheck } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
+import { createPortal } from 'react-dom'
 import { authFetch } from '@/lib/authHelpers'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 
@@ -164,14 +165,15 @@ export function OsMaintenanceApp({ kind }: { kind: 'updates' | 'backups' }) {
         </div>
       )}
 
-      {confirm && (
+      {confirm && createPortal(
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md" onClick={() => !working && setConfirm(null)}>
           <div className="ora-card w-full max-w-sm rounded-3xl p-6" onClick={(event) => event.stopPropagation()}>
             <h2 className="text-lg font-semibold">{confirm.action === 'install' ? t('os.maintenance.confirmUpdate') : t('os.maintenance.confirmRestore')}</h2>
             <p className="mt-2 text-sm text-foreground/50">{confirm.action === 'install' ? t('os.maintenance.confirmUpdateHint') : t('os.maintenance.confirmRestoreHint')}</p>
             <div className="mt-5 flex gap-2"><button type="button" disabled={working} onClick={() => setConfirm(null)} className="flex-1 rounded-xl bg-foreground/8 px-3 py-2 text-sm">{t('common.cancel')}</button><button type="button" disabled={working} onClick={executeConfirmedAction} className="flex-1 rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{t('common.confirm')}</button></div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
       </div>
     </section>

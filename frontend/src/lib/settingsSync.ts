@@ -14,7 +14,6 @@ const SYNCED_KEYS = [
   'ha-overview-variants',
   'ha-active-overview-variant',
   'ha-dynamic-overview-enabled',
-  'ha-sleep-mode',
   'ha-auto-theme',
   'ha-selected-theme',
   'night-mode-settings',

@@ -548,6 +548,8 @@
     "language": "Language",
     "theme": "Theme",
     "themeMode": "Theme Mode",
+    "sleepMode": "Sleep mode",
+    "sleepModeDesc": "OLED-black, desaturated design",
     "accentColor": "Accent Color",
     "fontSize": "Font Size",
     "small": "Small",
