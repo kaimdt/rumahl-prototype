@@ -24,6 +24,7 @@ import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { isAppAllowed } from '@/lib/userRestrictions'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
+import { useClock } from '@/hooks/useClock'
 import { useOsWindows, type OsLaunchMode } from '@/contexts/OsWindowContext'
 import { useLocalStorage } from '@/lib/storage'
 import { loadLauncherPackages, type StoreLauncherPackage, type StoreWidgetPackage } from '@/lib/launcherPackages'
@@ -50,14 +51,6 @@ const CUSTOM_LAUNCHERS_KEY = 'iora-os-custom-launchers'
 const LAUNCHER_WIDGETS_KEY = 'iora-os-launcher-widgets'
 const LAUNCHER_FOLDERS_KEY = 'iora-os-launcher-folders'
 
-function useClock() {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 30_000)
-    return () => window.clearInterval(timer)
-  }, [])
-  return now
-}
 
 function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'normal' | 'large' }) {
   const Icon = app.icon

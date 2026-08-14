@@ -29,6 +29,7 @@ import { authFetch } from '@/lib/authHelpers'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useEntityStore } from '@/hooks/useEntityStore'
+import { useClock } from '@/hooks/useClock'
 import { JobCenterPanel, useActiveSystemJobCount } from '@/components/JobCenterPanel'
 import { ClipboardManager, useClipboardCapture } from '@/components/ClipboardManager'
 import { useOsWindows } from '@/contexts/OsWindowContext'
@@ -76,7 +77,7 @@ export function OsSystemShell() {
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [systemReachable, setSystemReachable] = useState<boolean | null>(null)
   const [online, setOnline] = useState(() => navigator.onLine)
-  const [now, setNow] = useState(() => new Date())
+  const now = useClock()
   const [powerConfirmation, setPowerConfirmation] = useState<'reboot' | null>(null)
   const [powerPending, setPowerPending] = useState(false)
   const { can } = useOsPermissions()
@@ -160,11 +161,9 @@ export function OsSystemShell() {
     const updateOnline = () => setOnline(navigator.onLine)
     window.addEventListener('online', updateOnline)
     window.addEventListener('offline', updateOnline)
-    const clock = window.setInterval(() => setNow(new Date()), 30_000)
     return () => {
       window.removeEventListener('online', updateOnline)
       window.removeEventListener('offline', updateOnline)
-      window.clearInterval(clock)
     }
   }, [])
 
