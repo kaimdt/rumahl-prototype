@@ -299,6 +299,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, token])
 
   const logout = useCallback(() => {
+    // Push the unlocked state to the backend BEFORE dropping identity so a
+    // stale session-lock flag can't be restored on the next login.
+    if (user?.id) {
+      const token = getAuthToken()
+      void fetch(`${apiBase()}/api/config/preferences/${user.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ preference_key: 'iora-os-session-locked', preference_value: false }),
+      }).catch(() => {})
+    }
     writePersistedToken(null)
     setToken(null)
     setUser(null)
@@ -309,7 +322,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('iora-os-last-activity')
     // Drop the authenticated WS session so the server clears identity
     wsReconnect()
-  }, [])
+  }, [user])
 
   const isAuthenticated = !!user
 

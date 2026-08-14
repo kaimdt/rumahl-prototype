@@ -4,10 +4,10 @@ import { Fingerprint, LockKey, Password, UserCircle } from '@phosphor-icons/reac
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
 import { useClock } from '@/hooks/useClock'
+import { useLocalStorage, storage } from '@/lib/storage'
 
 const LOCKED_KEY = 'iora-os-session-locked'
 const LAST_ACTIVITY_KEY = 'iora-os-last-activity'
-const AUTO_LOCK_MS = 15 * 60 * 1000
 
 export function OsSessionLock() {
   const { t, i18n } = useTranslation()
@@ -19,9 +19,12 @@ export function OsSessionLock() {
   const [unlocking, setUnlocking] = useState(false)
   const activityWriteRef = useRef(0)
   const now = useClock()
+  // Per-user auto-lock timeout in minutes (0 = disabled).
+  const [autoLockMinutes] = useLocalStorage<number>('iora-auto-lock-minutes', 15)
+  const autoLockMs = autoLockMinutes * 60 * 1000
 
   const lock = useCallback(() => {
-    localStorage.setItem(LOCKED_KEY, 'true')
+    storage.set(LOCKED_KEY, true)
     setCredential('')
     setError('')
     setLocked(true)
@@ -46,13 +49,13 @@ export function OsSessionLock() {
     recordActivity()
     const interval = window.setInterval(() => {
       const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY) || Date.now())
-      if (Date.now() - lastActivity >= AUTO_LOCK_MS) lock()
+      if (autoLockMinutes > 0 && Date.now() - lastActivity >= autoLockMs) lock()
     }, 15_000)
     return () => {
       events.forEach((event) => window.removeEventListener(event, recordActivity))
       window.clearInterval(interval)
     }
-  }, [lock, locked])
+  }, [lock, locked, autoLockMinutes, autoLockMs])
 
   const unlock = async (event: FormEvent) => {
     event.preventDefault()
@@ -66,6 +69,7 @@ export function OsSessionLock() {
         await login(user.username, credential, true)
       }
       localStorage.removeItem(LOCKED_KEY)
+      storage.set(LOCKED_KEY, false)
       localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()))
       setCredential('')
       setLocked(false)

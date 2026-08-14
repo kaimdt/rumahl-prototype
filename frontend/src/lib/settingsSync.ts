@@ -36,6 +36,9 @@ const SYNCED_KEYS = [
   'iora-os-launcher-folders',
   'iora-time-theme-boundaries',
   'iora-ui-scale',
+  'iora-os-session-locked',
+  'iora-auto-lock-minutes',
+  'iora-kiosk-mode',
 ]
 
 let syncUserId: string | null = null

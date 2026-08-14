@@ -558,6 +558,9 @@ export function SettingsPage(props: SettingsPageProps) {
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
+  // Per-user auto-lock timeout (minutes, 0 = disabled).
+  const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('iora-auto-lock-minutes', 15)
+  const [kioskMode, setKioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
   // Deep links via URL sub-path (/settings/apps/ora-browser): the Settings
   // app is path-driven so every tab (and the per-app detail view) has its
   // own URL that survives reloads, back/forward and sharing.
@@ -766,6 +769,26 @@ export function SettingsPage(props: SettingsPageProps) {
                 checked={deviceLockMode}
                 onCheckedChange={updateDeviceLockMode}
                 disabled={lockLoading}
+              />
+              <SliderRow
+                label="Automatisch sperren"
+                value={autoLockMinutes}
+                min={0}
+                max={60}
+                unit="min"
+                onChange={setAutoLockMinutes}
+              />
+              <ToggleRow
+                label="Kiosk-Modus"
+                description="Dashboard im Vollbild starten und Navigation sperren (Tablet/Wandpanel)"
+                checked={kioskMode}
+                onCheckedChange={setKioskMode}
+              />
+              <ToggleRow
+                label="Bildschirmschoner automatisch"
+                description="Bildschirmschoner bei Inaktivität anzeigen"
+                checked={screensaverSettings.enabled}
+                onCheckedChange={screensaverSettings.setEnabled}
               />
               <ToggleRow
                 label="AI & Agent deaktivieren"

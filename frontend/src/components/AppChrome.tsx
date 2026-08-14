@@ -5,6 +5,7 @@ import { OsDock } from '@/components/OsDock'
 import { OsWindowOverlay } from '@/components/OsWindowOverlay'
 import { MobileBottomNav } from '@/components/MobileBottomNav'
 import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
+import { useLocalStorage } from '@/lib/storage'
 import { CommandPalette } from '@/components/CommandPalette'
 import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { OsSessionLock } from '@/components/OsSessionLock'
@@ -44,6 +45,13 @@ export function AppChrome({
   renderOsAppContent,
 }: AppChromeProps) {
   const { isPhone } = useDeviceCapabilities()
+  const [kioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
+  if (kioskMode) {
+    // Kiosk mode: full-screen dashboard without navigation chrome.
+    return <>
+      <OsSessionLock />
+    </>
+  }
   return (
     <>
       <NavigationMenu hidden={showPageDesigner || isOsAppPage || isNotFoundPage} />

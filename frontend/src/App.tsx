@@ -123,6 +123,11 @@ function DashboardContent() {
   const glassSettings = useGlassSettings()
   useUiScale()
   useDeviceCapabilities()
+  // Kiosk mode: auto-start the dashboard (Home) and stay there.
+  const [kioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
+  useEffect(() => {
+    if (kioskMode && isAuthenticated && currentPageId === 'launcher') setCurrentPageId('home')
+  }, [kioskMode, isAuthenticated, currentPageId, setCurrentPageId])
   const [fontSize] = useLocalStorage<'small' | 'normal' | 'large'>('ha-font-size', 'normal')
   const [reducedAnimations] = useLocalStorage('ha-animations-reduced', false)
   const [compactWidgets] = useLocalStorage('ha-widget-compact', false)
