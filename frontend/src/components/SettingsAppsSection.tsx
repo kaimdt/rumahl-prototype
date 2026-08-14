@@ -15,7 +15,7 @@ import { useInstalledApps, appGradient } from '@/hooks/useInstalledApps'
 import { authFetch } from '@/lib/authHelpers'
 import { isAppOpenExternal, setAppOpenExternal } from '@/lib/appOpenPrefs'
 import { displayModeOf, type AppDisplayConfig } from '@/lib/appGateway'
-import { ToggleRow } from './SettingsPage'
+import { ToggleRow } from './settings/shared'
 import { AppStatusBadge } from '@/components/app/AppStatusBadge'
 
 /**

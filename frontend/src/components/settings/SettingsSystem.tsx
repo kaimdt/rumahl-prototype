@@ -19,7 +19,7 @@ import {
 } from '@/lib/autoContrast'
 import { authFetch } from '@/lib/authHelpers'
 import { toast } from 'sonner'
-import { SettingsSection, SliderRow, ToggleRow } from '../SettingsPage'
+import { SettingsSection, SliderRow, ToggleRow } from './shared'
 
 export function AdditionalSettings() {
   const { t } = useTranslation()

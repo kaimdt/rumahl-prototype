@@ -1,7 +1,7 @@
 // Screensaver schedule editor of the Settings page (lazy-loaded chunk).
 import { CalendarBlank, Clock, Plus, Trash } from '@phosphor-icons/react'
 import { Switch } from '@/components/ui/switch'
-import { DAY_LABELS } from '../SettingsPage'
+import { DAY_LABELS } from './shared'
 
 export function ScreensaverScheduleEditor({
   schedules,

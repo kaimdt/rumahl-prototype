@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from 'react'
+import type { ComponentType } from 'react'
 import { createPortal } from 'react-dom'
 import '@/i18n'
 import { useTranslation } from 'react-i18next'
@@ -24,23 +25,49 @@ import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
 import { LoginPage } from '@/components/LoginPage'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
+// Retry-aware lazy loader. React.lazy caches the import promise, so a single
+// transient failure (e.g. Vite HMR race or a dropped dev-server connection →
+// “Failed to fetch dynamically imported module”) permanently poisons the page
+// session with a rejected promise — the error boundary then never recovers,
+// even after the dev server is healthy again. The loader retries transient
+// fetch failures in-flight (the QEMU dev-VM port forwarding drops connections
+// under parallel load) and resets its cache on failure, so the next render
+// retries the import instead of staying stuck.
+function retryableLazy<T extends ComponentType<any>>(factory: () => Promise<{ default: T }>, retries = 2, delayMs = 350) {
+  let promise: Promise<{ default: T }> | null = null
+  const attempt = async (remaining: number): Promise<{ default: T }> => {
+    try {
+      return await factory()
+    } catch (err) {
+      if (remaining <= 0) { promise = null; throw err }
+      await new Promise((r) => setTimeout(r, delayMs))
+      return attempt(remaining - 1)
+    }
+  }
+  const load = () => {
+    if (!promise) promise = attempt(retries)
+    return promise
+  }
+  return lazy(load)
+}
+
 // Heavy admin/editor routes: lazy-loaded to keep the initial bundle small.
 // They are only rendered when the user navigates to the corresponding page.
-const PageDesigner = lazy(() => import('@/components/PageDesigner').then(m => ({ default: m.PageDesigner })))
-const CustomPageRenderer = lazy(() => import('@/components/CustomPageRenderer').then(m => ({ default: m.CustomPageRenderer })))
-const SettingsPage = lazy(() => import('@/components/SettingsPage').then(m => ({ default: m.SettingsPage })))
-const SimpleDashboard = lazy(() => import('@/components/SimpleDashboard').then(m => ({ default: m.SimpleDashboard })))
-const LightWidget = lazy(() => import('@/components/widgets/LightWidget').then(m => ({ default: m.LightWidget })))
-const ClimateWidget = lazy(() => import('@/components/widgets/ClimateWidget').then(m => ({ default: m.ClimateWidget })))
-const SwitchWidget = lazy(() => import('@/components/widgets/SwitchWidget').then(m => ({ default: m.SwitchWidget })))
-const SensorWidget = lazy(() => import('@/components/widgets/SensorWidget').then(m => ({ default: m.SensorWidget })))
-const MediaPlayerWidget = lazy(() => import('@/components/widgets/MediaPlayerWidget').then(m => ({ default: m.MediaPlayerWidget })))
+const PageDesigner = retryableLazy(() => import('@/components/PageDesigner').then(m => ({ default: m.PageDesigner })))
+const CustomPageRenderer = retryableLazy(() => import('@/components/CustomPageRenderer').then(m => ({ default: m.CustomPageRenderer })))
+const SettingsPage = retryableLazy(() => import('@/components/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const SimpleDashboard = retryableLazy(() => import('@/components/SimpleDashboard').then(m => ({ default: m.SimpleDashboard })))
+const LightWidget = retryableLazy(() => import('@/components/widgets/LightWidget').then(m => ({ default: m.LightWidget })))
+const ClimateWidget = retryableLazy(() => import('@/components/widgets/ClimateWidget').then(m => ({ default: m.ClimateWidget })))
+const SwitchWidget = retryableLazy(() => import('@/components/widgets/SwitchWidget').then(m => ({ default: m.SwitchWidget })))
+const SensorWidget = retryableLazy(() => import('@/components/widgets/SensorWidget').then(m => ({ default: m.SensorWidget })))
+const MediaPlayerWidget = retryableLazy(() => import('@/components/widgets/MediaPlayerWidget').then(m => ({ default: m.MediaPlayerWidget })))
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 // AppSettingsPage is now rendered inside the Settings app (SettingsAppsSection
 // → SettingsAppDetailPage) at /settings/apps/<id>; the standalone component
 // remains available for compatibility and is no longer routed directly.
-const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
+const AppSettingsPage = retryableLazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PageTransitionWrapper } from '@/components/PageTransitionWrapper'

@@ -1,12 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { motion, AnimatePresence } from 'motion/react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { authFetch } from '@/lib/authHelpers'
-import { getBackendUrl } from '@/lib/config'
 import {
   User,
   Palette,
@@ -18,13 +14,9 @@ import {
   Moon,
   Sparkle,
   PaintBucket,
-  CaretDown,
   Eye,
-  Lightbulb,
-  Monitor,
   Info,
   Drop,
-  Sun,
   Cpu,
   HardDrives,
   Database,
@@ -40,9 +32,6 @@ import {
   Key,
   Fingerprint,
   SlidersHorizontal,
-  SunDim,
-  CloudSun,
-  MoonStars,
   Warning,
   MapPin,
   MagnifyingGlass,
@@ -106,7 +95,21 @@ function ThemeSettingsPanelWrapper() {
 }
 import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
-import type { InstalledTheme } from '@/contexts/ThemeContext'
+import {
+  apiBase,
+  createBackupCodes,
+  DAY_LABELS,
+  downloadBackupCodes,
+  formatOtpAuthUri,
+  generateBase32Secret,
+  getCustomThemePreview,
+  getTimeBasedCode,
+  MapThemeIcon,
+  SettingsSection,
+  SliderRow,
+  THEME_OPTIONS,
+  ToggleRow,
+} from './settings/shared'
 
 // Lazy-loaded settings sections — split into separate chunks to keep the initial
 // SettingsPage bundle small. Each section loads on demand when its tab is opened.
@@ -122,36 +125,6 @@ const DefaultAppsSection = lazy(() => import('./settings/SettingsSystem').then((
 const MediaHubConfigSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.MediaHubConfigSection })))
 const RemoteAccessSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.RemoteAccessSection })))
 const SettingsAppsSection = lazy(() => import('./SettingsAppsSection').then((m) => ({ default: m.SettingsAppsSection })))
-
-/** Map icon name string to Phosphor icon component */
-export function MapThemeIcon(iconName?: string | null): React.ElementType {
-  const iconMap: Record<string, React.ElementType> = {
-    Sun, Moon, Monitor, CloudSun, SunDim, MoonStars,
-    ArrowsClockwise, Palette, PaintBrush, Sparkle, Eye,
-    Lightbulb, Star: Sparkle,
-  }
-  return iconName && iconMap[iconName] ? iconMap[iconName] : PaintBrush
-}
-
-/** Generate a preview gradient for custom themes */
-export function getCustomThemePreview(theme: InstalledTheme): string {
-  // Try to parse CSS variables for a preview color
-  if (theme.css_variables) {
-    try {
-      const vars = JSON.parse(theme.css_variables)
-      const bg = vars['background'] || vars['bg'] || vars['base']
-      const accent = vars['accent'] || vars['primary']
-      if (bg && accent) {
-        // Extract OKLCH values for gradient
-        return `linear-gradient(135deg, ${bg} 0%, ${accent} 100%)`
-      }
-      if (bg) return `linear-gradient(135deg, ${bg} 0%, rgba(0,0,0,0.6) 100%)`
-    } catch {}
-  }
-  return 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
-}
-
-export const apiBase = () => getBackendUrl() || ''
 
 // ─── System stats types ──────────────────────────────────────────────
 interface SystemStats {
@@ -242,47 +215,6 @@ export function formatUptime(seconds: number): string {
   return `${m}m`
 }
 
-export function generateBase32Secret(length = 20) {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-  const bytes = typeof crypto !== 'undefined' && 'getRandomValues' in crypto
-    ? crypto.getRandomValues(new Uint8Array(length))
-    : Array.from({ length }, () => Math.floor(Math.random() * 256))
-  return Array.from(bytes)
-    .map((byte) => alphabet[byte % alphabet.length])
-    .join('')
-}
-
-export function formatOtpAuthUri(secret: string) {
-  const issuer = encodeURIComponent('IORA Home')
-  const label = encodeURIComponent('IORA Home')
-  return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`
-}
-
-export function getTimeBasedCode(secret: string) {
-  const timeWindow = Math.floor(Date.now() / 30000)
-  let hash = 0
-  for (let i = 0; i < secret.length; i += 1) {
-    hash = ((hash << 5) - hash + secret.charCodeAt(i) + ((timeWindow >> ((i % 4) * 8)) & 0xff)) >>> 0
-  }
-  return String(1000000 + (hash % 900000)).slice(-6)
-}
-
-export function createBackupCodes(count = 10) {
-  return Array.from({ length: count }, () => Math.random().toString(36).slice(2, 10).toUpperCase())
-}
-
-export function downloadBackupCodes(codes: string[]) {
-  const blob = new Blob([codes.join('\n')], { type: 'text/plain;charset=utf-8' })
-  const href = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = href
-  link.download = 'iora-backup-codes.txt'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(href)
-}
-
 // ─── Mini progress bar ───────────────────────────────────────────────
 export function ProgressBar({ value, max = 100, color = 'accent' }: { value: number; max?: number; color?: string }) {
   const pct = Math.min((value / max) * 100, 100)
@@ -296,140 +228,6 @@ export function ProgressBar({ value, max = 100, color = 'accent' }: { value: num
     </div>
   )
 }
-
-// ─── Settings section wrapper with collapsible content ───────────────────
-export function SettingsSection({
-  icon: Icon,
-  title,
-  description,
-  children,
-  defaultOpen = true,
-  accentIcon = false,
-}: {
-  icon: React.ElementType
-  title: string
-  description?: string
-  children: React.ReactNode
-  defaultOpen?: boolean
-  accentIcon?: boolean
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen)
-
-  return (
-    <div className="ora-settings-section-card overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-3.5 p-5 text-left transition-colors hover:bg-foreground/[0.02]"
-        aria-expanded={isOpen}
-      >
-        <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.85rem] transition-all duration-200 ${isOpen ? (accentIcon ? 'bg-accent/18 text-accent shadow-[0_4px_18px_-4px_color-mix(in_oklch,var(--accent)_55%,transparent)]' : 'bg-foreground/10 text-foreground/80') : (accentIcon ? 'bg-accent/8 text-accent/65' : 'bg-foreground/6 text-foreground/45')}`}>
-          {accentIcon && <span className="absolute inset-0 rounded-[0.85rem] bg-gradient-to-br from-accent/25 via-transparent to-transparent" />}
-          <Icon size={19} weight="fill" className="relative" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h4 className="text-[0.92rem] font-semibold tracking-tight text-foreground">{title}</h4>
-          {description && <p className="text-xs text-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">{description}</p>}
-        </div>
-        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/5 text-foreground/45 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>
-          <CaretDown size={15} weight="bold" />
-        </span>
-      </button>
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden border-t border-foreground/[0.06]"
-          >
-            <div className="px-5 py-5 space-y-3">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-// ─── Styled slider row ────────────────────────────────────────────────
-export function SliderRow({
-  label,
-  value,
-  min,
-  max,
-  unit,
-  onChange,
-  disabled,
-}: {
-  label: string
-  value: number
-  min: number
-  max: number
-  unit: string
-  onChange: (v: number) => void
-  disabled?: boolean
-}) {
-  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-foreground/65">{label}</span>
-        <span className="text-xs font-medium text-foreground tabular-nums">{value}{unit}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        disabled={disabled}
-        style={{
-          background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, oklch(from var(--foreground) l c h / 0.10) ${pct}%, oklch(from var(--foreground) l c h / 0.10) 100%)`,
-        }}
-        className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:opacity-40 transition-shadow focus:outline-none focus:ring-2 focus:ring-accent/30 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_0_3px_oklch(from_var(--accent)_l_c_h/0.18)] [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
-      />
-    </div>
-  )
-}
-
-// ─── Toggle row ───────────────────────────────────────────────────────
-export function ToggleRow({
-  label,
-  description,
-  checked,
-  onCheckedChange,
-  disabled,
-}: {
-  label: string
-  description?: string
-  checked: boolean
-  onCheckedChange: (v: boolean) => void
-  disabled?: boolean
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-[1rem] border border-foreground/[0.06] bg-foreground/[0.03] px-4 py-3.5 transition-colors hover:bg-foreground/[0.045]">
-      <div className="min-w-0">
-        <p className="text-[13px] font-medium text-foreground/90">{label}</p>
-        {description && <p className="text-[11px] leading-relaxed text-foreground/50 mt-0.5">{description}</p>}
-      </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className="shrink-0" />
-    </div>
-  )
-}
-
-// ─── Theme Picker Section ──────────────────────────────────────────────
-export const THEME_OPTIONS: { value: string; label: string; description: string; icon: React.ElementType; preview: string }[] = [
-  { value: 'auto', label: 'Automatisch', description: 'Wechselt nach Tageszeit', icon: ArrowsClockwise, preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
-  { value: 'light', label: 'Hell', description: 'Maximale Helligkeit', icon: Sun, preview: 'linear-gradient(135deg, #f5f5f7 0%, #e8eaf0 50%, #dde0e8 100%)' },
-  { value: 'day', label: 'Tag', description: 'Helles Design', icon: CloudSun, preview: 'linear-gradient(135deg, #e0e4ec 0%, #c8cdd8 50%, #b8bfcc 100%)' },
-  { value: 'day-classic', label: 'Klassisch', description: 'Dunkler Hintergrund', icon: Monitor, preview: 'linear-gradient(135deg, #2a2d3e 0%, #1a1d2e 50%, #0f1118 100%)' },
-  { value: 'evening', label: 'Abend', description: 'Warme Töne', icon: SunDim, preview: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)' },
-  { value: 'night', label: 'Nacht', description: 'Dunkles Design', icon: MoonStars, preview: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)' },
-  { value: 'sleep', label: 'Schlaf', description: 'OLED Schwarz', icon: Moon, preview: 'linear-gradient(135deg, #050508 0%, #000000 100%)' },
-]
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main SettingsPage
@@ -523,8 +321,6 @@ interface SettingsPageProps {
   entities: unknown[]
   theme: string
 }
-
-export const DAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 
 export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation()

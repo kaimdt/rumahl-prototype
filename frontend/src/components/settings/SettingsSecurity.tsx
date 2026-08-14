@@ -13,7 +13,7 @@ import {
   getTimeBasedCode,
   SettingsSection,
   ToggleRow,
-} from '../SettingsPage'
+} from './shared'
 
 // ─── Login PIN Section ─────────────────────────────────────────────────
 export function LoginPinSection() {

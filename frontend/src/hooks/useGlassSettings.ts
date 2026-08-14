@@ -32,6 +32,11 @@ const SURFACE_VARIABLES = ['--ora-glass-bg', '--ora-glass-hover', '--glass-bg', 
 function scaleSurfaceAlpha(variable: string, multiplier: number) {
   const el = document.documentElement
   el.style.removeProperty(variable)
+  // Multiplier 1 = theme default: keep the stylesheet rule (theme-relative,
+  // re-evaluated live on theme switches). Writing an inline value here would
+  // freeze the current theme's color and break the next theme switch.
+  if (Math.abs(multiplier - 1) < 0.001) return
+
   const raw = getComputedStyle(el).getPropertyValue(variable).trim()
   if (!raw) return
 
@@ -57,7 +62,14 @@ export function useGlassSettings() {
 
   useEffect(() => {
     storage.set('glass-settings', settings)
-    applyGlassSettings(settings)
+    // Defer to the next animation frame: theme-driven CSS variables (the
+    // `data-theme` attribute / custom-theme vars are applied by ThemeProvider
+    // effects in the same commit, which run AFTER this component's effects).
+    // Reading computed styles earlier would pin the previous theme's colors
+    // as inline overrides — e.g. a light `--ora-glass-bg` stuck in a dark
+    // theme after the auto day→night switch (L 0.96 glass on a dark UI).
+    const raf = requestAnimationFrame(() => applyGlassSettings(settings))
+    return () => cancelAnimationFrame(raf)
   }, [settings, theme])
 
   // Re-read when the backend sync finishes (admin global defaults may have

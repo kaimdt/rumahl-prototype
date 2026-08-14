@@ -5,7 +5,7 @@ import { ArrowsOutSimple, Clock, Info, Moon, Palette } from '@phosphor-icons/rea
 import { readTimeThemeConfig, writeTimeThemeConfig, useTheme, type TimeThemeConfig } from '@/contexts/ThemeContext'
 import { useUiScale } from '@/hooks/useUiScale'
 import { ThemeEditor } from '@/components/ThemeEditor'
-import { getCustomThemePreview, MapThemeIcon, SettingsSection, THEME_OPTIONS, ToggleRow } from '../SettingsPage'
+import { getCustomThemePreview, MapThemeIcon, SettingsSection, THEME_OPTIONS, ToggleRow } from './shared'
 
 export function ThemePickerSection() {
   const { t } = useTranslation()
