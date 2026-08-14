@@ -303,6 +303,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null)
     setUser(null)
     localStorage.removeItem('ha-username')
+    // Reset the OS session lock so a fresh login never opens straight into
+    // the lock screen (the lock must not survive a logout/login cycle).
+    localStorage.removeItem('iora-os-session-locked')
+    localStorage.removeItem('iora-os-last-activity')
     // Drop the authenticated WS session so the server clears identity
     wsReconnect()
   }, [])

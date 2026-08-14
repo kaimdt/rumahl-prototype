@@ -12,7 +12,6 @@ import {
   NumberCircleOne,
   Backspace,
   ArrowLeft,
-  ShieldCheck,
   Sparkle,
   Eye,
   EyeSlash,
@@ -23,6 +22,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
 
 // ── Zod schemas ──────────────────────────────────────────
 const loginSchema = z.object({
@@ -311,8 +311,8 @@ export function LoginPage() {
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
         style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1558036117-15d82a90b9b1?w=1920&q=80')`,
-          filter: 'brightness(0.15) saturate(0.6)',
+          backgroundImage: `url('${DEFAULT_DASHBOARD_BACKGROUND_URL}')`,
+          filter: 'brightness(0.3) saturate(0.7)',
         }}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/70" />
@@ -334,7 +334,7 @@ export function LoginPage() {
 
       {/* Brand watermark */}
       <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">
-        <p className="text-sm font-light tracking-[0.3em] uppercase text-white/25">IORA</p>
+        <p className="text-sm font-light tracking-[0.3em] uppercase text-white/25">ORA OS</p>
       </div>
 
       {/* Auth card */}
@@ -349,14 +349,12 @@ export function LoginPage() {
           <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-accent/15 via-accent/6 to-transparent" />
             <div className="relative p-6 pb-5">
-              <div className="flex items-center gap-3.5">
-                <div className="p-2.5 rounded-2xl bg-accent/15 ring-1 ring-accent/20">
-                  <ShieldCheck size={24} weight="duotone" className="text-accent" />
+              <div className="flex flex-col items-center gap-2 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/15 ring-1 ring-accent/20">
+                  <span className="text-lg font-bold text-accent">I</span>
                 </div>
                 <div>
-                  <span className="text-lg font-semibold block text-white">
-                    {t('auth.welcomeToIora')}
-                  </span>
+                  <span className="block text-xl font-semibold text-white">ORA OS</span>
                   <span className="text-xs font-normal text-white/50">
                     {authMode === 'login'
                       ? t('auth.loginSubtitle')
