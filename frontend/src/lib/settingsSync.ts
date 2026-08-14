@@ -64,8 +64,16 @@ async function getUserId(): Promise<string | null> {
 
 /** Safely convert a backend preference_value to a localStorage string.
  *  Always JSON-serialize to match storage.set()/storage.get() round-tripping
- *  (a string value must be stored quoted so JSON.parse restores it). */
+ *  (a string value must be stored quoted so JSON.parse restores it). If the
+ *  backend stored a JSON string (a previously double-encoded object), parse
+ *  it first so the object form is restored. */
 function toLocalStorageValue(val: unknown): string {
+  if (typeof val === 'string') {
+    const trimmed = val.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try { return JSON.stringify(JSON.parse(val)) } catch { /* keep raw */ }
+    }
+  }
   return JSON.stringify(val)
 }
 
@@ -150,6 +158,14 @@ async function pushSetting(key: string, value: string) {
     // preference_value as a JSON value (serde_json::Value), so parse it.
     let parsed: unknown
     try { parsed = JSON.parse(value) } catch { parsed = value }
+    // Recover from a previously double-encoded object: if parsing produced a
+    // JSON string, parse it once more so the backend stores the object form.
+    if (typeof parsed === 'string') {
+      const trimmed = parsed.trim()
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try { parsed = JSON.parse(parsed) } catch { /* keep string */ }
+      }
+    }
 
     const body = JSON.stringify({ preference_key: key, preference_value: parsed })
     if (body.length > MAX_PREFERENCE_BYTES) {

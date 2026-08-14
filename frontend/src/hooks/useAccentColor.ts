@@ -217,6 +217,7 @@ export function useAccentColor() {
   }
 
   const setMode = useCallback((mode: 'auto' | 'static') => {
+    document.documentElement.removeAttribute('data-accent-locked')
     setSettings(prev => ({ ...prev, mode }))
     // Clear the last extracted URL when switching to auto
     // so it re-extracts immediately
@@ -240,13 +241,17 @@ export function useAccentColor() {
   }, [settings.intensity, theme])
 
   const setStaticColor = useCallback((color: string) => {
+    document.documentElement.removeAttribute('data-accent-locked')
+    updateCSSVariable(color, theme)
+    setAccentColor(color)
     setSettings(prev => ({ ...prev, staticColor: color }))
-  }, [])
+  }, [theme])
 
   /** Select a color from the palette. This switches to static mode
    *  because the user explicitly wants this color. Use resetToAuto()
    *  to go back to dynamic extraction. */
   const selectFromPalette = useCallback((color: string) => {
+    document.documentElement.removeAttribute('data-accent-locked')
     setAccentColor(color)
     updateCSSVariable(color, theme)
     setSettings(prev => ({ ...prev, mode: 'static', staticColor: color }))
@@ -254,6 +259,7 @@ export function useAccentColor() {
 
   /** Reset to full auto mode — accent will re-extract from current background */
   const resetToAuto = useCallback(() => {
+    document.documentElement.removeAttribute('data-accent-locked')
     lastExtractedUrlRef.current = null
     setSettings(prev => ({ ...prev, mode: 'auto' }))
     // Force re-extraction by clearing the tracked URL
