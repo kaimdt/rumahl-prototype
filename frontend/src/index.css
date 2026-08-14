@@ -669,7 +669,18 @@ html {
 
 /* Touch devices: comfortable tap targets for the compact window controls. */
 @media (pointer: coarse) {
+  :root {
+    --topbar-height: 2.75rem;
+  }
   .ora-window-action {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .ora-topbar-actions button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .ora-icon-button {
     min-width: 2.75rem;
     min-height: 2.75rem;
   }

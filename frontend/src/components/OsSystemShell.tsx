@@ -287,7 +287,7 @@ export function OsSystemShell() {
         <div className="pointer-events-auto flex min-w-0 items-center text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
           <span className="hidden font-semibold tracking-[0.1em] sm:inline">ORA OS</span>
         </div>
-        <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
+        <div className="ora-topbar-actions pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button
             type="button"
             onClick={() => { setShowClipboard((value) => !value); setOpen(false); setShowJobCenter(false) }}
