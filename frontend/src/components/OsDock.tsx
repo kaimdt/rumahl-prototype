@@ -163,11 +163,11 @@ export function OsDock() {
                 : `border shadow-lg ${active ? 'border-white/30 bg-white/10' : 'border-white/12 bg-transparent'}`
             }`}
             style={app.iconUrl
-              ? undefined
+              ? { boxShadow: 'none' }
               : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 70%, black))` }}
           >
             {app.iconUrl ? (
-              <img src={app.iconUrl} alt={app.fallbackName} className={`h-full w-full ${app.iconPad ? 'object-contain p-0.5' : 'object-cover'}`} />
+              <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-0.5" />
             ) : (
               <Icon size={24} weight="duotone" />
             )}

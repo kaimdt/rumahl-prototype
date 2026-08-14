@@ -667,6 +667,13 @@ html {
   html { transition: none; }
 }
 
+/* Adaptive top-bar text: white + difference blend auto-inverts over any
+   wallpaper/background so the text stays readable without a bar background. */
+.ora-topbar-mix {
+  color: white;
+  mix-blend-mode: difference;
+}
+
 /* Touch devices: comfortable tap targets for the compact window controls. */
 @media (pointer: coarse) {
   :root {

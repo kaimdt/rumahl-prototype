@@ -316,7 +316,7 @@ export function OsSystemShell() {
             className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3"
             style={{ height: 'var(--topbar-height, 2rem)' }}
           >
-        <div className="pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium text-foreground/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
+        <div className="ora-topbar-mix pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium">
           {immersivePageId ? (
             <>
               <button type="button" onClick={() => { setImmersive(null); setCurrentPageId('launcher') }} className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
@@ -326,11 +326,11 @@ export function OsSystemShell() {
             <span className="hidden font-semibold tracking-[0.1em] sm:inline">ORA OS</span>
           )}
         </div>
-        <div className="ora-topbar-actions pointer-events-auto flex shrink-0 items-center gap-0.5">
+        <div className="ora-topbar-actions ora-topbar-mix pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button
             type="button"
             onClick={() => { setShowClipboard((value) => !value); setOpen(false); setShowJobCenter(false) }}
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${showClipboard ? 'bg-foreground/12 text-foreground' : ''}`}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-foreground/10 hover:text-white focus-ring ${showClipboard ? 'bg-foreground/12 text-foreground' : ''}`}
             aria-label={t('clipboard.title')}
             aria-expanded={showClipboard}
             title={t('clipboard.shortcutHint')}
@@ -340,7 +340,7 @@ export function OsSystemShell() {
           <button
             type="button"
             onClick={() => { setShowJobCenter((value) => !value); setOpen(false); setShowClipboard(false) }}
-            className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${showJobCenter ? 'bg-foreground/12 text-foreground' : ''}`}
+            className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-foreground/10 hover:text-white focus-ring ${showJobCenter ? 'bg-foreground/12 text-foreground' : ''}`}
             aria-label={t('jobs.title')}
             aria-expanded={showJobCenter}
             title={t('jobs.title')}
@@ -355,7 +355,7 @@ export function OsSystemShell() {
           <button
             type="button"
             onClick={() => { setOpen((value) => !value); setShowJobCenter(false); setShowClipboard(false) }}
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring ${open ? 'bg-foreground/12 text-foreground' : ''}`}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-foreground/10 hover:text-white focus-ring ${open ? 'bg-foreground/12 text-foreground' : ''}`}
             aria-label={t('os.shell.openQuickSettings')}
             aria-expanded={open}
             title={t('os.shell.openQuickSettings')}
@@ -365,7 +365,7 @@ export function OsSystemShell() {
           <button
             type="button"
             onClick={() => setShowClock((value) => !value)}
-            className="flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]"
+            className="flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums text-white/80 transition-colors hover:bg-foreground/10 hover:text-white focus-ring"
             aria-expanded={showClock}
             title={t('os.shell.showDate')}
           >

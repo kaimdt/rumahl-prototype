@@ -61,12 +61,12 @@ function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'norma
         app.iconUrl ? 'border-0 bg-transparent shadow-none' : 'border border-white/15 shadow-lg'
       }`}
       style={app.iconUrl
-        ? undefined
+        ? { boxShadow: 'none' }
         : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
       {!app.iconUrl && <span className="ora-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
-        <img src={app.iconUrl} alt={app.fallbackName} className={`h-full w-full ${app.iconPad ? 'object-contain p-1' : 'object-cover'}`} />
+        <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-1" />
       ) : Icon ? (
         <Icon size={iconSize} weight="duotone" className="relative" />
       ) : null}
@@ -388,18 +388,6 @@ export function OsHomeScreen() {
       onWheel={onWheelPage}
       {...swipeHandlers}
     >
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-1">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-foreground/55"><SquaresFour size={18} weight="fill" className="text-accent" /> ORA OS</div>
-        <div className="flex items-center gap-2">
-          {homeApp && (
-            <button type="button" onClick={() => openApp(homeApp)} className="glass-card flex min-h-11 touch-manipulation items-center gap-2 rounded-full px-3 text-sm font-semibold text-foreground/80 hover:text-foreground focus-ring">
-              <House size={18} weight="fill" className="text-accent" /><span className="hidden sm:inline">{t('os.launcher.openHome')}</span>
-            </button>
-          )}
-          <button type="button" onClick={() => setSettingsOpen(true)} className="glass-card flex h-11 w-11 touch-manipulation items-center justify-center rounded-full text-foreground/70 hover:text-foreground focus-ring" aria-label={t('os.launcher.customize')}><Gear size={19} /></button>
-        </div>
-      </div>
-
       {layout === 'default' && (
         <div className="mx-auto mt-5 max-w-6xl px-1">
           <div className="ora-home-hero mb-6 text-center">
@@ -420,10 +408,6 @@ export function OsHomeScreen() {
                 </motion.div>
               )}
             </AnimatePresence>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <span className="ora-status-chip"><Heartbeat size={15} weight="duotone" /><i className={backend === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.backendStatus')}</span>
-              <span className="ora-status-chip"><WifiHigh size={15} weight="duotone" /><i className={homeAssistant === 'connected' ? 'is-online' : 'is-offline'} />{t('os.launcher.homeAssistantStatus')}</span>
-            </div>
           </div>
           {editMode && widgetIds.length > 0 && (
             <div className="mb-4 flex items-center gap-2 rounded-2xl border border-accent/20 bg-accent/8 px-4 py-2.5 text-xs font-medium text-foreground/70">

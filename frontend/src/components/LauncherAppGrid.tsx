@@ -44,12 +44,12 @@ function AppIcon({ app, compact = false }: { app: OsAppDefinition; compact?: boo
         app.iconUrl ? 'border-0 bg-transparent shadow-none' : 'border border-white/15 shadow-lg'
       }`}
       style={app.iconUrl
-        ? undefined
+        ? { boxShadow: 'none' }
         : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
       {!app.iconUrl && <span className="ora-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
-        <img src={app.iconUrl} alt={app.fallbackName} className={`h-full w-full ${app.iconPad ? 'object-contain p-1' : 'object-cover'}`} />
+        <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-1" />
       ) : Icon ? (
         <Icon size={size} weight="duotone" className="relative" />
       ) : null}
