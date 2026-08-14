@@ -128,6 +128,10 @@ export async function loadSettingsFromBackend() {
   }
 }
 
+/** Largest preference payload we're willing to push (backend limit). */
+const MAX_PREFERENCE_BYTES = 1_500_000
+const oversizedWarned = new Set<string>()
+
 /** Push a single setting to the backend */
 async function pushSetting(key: string, value: string) {
   try {
@@ -139,14 +143,27 @@ async function pushSetting(key: string, value: string) {
     let parsed: unknown
     try { parsed = JSON.parse(value) } catch { parsed = value }
 
-    await authFetch(`/api/config/preferences/${userId}`, {
+    const body = JSON.stringify({ preference_key: key, preference_value: parsed })
+    if (body.length > MAX_PREFERENCE_BYTES) {
+      if (!oversizedWarned.has(key)) {
+        oversizedWarned.add(key)
+        console.warn(`[SettingsSync] Skipping oversized preference '${key}' (${body.length} bytes)`)
+      }
+      return
+    }
+
+    const res = await authFetch(`/api/config/preferences/${userId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        preference_key: key,
-        preference_value: parsed,
-      }),
+      body,
     })
+    if (!res.ok) {
+      // Non-OK (e.g. 413) should not spam the console/error reporter.
+      if (!oversizedWarned.has(key)) {
+        oversizedWarned.add(key)
+        console.warn(`[SettingsSync] Failed to sync '${key}': HTTP ${res.status}`)
+      }
+    }
   } catch {
     // Silently fail — localStorage is the primary store
   }

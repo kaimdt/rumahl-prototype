@@ -518,13 +518,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
           />
         )}
 
-        <div
-          className="relative z-20"
-          style={{
-            filter: theme === 'sleep' ? 'saturate(0.25) brightness(0.65)' : 'none',
-            transition: 'filter var(--transition-duration) ease',
-          }}
-        >
+        <div className="relative z-20">
           
 
           <main className={`${isOsAppPage ? 'max-w-[1700px]' : 'max-w-[1500px]'} mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-[calc(var(--topbar-height)+0.5rem)] pb-28 sm:pb-32`} style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
