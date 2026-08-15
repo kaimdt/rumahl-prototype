@@ -236,7 +236,11 @@ pub async fn wait_until_running(
             return Ok(status);
         }
 
-        if status.any_failed() {
+        // A failed supervisor status endpoint yields a synthetic
+        // `exited: 1` fallback (see docker_compose_status, sentinel service
+        // key "iora-supervisor"). That is not a real container state — keep
+        // polling instead of failing and tearing the healthy container down.
+        if status.any_failed() && !status.services.contains_key("iora-supervisor") {
             return Err(format!(
                 "Container für '{app_id}' sind nicht gesund: {} exited, {} unhealthy. Services: {:?}",
                 status.exited, status.unhealthy, status.services
@@ -274,6 +278,13 @@ pub async fn reconcile_on_startup(store: Arc<LocalAppStore>) {
             Some(s) => s,
             None => return, // Docker nicht installiert → komplett aussteigen
         };
+
+        // Supervisor status endpoint unavailable → synthetic fallback
+        // (sentinel service key); live state unknown — skip reconciliation
+        // for this app until the supervisor answers.
+        if status.services.contains_key("iora-supervisor") {
+            continue;
+        }
 
         let actually_running = status.all_running();
         let persisted_running = app.status == "running";

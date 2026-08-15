@@ -128,8 +128,14 @@ export async function loadSettingsFromBackend() {
       const backendVal = toLocalStorageValue(pref.preference_value)
       const localVal = localStorage.getItem(pref.preference_key)
 
-      if (localVal === null || localVal !== backendVal) {
-        // Restore from backend (missing locally or backend has newer value)
+      // Restore from the backend ONLY when the key is missing locally.
+      // Backend values must never clobber a fresh local value on every load:
+      // a stale backend preference (e.g. an old light theme id, or a launcher
+      // manifest from before a local edit) would otherwise force itself onto
+      // every page load system-wide. Local changes still propagate to the
+      // backend via scheduleSyncToBackend, so other devices keep receiving
+      // updates whenever a key is missing (first run / cleared storage).
+      if (localVal === null) {
         localStorage.setItem(pref.preference_key, backendVal)
         console.log('[SettingsSync] Restored', pref.preference_key, 'from backend')
       }

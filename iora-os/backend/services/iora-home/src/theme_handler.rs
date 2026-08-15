@@ -1136,6 +1136,23 @@ pub async fn set_user_theme(
     Path(profile_id): Path<String>,
     Json(req): Json<SetUserThemeRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Guard: profile_id must exist in configuration_profiles (FK constraint
+    // user_theme_selections_profile_id_fkey). Return a clean 404 instead of
+    // leaking the raw SQL error as a 500.
+    let profile_exists: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM configuration_profiles WHERE id = $1",
+    )
+    .bind(&profile_id)
+    .fetch_optional(&gs.db_pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if profile_exists.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Unknown configuration profile: {}", profile_id),
+        ));
+    }
+
     let sel = iora_shared::theme::UserThemeSelection {
         theme_id: req.theme_id,
         auto_theme: req.auto_theme,

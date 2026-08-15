@@ -166,6 +166,12 @@
       "appUnhealthy": "The app is running but unhealthy. Check its health status.",
       "appNotFound": "This app is not installed on this ORA OS.",
       "appStart": "Start app",
+      "appNoResponse": "The app is not responding",
+      "appNoResponseHint": "The container is running, but its web UI is unreachable. Check the status or try again.",
+      "appRetry": "Reload",
+      "appCheckStatus": "Check status",
+      "appShowLogs": "Show logs",
+      "appLogsEmpty": "No logs available.",
       "appExternalHint": "This app is configured to open outside the ORA desktop.",
       "appExternalOpen": "Open app externally"
     },
@@ -1096,6 +1102,7 @@
       "comingSoon": "Coming soon",
       "catalog": {
         "nextcloud": "Your own cloud: files, calendar, contacts & more — fully self-hosted in a Docker container on your IORA OS.",
+        "ora-astro-forge": "3D idle game: mine asteroids, grow your mining fleet, conquer new planets, and prestige through wormholes. Progress is saved — production continues even while you are offline.",
         "jellyfin": "Stream your own films, series, music, and photos from a private media server.",
         "vaultwarden": "A lightweight, private password manager compatible with Bitwarden clients.",
         "uptime-kuma": "Monitor websites and services with a beautiful self-hosted status dashboard.",
@@ -1129,6 +1136,7 @@
       "installFailed": "Installation failed: {{detail}}",
       "installFailedTitle": "Installation failed",
       "installFailedUnknown": "The app package could not be installed. Open the installation details and try again.",
+      "retry": "Try again",
       "installPreparing": "Preparing the local app package…",
       "openPort": "Open in browser",
       "starting": "Starting…",
@@ -1152,7 +1160,8 @@
         "monitoring": "Monitoring",
         "docs": "Documentation",
         "apps": "Apps",
-        "automation": "Automation"
+        "automation": "Automation",
+        "games": "Games"
       },
       "uninstallDependents": "\"{{name}}\" is required by {{apps}}. Really uninstall? Those apps may stop working.",
       "installRequires": "Please install first: {{apps}}",

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Archive, ArrowClockwise, Bell, Broadcast, CheckCircle, Clock, CloudArrowUp, CloudWarning, Copy, Cpu, Cube, Database, Dog, Eye, Globe, HardDrive, Heartbeat, Key, Lightning, ListBullets, ListChecks, MagnifyingGlass, Megaphone, PaperPlaneTilt, Play, Plug, Plus, Pulse, ShieldWarning, Siren, Stack, Terminal, Timer, ToggleLeft, ToggleRight, Trash, TrendUp, UserMinus, Users, Warning, WebhooksLogo, X, XCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { Tip } from '@/components/ui/tip'
 import { getBackendUrl } from '@/lib/config'
 import { AdminCard, ErrorMessage, InlineSpinner, LoadingSpinner, StatItem, adminFetch, backendBase, cachedFetch, ccBtnIcon, ccBtnPrimary, ccBtnSecondary, ccCard, ccInput, ccLabel, ccSelect, ccTextarea, formatUptime, notifyError, CLOUD_ENABLE_REVERSE_PROXY_KEY, CLOUD_HOST_KEY, CLOUD_PRIVATE_PORT_KEY, CLOUD_PUBLIC_PORT_KEY, CLOUD_REQUIRE_VPN_KEY, CLOUD_USE_TLS_KEY, type ApiKeyEntry, ApiKeyWithSecret, CloudSettings, WarningLogEntry } from '../AdminPanel'
@@ -1463,7 +1464,7 @@ export function WarningsTab({ token }: { token: string }) {
   useEffect(() => { fetchWarnings() }, [fetchWarnings])
 
   const handleClearLog = async () => {
-    if (!confirm('Alle Warnungsprotokolle unwiderruflich löschen?')) return
+    if (!(await confirmDialog({ title: 'Warnungsprotokolle löschen', message: 'Alle Warnungsprotokolle unwiderruflich löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch('/api/admin/warnings/log', token, { method: 'DELETE' })
       setPage(0)
@@ -3042,7 +3043,7 @@ export function NotificationsTab({ token }: { token: string }) {
   }
 
   const clearAll = async () => {
-    if (!confirm('Wirklich alle Benachrichtigungen löschen?')) return
+    if (!(await confirmDialog({ title: 'Benachrichtigungen löschen', message: 'Wirklich alle Benachrichtigungen löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch('/api/admin/notifications', token, { method: 'DELETE' })
       setItems([])
@@ -3264,7 +3265,7 @@ export function SystemLogsTab({ token }: { token: string }) {
   }
 
   const deleteGroup = async (fp: string) => {
-    if (!window.confirm('Diese Fehlergruppe inklusive aller Vorkommen löschen?')) return
+    if (!(await confirmDialog({ title: 'Fehlergruppe löschen', message: 'Diese Fehlergruppe inklusive aller Vorkommen löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}`, {
         method: 'DELETE',
@@ -3277,7 +3278,7 @@ export function SystemLogsTab({ token }: { token: string }) {
   }
 
   const clearAll = async () => {
-    if (!window.confirm('Wirklich ALLE gespeicherten System-Events löschen? Dies kann nicht rückgängig gemacht werden.')) return
+    if (!(await confirmDialog({ title: 'System-Events löschen', message: 'Wirklich ALLE gespeicherten System-Events löschen? Dies kann nicht rückgängig gemacht werden.', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await fetch(`${getBackendUrl()}/api/admin/system-events`, {
         method: 'DELETE',

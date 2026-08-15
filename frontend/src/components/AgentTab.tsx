@@ -16,6 +16,7 @@ import {
 } from '@phosphor-icons/react'
 import { MessageContent } from '@/components/MessageContent'
 import { adminFetch } from '@/components/AdminPanel'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
 
@@ -151,7 +152,7 @@ function GitHubTokenConfig({ token, onUpdate }: { token: string; onUpdate: () =>
   }
 
   const disconnectGh = async () => {
-    if (!confirm('GitHub Verbindung wirklich trennen?')) return
+    if (!(await confirmDialog({ title: 'GitHub trennen', message: 'GitHub Verbindung wirklich trennen?', confirmLabel: 'Trennen', danger: true }))) return
     try {
       await adminFetch('/api/assist/github/auth', token, {
         method: 'POST',
@@ -527,7 +528,7 @@ export function AgentTab({ token }: { token: string }) {
   }
 
   const deleteWorkspace = async (id: string) => {
-    if (!confirm('Workspace wirklich löschen?')) return
+    if (!(await confirmDialog({ title: 'Workspace löschen', message: 'Workspace wirklich löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch(`/api/assist/workspaces/${id}`, token, { method: 'DELETE' })
       setWorkspaces(prev => prev.filter(w => w.id !== id))

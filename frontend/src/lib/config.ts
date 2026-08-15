@@ -52,10 +52,24 @@ export function getBackendUrl(): string {
   // Development fallback: Only when running on the Vite dev server (port 5173)
   // do we default to localhost:3001. In production / IORA OS / remote dev VM
   // access, use relative URLs (same origin) so API calls reach the same host.
-  if (!url && typeof window !== 'undefined'
-      && window.location.hostname === 'localhost'
+  if (typeof window !== 'undefined'
+      && isLoopbackHost(window.location.hostname)
       && window.location.port === '5173') {
-    url = 'http://localhost:3001';
+    // On the dev server (localhost OR 127.0.0.1) a stored loopback
+    // `backend.url` (e.g. an app-assigned port or a stale entry) would
+    // bypass the Vite proxy and break CORS/SSE streams. Non-loopback
+    // values (remote dev backends) are kept.
+    let storedLoopback = false
+    if (url) {
+      try {
+        storedLoopback = isLoopbackHost(new URL(url, window.location.origin).hostname)
+      } catch {
+        storedLoopback = false
+      }
+    }
+    if (!url || storedLoopback) {
+      url = DEV_BACKEND_URL || 'http://localhost:3001'
+    }
   }
   return browserSafeBaseUrl(url)
 }

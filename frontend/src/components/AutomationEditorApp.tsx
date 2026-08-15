@@ -118,7 +118,13 @@ export function AutomationEditorApp() {
   }
 
   const remove = async () => {
-    if (!selectedId || !window.confirm(t('automationEditor.deleteConfirm'))) return
+    if (!selectedId) return
+    if (!(await confirmDialog({
+      title: t('automationEditor.delete'),
+      message: t('automationEditor.deleteConfirm'),
+      confirmLabel: t('automationEditor.delete'),
+      danger: true,
+    }))) return
     try {
       await automationApi.remove(selectedId)
       const remaining = flows.filter((flow) => flow.id !== selectedId)

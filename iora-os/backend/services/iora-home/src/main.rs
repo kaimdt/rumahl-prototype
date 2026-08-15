@@ -3921,6 +3921,17 @@ static DASHBOARD_SETTINGS: std::sync::LazyLock<
     tokio::sync::RwLock::new(m)
 });
 
+/// Apps whose container start is currently in flight. Guards against
+/// duplicate concurrent compose-up calls (install pipeline + frontend
+/// auto-start race) which would conflict on the container name and trigger
+/// a teardown of the healthy container via the failure path. Entries expire
+/// after START_IN_FLIGHT_TTL_SECS so a stale entry can never block starts
+/// permanently (the map is in-memory and disappears on restart anyway).
+static START_IN_FLIGHT: std::sync::LazyLock<
+    tokio::sync::RwLock<HashMap<String, std::time::Instant>>,
+> = std::sync::LazyLock::new(|| tokio::sync::RwLock::new(HashMap::new()));
+const START_IN_FLIGHT_TTL_SECS: u64 = 120;
+
 /// Composite virtual sensors — formulas registered by the HA integration that
 /// the backend evaluates against live entity states.  This enables sensors
 /// that would be impossible with HA templates alone (cross-entity math at
@@ -7956,7 +7967,12 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
             let needs_docker = a.docker_config.is_some() || a.bundle_config.is_some();
             let docker_status = if needs_docker { app_lifecycle::docker_compose_status(&a.id).await } else { None };
             let status = docker_status.as_ref().map(|state| {
-                if state.all_running() { "running" } else if state.any_failed() { "error" } else { "stopped" }
+                // Supervisor status endpoint unavailable → synthetic fallback
+                // (sentinel service key) — keep the persisted status instead
+                // of flipping healthy apps to "error".
+                if state.services.contains_key("iora-supervisor") {
+                    a.status.as_str()
+                } else if state.all_running() { "running" } else if state.any_failed() { "error" } else { "stopped" }
             }).unwrap_or(a.status.as_str());
             let ports = if needs_docker {
                 app_lifecycle::docker_compose_ports(&a.id).await.unwrap_or_default()
@@ -8133,6 +8149,27 @@ async fn supervisor_apps_start(
         .cloned()
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
 
+    // Guard against duplicate concurrent starts: if a start was initiated
+    // within the last START_IN_FLIGHT_TTL_SECS (image builds can take a
+    // while), treat this call as an already-running start instead of racing
+    // a second compose up into a container-name conflict. The TTL keeps the
+    // guard from ever blocking starts permanently.
+    {
+        let now = std::time::Instant::now();
+        let mut inflight = START_IN_FLIGHT.write().await;
+        if let Some(started_at) = inflight.get(&app_id) {
+            if now.duration_since(*started_at).as_secs() < START_IN_FLIGHT_TTL_SECS {
+                return Ok(Json(json!({
+                    "success": true,
+                    "app_id": app_id,
+                    "status": "starting",
+                    "message": format!("App '{}' wird bereits gestartet.", app_meta.name),
+                })));
+            }
+        }
+        inflight.insert(app_id.clone(), now);
+    }
+
     if !app_meta.denied_permissions.is_empty() {
         // Only permissions the runtime actually knows can gate startup —
         // catalog manifests may list custom/unknown entries (e.g.
@@ -8275,7 +8312,13 @@ async fn supervisor_apps_start(
                         let _ = appstore.start(&app_id_bg).await;
                     }
                     Err(verify_err) => {
-                        let _ = try_docker_compose_down(&app_id_bg).await;
+                        // Verification can fail while the supervisor status
+                        // endpoint is unavailable (sentinel service key in
+                        // the error) — the container may be healthy. Do not
+                        // tear it down in that case.
+                        if !verify_err.contains("iora-supervisor") {
+                            let _ = try_docker_compose_down(&app_id_bg).await;
+                        }
                         let _ = appstore.set_status(&app_id_bg, "error").await;
                         appstore.append_log(
                             &app_id_bg,
@@ -8565,7 +8608,13 @@ async fn supervisor_apps_restart(
                     },
                 );
                 if let Err(verify_err) = app_lifecycle::wait_until_running(&app_id, 15).await {
-                    let _ = try_docker_compose_down(&app_id).await;
+                    // Verification can fail while the supervisor status
+                    // endpoint is unavailable (sentinel service key in the
+                    // error) — the container may be healthy. Do not tear it
+                    // down in that case.
+                    if !verify_err.contains("iora-supervisor") {
+                        let _ = try_docker_compose_down(&app_id).await;
+                    }
                     state.local_appstore.append_log(
                         &app_id,
                         local_appstore::LogEntry {
@@ -8963,7 +9012,12 @@ async fn supervisor_bundle_start(
 
     // Verifizieren, dass alle Bundle-Services laufen.
     if let Err(verify_err) = app_lifecycle::wait_until_running(&app_id, 20).await {
-        let _ = try_docker_compose_down(&app_id).await;
+        // Verification can fail while the supervisor status endpoint is
+        // unavailable (sentinel service key in the error) — the services
+        // may be healthy. Do not tear them down in that case.
+        if !verify_err.contains("iora-supervisor") {
+            let _ = try_docker_compose_down(&app_id).await;
+        }
         state.local_appstore.append_log(
             &app_id,
             local_appstore::LogEntry {
@@ -10382,6 +10436,11 @@ async fn app_proxy_handler(
                 .custom_pages
                 .first()
                 .map(|p| p.url.clone())
+                // Only absolute custom-page URLs are usable as a backend
+                // proxy target — relative ones (`/apps/<id>/…`) are
+                // frontend routes and would fail reqwest with a
+                // relative-URL error (blank app page).
+                .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
                 .or_else(|| {
                     app.ports
                         .first()
@@ -10398,6 +10457,21 @@ async fn app_proxy_handler(
                     candidate
                         .and_then(|port| port.get("external").and_then(|v| v.as_u64()))
                         .map(|external| format!("http://localhost:{external}"))
+                })
+                .or_else(|| {
+                    // Deterministic host port from the docker config:
+                    // auto_build apps publish each internal port 1:1 on the
+                    // host unless an explicit `external` override exists —
+                    // no supervisor / docker-CLI dependency. This covers
+                    // catalog apps whose manifest has no top-level `ports`.
+                    let docker = app.docker_config.as_ref()?;
+                    let internal_ports = docker.get("internal_ports")?.as_array()?;
+                    let first = internal_ports.first()?;
+                    let port = first
+                        .get("external")
+                        .or_else(|| first.get("port"))?
+                        .as_u64()?;
+                    Some(format!("http://localhost:{port}"))
                 });
             let proxy_url = if proxy_url.is_some() {
                 proxy_url

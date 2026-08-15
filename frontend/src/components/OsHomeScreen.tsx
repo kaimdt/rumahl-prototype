@@ -31,6 +31,7 @@ import { loadLauncherPackages, type StoreLauncherPackage, type StoreWidgetPackag
 import { loadSettingsFromBackend } from '@/lib/settingsSync'
 import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchModes'
 import { authFetch } from '@/lib/authHelpers'
+import { startAppAndWatch } from '@/lib/appLifecycle'
 import { useConnection } from '@/contexts/ConnectionContext'
 import { useInstalledApps, appGradient } from '@/hooks/useInstalledApps'
 import { isAppOpenExternal } from '@/lib/appOpenPrefs'
@@ -80,7 +81,7 @@ export function OsHomeScreen() {
   const { pages, setCurrentPageId } = usePageNavigation()
   const { permissions } = useOsPermissions()
   const { backend, homeAssistant } = useConnection()
-  const { installedApps } = useInstalledApps()
+  const { installedApps, activeJobs } = useInstalledApps()
   const [sysStats, setSysStats] = useState<{ cpu: number; mem: number; hostname: string } | null>(null)
 
   const [query, setQuery] = useState('')
@@ -145,14 +146,17 @@ export function OsHomeScreen() {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
     // Installed Docker/user apps appear in the launcher once they RUN
     // (CasaOS-style lifecycle). Duplicates with page apps are skipped.
+    // Apps with an active install job are shown as progress tiles instead
+    // (installJobs prop) — never as startable apps mid-install.
     const pageIds = new Set([...SYSTEM_OS_APPS, ...pageApps].map((app) => app.pageId))
-    const extra = installedApps.filter((app) => !pageIds.has(app.pageId))
+    const installingIds = new Set(activeJobs.map((job) => job.appId))
+    const extra = installedApps.filter((app) => !pageIds.has(app.pageId) && !installingIds.has(app.pageId))
     return [...SYSTEM_OS_APPS, ...pageApps, ...extra]
       .filter((app) => !app.adminOnly || user?.isAdmin)
       .filter((app) => !app.requiredPermission || permissions[app.requiredPermission] === true)
       .filter((app) => isAppAllowed(user, app.id))
       .sort((a, b) => a.order - b.order)
-  }, [pages, permissions, user?.isAdmin, installedApps])
+  }, [pages, permissions, user?.isAdmin, installedApps, activeJobs])
 
   const visibleApps = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
@@ -333,11 +337,9 @@ export function OsHomeScreen() {
     // Docker apps with a web UI open embedded (iframe runner) — the
     // runner offers "open in browser" for the external tab.
     if (app.openUrl) {
-      // Not running yet → start it first, then open.
+      // Not running yet → start it first (with runtime watch), then open.
       if (app.kind === 'installed' && app.runtimeStatus !== 'running') {
-        void authFetch(`/api/supervisor/apps/${app.pageId}/start`, { method: 'POST' })
-          .then(() => { window.setTimeout(() => setCurrentPageId(app.pageId), 2000) })
-          .catch(() => setCurrentPageId(app.pageId))
+        void startAppAndWatch(app.pageId).then(() => setCurrentPageId(app.pageId))
         return
       }
       setCurrentPageId(app.pageId)
@@ -378,7 +380,7 @@ export function OsHomeScreen() {
     },
   }
 
-  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} />
+  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} installJobs={activeJobs} />
 
   return (
     <section

@@ -8,7 +8,7 @@ import {
   ShieldWarning, Package, ArrowClockwise, Info, Warning,
   Stack, CubeFocus, Sparkle, PuzzlePiece, MusicNotes, ChartBar,
   VideoCamera, Broom, Lightbulb, CalendarBlank, SpeakerHigh, Plant,
-  Bell, Star, ArrowRight, CaretLeft, CaretRight, LockKey, Cloud, Globe, Briefcase, BookOpen, VideoCamera as VideoIcon, Copy, ArrowSquareOut
+  Bell, Star, ArrowRight, CaretLeft, CaretRight, LockKey, Cloud, Globe, Briefcase, BookOpen, VideoCamera as VideoIcon, Copy, ArrowSquareOut, GameController
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
@@ -21,6 +21,8 @@ import { supportedLngs } from '@/i18n'
 import { consumeAppDetail, consumeAppInStore } from '@/lib/appStoreHandoff'
 import { AppInstallProgress } from '@/components/app/AppInstallProgress'
 import { AppStatusBadge } from '@/components/app/AppStatusBadge'
+import { startAppAndWatch } from '@/lib/appLifecycle'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -525,7 +527,12 @@ function InstalledAppsView({
 
   const uninstallApp = async (app: AppInfo, force = false) => {
     const confirmKey = force && app.system ? 'forceUninstallConfirm' : 'uninstallConfirm'
-    if (!window.confirm(t(`apps.installedManagement.${confirmKey}`, { name: app.name }))) return
+    if (!(await confirmDialog({
+      title: t('apps.installedManagement.uninstall'),
+      message: t(`apps.installedManagement.${confirmKey}`, { name: app.name }),
+      confirmLabel: t('apps.installedManagement.uninstall'),
+      danger: true,
+    }))) return
     setActionLoading(`uninstall-${app.id}`)
     try {
       await adminFetch(`/api/appstore/apps/${app.id}${force ? '?force=true' : ''}`, token, { method: 'DELETE' })
@@ -796,7 +803,7 @@ function AppStoreView({
   // Category chips derive from the real data (Umbrel store style).
   const CATEGORY_ICONS: Record<string, typeof Sparkle> = {
     cloud: Cloud, browser: Globe, media: Play, productivity: Briefcase, docs: BookOpen, apps: PuzzlePiece, automation: Lightning,
-    security: ShieldCheck, monitoring: ChartBar,
+    security: ShieldCheck, monitoring: ChartBar, games: GameController,
   }
   const categories = useMemo(() => {
     const list: Array<{ id: string; label: string; icon: typeof Sparkle }> = [
@@ -855,9 +862,9 @@ function AppStoreView({
     installed?: boolean
   }) => {
     const classes = {
-      md: 'h-12 w-12 rounded-2xl',
-      lg: 'h-14 w-14 rounded-2xl',
-      xl: 'h-16 w-16 rounded-[1.35rem]',
+      md: 'h-12 w-12 rounded-[26%]',
+      lg: 'h-14 w-14 rounded-[26%]',
+      xl: 'h-16 w-16 rounded-[26%]',
     }[size]
     const imgSrc = app.iconUrl || (app.icon && /^(https?:|data:)/.test(app.icon) ? app.icon : undefined)
     if (installing) {
@@ -933,6 +940,11 @@ function AppStoreView({
   /** Backend entry for a catalog app (present once installed). */
   const backendAppFor = (app: StoreApp) => apps.find((candidate) => candidate.id === app.id)
 
+  /** True while an install job for this app is still running — the app must
+   *  NOT be startable/openable in that state (half-installed container). */
+  const installActive = (app: StoreApp) =>
+    installingId === app.id || activeJobs.some((job) => job.appId === app.id)
+
   /** True for any installed (non-essential) app — shows uninstall + start. */
   const isInstalledApp = (app: StoreApp) => !app.isEssential && isRunning(app)
 
@@ -1000,10 +1012,12 @@ function AppStoreView({
         setInstallJobByApp((current) => ({ ...current, [app.id]: installResult.install_id! }))
       }
       toast.success(t('apps.appStore.installStarted', { name: app.name }))
-      // CasaOS-style: poll the backend until the app actually shows up
-      // (download → install → running), then refresh the list.
+      // UmbrelOS-style lifecycle polling: download → install → running, with
+      // the failure state surfaced to the user (toast + inline error) instead
+      // of only appearing in the install-job log.
       let attempts = 0
       let polling = false
+      let failedMessage: string | null = null
       const poll = window.setInterval(async () => {
         if (polling) return
         polling = true
@@ -1013,7 +1027,10 @@ function AppStoreView({
         try {
           const snapshot = await adminFetch('/api/supervisor/apps', token) as { apps?: AppInfo[] }
           const installed = snapshot.apps?.find((candidate) => candidate.id === app.id)
-          completed = installed?.status === 'running' || installed?.status === 'error' || installed?.status === 'failed'
+          if (installed?.status === 'error' || installed?.status === 'failed') {
+            failedMessage = installed.error_message || t('apps.appStore.installFailedUnknown')
+          }
+          completed = installed?.status === 'running' || Boolean(failedMessage)
         } catch {
           // The shared installed-app hook retains the last state while offline.
         } finally {
@@ -1021,6 +1038,10 @@ function AppStoreView({
         }
         if (completed || attempts > 40) {
           window.clearInterval(poll)
+          if (failedMessage) {
+            setInstallingId(null)
+            toast.error(t('apps.appStore.installFailed', { detail: failedMessage }))
+          }
         }
       }, 2500)
     } catch (e) {
@@ -1029,14 +1050,12 @@ function AppStoreView({
     }
   }
 
-  /** Start a stopped app (installed but not running). */
+  /** Start a stopped app (installed but not running) — watches the runtime
+   *  state and surfaces a failed container start instead of staying silent. */
   const startApp = (app: StoreApp) => {
     if (startingId) return
     setStartingId(app.id)
-    adminFetch(`/api/supervisor/apps/${app.id}/start`, token, { method: 'POST' })
-      .then(() => { window.setTimeout(onInstalled, 1500) })
-      .catch((e) => toast.error(t('apps.appStore.installFailed', { detail: e instanceof Error ? e.message : String(e) })))
-      .finally(() => setStartingId(null))
+    void startAppAndWatch(app.id, { onSettled: () => { setStartingId(null); window.setTimeout(onInstalled, 500) } })
   }
 
   /** Umbrel-style dependency check: warn if other catalog apps need this one. */
@@ -1046,12 +1065,15 @@ function AppStoreView({
   /** Uninstall an installed app (stops container + removes app data). */
   const uninstallApp = async (app: StoreApp) => {
     const dependents = dependentsOf(app.id)
-    if (dependents.length > 0) {
-      const names = dependents.map((d) => d.name).join(', ')
-      if (!window.confirm(t('apps.appStore.uninstallDependents', { name: app.name, apps: names }))) return
-    } else if (!window.confirm(t('apps.appStore.uninstallConfirm', { name: app.name }))) {
-      return
-    }
+    const confirmUninstall = () => confirmDialog({
+      title: t('apps.appStore.uninstall'),
+      message: dependents.length > 0
+        ? t('apps.appStore.uninstallDependents', { name: app.name, apps: dependents.map((d) => d.name).join(', ') })
+        : t('apps.appStore.uninstallConfirm', { name: app.name }),
+      confirmLabel: t('apps.appStore.uninstall'),
+      danger: true,
+    })
+    if (!(await confirmUninstall())) return
     try {
       await adminFetch(`/api/appstore/apps/${app.id}`, token, { method: 'DELETE' })
       toast.success(t('apps.appStore.uninstalled', { name: app.name }))
@@ -1066,12 +1088,14 @@ function AppStoreView({
   const primaryAction = (app: StoreApp) => {
     if (app.isEssential) return openApp(app)
     if (app.isCatalog) {
+      if (installActive(app)) return
       if (isRunning(app)) return openApp(app)
       const backend = backendAppFor(app)
       if (backend) return startApp(app)
       return installCatalogApp(app)
     }
     // Backend-installed app: running → open; enabled-but-stopped → start.
+    if (installActive(app)) return
     if (app.status === 'running') return openApp(app)
     if (app.enabled) return startApp(app)
     return onAppClick(app.id)
@@ -1080,12 +1104,14 @@ function AppStoreView({
   const actionLabel = (app: StoreApp) => {
     if (app.isEssential) return t('apps.appStore.openApp')
     if (app.isCatalog) {
-      if (installingId === app.id) return t('apps.appStore.installing', { name: '' }).trim()
+      if (installActive(app)) return t('apps.appStore.installing', { name: '' }).trim()
       if (startingId === app.id) return t('apps.appStore.starting', { name: '' }).trim()
+      if (failedInstallFor(app.id) && !isRunning(app)) return t('apps.appStore.retry')
       if (isRunning(app)) return t('apps.appStore.openApp')
       if (backendAppFor(app)) return t('apps.appStore.start')
       return t('apps.appStore.install')
     }
+    if (installActive(app)) return t('apps.appStore.installing', { name: '' }).trim()
     if (app.status === 'running') return t('apps.appStore.openApp')
     if (app.enabled) return t('apps.appStore.start')
     return t('apps.appStore.install')
@@ -1168,7 +1194,7 @@ function AppStoreView({
                 <button
                   type="button"
                   onClick={() => primaryAction(app)}
-                  disabled={installingId === app.id || startingId === app.id}
+                  disabled={installActive(app) || startingId === app.id}
                   className="rounded-full bg-white px-7 py-3 text-xs font-bold text-slate-900 shadow-xl transition-transform duration-200 hover:scale-105 active:scale-95 disabled:opacity-60"
                 >
                   {actionLabel(app)}
@@ -1388,7 +1414,7 @@ function AppStoreView({
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); primaryAction(app) }}
-                        disabled={installingId === app.id}
+                        disabled={installActive(app)}
                         className={`shrink-0 self-start rounded-full px-6 py-2.5 text-xs font-bold shadow-xl transition-transform duration-200 hover:scale-105 active:scale-95 disabled:opacity-60 sm:self-auto ${
                           app.isEssential || installed ? 'bg-black/30 text-white ring-1 ring-white/30 backdrop-blur-md' : 'bg-white text-slate-900'
                         }`}
@@ -1463,7 +1489,7 @@ function AppStoreView({
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); primaryAction(app) }}
-                        disabled={installingId === app.id || startingId === app.id}
+                        disabled={installActive(app) || startingId === app.id}
                         className={`rounded-full px-3.5 py-1.5 text-[11px] font-bold transition-colors disabled:opacity-60 ${
                           app.isEssential || installed ? 'bg-foreground/8 text-foreground/60' : 'bg-accent/12 text-accent hover:bg-accent/22'
                         }`}
@@ -1502,14 +1528,20 @@ function AppStoreView({
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filteredApps.map((app) => {
                 const installed = installedIds.has(app.id)
+                const failed = failedInstallFor(app.id)
+                const showFailed = Boolean(failed) && installingId !== app.id && !isRunning(app)
                 return (
                   <article
                     key={app.id}
                     onClick={() => setSelectedApp(app)}
-                    className="group relative cursor-pointer overflow-hidden rounded-[1.4rem] border border-foreground/8 bg-foreground/[0.035] p-4 transition-all duration-200 hover:-translate-y-1 hover:border-accent/25 hover:bg-foreground/[0.065] hover:shadow-xl hover:shadow-black/10"
+                    className={`group relative cursor-pointer overflow-hidden rounded-[1.5rem] border p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/10 ${
+                      showFailed
+                        ? 'border-red-400/25 bg-red-500/[0.05] hover:border-red-400/40'
+                        : 'border-foreground/8 bg-foreground/[0.035] hover:border-accent/25 hover:bg-foreground/[0.065]'
+                    }`}
                   >
                     <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-accent/10 blur-2xl transition-opacity group-hover:opacity-100" />
-                    <div className="relative flex items-start gap-3">
+                    <div className="relative flex items-start gap-3.5">
                       <StoreAppIcon app={app} size="lg" {...iconStatus(app)} />
                       <div className="min-w-0 flex-1">
                         <h4 className="truncate text-sm font-bold text-foreground">{app.name}</h4>
@@ -1518,6 +1550,12 @@ function AppStoreView({
                       </div>
                     </div>
                     <p className="relative mt-4 line-clamp-2 min-h-9 text-xs leading-relaxed text-foreground/55">{app.description}</p>
+                    {showFailed && (
+                      <p className="relative mt-3 flex items-start gap-1.5 rounded-xl border border-red-400/15 bg-red-500/[0.06] p-2.5 text-[11px] leading-relaxed text-red-200/90">
+                        <Warning size={13} weight="fill" className="mt-0.5 shrink-0 text-red-400" />
+                        <span className="line-clamp-2">{failed?.error || failed?.message || t('apps.appStore.installFailedUnknown')}</span>
+                      </p>
+                    )}
                     <div className="relative mt-4 flex items-center justify-between gap-2">
                       <span className="rounded-full bg-foreground/[0.06] px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-foreground/45">
                         {t(`apps.appStore.category.${categoryOf(app)}` as never, { defaultValue: categoryOf(app) })}
@@ -1525,7 +1563,7 @@ function AppStoreView({
                       <button
                         type="button"
                         onClick={(event) => { event.stopPropagation(); primaryAction(app) }}
-                        disabled={installingId === app.id || startingId === app.id}
+                        disabled={installActive(app) || startingId === app.id}
                         className={`rounded-full px-4 py-2 text-[11px] font-bold transition-colors disabled:opacity-60 ${
                           app.isEssential || installed ? 'bg-foreground/8 text-foreground/60' : 'bg-accent text-white shadow-md shadow-accent/20 hover:bg-accent/90'
                         }`}
@@ -1566,7 +1604,7 @@ function AppStoreView({
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); primaryAction(app) }}
-                          disabled={installingId === app.id || startingId === app.id}
+                          disabled={installActive(app) || startingId === app.id}
                           className={`rounded-full px-4 py-1.5 text-[11px] font-bold transition-colors disabled:opacity-60 ${
                             app.isEssential || installed ? 'bg-foreground/8 text-foreground/60' : 'bg-accent/12 text-accent hover:bg-accent/22'
                           }`}
@@ -1718,6 +1756,29 @@ function ZipUploadView({
 
           if (result.install_id) {
             toast.success('Installation gestartet — Fortschritt unter "Installierte Apps".')
+            // UmbrelOS-style watcher: surface a later job failure with a toast
+            // instead of leaving it in the install-job log only.
+            const appId = manifest?.id
+            if (appId) {
+              let attempts = 0
+              const poll = window.setInterval(async () => {
+                attempts += 1
+                try {
+                  const snapshot = await adminFetch('/api/supervisor/apps', token) as { apps?: AppInfo[] }
+                  const installed = snapshot.apps?.find((candidate) => candidate.id === appId)
+                  if (installed?.status === 'error' || installed?.status === 'failed') {
+                    window.clearInterval(poll)
+                    toast.error(t('apps.appStore.installFailed', {
+                      detail: installed.error_message || t('apps.appStore.installFailedUnknown'),
+                    }))
+                  } else if (installed?.status === 'running' || attempts > 40) {
+                    window.clearInterval(poll)
+                  }
+                } catch {
+                  // offline — keep polling
+                }
+              }, 2500)
+            }
           } else {
             toast.success('App erfolgreich installiert!')
           }
@@ -1916,3 +1977,4 @@ function ZipUploadView({
     </AdminCard>
   )
 }
+

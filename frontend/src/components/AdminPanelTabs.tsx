@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Cpu, HardDrive, Globe, Plus, Cube, Lightning, ArrowClockwise, Play, Pause, TrashSimple, MagnifyingGlass, Gear, ShieldCheck } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
+import { startAppAndWatch } from '@/lib/appLifecycle'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 
 // Export Phase 2 components
 export { RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab } from './AdminPanelPhase2'
@@ -290,7 +292,7 @@ export function AppsTab({ token }: { token: string }) {
 
   const startApp = async (appId: string) => {
     try {
-      await adminFetch(`/api/supervisor/apps/${appId}/start`, token, { method: 'POST' })
+      await startAppAndWatch(appId)
       await load()
     } catch (e) { setError((e as Error).message) }
   }
@@ -303,7 +305,7 @@ export function AppsTab({ token }: { token: string }) {
   }
 
   const uninstallApp = async (appId: string) => {
-    if (!confirm('App wirklich deinstallieren?')) return
+    if (!(await confirmDialog({ title: 'App deinstallieren', message: 'App wirklich deinstallieren?', confirmLabel: 'Deinstallieren', danger: true }))) return
     try {
       await adminFetch(`/api/supervisor/apps/${appId}`, token, { method: 'DELETE' })
       await load()

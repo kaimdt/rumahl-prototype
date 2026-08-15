@@ -10,6 +10,9 @@ import type { OsLaunchMode } from '@/contexts/OsWindowContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { authFetch } from '@/lib/authHelpers'
 import { requestAppDetail, requestAppInStore } from '@/lib/appStoreHandoff'
+import { startAppAndWatch } from '@/lib/appLifecycle'
+import { confirmDialog } from '@/components/ui/confirmDialog'
+import { AppInstallProgress } from '@/components/app/AppInstallProgress'
 import type { InstallJobInfo } from '@/hooks/useInstalledApps'
 
 export interface LauncherFolder {
@@ -209,13 +212,20 @@ export function LauncherAppGrid({
   const runAppAction = async (action: 'start' | 'stop' | 'restart', app: OsAppDefinition) => {
     setBusyAction(action)
     try {
-      const res = await authFetch(`/api/supervisor/apps/${app.pageId}/${action}`, { method: 'POST' })
-      if (!res.ok) {
-        const data = await res.json().catch(() => null) as { error?: string; message?: string } | null
-        throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
+      if (action === 'start') {
+        // Watch the runtime state: a successful POST is not a successful
+        // start — a container that crashes on boot must surface a toast.
+        const result = await startAppAndWatch(app.pageId)
+        if (result.ok) toast(t('os.quickActions.started', { name: getAppName(app) }))
+      } else {
+        const res = await authFetch(`/api/supervisor/apps/${app.pageId}/${action}`, { method: 'POST' })
+        if (!res.ok) {
+          const data = await res.json().catch(() => null) as { error?: string; message?: string } | null
+          throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
+        }
+        const key = action === 'start' ? 'os.quickActions.started' : action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
+        toast(t(key, { name: getAppName(app) }))
       }
-      const key = action === 'start' ? 'os.quickActions.started' : action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
-      toast(t(key, { name: getAppName(app) }))
       window.dispatchEvent(new Event('iora:installed-apps-refresh'))
     } catch (e) {
       toast(t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }))
@@ -228,7 +238,12 @@ export function LauncherAppGrid({
 
   /** Uninstall a managed app (stops the container and removes app data). */
   const confirmUninstall = async (app: OsAppDefinition) => {
-    if (!window.confirm(t('os.quickActions.uninstallConfirm', { name: getAppName(app) }))) return
+    if (!(await confirmDialog({
+      title: t('os.quickActions.uninstall'),
+      message: t('os.quickActions.uninstallConfirm', { name: getAppName(app) }),
+      confirmLabel: t('os.quickActions.uninstall'),
+      danger: true,
+    }))) return
     setBusyAction('uninstall')
     try {
       const res = await authFetch(`/api/appstore/apps/${app.pageId}`, { method: 'DELETE' })
@@ -273,6 +288,23 @@ export function LauncherAppGrid({
       </div>
       <AnimatePresence mode="wait">
         <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6">
+          {/* Install progress tiles (CasaOS/Umbrel style): apps currently
+              being installed show a progress ring instead of a startable
+              tile, so the launcher never offers a half-installed app. */}
+          {installJobs.map((job) => (
+            <div key={`install-${job.id}`} className="flex min-w-0 flex-col items-center p-2 text-center">
+              <AppInstallProgress
+                appId={job.appId}
+                label={job.appName || job.appId}
+                progress={job.progress}
+                size="compact"
+              />
+              <span className="ora-adaptive-text-soft mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{job.appName || job.appId}</span>
+              <span className="mt-0.5 text-[10px] text-foreground/40">
+                {Math.round(job.progress)}% · {t('os.launcher.installing')}
+              </span>
+            </div>
+          ))}
           {items.map((item, index) => item.type === 'app' ? (
             <motion.button
               key={item.app.id}
@@ -285,10 +317,10 @@ export function LauncherAppGrid({
               onClick={() => { if (!dragJustHappenedRef.current) onOpenApp(item.app) }}
               onContextMenu={(event) => openQuickMenu(item.app, event)}
               className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring cursor-grab active:cursor-grabbing`}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.025, 0.2), duration: 0.24 }} whileHover={editMode ? undefined : { y: -4, scale: 1.025 }} whileTap={editMode ? undefined : { scale: 0.96 }}
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.025, 0.2), duration: 0.24 }} whileTap={editMode ? undefined : { scale: 0.96 }}
             >
               <AppIcon app={item.app} />
-              <span className="mt-2.5 w-full truncate text-xs font-medium text-foreground/90 sm:text-sm">{getAppName(item.app)}</span>
+              <span className="ora-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{getAppName(item.app)}</span>
             </motion.button>
           ) : (
             <button
@@ -302,13 +334,13 @@ export function LauncherAppGrid({
               onClick={() => { if (!dragJustHappenedRef.current) setOpenFolderId(item.folder.id) }}
               className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring ${editMode ? 'cursor-grab ring-1 ring-accent/25 active:cursor-grabbing' : ''} ${draggedFolderId === item.folder.id ? 'opacity-40' : ''}`}
             >
-              <span className="grid h-20 w-20 grid-cols-2 gap-1 overflow-hidden rounded-[1.7rem] border border-white/15 bg-background/90 p-2 shadow-xl backdrop-blur-xl">
+              <span className="ora-folder-tile grid h-20 w-20 grid-cols-2 gap-1 overflow-hidden rounded-[1.7rem] p-2">
                 {item.folder.appIds.slice(0, 4).map((id) => {
                   const app = apps.find((candidate) => candidate.id === id)
                   return app ? <AppIcon key={id} app={app} compact /> : null
                 })}
               </span>
-              <span className="mt-2.5 w-full truncate text-xs font-medium text-foreground/90 sm:text-sm">{item.folder.name}</span>
+              <span className="ora-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{item.folder.name}</span>
             </button>
           ))}
         </motion.div>
@@ -317,7 +349,7 @@ export function LauncherAppGrid({
       {createPortal(
       <AnimatePresence>{openFolder && <>
         <motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpenFolderId(null)} className="fixed inset-0 z-[84] bg-black/55 backdrop-blur-md" aria-label={t('common.close')} />
-        <motion.section initial={{ opacity: 0, scale: 0.92, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.94, y: 16 }} role="dialog" aria-modal="true" aria-label={openFolder.name} className="fixed left-1/2 top-1/2 z-[85] max-h-[80dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[2rem] border border-white/15 bg-background/95 p-5 shadow-2xl backdrop-blur-2xl sm:p-7">
+        <motion.section initial={{ opacity: 0, scale: 0.92, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.94, y: 16 }} role="dialog" aria-modal="true" aria-label={openFolder.name} className="glass-card fixed left-1/2 top-1/2 z-[85] max-h-[80dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[2rem] p-5 shadow-2xl sm:p-7">
           <div className="flex items-center gap-3">
             <Folder size={24} weight="duotone" className="shrink-0 text-accent" />
             <input value={openFolder.name} onChange={(event) => updateFolder(openFolder.id, (folder) => ({ ...folder, name: event.target.value }))} aria-label={t('os.launcher.folderName')} className="min-w-0 flex-1 rounded-xl bg-foreground/5 px-3 py-2 text-xl font-semibold text-foreground outline-none focus:ring-2 focus:ring-accent/40" />

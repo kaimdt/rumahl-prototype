@@ -81,6 +81,27 @@ export function useAccentColor() {
   // one — the wallpaper extraction must not override the user's choice.
   const accentLocked = () => document.documentElement.hasAttribute('data-accent-locked')
 
+  // Adaptive text color: decides white text on dark wallpapers and dark
+  // text on light ones (top bar, launcher labels) from the image's average
+  // luminance. Independent of the accent extraction so a user-locked accent
+  // cannot break it; falls back to a theme-based decision without an image.
+  useEffect(() => {
+    if (!currentImageUrl) {
+      applyAdaptiveText(null)
+      return
+    }
+    if (currentImageUrl.startsWith('gradient:')) {
+      const rgb = hexToRgb(currentImageUrl.replace('gradient:', ''))
+      applyAdaptiveText(rgb ? luminanceOfRgb(rgb.r, rgb.g, rgb.b) : null)
+      return
+    }
+    const img = new Image()
+    img.crossOrigin = 'Anonymous'
+    img.onload = () => applyAdaptiveText(computeImageLuminance(img))
+    img.onerror = () => applyAdaptiveText(null)
+    img.src = currentImageUrl
+  }, [currentImageUrl, theme])
+
   // Core effect: auto-extract accent when background image changes
   useEffect(() => {
     if (accentLocked()) return
@@ -292,6 +313,55 @@ export function useAccentColor() {
 }
 
 // --- Helpers ---
+
+/** Average relative luminance (0..1) of an image, sampled on a small canvas. */
+function computeImageLuminance(img: HTMLImageElement): number {
+  const size = 32
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return 0.5
+  ctx.drawImage(img, 0, 0, size, size)
+  const data = ctx.getImageData(0, 0, size, size).data
+  let sum = 0
+  for (let i = 0; i < data.length; i += 4) {
+    sum += luminanceOfRgb(data[i], data[i + 1], data[i + 2])
+  }
+  return sum / (data.length / 4)
+}
+
+function luminanceOfRgb(r: number, g: number, b: number): number {
+  return 0.2126 * rgbToLinear(r / 255) + 0.7152 * rgbToLinear(g / 255) + 0.0722 * rgbToLinear(b / 255)
+}
+
+/**
+ * Decides the adaptive text color (white on dark images, dark on light
+ * ones) and writes it as CSS variables for the top bar, launcher labels
+ * etc. Falls back to a theme-based decision when no image is available.
+ */
+function applyAdaptiveText(luminance: number | null) {
+  const root = document.documentElement
+  const dark = luminance === null ? themeIsDark() : luminance < 0.5
+  if (dark) {
+    root.style.setProperty('--adaptive-text-color', 'oklch(0.97 0.004 250)')
+    root.style.setProperty('--adaptive-text-soft', 'oklch(0.97 0.004 250 / 0.72)')
+    root.style.setProperty('--adaptive-text-shadow', '0 1px 3px rgb(0 0 0 / 0.45), 0 0 1px rgb(0 0 0 / 0.3)')
+  } else {
+    root.style.setProperty('--adaptive-text-color', 'oklch(0.22 0.02 250)')
+    root.style.setProperty('--adaptive-text-soft', 'oklch(0.22 0.02 250 / 0.66)')
+    root.style.setProperty('--adaptive-text-shadow', '0 1px 3px rgb(255 255 255 / 0.4), 0 0 1px rgb(255 255 255 / 0.28)')
+  }
+}
+
+/** Theme-based fallback: dark canvas → light text (and vice versa). */
+function themeIsDark(): boolean {
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
+  const match = /oklch\(\s*([\d.]+)/.exec(bg)
+  if (match) return parseFloat(match[1]) < 0.5
+  const theme = document.documentElement.getAttribute('data-theme')
+  return theme === 'night' || theme === 'sleep' || theme === 'evening' || theme === 'day-classic'
+}
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)

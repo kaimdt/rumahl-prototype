@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowClockwise, Broadcast, CheckCircle, CircleNotch, CloudArrowUp, Code, Copy, Cpu, Cube, File, FolderOpen, Gauge, Gear, Globe, HardDrive, Key, LinkSimple, ListBullets, MapPin, Plus, Power, Pulse, ShareNetwork, Terminal, Users, Warning, WifiHigh, X } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { getDevBridgeUrl, getBackendUrl } from '@/lib/config'
 import { AdminCard, ErrorMessage, LoadingSpinner, adminFetch, ccBtnDanger, ccBtnIcon, ccBtnPrimary, ccBtnSecondary, ccInput, ccLabel, formatUptime } from '../AdminPanel'
 import { ServiceJsonBlock } from '../AdminPanel'
@@ -456,7 +457,7 @@ export function DevBridgeSystemInfo({ devToken }: { devToken: string | null }) {
   const [rebooting, setRebooting] = useState(false)
 
   const handleReboot = async () => {
-    if (!confirm('⚠️  System wirklich neu starten? Die Verbindung wird getrennt.')) return
+    if (!(await confirmDialog({ title: 'System neu starten', message: '⚠️  System wirklich neu starten? Die Verbindung wird getrennt.', confirmLabel: 'Neu starten', danger: true }))) return
     setRebooting(true)
     try {
       const res = await devBridgeFetch('/dev/system/reboot', devToken, { method: 'POST' })
@@ -1273,7 +1274,7 @@ export function OsSshTab({ token }: { token: string }) {
   }
 
   const removeUser = async (username: string) => {
-    if (!confirm("SSH-Benutzer '" + username + "' entfernen?")) return
+    if (!(await confirmDialog({ title: 'SSH-Benutzer entfernen', message: `SSH-Benutzer '${username}' entfernen?`, confirmLabel: 'Entfernen', danger: true }))) return
     setBusy(true)
     try {
       await adminFetch(OS_BASE + '/ssh/users/' + encodeURIComponent(username), token, { method: 'DELETE' })
@@ -1887,7 +1888,7 @@ export function OsPowerTab({ token }: { token: string }) {
 
   const power = async (action: 'reboot' | 'shutdown') => {
     const label = action === 'reboot' ? 'IORA OS jetzt neu starten' : 'IORA OS jetzt herunterfahren'
-    if (!confirm(label + '? (Verzoegerung: ' + delay + 's)')) return
+    if (!(await confirmDialog({ title: label, message: label + '? (Verzoegerung: ' + delay + 's)', confirmLabel: 'Ausführen', danger: true }))) return
     setBusy(true)
     try {
       await adminFetch(OS_BASE + '/os/' + action, token, {

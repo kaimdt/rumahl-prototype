@@ -113,6 +113,18 @@ pub async fn resolve_lifecycle_state(app: &InstalledApp) -> AppLifecycleState {
         // The live compose status wins over the stored status which may lag
         // behind an actual container restart.
         if let Some(status) = app_lifecycle::docker_compose_status(&app.id).await {
+            // Supervisor status endpoint unavailable → synthetic fallback
+            // (sentinel service key). The live state is unknown — fall back
+            // to the stored status instead of declaring the app failed.
+            if status.services.contains_key("iora-supervisor") {
+                return match app.status.as_str() {
+                    "running" => AppLifecycleState::Running,
+                    "starting" => AppLifecycleState::Starting,
+                    "stopping" => AppLifecycleState::Stopping,
+                    "error" | "failed" => AppLifecycleState::Failed,
+                    _ => AppLifecycleState::Stopped,
+                };
+            }
             if status.unhealthy > 0 {
                 return AppLifecycleState::Unhealthy;
             }

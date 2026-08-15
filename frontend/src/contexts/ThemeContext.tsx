@@ -724,8 +724,30 @@ function applyCachedThemeCss(): string | null {
     const root = document.documentElement
     Object.entries(vars).forEach(([k, v]) => root.style.setProperty(`--${k}`, v))
     root.setAttribute('data-theme', id)
+    // Track which keys/id came from the FOUC cache so they can be removed
+    // once the authoritative theme data resolves (see clearStaleFoucVars).
+    root.setAttribute('data-fouc-theme-cache', JSON.stringify({ id, keys: Object.keys(vars) }))
     return id
   } catch { return null }
+}
+
+/**
+ * Remove FOUC-cache inline vars when they belong to a different theme than
+ * the one that is now active. The cache is only a flash guard for the moment
+ * before theme data loads — if it is never cleared, stale (e.g. light custom
+ * theme) vars stay inline and override the current theme's stylesheet on
+ * every page, system-wide.
+ */
+function clearStaleFoucVars(root: HTMLElement, currentThemeId: string) {
+  const foucRaw = root.getAttribute('data-fouc-theme-cache')
+  if (!foucRaw) return
+  try {
+    const fouc = JSON.parse(foucRaw) as { id?: string; keys?: string[] }
+    if (fouc.id && fouc.id !== currentThemeId && Array.isArray(fouc.keys)) {
+      fouc.keys.forEach((key) => root.style.removeProperty(`--${key}`))
+    }
+    root.removeAttribute('data-fouc-theme-cache')
+  } catch {}
 }
 
 // ─── Theme Provider ─────────────────────────────────────────────────
@@ -751,7 +773,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Theme capabilities
   const [capabilities, setCapabilities] = useState<ThemeCapabilities | null>(null)
-  const [activeDesignMode, setActiveDesignModeState] = useState<string>('default')
+  const [activeDesignMode, setActiveDesignModeState] = useState<string>(() => {
+    // Restore a manually selected design mode across reloads (the modes are
+    // per-theme; a mode the active theme does not provide is reset below).
+    try {
+      const raw = localStorage.getItem('iora-active-design-mode')
+      if (raw) {
+        const parsed = JSON.parse(raw) as { mode?: string }
+        if (parsed && typeof parsed.mode === 'string') return parsed.mode
+      }
+    } catch {}
+    return 'default'
+  })
   const [customSettings, setCustomSettings] = useState<Record<string, unknown>>({})
 
   // Track which theme's resources are currently injected
@@ -760,9 +793,44 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const abortRef = useRef<AbortController | null>(null)
 
   const { user } = useAuth()
+
+  // Resolve the configuration profile id that theme selections/settings are
+  // keyed on server-side. configuration_profiles.id is a UUID distinct from
+  // the auth user id — sending user.id as profile_id violates the FK
+  // (user_theme_selections_profile_id_fkey) and every theme save returns 500.
+  // Same load-or-create endpoint as ConfigurationContext; the backend reuses
+  // the existing default user profile, so this is idempotent.
+  const loadOrCreateThemeProfile = useCallback(async (userId: string): Promise<string | null> => {
+    try {
+      const res = await authFetch('/api/config/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Theme Settings',
+          profile_type: 'user',
+          owner_id: userId,
+        }),
+      })
+      if (!res.ok) return null
+      const profile = await res.json() as { id?: unknown }
+      return typeof profile?.id === 'string' ? profile.id : null
+    } catch (e) {
+      console.warn('Failed to resolve theme profile:', e)
+      return null
+    }
+  }, [])
+
   useEffect(() => {
-    setProfileId(user?.id || null)
-  }, [user?.id])
+    if (!user?.id) {
+      setProfileId(null)
+      return
+    }
+    let cancelled = false
+    void loadOrCreateThemeProfile(user.id).then((id) => {
+      if (!cancelled) setProfileId(id)
+    })
+    return () => { cancelled = true }
+  }, [user?.id, loadOrCreateThemeProfile])
 
   const refreshThemes = useCallback(async () => {
     try {
@@ -825,7 +893,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       const timeTheme = getThemeFromTime()
       setTheme(timeTheme)
       
-      // If the theme has custom design modes, pick the right one for current time
+      // Design modes with time windows: pick the mode matching the current
+      // time. `capabilities` is in the effect deps so this re-runs when the
+      // theme data arrives — the previous closure captured the mount-time
+      // (empty) capabilities, so the time-of-day mode was never applied and
+      // the theme stayed on its lightest/base mode.
       if (capabilities?.design_modes && capabilities.design_modes.length > 0) {
         const modeFromTime = getDesignModeFromTime(capabilities.design_modes)
         if (modeFromTime) {
@@ -844,7 +916,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     update()
     const interval = setInterval(update, 60000)
     return () => clearInterval(interval)
-  }, [sleepMode, autoTheme, selectedTheme])
+  }, [sleepMode, autoTheme, selectedTheme, capabilities])
 
   // Fetch theme data when theme changes
   useEffect(() => {
@@ -856,6 +928,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (!isBuiltin && profileId) {
       fetchThemeData(profileId)
     } else {
+      // Builtin theme: the stylesheet is authoritative — drop any FOUC-cache
+      // inline vars that came from a different (custom) theme.
+      clearStaleFoucVars(root, theme)
       setThemeResponse(null)
       setActiveCssVariables({})
     }
@@ -866,6 +941,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (themeResponse?.theme_id === injectedThemeRef.current) return
 
     const root = document.documentElement
+
+    // Drop FOUC-cache inline vars from a previously cached theme before
+    // applying this theme's authoritative variables.
+    if (themeResponse?.theme_id) {
+      clearStaleFoucVars(root, themeResponse.theme_id)
+    }
 
     // Clear previous custom theme variables
     const customVars = root.getAttribute('data-custom-theme-vars')
@@ -990,18 +1071,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const caps = themeResponse?.capabilities || null
     setCapabilities(caps)
 
-    // Reset design mode when theme changes
-    if (caps?.design_modes && caps.design_modes.length > 0) {
-      const firstMode = caps.design_modes[0].id
-      setActiveDesignModeState(firstMode)
-      // Apply mode-specific CSS variables
-      const mode = caps.design_modes.find(m => m.id === firstMode)
-      if (mode) {
-        Object.entries(mode.css_variables).forEach(([key, value]) => {
-          document.documentElement.style.setProperty(`--${key}`, value)
-        })
-      }
-    } else {
+    // The design mode itself is resolved by the theme/design-mode effects
+    // (time-based auto switch for auto_behavior "time", otherwise the user's
+    // stored selection). Forcing the first mode here overrode the time-of-day
+    // mode on every theme-data load and left the lightest mode active.
+    if (!caps?.design_modes || caps.design_modes.length === 0) {
       setActiveDesignModeState('default')
     }
 
@@ -1111,9 +1185,33 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [profileId, themeResponse?.theme_id, customSettings, capabilities])
 
+  // Restore/validate the design mode after theme data (capabilities) loads:
+  // apply the stored mode's CSS variables (state alone survives a reload,
+  // inline styles do not) and reset modes the active theme does not provide.
+  useEffect(() => {
+    const modes = capabilities?.design_modes
+    if (!modes || modes.length === 0) return
+    const mode = modes.find((m) => m.id === activeDesignMode)
+    if (!mode) {
+      setActiveDesignModeState('default')
+      try { localStorage.removeItem('iora-active-design-mode') } catch {}
+      return
+    }
+    Object.keys(prevModeVarsRef.current).forEach((key) => {
+      document.documentElement.style.removeProperty(`--${key}`)
+    })
+    prevModeVarsRef.current = mode.css_variables
+    Object.entries(mode.css_variables).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(`--${key}`, value)
+    })
+  }, [capabilities, activeDesignMode])
+
   // Set active design mode (for themes with custom modes)
   const setActiveDesignMode = useCallback((modeId: string) => {
     setActiveDesignModeState(modeId)
+    try {
+      localStorage.setItem('iora-active-design-mode', JSON.stringify({ mode: modeId }))
+    } catch {}
     // Clean up previous mode variables
     Object.keys(prevModeVarsRef.current).forEach(key => {
       document.documentElement.style.removeProperty(`--${key}`)

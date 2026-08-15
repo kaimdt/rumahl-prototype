@@ -352,22 +352,22 @@
 
 :root[data-theme="evening"] {
   /* Warm dusk — amber-tinted canvas with violet shadows */
-  --background: oklch(0.235 0.028 55);
+  --background: oklch(0.235 0.034 50);
   --foreground: oklch(0.90 0.018 65);
 
-  --card: oklch(0.28 0.032 55);
+  --card: oklch(0.28 0.038 50);
   --card-foreground: oklch(0.90 0.018 65);
 
-  --popover: oklch(0.29 0.034 55);
+  --popover: oklch(0.29 0.04 50);
   --popover-foreground: oklch(0.90 0.018 65);
 
   --primary: oklch(0.62 0.12 55);
   --primary-foreground: oklch(0.99 0 0);
 
-  --secondary: oklch(0.33 0.035 55);
+  --secondary: oklch(0.33 0.04 50);
   --secondary-foreground: oklch(0.88 0.02 65);
 
-  --muted: oklch(0.32 0.03 55);
+  --muted: oklch(0.32 0.036 50);
   --muted-foreground: oklch(0.68 0.03 60);
 
   --accent: oklch(0.75 0.14 60); --accent-hue: 60deg;
@@ -379,8 +379,8 @@
   --destructive: oklch(0.65 0.19 27);
   --destructive-foreground: oklch(0.99 0 0);
 
-  --border: oklch(0.42 0.04 55);
-  --input: oklch(0.38 0.035 55);
+  --border: oklch(0.42 0.045 50);
+  --input: oklch(0.38 0.04 50);
   --ring: oklch(0.75 0.14 60);
 
   --glass-opacity: 0.34;
@@ -402,24 +402,25 @@
 }
 
 :root[data-theme="night"] {
-  /* Night — Umbrel-style near-black neutral canvas with a warm amber brand */
-  --background: oklch(0.15 0.004 70);
-  --foreground: oklch(0.90 0.003 70);
+  /* Night — near-black canvas with a subtle cool blue tint (moonlight),
+     warm amber brand accents keep their contrast */
+  --background: oklch(0.15 0.014 250);
+  --foreground: oklch(0.90 0.006 250);
 
-  --card: oklch(0.19 0.005 70);
-  --card-foreground: oklch(0.90 0.003 70);
+  --card: oklch(0.19 0.015 250);
+  --card-foreground: oklch(0.90 0.006 250);
 
-  --popover: oklch(0.20 0.005 70);
-  --popover-foreground: oklch(0.90 0.003 70);
+  --popover: oklch(0.20 0.016 250);
+  --popover-foreground: oklch(0.90 0.006 250);
 
   --primary: oklch(0.72 0.15 65);
   --primary-foreground: oklch(0.15 0.02 70);
 
-  --secondary: oklch(0.24 0.005 70);
-  --secondary-foreground: oklch(0.88 0.004 70);
+  --secondary: oklch(0.24 0.015 250);
+  --secondary-foreground: oklch(0.88 0.008 250);
 
-  --muted: oklch(0.23 0.005 70);
-  --muted-foreground: oklch(0.62 0.01 70);
+  --muted: oklch(0.23 0.013 250);
+  --muted-foreground: oklch(0.62 0.02 250);
 
   --accent: oklch(0.76 0.15 65); --accent-hue: 65deg;
   --accent-foreground: oklch(0.15 0.02 70);
@@ -430,20 +431,20 @@
   --destructive: oklch(0.62 0.2 27);
   --destructive-foreground: oklch(0.99 0 0);
 
-  --border: oklch(0.28 0.006 70);
-  --input: oklch(0.26 0.006 70);
+  --border: oklch(0.28 0.02 250);
+  --input: oklch(0.26 0.018 250);
   --ring: oklch(0.76 0.15 65);
 
   --glass-opacity: 0.35;
-  --glass-tint: oklch(0.22 0.01 65);
+  --glass-tint: oklch(0.22 0.03 250);
   --glass-backdrop-blur: blur(56px);
   --glass-backdrop-saturate: saturate(1.4);
   --glass-header-blur: blur(30px);
   --glass-header-saturate: saturate(1.3);
   --glass-toast-blur: blur(20px);
 
-  --glass-shadow-1: oklch(0.90 0.003 70 / 0.08);
-  --glass-shadow-2: oklch(0.90 0.003 70 / 0.04);
+  --glass-shadow-1: oklch(0.90 0.006 250 / 0.08);
+  --glass-shadow-2: oklch(0.90 0.006 250 / 0.04);
 
   /* Blue light reduction (individual functions to avoid Lightning CSS mangling) */
   --night-filter-sepia: sepia(0.15);
@@ -650,12 +651,32 @@ html {
   html { transition: none; }
 }
 
-/* Adaptive top-bar text: white + difference blend auto-inverts over any
-   wallpaper/background so the text stays readable without a bar background. */
+/* Adaptive top-bar text: luminance-decided by the wallpaper (useAccentColor
+ * writes --adaptive-text-color/soft/shadow). White on dark images, dark on
+ * light ones — unlike mix-blend-mode difference this never degrades to
+ * mid-tone grey. Falls back to the theme foreground without a wallpaper. */
 .ora-topbar-mix {
-  color: white;
-  mix-blend-mode: difference;
+  color: var(--adaptive-text-color, var(--foreground));
+  text-shadow: var(--adaptive-text-shadow, none);
 }
+
+.ora-topbar-action {
+  color: var(--adaptive-text-soft, var(--foreground));
+  border-radius: 0.5rem;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.ora-topbar-action:hover {
+  color: var(--adaptive-text-color, var(--foreground));
+  background: color-mix(in oklch, var(--adaptive-text-color, var(--foreground)) 12%, transparent);
+}
+.ora-topbar-action.is-active {
+  color: var(--adaptive-text-color, var(--foreground));
+  background: color-mix(in oklch, var(--adaptive-text-color, var(--foreground)) 14%, transparent);
+}
+
+/* Adaptive launcher labels (app + folder names over the wallpaper). */
+.ora-adaptive-text { color: var(--adaptive-text-color, var(--foreground)); text-shadow: var(--adaptive-text-shadow, none); }
+.ora-adaptive-text-soft { color: var(--adaptive-text-soft, var(--foreground)); }
 
 /* Touch devices: comfortable tap targets for the compact window controls. */
 @media (pointer: coarse) {
@@ -1003,17 +1024,32 @@ html {
  *  - scope="theme"  → only filter when the active theme is night/sleep
  *  - scope="global" → filter regardless of theme (applyAlways)
  *
- * The body filter is applied via `:has()` selectors on `html` so the
- * filter cascades through the entire page including fixed overlays.
+ * The blue-light filter is applied as a viewport-fixed `backdrop-filter`
+ * OVERLAY instead of a `filter` on <body>: a filter on body turns it into
+ * the containing block of every `position: fixed` descendant, which makes
+ * the dock/topbar/overlays resolve against the content height instead of
+ * the viewport (the dock “falls to the floor” and scrolls with the page).
+ * The overlay filters the entire backdrop — content AND fixed chrome —
+ * without affecting their positioning.
  */
-html:has(body[data-night-active="true"][data-night-scope="global"]) > body,
-html[data-theme="night"]:has(body[data-night-active="true"][data-night-scope="theme"]) > body,
-html[data-theme="sleep"]:has(body[data-night-active="true"][data-night-scope="theme"]) > body {
-  filter:
+html:has(body[data-night-active="true"][data-night-scope="global"]) .ora-night-filter,
+html[data-theme="night"]:has(body[data-night-active="true"][data-night-scope="theme"]) .ora-night-filter,
+html[data-theme="sleep"]:has(body[data-night-active="true"][data-night-scope="theme"]) .ora-night-filter {
+  display: block;
+}
+
+.ora-night-filter {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  pointer-events: none;
+  backdrop-filter:
     var(--night-filter-sepia, sepia(0))
     var(--night-filter-saturate, saturate(1))
     var(--night-filter-brightness, brightness(1))
     var(--night-filter-hue, hue-rotate(0deg));
+  transition: backdrop-filter var(--transition-duration) ease;
 }
 
 /* Ensure smooth transitions for theme changes */
@@ -2669,16 +2705,30 @@ body {
 .ora-command-search input::placeholder { color: color-mix(in oklch, var(--foreground) 38%, transparent); }
 .ora-command-search:focus-within { border-color: color-mix(in oklch, var(--accent) 45%, transparent); box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 12%, transparent), 0 8px 32px oklch(0 0 0 / 0.18); }
 .ora-command-search kbd { border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent); border-radius: 0.45rem; background: color-mix(in oklch, var(--foreground) 6%, transparent); padding: 0.2rem 0.4rem; color: color-mix(in oklch, var(--foreground) 40%, transparent); font-size: 0.65rem; }
-.ora-app-icon { border-radius: 22.5%; box-shadow: 0 16px 28px rgb(0 0 0 / 0.3), 0 5px 10px rgb(0 0 0 / 0.18), inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 -1px 0 rgb(0 0 0 / 0.2); transform: translateZ(0); transition: transform var(--ora-duration-fast) var(--ora-ease-out), box-shadow var(--ora-duration-fast) var(--ora-ease-out), filter var(--ora-duration-fast); }
-.group:hover .ora-app-icon { box-shadow: 0 22px 38px rgb(0 0 0 / 0.36), 0 0 28px color-mix(in oklch, var(--accent) 16%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.36); filter: saturate(1.08) brightness(1.04); }
+.ora-app-icon { border-radius: 26%; box-shadow: 0 16px 28px rgb(0 0 0 / 0.3), 0 5px 10px rgb(0 0 0 / 0.18), inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 -1px 0 rgb(0 0 0 / 0.2); transform: translateZ(0); transition: transform var(--ora-duration-fast) var(--ora-ease-out), box-shadow var(--ora-duration-fast) var(--ora-ease-out), filter var(--ora-duration-fast); }
+.group:hover .ora-app-icon { box-shadow: 0 22px 38px rgb(0 0 0 / 0.36), 0 0 28px color-mix(in oklch, var(--accent) 16%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.36); filter: saturate(1.08) brightness(1.04); transform: translateZ(0) scale(1.06); }
 .ora-app-icon-highlight { background: linear-gradient(145deg, rgb(255 255 255 / 0.3), transparent 42%, rgb(0 0 0 / 0.12)); }
 .ora-app-icon-highlight::after { content: ''; position: absolute; top: 4%; left: 14%; width: 56%; height: 24%; border-radius: 50%; background: rgb(255 255 255 / 0.18); filter: blur(7px); }
 
+/* Launcher folder tile — glass surface (theme glass vars) instead of a
+   solid panel, matching the icon/glass language of the launcher. */
+.ora-folder-tile {
+  background:
+    linear-gradient(180deg, oklch(from var(--foreground) l c h / 0.08), transparent 40%),
+    var(--glass-bg);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.14);
+  box-shadow: 0 16px 28px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  backdrop-filter: blur(20px) saturate(1.3);
+  transform: translateZ(0);
+  transition: transform var(--ora-duration-fast) var(--ora-ease-out), box-shadow var(--ora-duration-fast) var(--ora-ease-out);
+}
+.group:hover .ora-folder-tile { transform: translateZ(0) scale(1.06); box-shadow: 0 20px 34px rgb(0 0 0 / 0.34), 0 0 26px color-mix(in oklch, var(--accent) 14%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.1); }
+
 /* App installation: one OS-level progress treatment shared by Store and Launcher. */
-.ora-install-progress { position: relative; display: grid; width: 5rem; height: 5rem; place-items: center; isolation: isolate; border-radius: 1.7rem; filter: drop-shadow(0 16px 24px rgb(0 0 0 / 0.28)); }
-.ora-install-progress.is-compact { width: 3rem; height: 3rem; border-radius: 1rem; }
-.ora-install-progress.is-small { width: 3.5rem; height: 3.5rem; border-radius: 1rem; }
-.ora-install-progress.is-medium { width: 4rem; height: 4rem; border-radius: 1.35rem; }
+.ora-install-progress { position: relative; display: grid; width: 5rem; height: 5rem; place-items: center; isolation: isolate; border-radius: 26%; filter: drop-shadow(0 16px 24px rgb(0 0 0 / 0.28)); }
+.ora-install-progress.is-compact { width: 3rem; height: 3rem; border-radius: 26%; }
+.ora-install-progress.is-small { width: 3.5rem; height: 3.5rem; border-radius: 26%; }
+.ora-install-progress.is-medium { width: 4rem; height: 4rem; border-radius: 26%; }
 .ora-install-progress-icon { position: absolute; inset: 0; display: grid; overflow: hidden; place-items: center; border-radius: inherit; color: white; font-size: 1.35rem; font-weight: 700; }
 .ora-install-progress-icon img { width: 100%; height: 100%; object-fit: cover; }
 .ora-install-progress-shade { position: absolute; inset: 0; border-radius: inherit; background: rgb(3 6 12 / 0.56); backdrop-filter: blur(3px) saturate(0.8); }
@@ -2782,3 +2832,4 @@ body {
 .ora-os-window .ora-settings-layout {
   min-height: 24rem;
 }
+

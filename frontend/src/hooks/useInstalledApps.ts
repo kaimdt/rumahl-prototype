@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Globe } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
+import { startAppAndWatch } from '@/lib/appLifecycle'
 import { getBackendUrl } from '@/lib/config'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
@@ -240,11 +241,10 @@ export function useInstalledApps() {
       const app = apps.find((candidate) => candidate.id === job.appId)
       if (!app || app.enabled || app.status === 'running' || app.status === 'starting' || app.status === 'error' || app.status === 'failed') continue
       installStartRequests.add(job.appId)
-      void authFetch(`/api/supervisor/apps/${job.appId}/start`, { method: 'POST' })
-        .then((response) => {
-          if (!response.ok) throw new Error(`App start failed with HTTP ${response.status}`)
-        })
-        .catch(() => { installStartRequests.delete(job.appId) })
+      // Watch the start: a container that fails to come up must surface a
+      // toast instead of leaving the install in an invisible half-state.
+      void startAppAndWatch(job.appId)
+        .then((result) => { if (!result.ok) installStartRequests.delete(job.appId) })
         .finally(() => window.setTimeout(() => void refresh(), 800))
     }
   }, [apps, jobs, refresh])

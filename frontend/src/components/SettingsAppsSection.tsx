@@ -13,6 +13,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { useInstalledApps, appGradient } from '@/hooks/useInstalledApps'
 import { authFetch } from '@/lib/authHelpers'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { isAppOpenExternal, setAppOpenExternal } from '@/lib/appOpenPrefs'
 import { displayModeOf, type AppDisplayConfig } from '@/lib/appGateway'
 import { ToggleRow } from './settings/shared'
@@ -230,7 +231,12 @@ function SettingsAppDetailPage({
 
   const uninstall = async () => {
     if (!detail) return
-    if (!window.confirm(t('os.quickActions.uninstallConfirm', { name: detail.name }))) return
+    if (!(await confirmDialog({
+      title: t('os.quickActions.uninstall'),
+      message: t('os.quickActions.uninstallConfirm', { name: detail.name }),
+      confirmLabel: t('os.quickActions.uninstall'),
+      danger: true,
+    }))) return
     setBusy('uninstall')
     try {
       const res = await authFetch(`/api/appstore/apps/${appId}`, { method: 'DELETE' })

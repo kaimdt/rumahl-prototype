@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowClockwise, Broadcast, Cpu, Desktop, Globe, MagnifyingGlass, Monitor, PencilSimple, Pulse, Terminal, Trash, UserMinus, Users, WifiHigh } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { Tip } from '@/components/ui/tip'
 import { OsPermissionEditor } from '@/components/OsPermissionEditor'
 import { AdminCard, ErrorMessage, InlineSpinner, LoadingSpinner, StatItem, adminFetch, cachedFetch, ccBadge, ccBtnSecondary, formatAge, notifyError, type AdminUser } from '../AdminPanel'
@@ -318,7 +319,7 @@ export function DevicesTab({ token }: { token: string }) {
   }, [load])
 
   const remove = async (id: string) => {
-    if (!confirm('Gerät wirklich aus der Registrierung entfernen?')) return
+    if (!(await confirmDialog({ title: 'Gerät entfernen', message: 'Gerät wirklich aus der Registrierung entfernen?', confirmLabel: 'Entfernen', danger: true }))) return
     try {
       await adminFetch(`/api/admin/devices/${encodeURIComponent(id)}`, token, { method: 'DELETE' })
       toast.success('Gerät entfernt')

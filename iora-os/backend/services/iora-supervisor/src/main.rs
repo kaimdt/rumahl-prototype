@@ -1209,6 +1209,54 @@ async fn run_compose(
         .await
 }
 
+/// Extract the conflicting container id from a `compose up` failure, e.g.
+/// `... already in use by container "c9360eadf521..."`.
+fn parse_conflict_container_id(stderr: &str) -> Option<String> {
+    let needle = "already in use by container \"";
+    let start = stderr.find(needle)? + needle.len();
+    let rest = &stderr[start..];
+    let end = rest.find('"')?;
+    let id = rest[..end].trim();
+    if !id.is_empty() && id.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(id.to_string())
+    } else {
+        None
+    }
+}
+
+/// Whether the given container is currently running (`docker inspect`).
+async fn docker_container_running(container_id: &str) -> Option<bool> {
+    use tokio::process::Command;
+    let output = Command::new(docker_cli_path())
+        .args(["inspect", "--format", "{{.State.Running}}", container_id])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    match String::from_utf8_lossy(&output.stdout).trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// Force-remove a container (stale/dead containers blocking a project name).
+async fn docker_remove_container(container_id: &str) -> Result<(), String> {
+    use tokio::process::Command;
+    let output = Command::new(docker_cli_path())
+        .args(["rm", "-f", container_id])
+        .output()
+        .await
+        .map_err(|e| format!("docker rm invocation failed: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 /// Compose v1 cannot emit `docker-compose ps --format json`. Docker labels
 /// are stable across Compose generations, so use the engine directly as a
 /// compatibility status source.
@@ -1293,8 +1341,14 @@ async fn compose_status_for_project(
         let output = match output {
             Ok(output) => output,
             // The first candidate dir often doesn't exist (different app
-            // layouts) — record and try the next one before giving up.
+            // layouts) — record and try the next one before giving up. If
+            // the containers still exist (e.g. the compose dir was removed
+            // by a reinstall while the container kept running), report their
+            // real state via the stable project label instead of failing.
             Err(e) => {
+                if let Ok(Some(status)) = docker_project_status(project_name).await {
+                    return Ok(Some(status));
+                }
                 last_error = Some(format!("compose invocation failed: {e}"));
                 continue;
             }
@@ -1430,14 +1484,75 @@ async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
             "stdout": String::from_utf8_lossy(&output.stdout).trim(),
             "stderr": String::from_utf8_lossy(&output.stderr).trim()
         })),
-        Ok(output) => HttpResponse::BadGateway().json(serde_json::json!({
-            "success": false,
-            "project": project_name,
-            "compose_dir": compose_dir.display().to_string(),
-            "status": output.status.code(),
-            "stdout": String::from_utf8_lossy(&output.stdout).trim(),
-            "stderr": String::from_utf8_lossy(&output.stderr).trim()
-        })),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // A concurrent start (e.g. install pipeline + frontend auto-start)
+            // can hit "container name already in use" when the other flow's
+            // compose up created the container a moment earlier. The project
+            // is already up — treat that as success instead of failing and
+            // cascading into a teardown of the healthy container.
+            if stderr.to_ascii_lowercase().contains("already in use") {
+                // Resolve the conflicting container from the compose error.
+                if let Some(id) = parse_conflict_container_id(&stderr) {
+                    match docker_container_running(&id).await {
+                        // A healthy instance already runs (concurrent
+                        // start) — nothing to do.
+                        Some(true) => {}
+                        // A stale dead container blocks the project name —
+                        // remove it and retry the start once so crashed
+                        // runs recover automatically.
+                        Some(false) => {
+                            let _ = docker_remove_container(&id).await;
+                            if let Ok(retry) = run_compose(
+                                &["-p", &project_name, "up", "-d"],
+                                &compose_dir,
+                            )
+                            .await
+                            {
+                                if retry.status.success() {
+                                    return HttpResponse::Ok().json(serde_json::json!({
+                                        "success": true,
+                                        "project": project_name,
+                                        "compose_dir": compose_dir.display().to_string(),
+                                        "stdout": String::from_utf8_lossy(&retry.stdout).trim(),
+                                        "stderr": String::from_utf8_lossy(&retry.stderr).trim(),
+                                        "removed_stale_container": true,
+                                    }));
+                                }
+                                return HttpResponse::BadGateway().json(serde_json::json!({
+                                    "success": false,
+                                    "project": project_name,
+                                    "compose_dir": compose_dir.display().to_string(),
+                                    "status": retry.status.code(),
+                                    "stdout": String::from_utf8_lossy(&retry.stdout).trim(),
+                                    "stderr": String::from_utf8_lossy(&retry.stderr).trim()
+                                }));
+                            }
+                        }
+                        // State unknown (inspect failed / container gone) —
+                        // fall through to the tolerant success; the
+                        // verification decides.
+                        None => {}
+                    }
+                }
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "project": project_name,
+                    "compose_dir": compose_dir.display().to_string(),
+                    "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+                    "stderr": stderr.trim(),
+                    "already_running": true,
+                }));
+            }
+            HttpResponse::BadGateway().json(serde_json::json!({
+                "success": false,
+                "project": project_name,
+                "compose_dir": compose_dir.display().to_string(),
+                "status": output.status.code(),
+                "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+                "stderr": stderr.trim()
+            }))
+        },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable()
             .json(serde_json::json!({
                 "success": false,
@@ -2468,6 +2583,22 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
+
+    #[test]
+    fn test_parse_conflict_container_id() {
+        let stderr = "ERROR: for iora-app-ora-astro-forge_ora-astro-forge_1 Cannot create container for service ora-astro-forge: Conflict. The container name \"/iora-app-ora-astro-forge_ora-astro-forge_1\" is already in use by container \"c9360eadf521e430d5958fa1903771146cf82880e127981754fc14eec6306964\". You have to remove (or rename) that container to be able to reuse that name.";
+        assert_eq!(
+            parse_conflict_container_id(stderr).as_deref(),
+            Some("c9360eadf521e430d5958fa1903771146cf82880e127981754fc14eec6306964")
+        );
+        // No conflict → None
+        assert_eq!(parse_conflict_container_id("network error"), None);
+        // Malformed id (non-hex) → None
+        assert_eq!(
+            parse_conflict_container_id("already in use by container \"not-an-id\""),
+            None
+        );
+    }
 
     fn make_req(app_id: &str, compose_dir: Option<&str>) -> ComposeProjectRequest {
         ComposeProjectRequest {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowClockwise, Brain, ChartLine, ChatCircle, Code, Database, Desktop, Hand, MagicWand, Microphone, PaperPlaneTilt, Plus, Robot, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { getDevBridgeUrl } from '@/lib/config'
 import { AdminCard, adminFetch, baseUrlFor, formatUptime } from '../AdminPanel'
 export function AiOverviewTab({ token }: { token: string }) {
@@ -202,7 +203,7 @@ export function AiProvidersTab({ token }: { token: string }) {
   }
 
   const deleteProvider = async (providerId: string) => {
-    if (!confirm('Provider löschen? Verknüpfte Modelle werden ebenfalls entfernt.')) return
+    if (!(await confirmDialog({ title: 'Provider löschen', message: 'Provider löschen? Verknüpfte Modelle werden ebenfalls entfernt.', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch(`/api/assist/config/providers/${providerId}`, token, { method: 'DELETE' })
       toast.success('Provider gelöscht')
@@ -512,7 +513,7 @@ export function AiConversationsTab({ token }: { token: string }) {
   }
 
   const clearHistory = async () => {
-    if (!confirm('Verlauf wirklich löschen?')) return
+    if (!(await confirmDialog({ title: 'Verlauf löschen', message: 'Verlauf wirklich löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch('/api/assist/history/clear', token, { method: 'POST' })
       setHistory([])

@@ -166,6 +166,12 @@
       "appUnhealthy": "Die App läuft, ist aber nicht gesund. Prüfe ihren Status.",
       "appNotFound": "Diese App ist auf diesem ORA OS nicht installiert.",
       "appStart": "App starten",
+      "appNoResponse": "Die App antwortet nicht",
+      "appNoResponseHint": "Der Container läuft, aber die Web-Oberfläche ist nicht erreichbar. Prüfe den Status oder versuche es erneut.",
+      "appRetry": "Erneut laden",
+      "appCheckStatus": "Status prüfen",
+      "appShowLogs": "Logs anzeigen",
+      "appLogsEmpty": "Keine Logs verfügbar.",
       "appExternalHint": "Diese App ist dafür konfiguriert, außerhalb des ORA Desktops zu öffnen.",
       "appExternalOpen": "App extern öffnen"
     },
@@ -1097,6 +1103,7 @@
       "comingSoon": "Demnächst",
       "catalog": {
         "nextcloud": "Deine eigene Cloud: Dateien, Kalender, Kontakte & mehr — vollständig selbst gehostet in einem Docker-Container auf deinem IORA OS.",
+        "ora-astro-forge": "3D-Idle-Game: Mine Asteroiden, baue deine Bohrflotte aus, erobere neue Planeten und prestigiere durch Wurmlöcher. Dein Fortschritt wird gespeichert — auch offline wird weiter gefördert.",
         "jellyfin": "Streame eigene Filme, Serien, Musik und Fotos von einem privaten Medienserver.",
         "vaultwarden": "Ein schlanker, privater Passwortmanager, kompatibel mit Bitwarden-Clients.",
         "uptime-kuma": "Überwache Websites und Dienste über ein schönes selbst gehostetes Status-Dashboard.",
@@ -1130,6 +1137,7 @@
       "installFailed": "Installation fehlgeschlagen: {{detail}}",
       "installFailedTitle": "Installation fehlgeschlagen",
       "installFailedUnknown": "Das App-Paket konnte nicht installiert werden. Öffne die Installationsdetails und versuche es erneut.",
+      "retry": "Erneut versuchen",
       "installPreparing": "Das lokale App-Paket wird vorbereitet…",
       "openPort": "Im Browser öffnen",
       "starting": "Starte…",
@@ -1153,7 +1161,8 @@
         "monitoring": "Monitoring",
         "docs": "Dokumentation",
         "apps": "Apps",
-        "automation": "Automation"
+        "automation": "Automation",
+        "games": "Spiele"
       },
       "uninstallDependents": "„{{name}}“ wird von {{apps}} benötigt. Wirklich deinstallieren? Diese Apps funktionieren danach möglicherweise nicht mehr.",
       "installRequires": "Zuerst installieren: {{apps}}",

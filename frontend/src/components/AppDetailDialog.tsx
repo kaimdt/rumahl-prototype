@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { adminFetch, InlineSpinner } from './AdminPanel'
+import { startAppAndWatch } from '@/lib/appLifecycle'
 import { toast } from 'sonner'
 import { getBackendUrl } from '@/lib/config'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
@@ -226,20 +227,24 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
           .filter(grant => grant.is_active !== false)
           .map(grant => grant.permission)
         setGrantedPermissions(activeGrants.length > 0 ? activeGrants : (data.permissions || []).filter(permission => !(data.denied_permissions || []).includes(permission)))
+        // Runtime-audit and secrets require app-manifest permissions
+        // (AppRuntimeAuditRead / AppSecretsRead). Apps that don't declare
+        // them return 403 — that is expected, not an error: skip the fetches
+        // entirely so the console/error reporter stays quiet and the tabs
+        // stay empty.
+        const grantedSet = new Set(activeGrants)
+        const canAudit = grantedSet.has('AppRuntimeAuditRead') || (data.permissions || []).includes('AppRuntimeAuditRead')
+        const canSecrets = grantedSet.has('AppSecretsRead') || (data.permissions || []).includes('AppSecretsRead')
         const firstService = typeof data.services?.[0]?.name === 'string' ? data.services[0].name : ''
         setSelectedTerminalService(firstService)
         const notes: string[] = []
-        // Runtime-audit and secrets require app-manifest permissions
-        // (AppRuntimeAuditRead / AppSecretsRead). Apps that don't declare
-        // them return 403 - that is expected, not an error: keep the tabs
-        // empty and stay quiet instead of surfacing a failure.
         const silent = async (url: string): Promise<unknown> => {
           try { return await adminFetch(url, token) } catch { return null }
         }
         const [jobs, audit, secrets] = await Promise.all([
           adminFetch(`/api/apps/${appId}/jobs`, token).catch((e) => { notes.push(`Jobs: ${(e as Error).message}`); return null }),
-          silent(`/api/apps/${appId}/audit`),
-          silent(`/api/apps/${appId}/secrets`),
+          canAudit ? silent(`/api/apps/${appId}/audit`) : Promise.resolve(null),
+          canSecrets ? silent(`/api/apps/${appId}/secrets`) : Promise.resolve(null),
         ])
         setRuntimeJobs(((jobs as any)?.jobs || []).slice(-12))
         setRuntimeAudit(((audit as any)?.events || []).slice(-20))
@@ -299,14 +304,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
   const startApp = async () => {
     if (!appId) return
     setActionLoading('start')
-    try {
-      await adminFetch(`/api/supervisor/apps/${appId}/start`, token, { method: 'POST' })
-      toast.success('App gestartet')
-      setDetail(prev => prev ? { ...prev, status: 'starting', enabled: true } : prev)
-      onReload()
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
+    const result = await startAppAndWatch(appId)
+    if (result.ok) toast.success('App gestartet')
+    setDetail(prev => prev ? { ...prev, status: 'starting', enabled: true } : prev)
+    onReload()
     setActionLoading(null)
   }
 

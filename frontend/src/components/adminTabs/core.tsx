@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '@/contexts/ThemeContext'
 import { ArrowClockwise, BookOpen, Check, CheckCircle, CircleNotch, CloudArrowUp, Copy, Cpu, Desktop, DownloadSimple, Eye, EyeSlash, Gauge, Gear, Hand, HardDrive, Heartbeat, Lightning, List, ListBullets, ListChecks, MagnifyingGlass, Palette, Play, Power, Robot, ShieldCheck, ShieldWarning, Sparkle, Storefront, Swatches, ToggleLeft, ToggleRight, TrashSimple, TrendUp, UploadSimple, Users, Warning, Wrench } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { Tip } from '@/components/ui/tip'
 import { authFetch } from '@/lib/authHelpers'
 import { AdminCard, ErrorMessage, LoadingSpinner, SettingInput, StatItem, CATEGORY_DESCRIPTIONS, adminFetch, cachedFetch, ccInput, dataCache, formatUptime, getCategoryLabels, notifyError, type ServiceStatus, SettingDefDto, SettingValueDto } from '../AdminPanel'
@@ -489,7 +490,7 @@ export function ServicesTab({ token }: { token: string }) {
   useEffect(() => { load() }, [load])
 
   const restartService = async (name: string) => {
-    if (!confirm(`Dienst "${name}" wirklich neu starten? Während des Neustarts ist er kurz nicht erreichbar.`)) return
+    if (!(await confirmDialog({ title: 'Dienst neu starten', message: `Dienst "${name}" wirklich neu starten? Während des Neustarts ist er kurz nicht erreichbar.`, confirmLabel: 'Neu starten', danger: true }))) return
     setRestarting(name)
     setRestartFeedback(null)
     try {

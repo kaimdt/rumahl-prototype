@@ -70,6 +70,7 @@ import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 const AppSettingsPage = retryableLazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ConfirmDialogHost } from '@/components/ui/confirmDialog'
 import { PageTransitionWrapper } from '@/components/PageTransitionWrapper'
 import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
@@ -851,6 +852,10 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
           )
         })()}
       </AnimatePresence>
+      {/* Blue-light reduction overlay (backdrop-filter, see .ora-night-filter in index.css).
+          Kept OUT of the page container so the filter never becomes the containing
+          block of fixed elements (dock/topbar would “fall to the floor”). */}
+      <div className="ora-night-filter" aria-hidden="true" />
       <AppChrome
         showPageDesigner={showPageDesigner}
         immersivePageId={immersivePageId}
@@ -880,6 +885,7 @@ startSystemEventListener()
 function App() {
   return (
     <AppProviders>
+      <ConfirmDialogHost />
       <DashboardContent />
     </AppProviders>
   )

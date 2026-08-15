@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowClockwise, ChartLine, Clock, Code, Copy, Cube, Dog, Envelope, Eye, FileArrowDown, FolderOpen, HardDrive, LockKey, Plus, ShareNetwork, ShieldCheck, Stack, Trash, Vault, WifiHigh, X } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { AdminCard, adminFetch, backendBase } from '../AdminPanel'
 import { ServiceJsonBlock } from '../AdminPanel'
 export interface SecretRow {
@@ -64,7 +65,7 @@ export function SecretsTab({ token }: { token: string }) {
   }
 
   const remove = async (id: string) => {
-    if (!confirm('Secret wirklich löschen?')) return
+    if (!(await confirmDialog({ title: 'Secret löschen', message: 'Secret wirklich löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch(`/api/secrets/${id}`, token, { method: 'DELETE' })
       toast.success('Secret gelöscht'); await load()
@@ -211,7 +212,7 @@ export function FilesTab({ token }: { token: string }) {
   }
 
   const removeFile = async (id: string) => {
-    if (!confirm('Datei in den Papierkorb verschieben?')) return
+    if (!(await confirmDialog({ title: 'Datei verschieben', message: 'Datei in den Papierkorb verschieben?', confirmLabel: 'Verschieben', danger: true }))) return
     try {
       await adminFetch(`/api/files/${id}`, token, { method: 'DELETE' })
       toast.success('Verschoben'); await load()
@@ -219,7 +220,7 @@ export function FilesTab({ token }: { token: string }) {
   }
 
   const revokeShare = async (id: string) => {
-    if (!confirm('Freigabe widerrufen?')) return
+    if (!(await confirmDialog({ title: 'Freigabe widerrufen', message: 'Freigabe widerrufen?', confirmLabel: 'Widerrufen', danger: true }))) return
     try {
       await adminFetch(`/api/files/shares/${id}`, token, { method: 'DELETE' })
       toast.success('Freigabe widerrufen'); await load()
@@ -527,7 +528,7 @@ export function ConnectorTab({ token }: { token: string }) {
   useEffect(() => { load() }, [load])
 
   const removeTunnel = async (id: string) => {
-    if (!confirm('Tunnel entfernen?')) return
+    if (!(await confirmDialog({ title: 'Tunnel entfernen', message: 'Tunnel entfernen?', confirmLabel: 'Entfernen', danger: true }))) return
     try { await adminFetch(`/api/connector/tunnels/${id}`, token, { method: 'DELETE' }); toast.success('Entfernt'); await load() }
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
   }
@@ -540,7 +541,7 @@ export function ConnectorTab({ token }: { token: string }) {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
   }
   const revokeToken = async (id: string) => {
-    if (!confirm('Token widerrufen?')) return
+    if (!(await confirmDialog({ title: 'Token widerrufen', message: 'Token widerrufen?', confirmLabel: 'Widerrufen', danger: true }))) return
     try { await adminFetch(`/api/connector/pairing-tokens/${id}`, token, { method: 'DELETE' }); toast.success('Widerrufen'); await load() }
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
   }
@@ -721,7 +722,7 @@ export function ResourcesTab({ token }: { token: string }) {
   useEffect(() => { load(); const i = setInterval(load, 15000); return () => clearInterval(i) }, [load])
 
   const reallocate = async () => {
-    if (!confirm('Reallokation jetzt auslösen?')) return
+    if (!(await confirmDialog({ title: 'Reallokation', message: 'Reallokation jetzt auslösen?', confirmLabel: 'Auslösen', danger: true }))) return
     try { await adminFetch('/api/resources/reallocate', token, { method: 'POST', body: '{}' }); toast.success('Reallokation gestartet'); await load() }
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
   }
