@@ -119,7 +119,7 @@ pub async fn resolve_lifecycle_state(app: &InstalledApp) -> AppLifecycleState {
             if status.services.contains_key("iora-supervisor") {
                 return match app.status.as_str() {
                     "running" => AppLifecycleState::Running,
-                    "starting" => AppLifecycleState::Starting,
+                    "starting" | "installing" => AppLifecycleState::Starting,
                     "stopping" => AppLifecycleState::Stopping,
                     "error" | "failed" => AppLifecycleState::Failed,
                     _ => AppLifecycleState::Stopped,
@@ -143,7 +143,7 @@ pub async fn resolve_lifecycle_state(app: &InstalledApp) -> AppLifecycleState {
         return AppLifecycleState::Failed;
     }
     match app.status.as_str() {
-        "starting" => AppLifecycleState::Starting,
+        "starting" | "installing" => AppLifecycleState::Starting,
         "stopping" => AppLifecycleState::Stopping,
         "running" => AppLifecycleState::Running,
         "paused" | "stopped" => AppLifecycleState::Stopped,

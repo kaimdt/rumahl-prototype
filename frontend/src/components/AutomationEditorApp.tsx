@@ -16,6 +16,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { automationApi, type AutomationExecution, type AutomationFlow, type AutomationNode, type AutomationNodeKind, type SaveAutomationFlow } from '@/lib/automationApi'
 import { OsWindowActions } from '@/components/OsWindowActions'
 

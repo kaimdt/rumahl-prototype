@@ -1038,8 +1038,11 @@ function AppStoreView({
         }
         if (completed || attempts > 40) {
           window.clearInterval(poll)
+          // Always reset the in-progress state when the watcher gives up —
+          // otherwise a slow image pull that exceeds the watch window leaves
+          // the "installing" spinner stuck forever.
+          setInstallingId(null)
           if (failedMessage) {
-            setInstallingId(null)
             toast.error(t('apps.appStore.installFailed', { detail: failedMessage }))
           }
         }
@@ -1664,6 +1667,7 @@ function ZipUploadView({
   token: string
   onSuccess: () => void
 }) {
+  const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [manifest, setManifest] = useState<AppManifest | null>(null)

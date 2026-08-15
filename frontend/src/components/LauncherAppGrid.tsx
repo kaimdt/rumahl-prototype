@@ -223,7 +223,7 @@ export function LauncherAppGrid({
           const data = await res.json().catch(() => null) as { error?: string; message?: string } | null
           throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
         }
-        const key = action === 'start' ? 'os.quickActions.started' : action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
+        const key = action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
         toast(t(key, { name: getAppName(app) }))
       }
       window.dispatchEvent(new Event('iora:installed-apps-refresh'))

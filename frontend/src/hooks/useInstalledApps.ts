@@ -170,67 +170,106 @@ export const installedAppsCache: InstalledOsApp[] = []
 /** Prevent duplicate automatic start requests when several OS surfaces use the hook. */
 const installStartRequests = new Set<string>()
 
-export function useInstalledApps() {
-  const [apps, setApps] = useState<SupervisorApp[]>([])
-  const [jobs, setJobs] = useState<InstallJobInfo[]>([])
-  const [loading, setLoading] = useState(true)
-  const mountedRef = useRef(true)
+// ── Shared poller (single interval for ALL hook instances) ────────────
+// Before this refactor every mounted `useInstalledApps` created its own
+// 5 s interval against `/api/supervisor/apps` + `/api/appstore/jobs` — with
+// the launcher, settings, admin panel and store mounted simultaneously that
+// was 4+ parallel poll loops (and 4× the backend load on a Pi). One
+// module-level loop keeps the app list consistent across surfaces and
+// fixes the deep-link renderer race (cache populated even with no launcher
+// mounted).
+interface SharedAppsState {
+  apps: SupervisorApp[]
+  jobs: InstallJobInfo[]
+  loading: boolean
+}
 
-  const refresh = useCallback(async () => {
-    try {
-      const [appsRes, jobsRes] = await Promise.all([
-        authFetch('/api/supervisor/apps'),
-        authFetch('/api/appstore/jobs'),
-      ])
-      if (appsRes.ok) {
-        const data = await appsRes.json() as { apps?: SupervisorApp[] }
-        // Dedupe by id: the supervisor reports one entry per container, so a
-        // leftover container of a re-installed app (same `iora.app.id` label)
-        // would otherwise render duplicate launcher tiles. The first (and
-        // preferably running) entry wins.
-        const seen = new Map<string, SupervisorApp>()
-        for (const app of data.apps || []) {
-          const existing = seen.get(app.id)
-          if (!existing) {
-            seen.set(app.id, app)
-            continue
-          }
-          const nextRunning = app.status === 'running'
-          const currentRunning = existing.status === 'running'
-          if (nextRunning && !currentRunning) seen.set(app.id, app)
+const sharedState: SharedAppsState = { apps: [], jobs: [], loading: true }
+const sharedListeners = new Set<() => void>()
+let sharedPollTimer: number | null = null
+let pollInFlight = false
+
+async function pollNow(): Promise<void> {
+  if (pollInFlight) return
+  pollInFlight = true
+  try {
+    const [appsRes, jobsRes] = await Promise.all([
+      authFetch('/api/supervisor/apps'),
+      authFetch('/api/appstore/jobs'),
+    ])
+    if (appsRes.ok) {
+      const data = await appsRes.json() as { apps?: SupervisorApp[] }
+      // Dedupe by id: the supervisor reports one entry per container, so a
+      // leftover container of a re-installed app (same `iora.app.id` label)
+      // would otherwise render duplicate launcher tiles. The first (and
+      // preferably running) entry wins.
+      const seen = new Map<string, SupervisorApp>()
+      for (const app of data.apps || []) {
+        const existing = seen.get(app.id)
+        if (!existing) {
+          seen.set(app.id, app)
+          continue
         }
-        const nextApps = [...seen.values()]
-        installedAppIds.clear()
-        nextApps.forEach((app) => installedAppIds.add(app.id))
-        setApps(nextApps)
-        window.dispatchEvent(new Event('iora:installed-apps-updated'))
+        const nextRunning = app.status === 'running'
+        const currentRunning = existing.status === 'running'
+        if (nextRunning && !currentRunning) seen.set(app.id, app)
       }
-      if (jobsRes.ok) {
-        const data = await jobsRes.json() as { jobs?: InstallJobPayload[] }
-        setJobs((data.jobs || []).map(normalizeInstallJob))
-      }
-    } catch {
-      // backend unreachable — keep last state
-    } finally {
-      if (mountedRef.current) setLoading(false)
+      const nextApps = [...seen.values()]
+      sharedState.apps = nextApps
+      installedAppIds.clear()
+      nextApps.forEach((app) => installedAppIds.add(app.id))
+      window.dispatchEvent(new Event('iora:installed-apps-updated'))
+    }
+    if (jobsRes.ok) {
+      const data = await jobsRes.json() as { jobs?: InstallJobPayload[] }
+      sharedState.jobs = (data.jobs || []).map(normalizeInstallJob)
+    }
+  } catch {
+    // backend unreachable — keep last state
+  } finally {
+    sharedState.loading = false
+    pollInFlight = false
+    sharedListeners.forEach((listener) => listener())
+  }
+}
+
+function ensureSharedPolling(): void {
+  if (sharedPollTimer !== null) return
+  void pollNow()
+  sharedPollTimer = window.setInterval(() => { void pollNow() }, 5000)
+  window.addEventListener('iora:installed-apps-refresh', pollNow)
+}
+
+function releaseSharedPolling(): void {
+  if (sharedListeners.size > 0) return
+  if (sharedPollTimer !== null) {
+    window.clearInterval(sharedPollTimer)
+    sharedPollTimer = null
+  }
+  window.removeEventListener('iora:installed-apps-refresh', pollNow)
+}
+
+export function useInstalledApps() {
+  const [apps, setApps] = useState<SupervisorApp[]>(sharedState.apps)
+  const [jobs, setJobs] = useState<InstallJobInfo[]>(sharedState.jobs)
+  const [loading, setLoading] = useState(sharedState.loading)
+
+  useEffect(() => {
+    const listener = () => {
+      setApps(sharedState.apps)
+      setJobs(sharedState.jobs)
+      setLoading(sharedState.loading)
+    }
+    sharedListeners.add(listener)
+    ensureSharedPolling()
+    listener()
+    return () => {
+      sharedListeners.delete(listener)
+      releaseSharedPolling()
     }
   }, [])
 
-  useEffect(() => {
-    mountedRef.current = true
-    void refresh()
-    // Fast poll while installs are running, slow otherwise.
-    const interval = window.setInterval(() => { void refresh() }, 5000)
-    // Launcher context-menu actions (start/stop/restart/uninstall) request a
-    // refresh so the grid reflects the new runtime state immediately.
-    const onRefreshRequest = () => { void refresh() }
-    window.addEventListener('iora:installed-apps-refresh', onRefreshRequest)
-    return () => {
-      mountedRef.current = false
-      window.clearInterval(interval)
-      window.removeEventListener('iora:installed-apps-refresh', onRefreshRequest)
-    }
-  }, [refresh])
+  const refresh = useCallback(() => { void pollNow() }, [])
 
   // Installation is complete only after the locally prepared runtime is
   // running. Once extraction/image preparation finishes, start it exactly
@@ -239,7 +278,10 @@ export function useInstalledApps() {
     for (const job of jobs) {
       if (job.status !== 'succeeded' || !job.appId || installStartRequests.has(job.appId)) continue
       const app = apps.find((candidate) => candidate.id === job.appId)
-      if (!app || app.enabled || app.status === 'running' || app.status === 'starting' || app.status === 'error' || app.status === 'failed') continue
+      // `installing` = the backend is still preparing the runtime (image
+      // pull/build) — auto-starting now would race the compose-file
+      // preparation. The backend rejects starts in that state too.
+      if (!app || app.enabled || app.status === 'installing' || app.status === 'running' || app.status === 'starting' || app.status === 'error' || app.status === 'failed') continue
       installStartRequests.add(job.appId)
       // Watch the start: a container that fails to come up must surface a
       // toast instead of leaving the install in an invisible half-state.

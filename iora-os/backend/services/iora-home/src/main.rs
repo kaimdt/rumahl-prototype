@@ -2294,7 +2294,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/supervisor/apps", get(supervisor_apps_list))
         .route(
             "/api/supervisor/apps/install",
-            post(supervisor_apps_install),
+            // ZIP installs are posted as base64 JSON — raise the axum
+            // default 2 MiB body limit so multi-MB app packages actually
+            // reach the installer (previously HTTP 413 Payload Too Large).
+            post(supervisor_apps_install)
+                .layer(axum::extract::DefaultBodyLimit::max(300 * 1024 * 1024)),
         )
         .route(
             "/api/supervisor/apps/:app_id",
@@ -2361,7 +2365,14 @@ async fn main() -> anyhow::Result<()> {
         // microservice isn't deployed.
         .route("/api/appstore/installed", get(local_appstore_installed))
         .route("/api/appstore/search", get(proxy_appstore))
-        .route("/api/appstore/install", post(local_appstore_install))
+        .route(
+            "/api/appstore/install",
+            // ZIP installs are posted as base64 JSON — raise the axum
+            // default 2 MiB body limit so multi-MB app packages actually
+            // reach the installer (previously HTTP 413 Payload Too Large).
+            post(local_appstore_install)
+                .layer(axum::extract::DefaultBodyLimit::max(300 * 1024 * 1024)),
+        )
         .route("/api/appstore/jobs", get(local_appstore_jobs))
         .route(
             "/api/appstore/jobs/:job_id",
@@ -7959,13 +7970,30 @@ async fn admin_dev_image_info(State(state): State<AppState>) -> Json<Value> {
 
 async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
     let installed = state.local_appstore.list().await;
-    let mut apps: Vec<Value> = Vec::new();
-    for a in installed
+    let candidates: Vec<local_appstore::InstalledApp> = installed
         .into_iter()
         .filter(|a| a.kind != "plugin")
-    {
+        .collect();
+
+    // Resolve the docker reality for every app IN PARALLEL: sequential
+    // compose probes (each up to seconds long, incl. the supervisor status
+    // timeout) would make this endpoint N× slower with many apps, so the
+    // frontend's 5s poll would stack up instead of converging.
+    let probes: Vec<(bool, Option<app_lifecycle::AppDockerStatus>)> =
+        futures_util::future::join_all(candidates.iter().map(|a| {
             let needs_docker = a.docker_config.is_some() || a.bundle_config.is_some();
-            let docker_status = if needs_docker { app_lifecycle::docker_compose_status(&a.id).await } else { None };
+            async move {
+                if needs_docker {
+                    (true, app_lifecycle::docker_compose_status(&a.id).await)
+                } else {
+                    (false, None)
+                }
+            }
+        }))
+        .await;
+
+    let mut apps: Vec<Value> = Vec::new();
+    for (a, (needs_docker, docker_status)) in candidates.into_iter().zip(probes) {
             let status = docker_status.as_ref().map(|state| {
                 // Supervisor status endpoint unavailable → synthetic fallback
                 // (sentinel service key) — keep the persisted status instead
@@ -7997,6 +8025,7 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
                 "category": a.manifest.extra.get("store_metadata").and_then(|m| m.get("category")).and_then(|c| c.as_str()).unwrap_or("").to_string(),
                 "enabled": a.enabled,
                 "status": status,
+                "error_message": a.error_message,
                 "installed_at": a.installed_at.clone(),
                 "kind": a.kind.clone(),
                 "open_url": serde_json::Value::Null,
@@ -8148,6 +8177,18 @@ async fn supervisor_apps_start(
         .find(|a| a.id == app_id)
         .cloned()
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    // The install pipeline (ZIP extraction → image preparation) is still
+    // running for this app: starting now would race the compose-file
+    // preparation and can corrupt the container setup. Reject instead of
+    // racing; the frontend auto-start skips "installing" for the same
+    // reason.
+    if app_meta.status == "installing" {
+        return Err(ErrorResponse::conflict(format!(
+            "App '{}' wird noch installiert/vorbereitet — bitte warten, bis die Installation abgeschlossen ist.",
+            app_meta.name
+        )));
+    }
 
     // Guard against duplicate concurrent starts: if a start was initiated
     // within the last START_IN_FLIGHT_TTL_SECS (image builds can take a
@@ -8319,7 +8360,9 @@ async fn supervisor_apps_start(
                         if !verify_err.contains("iora-supervisor") {
                             let _ = try_docker_compose_down(&app_id_bg).await;
                         }
-                        let _ = appstore.set_status(&app_id_bg, "error").await;
+                        let _ = appstore
+                            .set_status_error(&app_id_bg, format!("Container-Verifizierung fehlgeschlagen: {verify_err}"))
+                            .await;
                         appstore.append_log(
                             &app_id_bg,
                             local_appstore::LogEntry {
@@ -8335,7 +8378,9 @@ async fn supervisor_apps_start(
                 }
             }
             Some(Err(err_msg)) => {
-                let _ = appstore.set_status(&app_id_bg, "error").await;
+                let _ = appstore
+                    .set_status_error(&app_id_bg, format!("Docker-Start fehlgeschlagen: {err_msg}"))
+                    .await;
                 appstore.append_log(
                     &app_id_bg,
                     local_appstore::LogEntry {
@@ -8347,7 +8392,12 @@ async fn supervisor_apps_start(
                 );
             }
             None => {
-                let _ = appstore.set_status(&app_id_bg, "error").await;
+                let _ = appstore
+                    .set_status_error(
+                        &app_id_bg,
+                        "Docker CLI ist nicht verfügbar. Diese App benötigt Docker.",
+                    )
+                    .await;
                 appstore.append_log(
                     &app_id_bg,
                     local_appstore::LogEntry {
@@ -8393,6 +8443,25 @@ async fn supervisor_apps_stop(
     } else {
         invoke_local_app_hook(&app, "stop_endpoint", json!({})).await
     };
+
+    // A Docker-backed app whose containers could NOT be brought down is
+    // still running — report "error" with the reason instead of claiming
+    // "stopped" (the UI would otherwise show a stopped app with live
+    // containers, and the health monitor would fight the user's intent).
+    if needs_docker {
+        if let Some(msg) = docker_result.as_deref() {
+            if msg.contains("meldete Probleme") || msg.contains("fehlgeschlagen") {
+                let _ = state
+                    .local_appstore
+                    .set_status_error(&app_id, format!("Stopp fehlgeschlagen: {msg}"))
+                    .await;
+                return Err(ErrorResponse::bad_gateway(format!(
+                    "App '{}' konnte nicht gestoppt werden: {msg}",
+                    app.name
+                )));
+            }
+        }
+    }
 
     state.local_appstore.append_log(
         &app_id,
@@ -9872,7 +9941,10 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                                 );
                             }
                             Err(error) => {
-                                let _ = state.local_appstore.set_status(&app_id, "error").await;
+                                let _ = state
+                                    .local_appstore
+                                    .set_status_error(&app_id, format!("Plugin-Registrierung fehlgeschlagen: {error}"))
+                                    .await;
                                 state.local_appstore.append_log(
                                     &app_id,
                                     local_appstore::LogEntry {
@@ -9919,7 +9991,13 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                             );
                         }
                         Some(Err(err)) => {
-                            let _ = state.local_appstore.set_status(&app_id, "error").await;
+                            let _ = state
+                                .local_appstore
+                                .set_status_error(
+                                    &app_id,
+                                    format!("Docker-Vorbereitung fehlgeschlagen: {err}"),
+                                )
+                                .await;
                             state.local_appstore.append_log(
                                 &app_id,
                                 local_appstore::LogEntry {
@@ -9931,7 +10009,13 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                             );
                         }
                         None => {
-                            let _ = state.local_appstore.set_status(&app_id, "error").await;
+                            let _ = state
+                                .local_appstore
+                                .set_status_error(
+                                    &app_id,
+                                    "Docker ist nicht verfügbar; App kann nicht vorbereitet werden.",
+                                )
+                                .await;
                             state.local_appstore.append_log(
                                 &app_id,
                                 local_appstore::LogEntry {

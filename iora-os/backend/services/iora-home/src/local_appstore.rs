@@ -848,6 +848,43 @@ impl LocalAppStore {
         } else if matches!(status, "stopped" | "paused" | "error") {
             app.last_stopped_at = Some(now_iso());
         }
+        // Healthy/terminal states clear stale failure messages: a recovered
+        // app must never keep showing an old "error" text in the UI.
+        if matches!(status, "running" | "starting" | "stopped" | "paused") {
+            app.error_message = None;
+        }
+        let updated = app.clone();
+        drop(inner);
+        self.persist_index().await?;
+        let _ = self.events.send(InstallEvent::AppsChanged {
+            installed: self.list().await,
+        });
+        Ok(updated)
+    }
+
+    /// Set the app into the `error` state and attach a human-readable
+    /// failure reason. The message is surfaced by `/api/supervisor/apps`
+    /// (`error_message`) so the UI can show *why* a start/install failed
+    /// instead of a bare red status.
+    pub async fn set_status_error(
+        &self,
+        app_id: &str,
+        message: impl Into<String>,
+    ) -> Result<InstalledApp> {
+        let mut inner = self.inner.write().await;
+        let app = inner
+            .apps
+            .get_mut(app_id)
+            .ok_or_else(|| anyhow!("app '{}' not installed", app_id))?;
+        if app.system {
+            return Err(anyhow!(
+                "system app '{}' wird automatisch verwaltet",
+                app_id
+            ));
+        }
+        app.status = "error".to_string();
+        app.error_message = Some(message.into());
+        app.last_stopped_at = Some(now_iso());
         let updated = app.clone();
         drop(inner);
         self.persist_index().await?;

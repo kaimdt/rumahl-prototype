@@ -62,7 +62,7 @@ export interface AppRuntimeTarget {
 }
 
 const RUNNING_STATES = new Set(['running', 'healthy', 'up'])
-const STARTING_STATES = new Set(['starting', 'restarting', 'created'])
+const STARTING_STATES = new Set(['starting', 'restarting', 'created', 'installing'])
 const FAILED_STATES = new Set(['failed', 'error', 'dead', 'crashed', 'unhealthy'])
 
 export function normalizeRuntimeState(status?: string | null): AppRuntimeState {
