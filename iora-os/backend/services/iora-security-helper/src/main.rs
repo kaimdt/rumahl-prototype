@@ -13,6 +13,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
+fn main() -> anyhow::Result<()> {
+    linux::run()
+}
+
+#[cfg(target_os = "linux")]
 mod linux {
     use anyhow::{bail, Context, Result};
     use serde::{Deserialize, Serialize};
@@ -102,7 +107,7 @@ mod linux {
     }
 
     #[tokio::main]
-    async fn main() -> Result<()> {
+    pub(crate) async fn run() -> Result<()> {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .init();
