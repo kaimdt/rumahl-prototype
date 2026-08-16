@@ -4975,6 +4975,40 @@ EOF
 ln -sf /etc/systemd/system/iora-runtime-sensor.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-runtime-sensor.service"
 
+cat > "${TARGET_DIR}/etc/systemd/system/iora-runtime-sensor-ebpf-loader.service" <<'EOF'
+[Unit]
+Description=IORA Runtime Sensor eBPF loader (observation-only)
+After=iora-runtime-sensor.service
+Wants=iora-runtime-sensor.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/iora/iora-runtime-sensor-ebpf-loader /run/iora/runtime-sensor/ebpf-events.sock /usr/lib/iora/runtime.bpf.o
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+# Sole privileged exception of the Security Foundation baseline: the
+# observation-only loader needs CAP_BPF + CAP_PERFMON and nothing else.
+AmbientCapabilities=CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-runtime-sensor-ebpf-loader.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-runtime-sensor-ebpf-loader.service"
+
 cat > "${TARGET_DIR}/etc/systemd/system/iora-runtime-identity.service" <<'EOF'
 [Unit]
 Description=IORA Runtime Identity Resolver

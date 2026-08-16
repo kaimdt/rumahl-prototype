@@ -4,12 +4,7 @@
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-
-#define EVENT_START 1
-#define EVENT_EXEC 2
-#define EVENT_EXIT 3
-#define EVENT_CONNECT_ATTEMPT 4
-#define EVENT_CONNECT_RESULT 5
+#include "runtime_event.h"
 
 struct runtime_event {
     __u64 monotonic_ns, process_start_time_ns, cgroup_id, network_namespace, socket_cookie;

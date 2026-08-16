@@ -1,5 +1,7 @@
 #[cfg(target_os = "linux")]
 mod event;
+#[cfg(target_os = "linux")]
+mod pipeline;
 
 use anyhow::Result;
 
@@ -70,6 +72,7 @@ mod linux {
         host_boot_id: Uuid,
         sensor_instance_id: Uuid,
         started_at: std::time::Instant,
+        client: reqwest::Client,
     }
 
     struct HashJob {
@@ -91,6 +94,9 @@ mod linux {
         let (queue_tx, queue_rx) = mpsc::channel(QUEUE_CAPACITY);
         let (hash_tx, hash_rx) = mpsc::channel(HASH_QUEUE_CAPACITY);
         let (events, _) = broadcast::channel(SUBSCRIBER_CAPACITY);
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()?;
         let state = AppState {
             metrics: Arc::new(Metrics::default()),
             source_connected: Arc::new(RwLock::new(false)),
@@ -98,6 +104,7 @@ mod linux {
             host_boot_id: read_boot_id(),
             sensor_instance_id: Uuid::new_v4(),
             started_at: std::time::Instant::now(),
+            client,
         };
         tokio::spawn(accept_ebpf_events(listener, queue_tx, state.clone()));
         tokio::spawn(normalize_events(queue_rx, hash_tx, state.clone()));
@@ -216,7 +223,18 @@ mod linux {
                     }
                 }
             }
-            emit(&state, event);
+            emit(&state, event.clone());
+            // Phase-2 data flow: forward critical events to the read-only
+            // identity/policy/incident services. Best-effort and detached so
+            // detection latency never blocks event emission.
+            if event.critical {
+                let client = state.client.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = crate::pipeline::run(&client, event).await {
+                        warn!(%error, "runtime detection pipeline stage failed");
+                    }
+                });
+            }
         }
     }
     async fn hash_worker(mut receiver: mpsc::Receiver<HashJob>, state: AppState) {
@@ -433,6 +451,7 @@ mod linux {
                 host_boot_id: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
                 sensor_instance_id: Uuid::nil(),
                 started_at: std::time::Instant::now(),
+                client: reqwest::Client::new(),
             }
         }
         fn raw(class: EventClass) -> KernelEvent {

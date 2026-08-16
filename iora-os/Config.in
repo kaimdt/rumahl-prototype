@@ -3,4 +3,5 @@
 
 menu "IORA OS packages"
 source "$BR2_EXTERNAL_IORA_PATH/package/iora-dev-toolchain/Config.in"
+source "$BR2_EXTERNAL_IORA_PATH/package/iora-runtime-sensor-ebpf-loader/Config.in"
 endmenu
