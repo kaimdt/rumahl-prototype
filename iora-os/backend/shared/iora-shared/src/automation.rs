@@ -93,5 +93,9 @@ pub struct AutomationExecution {
     pub executed_at: DateTime<Utc>,
 }
 
-pub fn default_enabled() -> bool { true }
-pub fn default_cooldown_seconds() -> i64 { 0 }
+pub fn default_enabled() -> bool {
+    true
+}
+pub fn default_cooldown_seconds() -> i64 {
+    0
+}

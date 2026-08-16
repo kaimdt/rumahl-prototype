@@ -88,14 +88,31 @@ pub async fn docker_compose_ports(app_id: &str) -> Option<Vec<(u16, u16, String)
         let rows: Vec<ComposePsRow> = if trimmed.starts_with('[') {
             serde_json::from_str(trimmed).unwrap_or_default()
         } else {
-            trimmed.lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
+            trimmed
+                .lines()
+                .filter_map(|line| serde_json::from_str(line).ok())
+                .collect()
         };
-        let ports = rows.into_iter().flat_map(|row| row.publishers).filter_map(|port| {
-            (port.published_port > 0 && port.target_port > 0).then(|| {
-                (port.published_port, port.target_port, if port.protocol.is_empty() { "tcp".to_string() } else { port.protocol })
+        let ports = rows
+            .into_iter()
+            .flat_map(|row| row.publishers)
+            .filter_map(|port| {
+                (port.published_port > 0 && port.target_port > 0).then(|| {
+                    (
+                        port.published_port,
+                        port.target_port,
+                        if port.protocol.is_empty() {
+                            "tcp".to_string()
+                        } else {
+                            port.protocol
+                        },
+                    )
+                })
             })
-        }).collect::<Vec<_>>();
-        if !ports.is_empty() { return Some(ports); }
+            .collect::<Vec<_>>();
+        if !ports.is_empty() {
+            return Some(ports);
+        }
     }
     Some(Vec::new())
 }
@@ -118,11 +135,15 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
                 .output(),
         )
         .await
-        .unwrap_or_else(|_| Ok(std::process::Output {
-            status: std::process::Command::new("false").status().unwrap_or(std::process::ExitStatus::default()),
-            stdout: Vec::new(),
-            stderr: b"timeout".to_vec(),
-        }));
+        .unwrap_or_else(|_| {
+            Ok(std::process::Output {
+                status: std::process::Command::new("false")
+                    .status()
+                    .unwrap_or(std::process::ExitStatus::default()),
+                stdout: Vec::new(),
+                stderr: b"timeout".to_vec(),
+            })
+        });
 
         match out {
             Ok(o) if o.status.success() => {
@@ -177,8 +198,9 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
 }
 
 async fn supervisor_compose_status(app_id: &str) -> Option<AppDockerStatus> {
-    let base = std::env::var("IORA_SUPERVISOR_URL")
-        .unwrap_or_else(|_| iora_shared_config::system_config::service_url("iora-supervisor", 8097));
+    let base = std::env::var("IORA_SUPERVISOR_URL").unwrap_or_else(|_| {
+        iora_shared_config::system_config::service_url("iora-supervisor", 8097)
+    });
     let url = format!(
         "{}/api/supervisor/compose/status/{}",
         base.trim_end_matches('/'),

@@ -39,13 +39,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 
 const SERVICE_PORT: u16 = 8102;
@@ -146,7 +140,10 @@ async fn cdp_new_target(url: &str) -> anyhow::Result<(String, String)> {
         .await?;
     let value: Value = resp.json().await?;
     let id = value["id"].as_str().unwrap_or("").to_string();
-    let ws = value["webSocketDebuggerUrl"].as_str().unwrap_or("").to_string();
+    let ws = value["webSocketDebuggerUrl"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     if id.is_empty() || ws.is_empty() {
         anyhow::bail!("CDP /json/new returned no target: {value}")
     }
@@ -266,9 +263,9 @@ async fn broadcast_tabs(state: &AppState) {
         })
         .collect();
     let active = state.active.read().await.clone();
-    let _ = state.frames.send(
-        json!({"type": "tabs", "tabs": list, "active": active}).to_string(),
-    );
+    let _ = state
+        .frames
+        .send(json!({"type": "tabs", "tabs": list, "active": active}).to_string());
 }
 
 // ─── HTTP API ─────────────────────────────────────────────────────────────
@@ -312,10 +309,7 @@ async fn create_tab(State(state): State<AppState>, Json(body): Json<UrlBody>) ->
     }
 }
 
-async fn activate_tab(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+async fn activate_tab(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     if !state.tabs.lock().await.contains_key(&id) {
         return (
             axum::http::StatusCode::NOT_FOUND,
@@ -336,13 +330,7 @@ async fn close_tab(State(state): State<AppState>, Path(id): Path<String>) -> imp
             if state.active.read().await.as_deref() == Some(tab.id.as_str()) {
                 *state.active.write().await = None;
                 // Activate the last remaining tab so the surface stays live.
-                let first = state
-                    .tabs
-                    .lock()
-                    .await
-                    .keys()
-                    .next()
-                    .cloned();
+                let first = state.tabs.lock().await.keys().next().cloned();
                 if let Some(next) = first {
                     *state.active.write().await = Some(next);
                 }
@@ -478,7 +466,8 @@ async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl
 async fn ws_loop(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let mut frame_rx = state.frames.subscribe();
-    let (session_evt_tx, mut session_evt_rx) = tokio::sync::mpsc::channel::<webrtc::SessionEvent>(32);
+    let (session_evt_tx, mut session_evt_rx) =
+        tokio::sync::mpsc::channel::<webrtc::SessionEvent>(32);
 
     // Push the current tab list + navigation state immediately.
     broadcast_tabs(&state).await;
@@ -619,10 +608,7 @@ const INDEX_HTML: &str = include_str!("../static/index.html");
 async fn index() -> impl axum::response::IntoResponse {
     // Never cache the UI — the app-runner iframe must always pick up the
     // current version (stale cached copies showed the pre-proxy WS URL).
-    (
-        [("cache-control", "no-store")],
-        Html(INDEX_HTML),
-    )
+    ([("cache-control", "no-store")], Html(INDEX_HTML))
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────
@@ -631,8 +617,7 @@ async fn index() -> impl axum::response::IntoResponse {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 

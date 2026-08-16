@@ -16,15 +16,29 @@ pub enum EventClass {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum IdentityKind { System, Container, Unknown }
+pub enum IdentityKind {
+    System,
+    Container,
+    Unknown,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum HashState { Pending, Available, Skipped, Failed }
+pub enum HashState {
+    Pending,
+    Available,
+    Skipped,
+    Failed,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ConnectionState { Attempt, Success, Failed, InProgress }
+pub enum ConnectionState {
+    Attempt,
+    Success,
+    Failed,
+    InProgress,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutableIdentity {

@@ -99,6 +99,7 @@ struct ComposeProjectStatus {
     services: HashMap<String, String>,
 }
 
+#[allow(dead_code)] // kept for compose ps parsing; wired in a later slice
 #[derive(Debug, Deserialize)]
 struct ComposePsRow {
     #[serde(default, alias = "Service", alias = "service")]
@@ -891,7 +892,9 @@ async fn list_apps(data: web::Data<AppState>) -> impl Responder {
             .created
             .unwrap_or(0)
             .gt(&existing.created.unwrap_or(0));
-        if (container_running && !existing_running) || (container_running == existing_running && container_newer) {
+        if (container_running && !existing_running)
+            || (container_running == existing_running && container_newer)
+        {
             best_by_id.insert(id, container);
         }
     }
@@ -1134,9 +1137,8 @@ fn compose_project_dir(req: &ComposeProjectRequest) -> Result<std::path::PathBuf
     let home_apps_dir = std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps");
     let home_apps_dir = home_apps_dir.canonicalize().unwrap_or(home_apps_dir);
 
-    let is_allowed = |path: &std::path::Path| {
-        path.starts_with(&base_dir) || path.starts_with(&home_apps_dir)
-    };
+    let is_allowed =
+        |path: &std::path::Path| path.starts_with(&base_dir) || path.starts_with(&home_apps_dir);
 
     if let Some(dir) = req.compose_dir.as_deref().filter(|d| !d.trim().is_empty()) {
         let requested_path = std::path::PathBuf::from(dir);
@@ -1167,12 +1169,14 @@ fn docker_cli_path() -> String {
 }
 
 fn docker_compose_cli_path() -> String {
-    std::env::var("DOCKER_COMPOSE_CLI")
-        .unwrap_or_else(|_| "docker-compose".to_string())
+    std::env::var("DOCKER_COMPOSE_CLI").unwrap_or_else(|_| "docker-compose".to_string())
 }
 
 fn compose_plugin_unavailable(output: &std::process::Output) -> bool {
-    compose_plugin_error(output.status.success(), &String::from_utf8_lossy(&output.stderr))
+    compose_plugin_error(
+        output.status.success(),
+        &String::from_utf8_lossy(&output.stderr),
+    )
 }
 
 fn compose_plugin_error(success: bool, stderr: &str) -> bool {
@@ -1280,7 +1284,10 @@ async fn docker_project_status(project_name: &str) -> Result<Option<ComposeProje
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let rows = stdout.lines().filter(|line| !line.trim().is_empty()).collect::<Vec<_>>();
+    let rows = stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
     if rows.is_empty() {
         return Ok(None);
     }
@@ -1503,11 +1510,8 @@ async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
                         // runs recover automatically.
                         Some(false) => {
                             let _ = docker_remove_container(&id).await;
-                            if let Ok(retry) = run_compose(
-                                &["-p", &project_name, "up", "-d"],
-                                &compose_dir,
-                            )
-                            .await
+                            if let Ok(retry) =
+                                run_compose(&["-p", &project_name, "up", "-d"], &compose_dir).await
                             {
                                 if retry.status.success() {
                                     return HttpResponse::Ok().json(serde_json::json!({
@@ -1552,7 +1556,7 @@ async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
                 "stdout": String::from_utf8_lossy(&output.stdout).trim(),
                 "stderr": stderr.trim()
             }))
-        },
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable()
             .json(serde_json::json!({
                 "success": false,

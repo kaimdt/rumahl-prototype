@@ -92,7 +92,9 @@ pub async fn optional_auth_middleware(
                 let validation = Validation::default();
                 if let Ok(token_data) = decode::<Claims>(
                     token,
-                    &DecodingKey::from_secret(iora_shared_config::system_config::jwt_secret().as_bytes()),
+                    &DecodingKey::from_secret(
+                        iora_shared_config::system_config::jwt_secret().as_bytes(),
+                    ),
                     &validation,
                 ) {
                     request.extensions_mut().insert(token_data.claims);

@@ -47,13 +47,28 @@ fn registry_path(id: &str) -> PathBuf {
 }
 
 fn safe_id(id: &str) -> bool {
-    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Register a new mount (creates the directory + runs `mount -t cifs`).
 /// Credentials are optional — without them the mount uses guest access.
-pub async fn mount_share(ip: &str, share: &str, username: Option<&str>, password: Option<&str>) -> Result<MountRecord, String> {
-    let id = format!("net-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0"));
+pub async fn mount_share(
+    ip: &str,
+    share: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+) -> Result<MountRecord, String> {
+    let id = format!(
+        "net-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("0")
+    );
     let dir = mount_dir(&id);
     std::fs::create_dir_all(&dir).map_err(|e| format!("create dir: {e}"))?;
 
@@ -91,7 +106,12 @@ pub async fn mount_share(ip: &str, share: &str, username: Option<&str>, password
         ));
     }
 
-    let record = MountRecord { id: id.clone(), ip: ip.to_string(), share: share.to_string(), name };
+    let record = MountRecord {
+        id: id.clone(),
+        ip: ip.to_string(),
+        share: share.to_string(),
+        name,
+    };
     let json = serde_json::to_string_pretty(&record).unwrap_or_default();
     let _ = std::fs::write(registry_path(&id), json);
     Ok(record)
@@ -149,7 +169,9 @@ pub async fn list_mounts() -> Vec<MountStatus> {
 fn is_mountpoint(dir: &Path) -> bool {
     // Cheap heuristic: a mounted cifs dir contains the share root marker.
     std::fs::metadata(dir.join(".hidden")).is_ok()
-        || std::fs::read_dir(dir).map(|mut d| d.next().is_some()).unwrap_or(false)
+        || std::fs::read_dir(dir)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
 }
 
 /// List files inside a mounted network drive.

@@ -166,6 +166,7 @@ pub async fn save_remote_config(
 
 /// Resolve the preferred external base URL for share links:
 /// configured external URL > tailnet IP > None (caller falls back to local).
+#[allow(dead_code)] // kept for share-link flows; currently unused after refactors
 pub async fn resolve_external_base(state: &AppState) -> Option<String> {
     // 1. Configured external URL
     if let Ok(Some(pref)) = state

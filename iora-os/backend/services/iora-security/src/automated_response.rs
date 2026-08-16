@@ -29,7 +29,11 @@ use std::{
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::{log_security_event, security_center::{helper_call, ResponseAction}, AppState};
+use crate::{
+    log_security_event,
+    security_center::{helper_call, ResponseAction},
+    AppState,
+};
 
 const RESPONSE_INTERVAL: Duration = Duration::from_secs(30);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -109,7 +113,8 @@ pub fn spawn(state: AppState) {
 async fn run_pass(state: &AppState, handled: &mut HashSet<(Uuid, String)>) -> Result<()> {
     metrics().passes.fetch_add(1, Ordering::Relaxed);
     let client = reqwest::Client::new();
-    let port = iora_shared_config::system_config::service_port_discovery("iora-incident-engine", 8109);
+    let port =
+        iora_shared_config::system_config::service_port_discovery("iora-incident-engine", 8109);
     let base = format!("http://127.0.0.1:{port}");
     let incidents: Vec<IncidentSummary> = client
         .get(format!("{base}/api/runtime/incidents"))
@@ -169,7 +174,7 @@ async fn handle_incident(
         .filter(|p| threat_type_matches(&p.threat_type, &incident.correlation.detection_types))
     {
         for action in &policy.actions {
-            match plan(&incident, action).await {
+            match plan(incident, action).await {
                 ActionPlan::AuditOnly => {
                     record(state, "automated_response", "info", incident, &format!("{}:{}", policy.id, serde_json::to_string(action).unwrap_or_default())).await;
                     executed.push(format!("{}:{}", action_key(action), "audit"));
@@ -235,25 +240,53 @@ async fn handle_incident(
         }
     }
     if !executed.is_empty() {
-        metrics().executed.fetch_add(executed.len() as u64, Ordering::Relaxed);
+        metrics()
+            .executed
+            .fetch_add(executed.len() as u64, Ordering::Relaxed);
     }
     if executed.is_empty() && skipped.is_empty() {
         return;
     }
     // Mark the incident lifecycle accordingly so the next pass skips it and
     // operators see the outcome in the correlation timeline.
-    let state_name = if executed.iter().any(|key| key.starts_with("block_ip:") || key.starts_with("isolate_container:") || key.starts_with("stop_service:") || key.starts_with("quarantine:") || key == "lockdown") { "contained" } else { "investigating" };
-    let reason = format!("automated_response:{}", if executed.is_empty() { skipped.join(",") } else { executed.join(",") });
+    let state_name = if executed.iter().any(|key| {
+        key.starts_with("block_ip:")
+            || key.starts_with("isolate_container:")
+            || key.starts_with("stop_service:")
+            || key.starts_with("quarantine:")
+            || key == "lockdown"
+    }) {
+        "contained"
+    } else {
+        "investigating"
+    };
+    let reason = format!(
+        "automated_response:{}",
+        if executed.is_empty() {
+            skipped.join(",")
+        } else {
+            executed.join(",")
+        }
+    );
     let result = client
-        .post(format!("{base}/api/runtime/incidents/{}/state", incident.incident_id))
+        .post(format!(
+            "{base}/api/runtime/incidents/{}/state",
+            incident.incident_id
+        ))
         .timeout(REQUEST_TIMEOUT)
         .json(&serde_json::json!({"state": state_name, "reason": reason}))
         .send()
         .await;
     match result {
-        Ok(response) if response.status().is_success() => { metrics().transitioned.fetch_add(1, Ordering::Relaxed); }
-        Ok(response) => warn!(incident_id = %incident.incident_id, status = %response.status(), "incident lifecycle transition rejected"),
-        Err(error) => warn!(%error, incident_id = %incident.incident_id, "incident lifecycle transition failed"),
+        Ok(response) if response.status().is_success() => {
+            metrics().transitioned.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(response) => {
+            warn!(incident_id = %incident.incident_id, status = %response.status(), "incident lifecycle transition rejected")
+        }
+        Err(error) => {
+            warn!(%error, incident_id = %incident.incident_id, "incident lifecycle transition failed")
+        }
     }
 }
 
@@ -267,8 +300,15 @@ async fn plan(incident: &IncidentSummary, action: &ResponseAction) -> ActionPlan
             if ips.is_empty() {
                 ActionPlan::Skipped("no_ip_destination_evidence")
             } else {
-                let timeout_seconds = if matches!(action, ResponseAction::TemporaryBlock) { TEMPORARY_BLOCK_SECONDS } else { FULL_BLOCK_SECONDS };
-                ActionPlan::BlockIps { ips, timeout_seconds }
+                let timeout_seconds = if matches!(action, ResponseAction::TemporaryBlock) {
+                    TEMPORARY_BLOCK_SECONDS
+                } else {
+                    FULL_BLOCK_SECONDS
+                };
+                ActionPlan::BlockIps {
+                    ips,
+                    timeout_seconds,
+                }
             }
         }
         ResponseAction::IsolateNetwork => {
@@ -306,7 +346,10 @@ async fn plan(incident: &IncidentSummary, action: &ResponseAction) -> ActionPlan
 #[derive(Debug)]
 enum ActionPlan {
     AuditOnly,
-    BlockIps { ips: Vec<String>, timeout_seconds: u32 },
+    BlockIps {
+        ips: Vec<String>,
+        timeout_seconds: u32,
+    },
     IsolateContainer(String),
     QuarantinePath(String),
     StopService(String),
@@ -360,7 +403,11 @@ fn severity_rank(severity: &str) -> u8 {
 /// widen automation.
 fn threat_type_matches(policy_type: &str, detection_types: &BTreeSet<String>) -> bool {
     let codes: &[&str] = match policy_type {
-        "malware" => &["executable_behavior", "executable_from_tmp", "process_behavior"],
+        "malware" => &[
+            "executable_behavior",
+            "executable_from_tmp",
+            "process_behavior",
+        ],
         "network_attack" => &["network_behavior"],
         "critical_integrity" => &["filesystem_behavior", "child_process_depth"],
         "script_execution" => &["shell_execution", "interpreter_execution"],
@@ -386,7 +433,9 @@ async fn record(
         None,
         Some("iora-security"),
         Some("automation"),
-        Some(&serde_json::json!({"incident_id": incident.incident_id, "detail": detail}).to_string()),
+        Some(
+            &serde_json::json!({"incident_id": incident.incident_id, "detail": detail}).to_string(),
+        ),
     )
     .await
     {
@@ -425,7 +474,10 @@ mod tests {
             state: "open".into(),
             severity: severity.into(),
             recommended_responses: BTreeSet::from(["isolate_subject".into()]),
-            subject: SubjectSummary { identity_type: identity_type.into(), identity_id: identity_id.map(str::to_owned) },
+            subject: SubjectSummary {
+                identity_type: identity_type.into(),
+                identity_id: identity_id.map(str::to_owned),
+            },
             correlation: CorrelationSummary {
                 detection_types: codes.iter().map(|c| c.to_string()).collect(),
                 destinations: destinations.iter().map(|d| d.to_string()).collect(),
@@ -454,48 +506,157 @@ mod tests {
 
     #[tokio::test]
     async fn block_ip_uses_ip_destination_evidence_only() {
-        let incident = fixture("medium", "container", Some("app-a"), &["203.0.113.7", "example.org"], &["c1"], &[], &["network_behavior"]);
+        let incident = fixture(
+            "medium",
+            "container",
+            Some("app-a"),
+            &["203.0.113.7", "example.org"],
+            &["c1"],
+            &[],
+            &["network_behavior"],
+        );
         match plan(&incident, &ResponseAction::TemporaryBlock).await {
-            ActionPlan::BlockIps { ips, timeout_seconds } => {
+            ActionPlan::BlockIps {
+                ips,
+                timeout_seconds,
+            } => {
                 assert_eq!(ips, vec!["203.0.113.7"]);
                 assert_eq!(timeout_seconds, TEMPORARY_BLOCK_SECONDS);
             }
             other => panic!("unexpected plan: {other:?}"),
         }
-        let no_ip = fixture("medium", "container", Some("app-a"), &["example.org"], &["c1"], &[], &["network_behavior"]);
-        assert!(matches!(plan(&no_ip, &ResponseAction::BlockIp).await, ActionPlan::Skipped(_)));
+        let no_ip = fixture(
+            "medium",
+            "container",
+            Some("app-a"),
+            &["example.org"],
+            &["c1"],
+            &[],
+            &["network_behavior"],
+        );
+        assert!(matches!(
+            plan(&no_ip, &ResponseAction::BlockIp).await,
+            ActionPlan::Skipped(_)
+        ));
     }
 
     #[tokio::test]
     async fn isolation_is_limited_to_container_subjects() {
-        let container = fixture("high", "container", Some("app-a"), &[], &["c1"], &[], &["executable_behavior"]);
-        assert!(matches!(plan(&container, &ResponseAction::IsolateNetwork).await, ActionPlan::IsolateContainer(_)));
-        let app = fixture("high", "app", Some("app-a"), &[], &["c1"], &[], &["executable_behavior"]);
-        assert!(matches!(plan(&app, &ResponseAction::IsolateNetwork).await, ActionPlan::Skipped(_)));
+        let container = fixture(
+            "high",
+            "container",
+            Some("app-a"),
+            &[],
+            &["c1"],
+            &[],
+            &["executable_behavior"],
+        );
+        assert!(matches!(
+            plan(&container, &ResponseAction::IsolateNetwork).await,
+            ActionPlan::IsolateContainer(_)
+        ));
+        let app = fixture(
+            "high",
+            "app",
+            Some("app-a"),
+            &[],
+            &["c1"],
+            &[],
+            &["executable_behavior"],
+        );
+        assert!(matches!(
+            plan(&app, &ResponseAction::IsolateNetwork).await,
+            ActionPlan::Skipped(_)
+        ));
     }
 
     #[tokio::test]
     async fn quarantine_requires_path_evidence() {
-        let with_path = fixture("high", "app", Some("app-a"), &[], &[], &["/opt/iora/apps/x/bin/x"], &["executable_behavior"]);
-        assert!(matches!(plan(&with_path, &ResponseAction::Quarantine).await, ActionPlan::QuarantinePath(_)));
-        let hash_only = fixture("high", "app", Some("app-a"), &[], &[], &[], &["executable_behavior"]);
-        assert!(matches!(plan(&hash_only, &ResponseAction::Quarantine).await, ActionPlan::Skipped(_)));
+        let with_path = fixture(
+            "high",
+            "app",
+            Some("app-a"),
+            &[],
+            &[],
+            &["/opt/iora/apps/x/bin/x"],
+            &["executable_behavior"],
+        );
+        assert!(matches!(
+            plan(&with_path, &ResponseAction::Quarantine).await,
+            ActionPlan::QuarantinePath(_)
+        ));
+        let hash_only = fixture(
+            "high",
+            "app",
+            Some("app-a"),
+            &[],
+            &[],
+            &[],
+            &["executable_behavior"],
+        );
+        assert!(matches!(
+            plan(&hash_only, &ResponseAction::Quarantine).await,
+            ActionPlan::Skipped(_)
+        ));
     }
 
     #[tokio::test]
     async fn stop_process_is_never_executed_without_pid() {
-        let incident = fixture("high", "system", Some("sshd.service"), &[], &[], &[], &["child_process_depth"]);
-        assert!(matches!(plan(&incident, &ResponseAction::StopProcess).await, ActionPlan::Skipped(_)));
+        let incident = fixture(
+            "high",
+            "system",
+            Some("sshd.service"),
+            &[],
+            &[],
+            &[],
+            &["child_process_depth"],
+        );
+        assert!(matches!(
+            plan(&incident, &ResponseAction::StopProcess).await,
+            ActionPlan::Skipped(_)
+        ));
     }
 
     #[tokio::test]
     async fn service_stop_requires_system_service_subject() {
-        let service = fixture("high", "system", Some("sshd.service"), &[], &[], &[], &["child_process_depth"]);
-        assert!(matches!(plan(&service, &ResponseAction::StopService).await, ActionPlan::StopService(name) if name == "sshd.service"));
-        let app = fixture("high", "app", Some("sshd.service"), &[], &[], &[], &["child_process_depth"]);
-        assert!(matches!(plan(&app, &ResponseAction::StopService).await, ActionPlan::Skipped(_)));
-        let invalid = fixture("high", "system", Some("../../etc/passwd"), &[], &[], &[], &["child_process_depth"]);
-        assert!(matches!(plan(&invalid, &ResponseAction::StopService).await, ActionPlan::Skipped(_)));
+        let service = fixture(
+            "high",
+            "system",
+            Some("sshd.service"),
+            &[],
+            &[],
+            &[],
+            &["child_process_depth"],
+        );
+        assert!(
+            matches!(plan(&service, &ResponseAction::StopService).await, ActionPlan::StopService(name) if name == "sshd.service")
+        );
+        let app = fixture(
+            "high",
+            "app",
+            Some("sshd.service"),
+            &[],
+            &[],
+            &[],
+            &["child_process_depth"],
+        );
+        assert!(matches!(
+            plan(&app, &ResponseAction::StopService).await,
+            ActionPlan::Skipped(_)
+        ));
+        let invalid = fixture(
+            "high",
+            "system",
+            Some("../../etc/passwd"),
+            &[],
+            &[],
+            &[],
+            &["child_process_depth"],
+        );
+        assert!(matches!(
+            plan(&invalid, &ResponseAction::StopService).await,
+            ActionPlan::Skipped(_)
+        ));
     }
 
     #[tokio::test]

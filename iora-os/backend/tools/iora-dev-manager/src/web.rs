@@ -39,17 +39,26 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .route("/api/service/action", post(service_action))
         .route("/api/service/logs", get(service_logs))
         .route("/api/stats", get(stats))
-        .route("/api/mappings", get(mappings_get).post(mappings_add).delete(mappings_remove))
+        .route(
+            "/api/mappings",
+            get(mappings_get).post(mappings_add).delete(mappings_remove),
+        )
         .route("/api/vms", get(vms))
         .route("/api/vms/attach", post(vms_attach))
         .route("/api/vms/stop", post(vms_stop))
         .route("/api/network/reset", post(network_reset))
         .route("/api/monitoring", get(monitoring))
         .route("/api/maintenance/config-sync", post(config_sync))
-        .route("/api/maintenance/docker-compose", post(install_docker_compose))
+        .route(
+            "/api/maintenance/docker-compose",
+            post(install_docker_compose),
+        )
         .route("/api/maintenance/force-sync", post(force_sync))
         .route("/api/maintenance/force-sync/status", get(force_sync_status))
-        .route("/api/maintenance/force-sync/cancel", post(force_sync_cancel))
+        .route(
+            "/api/maintenance/force-sync/cancel",
+            post(force_sync_cancel),
+        )
         .route("/api/guest", post(guest))
         .route("/api/ssh", post(ssh_open))
         .route("/api/logs", get(logs))
@@ -121,7 +130,11 @@ async fn vms(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
     let result = daemon.qemu_vms().await;
     // Never block the request on the slow process scan: kick a background
     // refresh when the cache is empty; the periodic task keeps it warm.
-    if result["vms"].as_array().map(|a| a.is_empty()).unwrap_or(true) {
+    if result["vms"]
+        .as_array()
+        .map(|a| a.is_empty())
+        .unwrap_or(true)
+    {
         let refresh = daemon.clone();
         tokio::spawn(async move { refresh.refresh_vms_cache().await });
     }
@@ -130,7 +143,9 @@ async fn vms(State(daemon): State<Arc<Daemon>>) -> Json<Value> {
 
 async fn vms_attach(State(daemon): State<Arc<Daemon>>, Json(body): Json<VmPidBody>) -> Json<Value> {
     match daemon.adopt_foreign(body.pid).await {
-        Ok(()) => Json(json!({"ok": true, "message": format!("Attached to QEMU PID {}", body.pid)})),
+        Ok(()) => {
+            Json(json!({"ok": true, "message": format!("Attached to QEMU PID {}", body.pid)}))
+        }
         Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
     }
 }
@@ -219,7 +234,10 @@ async fn service_logs(
     State(daemon): State<Arc<Daemon>>,
     Query(query): Query<ServiceLogsQuery>,
 ) -> Json<Value> {
-    match daemon.service_logs(query.unit, query.tail.unwrap_or(100)).await {
+    match daemon
+        .service_logs(query.unit, query.tail.unwrap_or(100))
+        .await
+    {
         Ok(output) => Json(json!({"ok": true, "output": output})),
         Err(error) => Json(json!({"ok": false, "message": format!("{error:#}")})),
     }
@@ -542,8 +560,7 @@ async fn sftp_key(State(daemon): State<Arc<Daemon>>) -> Response {
     let bytes = match std::fs::read(&key_path) {
         Ok(bytes) => bytes,
         Err(_) => {
-            return StatusCode::NOT_FOUND
-                .into_response();
+            return StatusCode::NOT_FOUND.into_response();
         }
     };
     let attachment = format!(
@@ -630,7 +647,10 @@ async fn ssh_terminal(mut socket: WebSocket, daemon: Arc<Daemon>) {
     if key.exists() {
         command.arg("-i").arg(&key);
     }
-    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {

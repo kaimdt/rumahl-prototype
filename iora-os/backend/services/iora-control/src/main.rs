@@ -61,7 +61,7 @@ impl AppState {
         // issued by iora-home's /api/auth/login are accepted here. The generic
         // `JWT_SECRET` env var with a hardcoded fallback never matched the
         // dashboard's secret, which made every proxied request 401.
-    
+
         Self {
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -1247,12 +1247,27 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/ssh/users/:username", delete(delete_ssh_user))
         // OS-level management (only useful when running on IORA OS)
         .route("/api/control/os/disks", get(list_disks))
-        .route("/api/control/os/storage/inventory", get(storage_inventory::inventory))
+        .route(
+            "/api/control/os/storage/inventory",
+            get(storage_inventory::inventory),
+        )
         .route("/api/control/os/storage/nas", get(nas_inventory::inventory))
-        .route("/api/control/os/storage/nas/plan", post(nas_inventory::plan))
-        .route("/api/control/os/storage/nas/execute", post(nas_inventory::execute))
-        .route("/api/control/os/storage/raid/plan", post(storage_inventory::plan))
-        .route("/api/control/os/storage/raid/execute", post(storage_jobs::execute))
+        .route(
+            "/api/control/os/storage/nas/plan",
+            post(nas_inventory::plan),
+        )
+        .route(
+            "/api/control/os/storage/nas/execute",
+            post(nas_inventory::execute),
+        )
+        .route(
+            "/api/control/os/storage/raid/plan",
+            post(storage_inventory::plan),
+        )
+        .route(
+            "/api/control/os/storage/raid/execute",
+            post(storage_jobs::execute),
+        )
         .route("/api/control/os/storage/jobs", get(storage_jobs::list))
         .route("/api/control/os/storage/jobs/:id", get(storage_jobs::get))
         .route("/api/control/os/network", get(list_network_interfaces))
@@ -1312,7 +1327,9 @@ fn parse_systemd_units(output: &str) -> Vec<serde_json::Value> {
     output
         .lines()
         .filter_map(|line| {
-            let mut parts = line.splitn(4, char::is_whitespace).filter(|p| !p.is_empty());
+            let mut parts = line
+                .splitn(4, char::is_whitespace)
+                .filter(|p| !p.is_empty());
             let name = parts.next()?.to_string();
             let load = parts.next().unwrap_or("").to_string();
             let active = parts.next().unwrap_or("").to_string();
@@ -1335,14 +1352,19 @@ fn parse_systemd_units(output: &str) -> Vec<serde_json::Value> {
 /// GET /api/control/os/services — list systemd service units.
 async fn list_systemd_services() -> impl IntoResponse {
     match std::process::Command::new("systemctl")
-        .args(["list-units", "--type=service", "--all", "--no-legend", "--no-pager"])
+        .args([
+            "list-units",
+            "--type=service",
+            "--all",
+            "--no-legend",
+            "--no-pager",
+        ])
         .output()
     {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let services = parse_systemd_units(&stdout);
-            Json(serde_json::json!({ "services": services }))
-                .into_response()
+            Json(serde_json::json!({ "services": services })).into_response()
         }
         Ok(output) => (
             StatusCode::INTERNAL_SERVER_ERROR,

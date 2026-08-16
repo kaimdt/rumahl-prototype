@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::path::Path;
+use std::sync::OnceLock;
 #[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::{
@@ -8,7 +9,6 @@ use tokio::{
     net::TcpStream,
     time::{sleep, timeout, Duration},
 };
-use std::sync::OnceLock;
 
 // The QEMU Guest Agent accepts only one request at a time reliably. The
 // watcher, watchdog, health probe and port scanner all share the channel, so

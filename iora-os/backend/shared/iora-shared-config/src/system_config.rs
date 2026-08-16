@@ -236,16 +236,31 @@ mod jwt_secret_tests {
 
     #[test]
     fn removes_json_and_environment_file_quotes() {
-        assert_eq!(normalize_jwt_secret(r#""shared-secret-value""#), "shared-secret-value");
-        assert_eq!(normalize_jwt_secret(r#"'shared-secret-value'"#), "shared-secret-value");
-        assert_eq!(normalize_jwt_secret("'shared-secret-value'"), "shared-secret-value");
-        assert_eq!(normalize_jwt_secret("  shared-secret-value\n"), "shared-secret-value");
+        assert_eq!(
+            normalize_jwt_secret(r#""shared-secret-value""#),
+            "shared-secret-value"
+        );
+        assert_eq!(
+            normalize_jwt_secret(r#"'shared-secret-value'"#),
+            "shared-secret-value"
+        );
+        assert_eq!(
+            normalize_jwt_secret("'shared-secret-value'"),
+            "shared-secret-value"
+        );
+        assert_eq!(
+            normalize_jwt_secret("  shared-secret-value\n"),
+            "shared-secret-value"
+        );
     }
 
     #[test]
     fn canonical_path_is_etc_iora() {
         if std::env::var_os("IORA_JWT_SECRET_FILE").is_none() {
-            assert_eq!(super::jwt_secret_file(), std::path::PathBuf::from("/etc/iora/jwt-secret"));
+            assert_eq!(
+                super::jwt_secret_file(),
+                std::path::PathBuf::from("/etc/iora/jwt-secret")
+            );
         }
     }
 }

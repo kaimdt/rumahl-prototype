@@ -216,10 +216,28 @@ fn relevant(path: &Path) -> bool {
     }
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
-        Some("ts" | "tsx" | "css" | "rs" | "sql" | "json" | "service" | "html" | "js" | "yaml" | "yml")
+        Some(
+            "ts" | "tsx"
+                | "css"
+                | "rs"
+                | "sql"
+                | "json"
+                | "service"
+                | "html"
+                | "js"
+                | "yaml"
+                | "yml"
+        )
     ) || matches!(
         path.file_name().and_then(|name| name.to_str()),
-        Some("vite.config.ts" | "vite.config.js" | "package.json" | "index.html" | "Cargo.toml" | "manifest.yaml")
+        Some(
+            "vite.config.ts"
+                | "vite.config.js"
+                | "package.json"
+                | "index.html"
+                | "Cargo.toml"
+                | "manifest.yaml"
+        )
     )
 }
 
@@ -234,20 +252,32 @@ fn collect_local_files(repo: &Path) -> Vec<(String, f64, u64)> {
     let mut files = Vec::new();
     let mut stack = vec![repo.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 let name = path.file_name().and_then(|name| name.to_str());
                 if !matches!(
                     name,
-                    Some(".git" | "target" | "node_modules" | ".cache" | "dist" | "dist_new" | "src_new")
+                    Some(
+                        ".git"
+                            | "target"
+                            | "node_modules"
+                            | ".cache"
+                            | "dist"
+                            | "dist_new"
+                            | "src_new"
+                    )
                 ) && !name.is_some_and(|name| name.starts_with("buildroot"))
                 {
                     stack.push(path);
                 }
             } else if relevant(&path) {
-                let Ok(relative) = path.strip_prefix(repo) else { continue };
+                let Ok(relative) = path.strip_prefix(repo) else {
+                    continue;
+                };
                 let relative = relative
                     .components()
                     .map(|part| part.as_os_str().to_string_lossy())
@@ -271,17 +301,25 @@ fn collect_local_files(repo: &Path) -> Vec<(String, f64, u64)> {
 
 /// Guest-side modification times and byte sizes (`find -printf '%T@ %s %p'`),
 /// one SSH call.
-async fn remote_timestamps(os_root: &Path, state: &RuntimeState) -> Result<HashMap<String, (f64, u64)>> {
+async fn remote_timestamps(
+    os_root: &Path,
+    state: &RuntimeState,
+) -> Result<HashMap<String, (f64, u64)>> {
     let command = "cd /home/iora/iora && find frontend iora-os/backend/services iora-os/backend/shared iora-os/backend/tools custom_components -type f \\( -name '*.ts' -o -name '*.tsx' -o -name '*.css' -o -name '*.rs' -o -name '*.sql' -o -name '*.json' -o -name '*.service' -o -name '*.html' -o -name '*.js' -o -name '*.yaml' -o -name '*.yml' -o -name 'Cargo.toml' -o -name 'vite.config.ts' -o -name 'vite.config.js' \\) -printf '%T@ %s %p\\n' 2>/dev/null";
     let output = ssh_run(state, os_root, command).await?;
     let mut map = HashMap::new();
     for line in output.lines() {
         let mut parts = line.splitn(3, ' ');
-        if let (Some(seconds), Some(size), Some(path)) = (parts.next(), parts.next(), parts.next()) {
+        if let (Some(seconds), Some(size), Some(path)) = (parts.next(), parts.next(), parts.next())
+        {
             let path = path.trim_start_matches("./").trim();
             if !path.is_empty() {
-                let Ok(secs) = seconds.trim().parse::<f64>() else { continue };
-                let Ok(len) = size.trim().parse::<u64>() else { continue };
+                let Ok(secs) = seconds.trim().parse::<f64>() else {
+                    continue;
+                };
+                let Ok(len) = size.trim().parse::<u64>() else {
+                    continue;
+                };
                 map.insert(path.to_string(), (secs, len));
             }
         }
@@ -430,8 +468,12 @@ async fn apply_changes(
         ) && path.components().any(|part| part.as_os_str() == "frontend")
     });
     if frontend_restart {
-        ssh_run(state, os_root, "systemctl restart iora-frontend-dev && systemctl is-active --quiet iora-frontend-dev")
-            .await?;
+        ssh_run(
+            state,
+            os_root,
+            "systemctl restart iora-frontend-dev && systemctl is-active --quiet iora-frontend-dev",
+        )
+        .await?;
     }
     let rust_paths = paths
         .iter()
@@ -500,7 +542,12 @@ fn ssh_args(state: &RuntimeState, os_root: &Path) -> Vec<String> {
 }
 
 /// Transfer many files in ONE tar stream over SSH (fast bulk sync).
-async fn bulk_sync(repo: &Path, os_root: &Path, state: &RuntimeState, paths: &[PathBuf]) -> Result<()> {
+async fn bulk_sync(
+    repo: &Path,
+    os_root: &Path,
+    state: &RuntimeState,
+    paths: &[PathBuf],
+) -> Result<()> {
     let (host, _, _) = state.connection();
     // Paths go via --files-from stdin: the Windows command line limit (~32k)
     // is far too small for a full-repo sync.
@@ -514,7 +561,9 @@ async fn bulk_sync(repo: &Path, os_root: &Path, state: &RuntimeState, paths: &[P
         let mut tar_stdin = tar_child.stdin.take().context("tar stdin")?;
         let mut payload = String::new();
         for path in paths {
-            let Ok(relative) = path.strip_prefix(repo) else { continue };
+            let Ok(relative) = path.strip_prefix(repo) else {
+                continue;
+            };
             let relative = relative
                 .components()
                 .map(|part| part.as_os_str().to_string_lossy())
@@ -613,19 +662,19 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
             let run = |command: String| {
                 let socket = socket.clone();
                 async move {
-                let mut last_error = None;
-                for attempt in 1..=3 {
-                    match channels::guest_exec(state.qga_port, &socket, &command).await {
-                        Ok(_) => return Ok(()),
-                        Err(error) => {
-                            last_error = Some(error);
-                            if attempt < 3 {
-                                tokio::time::sleep(Duration::from_millis(500 * attempt)).await;
+                    let mut last_error = None;
+                    for attempt in 1..=3 {
+                        match channels::guest_exec(state.qga_port, &socket, &command).await {
+                            Ok(_) => return Ok(()),
+                            Err(error) => {
+                                last_error = Some(error);
+                                if attempt < 3 {
+                                    tokio::time::sleep(Duration::from_millis(500 * attempt)).await;
+                                }
                             }
                         }
                     }
-                }
-                Err(last_error.expect("sync retries always record an error"))
+                    Err(last_error.expect("sync retries always record an error"))
                 }
             };
             run(format!(
@@ -633,7 +682,8 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
                 shell_quote(&parent.display().to_string()),
                 shell_quote(&temporary),
                 shell_quote(&encoded),
-            )).await?;
+            ))
+            .await?;
             // QGA frames are limited; send source in 24 KiB chunks so even
             // large React files are transferred without truncated requests.
             for chunk in bytes.chunks(24 * 1024) {
@@ -641,7 +691,8 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
                     "printf %s {} >> {}",
                     shell_quote(&encode_base64(chunk)),
                     shell_quote(&encoded),
-                )).await?;
+                ))
+                .await?;
             }
             run(format!(
                 "base64 -d {} > {} && test $(wc -c < {}) -eq {} && mv -f {} {} && rm -f {}",
@@ -652,7 +703,8 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
                 shell_quote(&temporary),
                 shell_quote(&remote.display().to_string()),
                 shell_quote(&encoded),
-            )).await?;
+            ))
+            .await?;
             return Ok(());
         }
     }
@@ -711,7 +763,12 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
                 .await?;
             if copied.success() {
                 // Normalize mtime to the guest clock so cargo rebuilds.
-                let _ = ssh_run(state, os_root, &format!("touch -m -- {}", shell_quote(&remote.display().to_string()))).await;
+                let _ = ssh_run(
+                    state,
+                    os_root,
+                    &format!("touch -m -- {}", shell_quote(&remote.display().to_string())),
+                )
+                .await;
                 return Ok(());
             }
         }
@@ -972,7 +1029,10 @@ async fn run_guest_build(
         if let Some(progress) = progress {
             progress.update(
                 "error",
-                format!("Guest-Build fehlgeschlagen:\n{}", tail.chars().take(300).collect::<String>()),
+                format!(
+                    "Guest-Build fehlgeschlagen:\n{}",
+                    tail.chars().take(300).collect::<String>()
+                ),
                 None,
             );
         }

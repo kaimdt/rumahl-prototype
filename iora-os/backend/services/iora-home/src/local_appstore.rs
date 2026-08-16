@@ -351,7 +351,8 @@ impl LocalAppStore {
                 // proxy target ("Keine konfigurierte URL für diese App").
                 if a.ports.is_empty() {
                     if let Some(ports) = a.manifest.extra.get("ports") {
-                        if let Ok(parsed) = serde_json::from_value::<Vec<PortMapping>>(ports.clone())
+                        if let Ok(parsed) =
+                            serde_json::from_value::<Vec<PortMapping>>(ports.clone())
                         {
                             a.ports = parsed;
                             changed = true;
@@ -905,7 +906,8 @@ impl LocalAppStore {
             if let Some(app) = inner.apps.get(app_id) {
                 if app.ports.is_empty() {
                     if let Some(ports) = app.manifest.extra.get("ports") {
-                        if let Ok(parsed) = serde_json::from_value::<Vec<PortMapping>>(ports.clone())
+                        if let Ok(parsed) =
+                            serde_json::from_value::<Vec<PortMapping>>(ports.clone())
                         {
                             drop(inner);
                             let mut inner = self.inner.write().await;
@@ -1744,10 +1746,9 @@ mod tests {
         }"#;
         let parsed = parse_app_manifest(manifest).expect("manifest parses");
         assert_eq!(parsed.id, "ora-browser");
-        let ports: Vec<PortMapping> = serde_json::from_value(
-            parsed.extra.get("ports").expect("ports in extra").clone(),
-        )
-        .expect("ports deserialize");
+        let ports: Vec<PortMapping> =
+            serde_json::from_value(parsed.extra.get("ports").expect("ports in extra").clone())
+                .expect("ports deserialize");
         assert_eq!(ports.len(), 1);
         assert_eq!(ports[0].external, 8102);
         assert_eq!(ports[0].internal, 8102);

@@ -1,7 +1,7 @@
 use anyhow::Context;
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State, WebSocketUpgrade},
-    http::{header, HeaderMap, StatusCode, Uri},
+    http::{header, HeaderMap, StatusCode},
     response::{
         sse::{Event as SseEvent, KeepAlive, Sse},
         IntoResponse, Response,
@@ -44,19 +44,18 @@ mod app_scheduler_handler;
 mod app_storage_handler;
 mod app_system_event_hooks;
 mod app_webhooks_handler;
-mod automation_handler;
 mod auth;
+mod automation_handler;
 mod ble_client;
 mod clipboard_handler;
 mod crypto;
 mod db;
-mod dev_build_handler;
 mod desktop_gateway;
-mod device_handler;
-mod download_handler;
-mod tor_manager;
+mod dev_build_handler;
 mod dev_image;
+mod device_handler;
 mod documentation;
+mod download_handler;
 mod entity_cache;
 mod frontend_dev_proxy;
 mod ha_cache;
@@ -75,15 +74,16 @@ mod middleware;
 mod mqtt_client;
 mod notification_dispatcher;
 mod permission_requests_handler;
-mod remote_handler;
-mod session_handler;
-mod user_profiles_handler;
 mod person_tracker;
 mod plugin_sandbox;
+mod remote_handler;
+mod session_handler;
 mod streaming;
 mod system_events;
 mod terminal_handler;
 mod theme_handler;
+mod tor_manager;
+mod user_profiles_handler;
 mod websocket;
 mod zigbee_client;
 mod zwave_client;
@@ -1044,9 +1044,9 @@ async fn main() -> anyhow::Result<()> {
     let ble_client = Arc::new(BleClient::new());
     let homekit_client = Arc::new(HomekitClient::new());
     let stream_manager = Arc::new(StreamManager::new());
-    let tor_manager = Arc::new(tor_manager::TorManager::new(
-        std::path::PathBuf::from("/opt/iora/data/iora-home/tor"),
-    ));
+    let tor_manager = Arc::new(tor_manager::TorManager::new(std::path::PathBuf::from(
+        "/opt/iora/data/iora-home/tor",
+    )));
     let notification_dispatcher = Arc::new(NotificationDispatcher::new(
         db_pool.clone(),
         ws_manager.clone(),
@@ -1160,14 +1160,21 @@ async fn main() -> anyhow::Result<()> {
         let tor = state.tor_manager.clone();
         tokio::spawn(async move {
             let installed = store.list().await;
-            let mut ports: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+            let mut ports: std::collections::HashMap<String, u16> =
+                std::collections::HashMap::new();
             for app in installed {
                 // Prefer assigned ports; fall back to the manifest's docker
                 // config (internal_ports[].external) for container apps.
-                let mut port: Option<u16> = app.ports.iter().find(|p| p.protocol == "tcp").map(|p| p.external);
+                let mut port: Option<u16> = app
+                    .ports
+                    .iter()
+                    .find(|p| p.protocol == "tcp")
+                    .map(|p| p.external);
                 if port.is_none() {
                     if let Some(docker) = app.docker_config.as_ref() {
-                        if let Some(ports_arr) = docker.get("internal_ports").and_then(|v| v.as_array()) {
+                        if let Some(ports_arr) =
+                            docker.get("internal_ports").and_then(|v| v.as_array())
+                        {
                             if let Some(first) = ports_arr.first() {
                                 let external = first.get("external").and_then(|v| v.as_u64());
                                 let internal = first.get("port").and_then(|v| v.as_u64());
@@ -1185,8 +1192,6 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     }
-
-
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
     match state.config_repo.ensure_admin_exists().await {
@@ -1262,7 +1267,9 @@ async fn main() -> anyhow::Result<()> {
                     if let Err(e) = store.uninstall_force("webbrowser").await {
                         warn!("bootstrap: legacy webbrowser app removal failed: {e:#}");
                     } else {
-                        info!("bootstrap: removed legacy 'webbrowser' app (replaced by ora-browser)");
+                        info!(
+                            "bootstrap: removed legacy 'webbrowser' app (replaced by ora-browser)"
+                        );
                     }
                 }
                 for prefix in ["iora-app-", "iora-bundle-"] {
@@ -1563,8 +1570,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/api-keys", get(admin_list_all_api_keys))
         .route("/api/admin/api-keys/:key_id", delete(admin_delete_api_key))
         .route("/api/admin/ha/config", get(admin_ha_config))
-        .route("/api/admin/ha/discover", post(ha_onboarding_handler::discover))
-        .route("/api/admin/ha/onboard", post(ha_onboarding_handler::onboard))
+        .route(
+            "/api/admin/ha/discover",
+            post(ha_onboarding_handler::discover),
+        )
+        .route(
+            "/api/admin/ha/onboard",
+            post(ha_onboarding_handler::onboard),
+        )
         .route("/api/admin/ha/integrations", get(admin_ha_integrations))
         .route("/api/admin/ha/devices", get(admin_ha_devices))
         .route("/api/admin/ha/areas", get(admin_ha_areas))
@@ -1801,7 +1814,10 @@ async fn main() -> anyhow::Result<()> {
         )
         // Security Center is admin-only. Authorization is enforced here before
         // the trusted proxy marker is attached for iora-security.
-        .route("/api/core/security/center/overview", get(proxy_core_security))
+        .route(
+            "/api/core/security/center/overview",
+            get(proxy_core_security),
+        )
         .route(
             "/api/core/security/center/providers",
             get(proxy_core_security).post(proxy_core_security),
@@ -1811,8 +1827,14 @@ async fn main() -> anyhow::Result<()> {
             get(proxy_core_security).post(proxy_core_security),
         )
         .route("/api/core/security/center/scans", post(proxy_core_security))
-        .route("/api/core/security/center/quarantine/restore", post(proxy_core_security))
-        .route("/api/core/security/center/firewall", post(proxy_core_security))
+        .route(
+            "/api/core/security/center/quarantine/restore",
+            post(proxy_core_security),
+        )
+        .route(
+            "/api/core/security/center/firewall",
+            post(proxy_core_security),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::require_admin,
@@ -1832,8 +1854,7 @@ async fn main() -> anyhow::Result<()> {
         // Visual automation engine (Package 4)
         .route(
             "/api/automations",
-            get(automation_handler::list_automations)
-                .post(automation_handler::create_automation),
+            get(automation_handler::list_automations).post(automation_handler::create_automation),
         )
         .route(
             "/api/automations/:automation_id",
@@ -1850,14 +1871,8 @@ async fn main() -> anyhow::Result<()> {
             get(automation_handler::list_executions),
         )
         // User-level log viewer (Package 5 — Logs app)
-        .route(
-            "/api/os/logs/sources",
-            get(user_list_log_sources),
-        )
-        .route(
-            "/api/os/logs/source/:source_id",
-            get(user_get_source_logs),
-        )
+        .route("/api/os/logs/sources", get(user_list_log_sources))
+        .route("/api/os/logs/source/:source_id", get(user_get_source_logs))
         // System-wide job manager (Job Center + ora.jobs SDK)
         .route("/api/jobs", get(job_handler::list_jobs))
         .route("/api/jobs", post(job_handler::create_job))
@@ -1873,7 +1888,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/jobs/:job_id/cancel", post(job_handler::cancel_job))
         // Clipboard manager (history per user, cross-device via same API)
         .route("/api/clipboard", get(clipboard_handler::list_clipboard))
-        .route("/api/clipboard", post(clipboard_handler::add_clipboard_entry))
+        .route(
+            "/api/clipboard",
+            post(clipboard_handler::add_clipboard_entry),
+        )
         .route("/api/clipboard", delete(clipboard_handler::clear_clipboard))
         .route(
             "/api/clipboard/:entry_id/pin",
@@ -1940,17 +1958,17 @@ async fn main() -> anyhow::Result<()> {
         // Remote access status (Package 7)
         .route("/api/remote/status", get(remote_handler::remote_status))
         .route("/api/remote/config", get(remote_handler::get_remote_config))
-        .route("/api/remote/config", put(remote_handler::save_remote_config))
+        .route(
+            "/api/remote/config",
+            put(remote_handler::save_remote_config),
+        )
         // Media Hub (Package 6): Jellyfin/Plex detection + continue-watching
         .route("/api/media/hub", get(media_handler::media_hub))
         .route(
             "/api/media/continue-watching",
             get(media_handler::continue_watching),
         )
-        .route(
-            "/api/media/image/:item_id",
-            get(media_handler::media_image),
-        )
+        .route("/api/media/image/:item_id", get(media_handler::media_image))
         .route("/api/media/config", get(media_handler::get_media_config))
         .route("/api/media/config", put(media_handler::save_media_config))
         // Webhook management
@@ -2203,7 +2221,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/system/ha-info", get(get_ha_info))
         // Configuration API
         .route("/api/config/users/by-id/:user_id", put(update_user))
-
         .route("/api/config/profiles", post(create_profile))
         .route("/api/config/profiles/:profile_id", get(get_profile_data))
         .route(
@@ -2407,10 +2424,7 @@ async fn main() -> anyhow::Result<()> {
         )
         // App/plugin static assets — serves files from the app's install directory.
         // Used by i18n bundle loading: `<assets_base_url>/i18n/<lng>.json`.
-        .route(
-            "/api/apps/assets/:app_id/*path",
-            get(serve_app_asset),
-        )
+        .route("/api/apps/assets/:app_id/*path", get(serve_app_asset))
         .route(
             "/api/apps/:app_id/capabilities",
             get(app_runtime_handler::app_capabilities),
@@ -2478,10 +2492,7 @@ async fn main() -> anyhow::Result<()> {
         // App Embedding Gateway runtime info — the App Runner uses this to
         // resolve the public runtime URL, lifecycle state and display metadata
         // for the embedded iframe (never internal ports/addresses).
-        .route(
-            "/api/apps/:app_id/runtime",
-            get(app_gateway::runtime_info),
-        )
+        .route("/api/apps/:app_id/runtime", get(app_gateway::runtime_info))
         // App logs — per-app log retrieval and live streaming.
         .route("/api/apps/:app_id/logs", get(app_logs_get))
         .route("/api/apps/:app_id/logs/stream", get(app_logs_stream))
@@ -2591,7 +2602,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/files/system-path", get(proxy_files))
         .route("/api/files/system-folder", get(proxy_files))
         .route("/api/files/network/shares", get(proxy_files))
-        .route("/api/files/network/mounts", get(proxy_files).post(proxy_files))
+        .route(
+            "/api/files/network/mounts",
+            get(proxy_files).post(proxy_files),
+        )
         .route("/api/files/network/mounts/:id", delete(proxy_files))
         .route("/api/files/network/mounts/:id/files", get(proxy_files))
         .route("/api/files/network/mounts/:id/download", get(proxy_files))
@@ -2662,7 +2676,9 @@ async fn main() -> anyhow::Result<()> {
         // iora-cloud (Port 8120, optional external)
         .route(
             "/api/admin/iora-cloud/config",
-            get(proxy_iora_cloud).post(proxy_iora_cloud).put(proxy_iora_cloud),
+            get(proxy_iora_cloud)
+                .post(proxy_iora_cloud)
+                .put(proxy_iora_cloud),
         )
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
@@ -3402,7 +3418,9 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
 
     // Expose whether Home Assistant is configured at all so the frontend can
     // suppress "Home Assistant not reachable" banners on fresh installs.
-    let ha_configured = load_ha_runtime_config(&state.config_repo).await.is_configured();
+    let ha_configured = load_ha_runtime_config(&state.config_repo)
+        .await
+        .is_configured();
 
     Json(serde_json::json!({
         "status": "ok",
@@ -6157,7 +6175,9 @@ async fn user_list_log_sources(
     Extension(identity): Extension<middleware::AuthIdentity>,
 ) -> axum::response::Response {
     match require_user_os_permission(&state, &identity, "os.system.read").await {
-        Ok(()) => logs_handler::list_log_sources(State(state)).await.into_response(),
+        Ok(()) => logs_handler::list_log_sources(State(state))
+            .await
+            .into_response(),
         Err(e) => e.into_response(),
     }
 }
@@ -6170,11 +6190,13 @@ async fn user_get_source_logs(
     axum::extract::Query(query): axum::extract::Query<logs_handler::LogQuery>,
 ) -> axum::response::Response {
     match require_user_os_permission(&state, &identity, "os.system.read").await {
-        Ok(()) => {
-            logs_handler::get_source_logs(State(state), axum::extract::Path(source_id), axum::extract::Query(query))
-                .await
-                .into_response()
-        }
+        Ok(()) => logs_handler::get_source_logs(
+            State(state),
+            axum::extract::Path(source_id),
+            axum::extract::Query(query),
+        )
+        .await
+        .into_response(),
         Err(e) => e.into_response(),
     }
 }
@@ -7448,8 +7470,14 @@ async fn proxy_core_security(
     // markers first, then attach the marker that iora-security trusts.
     parts.headers.remove("x-iora-proxy");
     parts.headers.remove("x-iora-permissions");
-    parts.headers.insert("x-iora-proxy", axum::http::HeaderValue::from_static("iora-home"));
-    parts.headers.insert("x-iora-permissions", axum::http::HeaderValue::from_static("security_admin"));
+    parts.headers.insert(
+        "x-iora-proxy",
+        axum::http::HeaderValue::from_static("iora-home"),
+    );
+    parts.headers.insert(
+        "x-iora-permissions",
+        axum::http::HeaderValue::from_static("security_admin"),
+    );
     let new_req = axum::extract::Request::<Body>::from_parts(parts, body);
     forward_request_to(&state, &base, new_req).await
 }
@@ -7775,10 +7803,7 @@ async fn serve_app_asset(
     axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
 ) -> Result<Response, (StatusCode, String)> {
     // Path traversal protection
-    let clean = path
-        .replace('\\', "/")
-        .trim_start_matches('/')
-        .to_string();
+    let clean = path.replace('\\', "/").trim_start_matches('/').to_string();
     if clean.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
     }
@@ -8000,22 +8025,42 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
 
     let mut apps: Vec<Value> = Vec::new();
     for (a, (needs_docker, docker_status)) in candidates.into_iter().zip(probes) {
-            let status = docker_status.as_ref().map(|state| {
+        let status = docker_status
+            .as_ref()
+            .map(|state| {
                 // Supervisor status endpoint unavailable → synthetic fallback
                 // (sentinel service key) — keep the persisted status instead
                 // of flipping healthy apps to "error".
                 if state.services.contains_key("iora-supervisor") {
                     a.status.as_str()
-                } else if state.all_running() { "running" } else if state.any_failed() { "error" } else { "stopped" }
-            }).unwrap_or(a.status.as_str());
-            let ports = if needs_docker {
-                app_lifecycle::docker_compose_ports(&a.id).await.unwrap_or_default()
-                    .into_iter().map(|(external, internal, protocol)| format!("{external}:{internal}/{protocol}")).collect::<Vec<_>>()
-            } else { Vec::new() };
-            let ports = if ports.is_empty() {
-                a.ports.iter().map(|p| format!("{}:{}/{}", p.external, p.internal, p.protocol)).collect::<Vec<_>>()
-            } else { ports };
-            apps.push(json!({
+                } else if state.all_running() {
+                    "running"
+                } else if state.any_failed() {
+                    "error"
+                } else {
+                    "stopped"
+                }
+            })
+            .unwrap_or(a.status.as_str());
+        let ports = if needs_docker {
+            app_lifecycle::docker_compose_ports(&a.id)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(external, internal, protocol)| format!("{external}:{internal}/{protocol}"))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let ports = if ports.is_empty() {
+            a.ports
+                .iter()
+                .map(|p| format!("{}:{}/{}", p.external, p.internal, p.protocol))
+                .collect::<Vec<_>>()
+        } else {
+            ports
+        };
+        apps.push(json!({
                 "id": a.id,
                 "name": a.name,
                 "version": a.version,
@@ -8235,13 +8280,21 @@ async fn supervisor_apps_start(
         let blocking: Vec<&String> = app_meta
             .denied_permissions
             .iter()
-            .filter(|permission| known.iter().any(|known| known.eq_ignore_ascii_case(permission)))
+            .filter(|permission| {
+                known
+                    .iter()
+                    .any(|known| known.eq_ignore_ascii_case(permission))
+            })
             .collect();
         if !blocking.is_empty() {
             return Err(ErrorResponse::forbidden(format!(
                 "app '{}' cannot be started because permissions were not granted: {}",
                 app_id,
-                blocking.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", ")
+                blocking
+                    .iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )));
         }
     }
@@ -8255,7 +8308,10 @@ async fn supervisor_apps_start(
     // health check so the UI reports a real failure instead of a blind
     // "running".
     if !needs_docker {
-        if let Some(msg) = invoke_local_app_hook(&app_meta, "start_endpoint", json!({ "url": "about:blank" })).await {
+        if let Some(msg) =
+            invoke_local_app_hook(&app_meta, "start_endpoint", json!({ "url": "about:blank" }))
+                .await
+        {
             state.local_appstore.append_log(
                 &app_id,
                 local_appstore::LogEntry {
@@ -8269,7 +8325,10 @@ async fn supervisor_apps_start(
         if let Some(port) = app_meta.ports.first() {
             let mut reachable = false;
             for _ in 0..4 {
-                if tokio::net::TcpStream::connect(("127.0.0.1", port.external)).await.is_ok() {
+                if tokio::net::TcpStream::connect(("127.0.0.1", port.external))
+                    .await
+                    .is_ok()
+                {
                     reachable = true;
                     break;
                 }
@@ -8367,7 +8426,10 @@ async fn supervisor_apps_start(
                             let _ = try_docker_compose_down(&app_id_bg).await;
                         }
                         let _ = appstore
-                            .set_status_error(&app_id_bg, format!("Container-Verifizierung fehlgeschlagen: {verify_err}"))
+                            .set_status_error(
+                                &app_id_bg,
+                                format!("Container-Verifizierung fehlgeschlagen: {verify_err}"),
+                            )
                             .await;
                         appstore.append_log(
                             &app_id_bg,
@@ -8385,7 +8447,10 @@ async fn supervisor_apps_start(
             }
             Some(Err(err_msg)) => {
                 let _ = appstore
-                    .set_status_error(&app_id_bg, format!("Docker-Start fehlgeschlagen: {err_msg}"))
+                    .set_status_error(
+                        &app_id_bg,
+                        format!("Docker-Start fehlgeschlagen: {err_msg}"),
+                    )
                     .await;
                 appstore.append_log(
                     &app_id_bg,
@@ -8774,16 +8839,32 @@ async fn supervisor_apps_uninstall(
 
 /// Stop a Docker-backed app and verify that Compose removed its containers
 /// before deleting its metadata and persistent data.
-async fn ensure_app_stopped_for_uninstall(state: &AppState, app_id: &str) -> Result<(), ErrorResponse> {
-    let app = state.local_appstore.list().await.into_iter().find(|app| app.id == app_id)
+async fn ensure_app_stopped_for_uninstall(
+    state: &AppState,
+    app_id: &str,
+) -> Result<(), ErrorResponse> {
+    let app = state
+        .local_appstore
+        .list()
+        .await
+        .into_iter()
+        .find(|app| app.id == app_id)
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{app_id}' not found")))?;
     if app.docker_config.is_none() && app.bundle_config.is_none() {
         return Ok(());
     }
     match docker_compose_control(app_id, "down").await {
         Some(Ok(_)) => {}
-        Some(Err(error)) => return Err(ErrorResponse::bad_gateway(format!("failed to stop app '{app_id}': {error}"))),
-        None => return Err(ErrorResponse::service_unavailable(format!("Docker is unavailable; cannot verify shutdown of '{app_id}'"))),
+        Some(Err(error)) => {
+            return Err(ErrorResponse::bad_gateway(format!(
+                "failed to stop app '{app_id}': {error}"
+            )))
+        }
+        None => {
+            return Err(ErrorResponse::service_unavailable(format!(
+                "Docker is unavailable; cannot verify shutdown of '{app_id}'"
+            )))
+        }
     }
     if let Some(status) = app_lifecycle::docker_compose_status(app_id).await {
         // A failed supervisor status probe is reported as a synthetic
@@ -9949,7 +10030,10 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                             Err(error) => {
                                 let _ = state
                                     .local_appstore
-                                    .set_status_error(&app_id, format!("Plugin-Registrierung fehlgeschlagen: {error}"))
+                                    .set_status_error(
+                                        &app_id,
+                                        format!("Plugin-Registrierung fehlgeschlagen: {error}"),
+                                    )
                                     .await;
                                 state.local_appstore.append_log(
                                     &app_id,
@@ -10209,12 +10293,19 @@ async fn app_host_port(app_id: &str) -> Option<u16> {
     for prefix in ["iora-app-", "iora-bundle-"] {
         let project = format!("{prefix}{app_id}");
         let ids = tokio::process::Command::new("docker")
-            .args(["ps", "-q", "--filter", &format!("label=com.docker.compose.project={project}")])
+            .args([
+                "ps",
+                "-q",
+                "--filter",
+                &format!("label=com.docker.compose.project={project}"),
+            ])
             .output()
             .await
             .ok()?;
         let ids = String::from_utf8_lossy(&ids.stdout);
-        let Some(container) = ids.lines().next() else { continue };
+        let Some(container) = ids.lines().next() else {
+            continue;
+        };
         let port = tokio::process::Command::new("docker")
             .args(["port", container.trim()])
             .output()
@@ -10416,11 +10507,7 @@ fn is_ws_upgrade(req: &axum::extract::Request) -> bool {
 /// so the client socket is upgraded by axum and frames are forwarded
 /// bidirectionally (the ORA Browser UI streams its screencast/WebRTC
 /// signaling over /ws).
-async fn ws_tunnel(
-    client: axum::extract::ws::WebSocket,
-    base_url: String,
-    sub_path: String,
-) {
+async fn ws_tunnel(client: axum::extract::ws::WebSocket, base_url: String, sub_path: String) {
     use axum::extract::ws::Message as WsMessage;
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as TungMessage;
@@ -10450,12 +10537,11 @@ async fn ws_tunnel(
                 WsMessage::Ping(payload) => TungMessage::Ping(payload),
                 WsMessage::Pong(payload) => TungMessage::Pong(payload),
                 WsMessage::Close(frame) => {
-                    let close = frame.map(|f| {
-                        tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                    let close =
+                        frame.map(|f| tokio_tungstenite::tungstenite::protocol::CloseFrame {
                             code: f.code.into(),
                             reason: f.reason.into(),
-                        }
-                    });
+                        });
                     let _ = up_tx.send(TungMessage::Close(close)).await;
                     break;
                 }
@@ -10540,9 +10626,7 @@ async fn app_proxy_handler(
                     // Accept both the array form ([{external: 8102, ...}]) and
                     // a single object form from older manifests.
                     let ports = app.manifest.extra.get("ports");
-                    let first = ports
-                        .and_then(|v| v.as_array())
-                        .and_then(|arr| arr.first());
+                    let first = ports.and_then(|v| v.as_array()).and_then(|arr| arr.first());
                     let candidate = first.or(ports.filter(|v| v.is_object()));
                     candidate
                         .and_then(|port| port.get("external").and_then(|v| v.as_u64()))
@@ -13373,7 +13457,9 @@ async fn auth_guest_login(
                     display_name: Some("Guest".to_string()),
                 })
                 .await
-                .map_err(|e| ErrorResponse::internal(format!("failed to create guest user: {e}")))?;
+                .map_err(|e| {
+                    ErrorResponse::internal(format!("failed to create guest user: {e}"))
+                })?;
             state
                 .config_repo
                 .set_user_role(&created.id, "viewer")
@@ -13387,8 +13473,8 @@ async fn auth_guest_login(
         }
     };
 
-    let (token, _jti, expires_in) = auth::generate_token(&user.id, &user.username, false)
-        .map_err(|e| {
+    let (token, _jti, expires_in) =
+        auth::generate_token(&user.id, &user.username, false).map_err(|e| {
             ErrorResponse::internal(format!("Failed to generate authentication token: {e}"))
         })?;
     let (raw_refresh, refresh_hash) = auth::generate_refresh_token();
@@ -15055,7 +15141,12 @@ async fn background_system_stats_broadcaster(ws_manager: Arc<websocket::WebSocke
             } else {
                 sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
             };
-            (cpu_usage, sys.cpus().len(), sys.total_memory(), sys.used_memory())
+            (
+                cpu_usage,
+                sys.cpus().len(),
+                sys.total_memory(),
+                sys.used_memory(),
+            )
         })
         .await
         .unwrap_or((0.0, 0, 0, 0));

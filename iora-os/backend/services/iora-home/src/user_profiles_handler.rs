@@ -144,7 +144,16 @@ pub async fn admin_list_users_with_profiles(
     let users: Vec<Value> = rows
         .into_iter()
         .map(
-            |(id, username, display_name, avatar_url, role, is_admin, profile_type, restrictions)| {
+            |(
+                id,
+                username,
+                display_name,
+                avatar_url,
+                role,
+                is_admin,
+                profile_type,
+                restrictions,
+            )| {
                 json!({
                     "id": id,
                     "username": username,

@@ -42,7 +42,6 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
 use crate::app_lifecycle;
@@ -250,9 +249,7 @@ pub fn split_host_port(host: &str) -> (&str, Option<u16>) {
     if let Some(rest) = host.strip_prefix('[') {
         // IPv6 literal — optional :port after the closing bracket.
         if let Some((inner, after)) = rest.split_once(']') {
-            let port = after
-                .strip_prefix(':')
-                .and_then(|p| p.parse::<u16>().ok());
+            let port = after.strip_prefix(':').and_then(|p| p.parse::<u16>().ok());
             return (inner, port);
         }
         return (host, None);
@@ -431,10 +428,7 @@ fn is_private_host(hostname: &str) -> bool {
     if parts.len() != 4 {
         return false;
     }
-    let octets: Vec<u8> = parts
-        .iter()
-        .filter_map(|p| p.parse::<u8>().ok())
-        .collect();
+    let octets: Vec<u8> = parts.iter().filter_map(|p| p.parse::<u8>().ok()).collect();
     if octets.len() != 4 {
         return false;
     }
@@ -462,13 +456,12 @@ pub fn rewrite_location(location: &str, upstream: &RuntimeTarget, public_origin:
     let port = parsed.port_or_known_default();
     let upstream_host = upstream.host.to_ascii_lowercase();
 
-    let host_matches_upstream = hostname.eq_ignore_ascii_case(&upstream_host)
-        && port == Some(upstream.port);
+    let host_matches_upstream =
+        hostname.eq_ignore_ascii_case(&upstream_host) && port == Some(upstream.port);
     let is_loopback = hostname.eq_ignore_ascii_case("localhost") || hostname == "127.0.0.1";
-    let loopback_with_app_port = is_loopback
-        && (port == Some(upstream.port) || port == Some(upstream.internal_port));
-    let container_ip_redirect =
-        is_private_host(&hostname) && port == Some(upstream.internal_port);
+    let loopback_with_app_port =
+        is_loopback && (port == Some(upstream.port) || port == Some(upstream.internal_port));
+    let container_ip_redirect = is_private_host(&hostname) && port == Some(upstream.internal_port);
 
     if !(host_matches_upstream || loopback_with_app_port || container_ip_redirect) {
         return location.to_string();
@@ -504,15 +497,17 @@ fn app_state_page(
         AppLifecycleState::Starting => ("starting", "STARTING", "Die App wird gestartet…"),
         AppLifecycleState::Stopping => ("stopping", "STOPPING", "Die App wird gestoppt…"),
         AppLifecycleState::Failed => ("failed", "FAILED", "Die App konnte nicht gestartet werden."),
-        AppLifecycleState::Unhealthy => ("failed", "UNHEALTHY", "Die App läuft, ist aber nicht gesund."),
+        AppLifecycleState::Unhealthy => (
+            "failed",
+            "UNHEALTHY",
+            "Die App läuft, ist aber nicht gesund.",
+        ),
         AppLifecycleState::Stopped => ("stopped", "STOPPED", "Die App ist gestoppt."),
         AppLifecycleState::NotFound => ("stopped", "NOT_FOUND", "Die App ist nicht installiert."),
     };
     let show_start = matches!(
         state,
-        AppLifecycleState::Stopped
-            | AppLifecycleState::Failed
-            | AppLifecycleState::Unhealthy
+        AppLifecycleState::Stopped | AppLifecycleState::Failed | AppLifecycleState::Unhealthy
     );
     let html = format!(
         r#"<!DOCTYPE html>
@@ -679,8 +674,9 @@ struct FixedTargetConnector {
 impl tower::Service<Uri> for FixedTargetConnector {
     type Response = hyper_util::rt::TokioIo<tokio::net::TcpStream>;
     type Error = std::io::Error;
-    type Future =
-        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
 
     fn poll_ready(
         &mut self,
@@ -701,7 +697,8 @@ impl tower::Service<Uri> for FixedTargetConnector {
 // ─── HTTP proxying ─────────────────────────────────────────────────────────
 
 type ProxyClient = Client<HttpConnector, axum::body::Body>;
-type HttpsProxyClient = Client<hyper_rustls::HttpsConnector<FixedTargetConnector>, axum::body::Body>;
+type HttpsProxyClient =
+    Client<hyper_rustls::HttpsConnector<FixedTargetConnector>, axum::body::Body>;
 
 fn proxy_client() -> &'static ProxyClient {
     static CLIENT: OnceLock<ProxyClient> = OnceLock::new();
@@ -764,7 +761,10 @@ async fn proxy_http(
         .unwrap_or_else(|| "/".to_string());
     let (public_hostname, _) = split_host_port(public_host);
     let upstream_uri = if target.protocol == "https" {
-        format!("https://{}:{}{}", public_hostname, target.port, path_and_query)
+        format!(
+            "https://{}:{}{}",
+            public_hostname, target.port, path_and_query
+        )
     } else {
         format!("{}://{}{}", target.protocol, target.addr(), path_and_query)
     };
@@ -797,7 +797,14 @@ async fn proxy_http(
 
     // Choose the pooled plain-HTTP client or a per-target TLS client.
     let request_future: std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<hyper::Response<hyper::body::Incoming>, hyper_util::client::legacy::Error>> + Send>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        hyper::Response<hyper::body::Incoming>,
+                        hyper_util::client::legacy::Error,
+                    >,
+                > + Send,
+        >,
     > = if target.protocol == "https" {
         let addr = match target.addr().parse::<std::net::SocketAddr>() {
             Ok(a) => a,
@@ -820,7 +827,12 @@ async fn proxy_http(
     match result {
         Ok(Ok(resp)) => {
             let (mut resp_parts, resp_body) = resp.into_parts();
-            rewrite_response_headers(&mut resp_parts.headers, desktop_origin, target, public_origin);
+            rewrite_response_headers(
+                &mut resp_parts.headers,
+                desktop_origin,
+                target,
+                public_origin,
+            );
             Response::from_parts(resp_parts, axum::body::Body::new(resp_body))
         }
         Ok(Err(e)) => {
@@ -904,7 +916,9 @@ async fn connect_upstream_stream(
     let (public_hostname, _) = split_host_port(public_host);
     let connector = tokio_rustls::TlsConnector::from(Arc::new(upstream_tls_config(tls_insecure)));
     let server_name = rustls_gw::pki_types::ServerName::try_from(public_hostname.to_string())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid TLS server name"))?;
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid TLS server name")
+        })?;
     let tls = connector.connect(server_name, tcp).await?;
     Ok(UpstreamStream::Tls(tls))
 }
@@ -1177,7 +1191,12 @@ pub async fn handle_gateway_request(
     }
 
     let Some(target) = resolve_runtime_target(&state.local_appstore, app).await else {
-        return app_state_page(&app_id, &app.name, AppLifecycleState::Failed, &desktop_origin);
+        return app_state_page(
+            &app_id,
+            &app.name,
+            AppLifecycleState::Failed,
+            &desktop_origin,
+        );
     };
 
     let (hostname, port) = split_host_port(&host);
@@ -1300,15 +1319,11 @@ pub async fn runtime_info(
         .as_ref()
         .map(|d| serde_json::to_value(d).unwrap_or(serde_json::Value::Null));
 
-    let external_url = app
-        .custom_pages
-        .first()
-        .map(|p| p.url.clone())
-        .or_else(|| {
-            app.ports
-                .first()
-                .map(|p| format!("http://localhost:{}", p.external))
-        });
+    let external_url = app.custom_pages.first().map(|p| p.url.clone()).or_else(|| {
+        app.ports
+            .first()
+            .map(|p| format!("http://localhost:{}", p.external))
+    });
 
     (
         StatusCode::OK,
@@ -1401,8 +1416,7 @@ mod tests {
         );
         // Custom suffix.
         assert_eq!(
-            apps_subdomain_app_id("grafana.apps.example.test", ".apps.example.test")
-                .as_deref(),
+            apps_subdomain_app_id("grafana.apps.example.test", ".apps.example.test").as_deref(),
             Some("grafana")
         );
     }
@@ -1427,15 +1441,28 @@ mod tests {
     fn x_frame_options_removed() {
         let mut headers = HeaderMap::new();
         headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-        rewrite_response_headers(&mut headers, "https://ora.local", &target(8180, 80), "https://nextcloud.apps.ora.local");
+        rewrite_response_headers(
+            &mut headers,
+            "https://ora.local",
+            &target(8180, 80),
+            "https://nextcloud.apps.ora.local",
+        );
         assert!(!headers.contains_key(header::X_FRAME_OPTIONS));
     }
 
     #[test]
     fn x_frame_options_sameorigin_removed() {
         let mut headers = HeaderMap::new();
-        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("SAMEORIGIN"));
-        rewrite_response_headers(&mut headers, "https://ora.local", &target(8180, 80), "https://nextcloud.apps.ora.local");
+        headers.insert(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("SAMEORIGIN"),
+        );
+        rewrite_response_headers(
+            &mut headers,
+            "https://ora.local",
+            &target(8180, 80),
+            "https://nextcloud.apps.ora.local",
+        );
         assert!(!headers.contains_key(header::X_FRAME_OPTIONS));
     }
 
@@ -1446,7 +1473,12 @@ mod tests {
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"),
         );
-        rewrite_response_headers(&mut headers, "https://ora.local", &target(8180, 80), "https://nextcloud.apps.ora.local");
+        rewrite_response_headers(
+            &mut headers,
+            "https://ora.local",
+            &target(8180, 80),
+            "https://nextcloud.apps.ora.local",
+        );
         let csp = headers
             .get(header::CONTENT_SECURITY_POLICY)
             .unwrap()
@@ -1466,7 +1498,10 @@ mod tests {
         assert!(rewritten.contains("script-src 'self'"));
         assert!(rewritten.contains("frame-ancestors https://ora.local"));
         // All original directives preserved.
-        let original_directives = policy.split(';').map(|d| d.trim().split_whitespace().next().unwrap()).collect::<Vec<_>>();
+        let original_directives = policy
+            .split(';')
+            .map(|d| d.trim().split_whitespace().next().unwrap())
+            .collect::<Vec<_>>();
         for directive in original_directives {
             assert!(rewritten.contains(directive));
         }
@@ -1494,15 +1529,30 @@ mod tests {
     #[test]
     fn multiple_csp_headers_deduplicated() {
         let mut headers = HeaderMap::new();
-        headers.append(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"));
-        headers.append(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"));
-        rewrite_response_headers(&mut headers, "https://ora.local", &target(8180, 80), "https://nextcloud.apps.ora.local");
+        headers.append(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"),
+        );
+        headers.append(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"),
+        );
+        rewrite_response_headers(
+            &mut headers,
+            "https://ora.local",
+            &target(8180, 80),
+            "https://nextcloud.apps.ora.local",
+        );
         let values = headers
             .get_all(header::CONTENT_SECURITY_POLICY)
             .iter()
             .count();
         assert_eq!(values, 1);
-        let csp = headers.get(header::CONTENT_SECURITY_POLICY).unwrap().to_str().unwrap();
+        let csp = headers
+            .get(header::CONTENT_SECURITY_POLICY)
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert!(csp.contains("frame-ancestors https://ora.local"));
     }
 
@@ -1510,27 +1560,50 @@ mod tests {
     fn location_rewritten_to_public_origin() {
         let t = target(8180, 80);
         assert_eq!(
-            rewrite_location("http://127.0.0.1:8180/login", &t, "https://nextcloud.apps.ora.local"),
+            rewrite_location(
+                "http://127.0.0.1:8180/login",
+                &t,
+                "https://nextcloud.apps.ora.local"
+            ),
             "https://nextcloud.apps.ora.local/login"
         );
         assert_eq!(
-            rewrite_location("http://localhost:8180/apps/files?x=1#top", &t, "https://nextcloud.apps.ora.local"),
+            rewrite_location(
+                "http://localhost:8180/apps/files?x=1#top",
+                &t,
+                "https://nextcloud.apps.ora.local"
+            ),
             "https://nextcloud.apps.ora.local/apps/files?x=1#top"
         );
         // Container IP redirect with the internal port.
         assert_eq!(
-            rewrite_location("http://172.20.0.5:80/index.php", &t, "https://nextcloud.apps.ora.local"),
+            rewrite_location(
+                "http://172.20.0.5:80/index.php",
+                &t,
+                "https://nextcloud.apps.ora.local"
+            ),
             "https://nextcloud.apps.ora.local/index.php"
         );
         // Private IP with a non-matching port is left alone.
         assert_eq!(
-            rewrite_location("http://192.168.1.50:8080/other", &t, "https://nextcloud.apps.ora.local"),
+            rewrite_location(
+                "http://192.168.1.50:8080/other",
+                &t,
+                "https://nextcloud.apps.ora.local"
+            ),
             "http://192.168.1.50:8080/other"
         );
         // Relative and external redirects pass through.
-        assert_eq!(rewrite_location("/login", &t, "https://nextcloud.apps.ora.local"), "/login");
         assert_eq!(
-            rewrite_location("https://example.com/sso", &t, "https://nextcloud.apps.ora.local"),
+            rewrite_location("/login", &t, "https://nextcloud.apps.ora.local"),
+            "/login"
+        );
+        assert_eq!(
+            rewrite_location(
+                "https://example.com/sso",
+                &t,
+                "https://nextcloud.apps.ora.local"
+            ),
             "https://example.com/sso"
         );
     }
@@ -1579,18 +1652,39 @@ mod tests {
                 assets_base_url: None,
             }
         }
-        assert_eq!(resolve_lifecycle_state(&app("running")).await, AppLifecycleState::Running);
-        assert_eq!(resolve_lifecycle_state(&app("starting")).await, AppLifecycleState::Starting);
-        assert_eq!(resolve_lifecycle_state(&app("stopping")).await, AppLifecycleState::Stopping);
-        assert_eq!(resolve_lifecycle_state(&app("stopped")).await, AppLifecycleState::Stopped);
-        assert_eq!(resolve_lifecycle_state(&app("paused")).await, AppLifecycleState::Stopped);
-        assert_eq!(resolve_lifecycle_state(&app("error")).await, AppLifecycleState::Failed);
+        assert_eq!(
+            resolve_lifecycle_state(&app("running")).await,
+            AppLifecycleState::Running
+        );
+        assert_eq!(
+            resolve_lifecycle_state(&app("starting")).await,
+            AppLifecycleState::Starting
+        );
+        assert_eq!(
+            resolve_lifecycle_state(&app("stopping")).await,
+            AppLifecycleState::Stopping
+        );
+        assert_eq!(
+            resolve_lifecycle_state(&app("stopped")).await,
+            AppLifecycleState::Stopped
+        );
+        assert_eq!(
+            resolve_lifecycle_state(&app("paused")).await,
+            AppLifecycleState::Stopped
+        );
+        assert_eq!(
+            resolve_lifecycle_state(&app("error")).await,
+            AppLifecycleState::Failed
+        );
     }
 
     #[test]
     fn hop_by_hop_stripped() {
         let mut headers = HeaderMap::new();
-        headers.insert(header::CONNECTION, HeaderValue::from_static("keep-alive, upgrade"));
+        headers.insert(
+            header::CONNECTION,
+            HeaderValue::from_static("keep-alive, upgrade"),
+        );
         headers.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
         headers.insert(header::COOKIE, HeaderValue::from_static("app-session=abc"));
         headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
@@ -1601,7 +1695,6 @@ mod tests {
         assert!(headers.contains_key(header::CONTENT_TYPE));
     }
 }
-
 
 // ─── Integration tests (mock upstream) ─────────────────────────────────────
 
@@ -1810,8 +1903,16 @@ mod integration_tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
-        let location = resp.headers().get(header::LOCATION).unwrap().to_str().unwrap();
-        assert!(location.starts_with("https://nextcloud.apps.ora.local/"), "got {location}");
+        let location = resp
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            location.starts_with("https://nextcloud.apps.ora.local/"),
+            "got {location}"
+        );
         assert!(!location.contains("127.0.0.1"));
     }
 
@@ -1903,7 +2004,15 @@ mod integration_tests {
             async move {
                 let req = axum::extract::Request::from_parts(req.into_parts().0, Body::empty());
                 Ok::<_, Infallible>(
-                    proxy_websocket(req, &target, "wstest.apps.ora.local", "https://ora.local", false, "wstest").await,
+                    proxy_websocket(
+                        req,
+                        &target,
+                        "wstest.apps.ora.local",
+                        "https://ora.local",
+                        false,
+                        "wstest",
+                    )
+                    .await,
                 )
             }
         });
@@ -1928,11 +2037,7 @@ mod integration_tests {
         ws.send(tokio_tungstenite::tungstenite::Message::Text("ping".into()))
             .await
             .unwrap();
-        let reply = ws
-            .next()
-            .await
-            .expect("echo reply")
-            .expect("valid frame");
+        let reply = ws.next().await.expect("echo reply").expect("valid frame");
         assert_eq!(
             reply,
             tokio_tungstenite::tungstenite::Message::Text("ping".into())
@@ -1940,14 +2045,18 @@ mod integration_tests {
     }
 }
 
-
 #[cfg(test)]
 mod gateway_more_tests {
     use super::*;
 
     #[tokio::test]
     async fn state_page_for_stopped_app_has_start_action() {
-        let resp = app_state_page("nextcloud", "Nextcloud", AppLifecycleState::Stopped, "https://ora.local");
+        let resp = app_state_page(
+            "nextcloud",
+            "Nextcloud",
+            AppLifecycleState::Stopped,
+            "https://ora.local",
+        );
         assert_eq!(resp.status(), StatusCode::OK);
         // The state page may only be framed by the ORA desktop origin.
         let csp = resp
@@ -1957,7 +2066,9 @@ mod gateway_more_tests {
             .to_str()
             .unwrap();
         assert!(csp.contains("frame-ancestors https://ora.local"));
-        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024)
+            .await
+            .unwrap();
         let html = String::from_utf8_lossy(&body);
         assert!(html.contains("STOPPED"));
         assert!(html.contains("App starten"));
@@ -1966,8 +2077,15 @@ mod gateway_more_tests {
 
     #[tokio::test]
     async fn state_page_for_failed_app_has_start_action() {
-        let resp = app_state_page("nextcloud", "Nextcloud", AppLifecycleState::Failed, "https://ora.local");
-        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+        let resp = app_state_page(
+            "nextcloud",
+            "Nextcloud",
+            AppLifecycleState::Failed,
+            "https://ora.local",
+        );
+        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024)
+            .await
+            .unwrap();
         let html = String::from_utf8_lossy(&body);
         assert!(html.contains("FAILED"));
         assert!(html.contains("App starten"));
@@ -1975,8 +2093,15 @@ mod gateway_more_tests {
 
     #[tokio::test]
     async fn state_page_for_starting_app_has_no_start_button() {
-        let resp = app_state_page("nextcloud", "Nextcloud", AppLifecycleState::Starting, "https://ora.local");
-        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+        let resp = app_state_page(
+            "nextcloud",
+            "Nextcloud",
+            AppLifecycleState::Starting,
+            "https://ora.local",
+        );
+        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024)
+            .await
+            .unwrap();
         let html = String::from_utf8_lossy(&body);
         assert!(html.contains("STARTING"));
         // The start button exists but is hidden while the app is starting.
@@ -1986,7 +2111,12 @@ mod gateway_more_tests {
 
     #[tokio::test]
     async fn state_page_restricts_framing_to_desktop_origin() {
-        let resp = app_state_page("files", "Files", AppLifecycleState::Stopped, "http://ora.local:3001");
+        let resp = app_state_page(
+            "files",
+            "Files",
+            AppLifecycleState::Stopped,
+            "http://ora.local:3001",
+        );
         let csp = resp
             .headers()
             .get(header::CONTENT_SECURITY_POLICY)
@@ -2050,7 +2180,9 @@ mod restart_target_tests {
             "nextcloud",
         )
         .await;
-        let body_a = axum::body::to_bytes(resp_a.into_body(), 128 * 1024).await.unwrap();
+        let body_a = axum::body::to_bytes(resp_a.into_body(), 128 * 1024)
+            .await
+            .unwrap();
         assert_eq!(body_a, "upstream:before-restart");
 
         // "After restart": the container gets a NEW host port P2. The gateway
@@ -2073,7 +2205,9 @@ mod restart_target_tests {
             "nextcloud",
         )
         .await;
-        let body_b = axum::body::to_bytes(resp_b.into_body(), 128 * 1024).await.unwrap();
+        let body_b = axum::body::to_bytes(resp_b.into_body(), 128 * 1024)
+            .await
+            .unwrap();
         assert_eq!(body_b, "upstream:after-restart");
     }
 }
@@ -2139,10 +2273,7 @@ rzZT/YXil/zH/pH27a+wO0dH
 
     fn pem_to_der(pem: &str) -> Vec<u8> {
         use base64::Engine as _;
-        let body: String = pem
-            .lines()
-            .filter(|l| !l.starts_with("-----"))
-            .collect();
+        let body: String = pem.lines().filter(|l| !l.starts_with("-----")).collect();
         base64::engine::general_purpose::STANDARD
             .decode(body.trim())
             .expect("valid base64 pem body")
@@ -2162,8 +2293,8 @@ rzZT/YXil/zH/pH27a+wO0dH
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
-        let service = hyper::service::service_fn(
-            |_req: hyper::Request<hyper::body::Incoming>| async move {
+        let service =
+            hyper::service::service_fn(|_req: hyper::Request<hyper::body::Incoming>| async move {
                 let resp = Response::builder()
                     .status(StatusCode::OK)
                     .header(header::CONTENT_TYPE, "text/plain")
@@ -2175,8 +2306,7 @@ rzZT/YXil/zH/pH27a+wO0dH
                     .body(Body::from("secure upstream ok"))
                     .unwrap();
                 Ok::<_, Infallible>(resp)
-            },
-        );
+            });
 
         tokio::spawn(async move {
             loop {
@@ -2184,7 +2314,9 @@ rzZT/YXil/zH/pH27a+wO0dH
                 let acceptor = acceptor.clone();
                 let service = service.clone();
                 tokio::spawn(async move {
-                    let Ok(tls_stream) = acceptor.accept(stream).await else { return };
+                    let Ok(tls_stream) = acceptor.accept(stream).await else {
+                        return;
+                    };
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(hyper_util::rt::TokioIo::new(tls_stream), service)
                         .await;
@@ -2229,7 +2361,9 @@ rzZT/YXil/zH/pH27a+wO0dH
             .unwrap();
         assert!(csp.contains("frame-ancestors https://ora.local"));
         assert!(!csp.contains("'none'"));
-        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 128 * 1024)
+            .await
+            .unwrap();
         assert_eq!(body, "secure upstream ok");
     }
 
@@ -2284,14 +2418,13 @@ rzZT/YXil/zH/pH27a+wO0dH
         );
         // Explicit https scheme → https.
         assert_eq!(
-            upstream_scheme(&app_with_config(Some(serde_json::json!({ "scheme": "https" })))),
+            upstream_scheme(&app_with_config(Some(
+                serde_json::json!({ "scheme": "https" })
+            ))),
             "https"
         );
         // Case-insensitive + bundle config fallback.
-        assert_eq!(
-            upstream_scheme(&app_with_config(None)),
-            "http"
-        );
+        assert_eq!(upstream_scheme(&app_with_config(None)), "http");
         let mut bundle_app = app_with_config(None);
         bundle_app.bundle_config = Some(serde_json::json!({ "scheme": "HTTPS" }));
         assert_eq!(upstream_scheme(&bundle_app), "https");

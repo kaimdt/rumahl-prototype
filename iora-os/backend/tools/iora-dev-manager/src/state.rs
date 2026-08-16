@@ -57,7 +57,6 @@ impl DevManagerConfig {
 
 pub const CONFIG_FILE: &str = "dev-manager.json";
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkMode {

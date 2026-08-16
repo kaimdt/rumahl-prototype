@@ -8,8 +8,8 @@
 //! Only used on loopback — the CDP endpoint is bound to 127.0.0.1 by the
 //! Chromium launch flags and never exposed to the network.
 
-use futures_util::{SinkExt, StreamExt};
 use futures_util::stream::SplitSink;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -44,10 +44,7 @@ pub struct CdpTab {
 
 impl CdpTab {
     /// Connect to a page target and start the screencast.
-    pub async fn connect(
-        ws_url: &str,
-        events: mpsc::Sender<TabEvent>,
-    ) -> anyhow::Result<CdpTab> {
+    pub async fn connect(ws_url: &str, events: mpsc::Sender<TabEvent>) -> anyhow::Result<CdpTab> {
         let (ws, _) = tokio_tungstenite::connect_async(ws_url).await?;
         let (mut write, mut read) = ws.split();
 
@@ -88,10 +85,7 @@ impl CdpTab {
                 if let Some(method) = value["method"].as_str() {
                     match method {
                         "Page.screencastFrame" => {
-                            let data = value["params"]["data"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string();
+                            let data = value["params"]["data"].as_str().unwrap_or("").to_string();
                             let session = value["params"]["sessionId"].as_str().unwrap_or("");
                             // Acknowledge — REQUIRED or the screencast stops.
                             let ack = json!({
@@ -100,13 +94,15 @@ impl CdpTab {
                                 "params": { "sessionId": session }
                             });
                             let mut w = read_write.lock().await;
-                            let _ = w
-                                .send(Message::Text(ack.to_string().into()))
-                                .await;
+                            let _ = w.send(Message::Text(ack.to_string().into())).await;
                             drop(w);
                             if !data.is_empty() {
                                 let _ = events
-                                    .send(TabEvent::Frame { data, w: VIEWPORT_W, h: VIEWPORT_H })
+                                    .send(TabEvent::Frame {
+                                        data,
+                                        w: VIEWPORT_W,
+                                        h: VIEWPORT_H,
+                                    })
                                     .await;
                             }
                         }
@@ -144,7 +140,8 @@ impl CdpTab {
                         // Page.getNavigationHistory response — push current
                         // url/title so the UI is populated right away.
                         if let Some(entries) = value["result"]["entries"].as_array() {
-                            let index = value["result"]["currentIndex"].as_u64().unwrap_or(0) as usize;
+                            let index =
+                                value["result"]["currentIndex"].as_u64().unwrap_or(0) as usize;
                             if let Some(entry) = entries.get(index) {
                                 let url = entry["url"].as_str().unwrap_or("").to_string();
                                 let title = entry["title"].as_str().unwrap_or("").to_string();
@@ -196,7 +193,8 @@ impl CdpTab {
     }
 
     pub async fn reload(&self) -> anyhow::Result<()> {
-        self.command("Page.reload", json!({"ignoreCache": false})).await?;
+        self.command("Page.reload", json!({"ignoreCache": false}))
+            .await?;
         Ok(())
     }
 
@@ -231,7 +229,13 @@ impl CdpTab {
 
     /// Dispatch a key event. `text` carries the character for printable
     /// keys (keyDown only), `code` the physical key code.
-    pub async fn key(&self, down: bool, key: &str, code: &str, text: Option<&str>) -> anyhow::Result<()> {
+    pub async fn key(
+        &self,
+        down: bool,
+        key: &str,
+        code: &str,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
         let vk = if key.len() == 1 {
             u32::from(key.as_bytes()[0])
         } else {

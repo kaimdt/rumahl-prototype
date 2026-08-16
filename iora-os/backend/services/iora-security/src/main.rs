@@ -13,10 +13,10 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use iora_shared_config::env::IoraEnv;
 use iora_shared_config::system_config;
 use ipnetwork::IpNetwork;
-use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -174,7 +174,15 @@ fn compute_event_hash(key: &[u8; 32], event: &SecurityEvent) -> String {
 }
 
 fn compute_legacy_event_hash(event: &SecurityEvent) -> String {
-    let data = format!("{}|{}|{}|{}|{}|{}", event.timestamp, event.event_type, event.severity, event.source_ip.as_deref().unwrap_or(""), event.service_name.as_deref().unwrap_or(""), event.prev_hash.as_deref().unwrap_or(""));
+    let data = format!(
+        "{}|{}|{}|{}|{}|{}",
+        event.timestamp,
+        event.event_type,
+        event.severity,
+        event.source_ip.as_deref().unwrap_or(""),
+        event.service_name.as_deref().unwrap_or(""),
+        event.prev_hash.as_deref().unwrap_or("")
+    );
     hex::encode(Sha256::digest(data.as_bytes()))
 }
 
@@ -182,16 +190,31 @@ fn compute_legacy_event_hash(event: &SecurityEvent) -> String {
 mod audit_tests {
     use super::*;
 
-    fn event() -> SecurityEvent { SecurityEvent { id:None, timestamp:"2026-08-13T00:00:00Z".into(), event_type:"scan".into(), severity:"high".into(), source_ip:None, service_name:Some("iora-security".into()), user_id:Some("admin".into()), event_data:Some("encrypted-payload".into()), hash:String::new(), prev_hash:Some("previous".into()) } }
+    fn event() -> SecurityEvent {
+        SecurityEvent {
+            id: None,
+            timestamp: "2026-08-13T00:00:00Z".into(),
+            event_type: "scan".into(),
+            severity: "high".into(),
+            source_ip: None,
+            service_name: Some("iora-security".into()),
+            user_id: Some("admin".into()),
+            event_data: Some("encrypted-payload".into()),
+            hash: String::new(),
+            prev_hash: Some("previous".into()),
+        }
+    }
 
     #[test]
     fn keyed_audit_hash_detects_payload_and_identity_changes() {
         let key = [7_u8; 32];
         let original = event();
         let expected = compute_event_hash(&key, &original);
-        let mut changed = original.clone(); changed.event_data = Some("replacement".into());
+        let mut changed = original.clone();
+        changed.event_data = Some("replacement".into());
         assert_ne!(expected, compute_event_hash(&key, &changed));
-        changed = original.clone(); changed.user_id = Some("attacker".into());
+        changed = original.clone();
+        changed.user_id = Some("attacker".into());
         assert_ne!(expected, compute_event_hash(&key, &changed));
         assert_ne!(expected, compute_event_hash(&[8_u8; 32], &original));
     }
@@ -1269,12 +1292,30 @@ async fn main() -> Result<()> {
         .route("/api/security/lockdown", post(manual_lockdown))
         .route("/api/security/release", post(release_lockdown_handler))
         .route("/api/security/users", post(create_user_handler))
-        .route("/api/security/center/overview", get(security_center::overview))
-        .route("/api/security/center/providers", get(security_center::providers).post(security_center::configure_provider))
-        .route("/api/security/center/policies", get(security_center::policies).post(security_center::save_policy))
-        .route("/api/security/center/scans", post(security_center::start_scan))
-        .route("/api/security/center/quarantine/restore", post(security_center::restore_quarantine))
-        .route("/api/security/center/firewall", post(security_center::apply_firewall))
+        .route(
+            "/api/security/center/overview",
+            get(security_center::overview),
+        )
+        .route(
+            "/api/security/center/providers",
+            get(security_center::providers).post(security_center::configure_provider),
+        )
+        .route(
+            "/api/security/center/policies",
+            get(security_center::policies).post(security_center::save_policy),
+        )
+        .route(
+            "/api/security/center/scans",
+            post(security_center::start_scan),
+        )
+        .route(
+            "/api/security/center/quarantine/restore",
+            post(security_center::restore_quarantine),
+        )
+        .route(
+            "/api/security/center/firewall",
+            post(security_center::apply_firewall),
+        )
         .layer(CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state.clone());

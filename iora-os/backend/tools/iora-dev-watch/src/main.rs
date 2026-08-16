@@ -86,8 +86,13 @@ fn decode_base64(input: &str) -> String {
     let mut bits = 0_u32;
     let mut bit_count = 0_u8;
     let mut output = Vec::new();
-    for byte in input.bytes().filter(|byte| !byte.is_ascii_whitespace() && *byte != b'=') {
-        let Some(value) = ALPHABET.iter().position(|candidate| *candidate == byte) else { continue };
+    for byte in input
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace() && *byte != b'=')
+    {
+        let Some(value) = ALPHABET.iter().position(|candidate| *candidate == byte) else {
+            continue;
+        };
         bits = (bits << 6) | value as u32;
         bit_count += 6;
         if bit_count >= 8 {
@@ -99,11 +104,18 @@ fn decode_base64(input: &str) -> String {
 }
 
 fn classify_frontend_change(path: &Path) -> (bool, bool) {
-    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
     let restart = matches!(
         file_name,
-        "vite.config.ts" | "vite.config.js" | "package.json" | "tsconfig.json"
-            | "postcss.config.js" | "tailwind.config.js"
+        "vite.config.ts"
+            | "vite.config.js"
+            | "package.json"
+            | "tsconfig.json"
+            | "postcss.config.js"
+            | "tailwind.config.js"
     );
     let source = ["tsx", "ts", "jsx", "css", "html"]
         .iter()
@@ -118,13 +130,22 @@ mod channel_tests {
 
     #[test]
     fn decodes_qga_output() {
-        assert_eq!(decode_base64("aW9yYS1ob21lIGFjdGl2ZQo="), "iora-home active\n");
+        assert_eq!(
+            decode_base64("aW9yYS1ob21lIGFjdGl2ZQo="),
+            "iora-home active\n"
+        );
     }
 
     #[test]
     fn keeps_vite_source_changes_on_hmr_but_restarts_for_configuration() {
-        assert_eq!(classify_frontend_change(Path::new("src/App.tsx")), (false, true));
-        assert_eq!(classify_frontend_change(Path::new("vite.config.ts")), (true, false));
+        assert_eq!(
+            classify_frontend_change(Path::new("src/App.tsx")),
+            (false, true)
+        );
+        assert_eq!(
+            classify_frontend_change(Path::new("vite.config.ts")),
+            (true, false)
+        );
     }
 }
 
@@ -213,16 +234,31 @@ impl Backend {
                 "arguments": { "path": "/bin/sh", "arg": ["-c", cmd], "capture-output": true }
             }))
             .await?;
-        let pid = start.pointer("/return/pid").and_then(|value| value.as_i64()).context("QGA did not return a guest PID")?;
+        let pid = start
+            .pointer("/return/pid")
+            .and_then(|value| value.as_i64())
+            .context("QGA did not return a guest PID")?;
         for _ in 0..120 {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            let status = self.qga_json(serde_json::json!({
-                "execute": "guest-exec-status", "arguments": { "pid": pid }
-            })).await?;
-            let Some(exit_code) = status.pointer("/return/exitcode").and_then(|value| value.as_i64()) else { continue };
-            let output = status.pointer("/return/out-data").and_then(|value| value.as_str()).unwrap_or_default();
+            let status = self
+                .qga_json(serde_json::json!({
+                    "execute": "guest-exec-status", "arguments": { "pid": pid }
+                }))
+                .await?;
+            let Some(exit_code) = status
+                .pointer("/return/exitcode")
+                .and_then(|value| value.as_i64())
+            else {
+                continue;
+            };
+            let output = status
+                .pointer("/return/out-data")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
             let decoded = decode_base64(output);
-            if exit_code == 0 { return Ok(decoded); }
+            if exit_code == 0 {
+                return Ok(decoded);
+            }
             anyhow::bail!("QGA command exited with {exit_code}: {decoded}")
         }
         anyhow::bail!("QGA command timeout")
@@ -292,7 +328,9 @@ impl Backend {
         )
         .await;
         match ssh_result {
-            Ok(Ok(out)) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+            Ok(Ok(out)) if out.status.success() => {
+                Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+            }
             Ok(Ok(out)) => anyhow::bail!("SSH command failed with {}", out.status),
             Ok(Err(error)) => Err(error.into()),
             Err(_) => anyhow::bail!("SSH command timeout and QGA unavailable"),
@@ -1661,35 +1699,56 @@ fn cargo_metadata_impacts(
         .current_dir(workspace)
         .output()
         .ok()?;
-    if !output.status.success() { return None; }
+    if !output.status.success() {
+        return None;
+    }
     let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
     let packages = metadata.get("packages")?.as_array()?;
     let nodes = metadata.pointer("/resolve/nodes")?.as_array()?;
     let mut names = HashMap::new();
     for package in packages {
-        names.insert(package.get("id")?.as_str()?.to_string(), package.get("name")?.as_str()?.to_string());
+        names.insert(
+            package.get("id")?.as_str()?.to_string(),
+            package.get("name")?.as_str()?.to_string(),
+        );
     }
     let mut reverse: HashMap<String, HashSet<String>> = HashMap::new();
     for node in nodes {
-        let Some(node_id) = node.get("id").and_then(|value| value.as_str()) else { continue };
-        for dependency in node.get("deps").and_then(|value| value.as_array()).into_iter().flatten() {
+        let Some(node_id) = node.get("id").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        for dependency in node
+            .get("deps")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+        {
             if let Some(package_id) = dependency.get("pkg").and_then(|value| value.as_str()) {
-                reverse.entry(package_id.to_string()).or_default().insert(node_id.to_string());
+                reverse
+                    .entry(package_id.to_string())
+                    .or_default()
+                    .insert(node_id.to_string());
             }
         }
     }
     let service_set: HashSet<&str> = services.iter().map(String::as_str).collect();
     let mut impacts = HashMap::new();
     for (package_id, package_name) in &names {
-        if !package_name.starts_with("iora-shared") { continue; }
+        if !package_name.starts_with("iora-shared") {
+            continue;
+        }
         let mut affected = HashSet::new();
         let mut pending = vec![package_id.clone()];
         let mut visited = HashSet::new();
         while let Some(current) = pending.pop() {
-            if !visited.insert(current.clone()) { continue; }
+            if !visited.insert(current.clone()) {
+                continue;
+            }
             for dependent in reverse.get(&current).into_iter().flatten() {
                 if let Some(name) = names.get(dependent) {
-                    if service_set.contains(name.as_str()) { affected.insert(name.clone()); }
+                    if service_set.contains(name.as_str()) {
+                        affected.insert(name.clone());
+                    }
                 }
                 pending.push(dependent.clone());
             }
@@ -1779,9 +1838,13 @@ fn start_file_watcher(
                     rust_paths.insert(p.clone());
                 }
                 let (frontend_config, frontend_hmr) = classify_frontend_change(p);
-                if frontend_config { frontend = true; }
-                else if frontend_hmr {
-                    let _ = tx.send(AppEvent::Log(format!("[HMR] {} synchronized; Vite handles reload", p.display())));
+                if frontend_config {
+                    frontend = true;
+                } else if frontend_hmr {
+                    let _ = tx.send(AppEvent::Log(format!(
+                        "[HMR] {} synchronized; Vite handles reload",
+                        p.display()
+                    )));
                 }
             }
             if !rust.is_empty() || frontend {

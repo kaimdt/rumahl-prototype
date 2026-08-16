@@ -85,7 +85,10 @@ impl Manager {
 
     fn refresh_state_from_disk(&mut self) {
         let disk_state = RuntimeState::load(&self.state_path);
-        if disk_state.updated_at.is_some() || disk_state.pid.is_some() || disk_state.lifecycle != "Stopped" {
+        if disk_state.updated_at.is_some()
+            || disk_state.pid.is_some()
+            || disk_state.lifecycle != "Stopped"
+        {
             self.state = disk_state;
         }
     }
@@ -234,34 +237,27 @@ impl Manager {
         };
         let memory = std::env::var("IORA_DEV_RAM")
             .unwrap_or_else(|_| format!("{}G", self.config.default_ram_gb.max(4)));
-        let cpus = std::env::var("IORA_DEV_CPUS").unwrap_or_else(|_| {
-            self.config
-                .default_cpus
-                .clamp(1, 64)
-                .to_string()
-        });
+        let cpus = std::env::var("IORA_DEV_CPUS")
+            .unwrap_or_else(|_| self.config.default_cpus.clamp(1, 64).to_string());
         let first_accel = accel_override.clone().unwrap_or_else(default_accel);
         // TCG has no hardware acceleration: clamp RAM to 4-8 GB and vCPUs
         // to 2-8 (dev-local.ps1 uses the same limits for its TCG fallback).
-        let tcg_ram = format!(
-            "{}G",
-            clamp_ram_gb(&memory).clamp(4, 8)
-        );
+        let tcg_ram = format!("{}G", clamp_ram_gb(&memory).clamp(4, 8));
         let tcg_cpus = cpus
             .trim_end_matches(['C', 'c'])
             .parse::<u32>()
             .unwrap_or(4)
             .clamp(2, 8)
             .to_string();
-        let candidates: Vec<(String, String, String)> =
-            if cfg!(windows) && accel_override.is_none() {
-                vec![
-                    (first_accel.clone(), memory.clone(), cpus.clone()),
-                    ("tcg".to_string(), tcg_ram, tcg_cpus),
-                ]
-            } else {
-                vec![(first_accel.clone(), memory.clone(), cpus.clone())]
-            };
+        let candidates: Vec<(String, String, String)> = if cfg!(windows) && accel_override.is_none()
+        {
+            vec![
+                (first_accel.clone(), memory.clone(), cpus.clone()),
+                ("tcg".to_string(), tcg_ram, tcg_cpus),
+            ]
+        } else {
+            vec![(first_accel.clone(), memory.clone(), cpus.clone())]
+        };
         let network = match mode {
             NetworkMode::Slirp => {
                 // Bind every rule to loopback: Windows Firewall silently drops
@@ -276,12 +272,8 @@ impl Manager {
                 );
                 extra.sort_unstable();
                 extra.dedup();
-                let plan = forwarding_plan(
-                    self.state.ssh_port,
-                    self.state.home_port,
-                    extra,
-                    mappings,
-                );
+                let plan =
+                    forwarding_plan(self.state.ssh_port, self.state.home_port, extra, mappings);
                 for port in &plan.skipped {
                     eprintln!(
                         "[dev-manager] warning: host port {port} is busy or requested twice - not forwarding it (the service stays reachable inside the VM)"
@@ -294,8 +286,11 @@ impl Manager {
                         serde_json::json!({ "host": host, "guest": guest, "label": label })
                     })
                     .collect();
-                self.state.skipped_ports =
-                    plan.skipped.iter().map(|port| serde_json::json!(port)).collect();
+                self.state.skipped_ports = plan
+                    .skipped
+                    .iter()
+                    .map(|port| serde_json::json!(port))
+                    .collect();
                 format!("user,id=n0,{}", plan.rules.join(","))
             }
             NetworkMode::Bridge => {
@@ -504,7 +499,11 @@ impl Manager {
             .current_dir(&self.root)
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&script)
-            .args(if rebuild { vec!["-Rebuild", "-NoWatch"] } else { vec!["-NoWatch"] })
+            .args(if rebuild {
+                vec!["-Rebuild", "-NoWatch"]
+            } else {
+                vec!["-NoWatch"]
+            })
             // VM sizing comes from dev-manager.json so every NEW disk
             // creation (first boot / -Rebuild) honors the configured size.
             // Name and value must be SEPARATE arguments: PowerShell -File
@@ -522,7 +521,10 @@ impl Manager {
             .stderr(Stdio::from(log))
             .spawn()
             .with_context(|| format!("failed to launch {} for VM bootstrap", script.display()))?;
-        std::fs::write(self.root.join(".cache/dev-local-bootstrap.pid"), child.id().to_string())?;
+        std::fs::write(
+            self.root.join(".cache/dev-local-bootstrap.pid"),
+            child.id().to_string(),
+        )?;
         Ok(())
     }
 
@@ -547,12 +549,11 @@ impl Manager {
         let disk = self.root.join(".cache/iora-dev-vm.qcow2");
         let golden = self.root.join(".cache/iora-dev-golden.qcow2");
         let temporary = golden.with_extension("qcow2.tmp");
-        let status =
-            Command::new(resolve_qemu_img())
-                .args(["convert", "-O", "qcow2", "-c"])
-                .arg(&disk)
-                .arg(&temporary)
-                .status()?;
+        let status = Command::new(resolve_qemu_img())
+            .args(["convert", "-O", "qcow2", "-c"])
+            .arg(&disk)
+            .arg(&temporary)
+            .status()?;
         if !status.success() {
             anyhow::bail!("qemu-img failed to create the Golden Snapshot")
         }
@@ -769,9 +770,7 @@ fi
         for block in blocks {
             let device = block["device"].as_str().unwrap_or_default();
             let inserted_device = block["inserted"]["device"].as_str().unwrap_or_default();
-            let node = block["inserted"]["node-name"]
-                .as_str()
-                .unwrap_or_default();
+            let node = block["inserted"]["node-name"].as_str().unwrap_or_default();
             if node.contains("disk")
                 || inserted_device.contains("disk")
                 || device.contains("disk")
@@ -1131,7 +1130,11 @@ fn execution_policy_name() -> Option<String> {
         .output()
         .ok()?;
     let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if name.is_empty() { None } else { Some(name) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 /// Find the VM disk path: start at the first `iora-dev-vm` occurrence and
@@ -1285,7 +1288,8 @@ fn forwarding_plan_with(
     // UDP. It connects to 127.0.0.1:40000 on the host; inside the guest
     // iora-browserd runs a socat hop from :40000 to the session port.
     if !port_in_use(40000) {
-        plan.rules.push("hostfwd=udp:127.0.0.1:40000-:40000".to_string());
+        plan.rules
+            .push("hostfwd=udp:127.0.0.1:40000-:40000".to_string());
         plan.forwarded
             .push((40000, 40000, Some("WebRTC (UDP)".to_string())));
     } else {
@@ -1385,10 +1389,7 @@ fn tap_available(_tap: &str) -> bool {
 /// ("WHPX: Unexpected VP exit code 4"); qemu64 is the reliable default there.
 /// Parse the RAM value ("8G", "8192M") into GB for TCG clamping.
 fn clamp_ram_gb(memory: &str) -> u32 {
-    let digits: String = memory
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
+    let digits: String = memory.chars().take_while(|c| c.is_ascii_digit()).collect();
     if digits.is_empty() {
         8
     } else if memory.contains(['M', 'm']) {
@@ -1567,7 +1568,10 @@ mod tests {
         // QEMU fail the whole user-net.
         let busy = 5173;
         let plan = forwarding_plan_with(2222, 8126, vec![busy], &[], |port| port == busy);
-        assert!(plan.rules.iter().all(|rule| !rule.contains(&busy.to_string())));
+        assert!(plan
+            .rules
+            .iter()
+            .all(|rule| !rule.contains(&busy.to_string())));
         assert_eq!(plan.skipped, vec![busy]);
         assert!(!plan.forwarded.iter().any(|(host, _, _)| *host == busy));
     }
@@ -1585,11 +1589,7 @@ mod tests {
         assert_eq!(info.home_port, Some(8126));
         assert_eq!(info.vnc_display, Some(1));
         assert_eq!(info.forwarded, vec![(2222, 22), (8126, 8126), (5173, 5173)]);
-        assert!(info
-            .disk
-            .as_deref()
-            .unwrap()
-            .contains("iora-dev-vm.qcow2"));
+        assert!(info.disk.as_deref().unwrap().contains("iora-dev-vm.qcow2"));
     }
 
     #[test]

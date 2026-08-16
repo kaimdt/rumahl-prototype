@@ -315,7 +315,10 @@ async fn main() -> Result<()> {
                 .route("/system-path", get(system_path))
                 .route("/system-folder", get(get_system_folder))
                 .route("/network/shares", get(scan_network_shares))
-                .route("/network/mounts", get(net_mounts_list).post(net_mount_create))
+                .route(
+                    "/network/mounts",
+                    get(net_mounts_list).post(net_mount_create),
+                )
                 .route("/network/mounts/:id", delete(net_mount_delete))
                 .route("/network/mounts/:id/files", get(net_mount_files))
                 .route("/network/mounts/:id/download", get(net_mount_download))
@@ -553,14 +556,13 @@ async fn list_files(
     } else if let Some(ref folder_id) = query.folder_id {
         // Inside a folder: own content, or the children of a family-shared
         // folder owned by someone else.
-        let is_family_shared: i64 =
-            sqlx::query_scalar(
-                "SELECT COUNT(*) FROM file_permissions WHERE file_id = ? AND grantee_type = 'family'",
-            )
-            .bind(folder_id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(0);
+        let is_family_shared: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM file_permissions WHERE file_id = ? AND grantee_type = 'family'",
+        )
+        .bind(folder_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
         if is_family_shared > 0 {
             sqlx::query_as(
                 "SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL \
@@ -694,8 +696,15 @@ async fn download_user_path(
         return Err((StatusCode::FORBIDDEN, "User path is private".to_string()));
     }
 
-    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
-    if segments.is_empty() || segments.iter().any(|segment| *segment == "." || *segment == "..") {
+    let segments: Vec<&str> = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if segments.is_empty()
+        || segments
+            .iter()
+            .any(|segment| *segment == "." || *segment == "..")
+    {
         return Err((StatusCode::BAD_REQUEST, "Invalid user path".to_string()));
     }
 
@@ -722,17 +731,31 @@ async fn download_user_path(
 
     let file = file.ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
     if file.is_folder {
-        return Err((StatusCode::BAD_REQUEST, "Cannot download a folder directly".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Cannot download a folder directly".to_string(),
+        ));
     }
 
-    let data = fs::read(state.storage_root.join(&file.storage_path)).await.map_err(|error| {
-        (StatusCode::NOT_FOUND, format!("File not found on disk: {error}"))
-    })?;
+    let data = fs::read(state.storage_root.join(&file.storage_path))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("File not found on disk: {error}"),
+            )
+        })?;
     log_activity(&state, &file.id, &claims.sub, "download", None).await;
-    Ok(([
-        (header::CONTENT_TYPE, file.mime_type),
-        (header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", file.original_name)),
-    ], data))
+    Ok((
+        [
+            (header::CONTENT_TYPE, file.mime_type),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("inline; filename=\"{}\"", file.original_name),
+            ),
+        ],
+        data,
+    ))
 }
 
 // ─── Delete File (soft) ─────────────────────────────────────────────────────
@@ -903,7 +926,8 @@ async fn copy_file(
     };
     ensure_quota(&state, &user_id, additional_size).await?;
 
-    let (new_id, _added) = copy_entry_recursive(&state, &source, body.target_folder_id.clone(), &user_id).await?;
+    let (new_id, _added) =
+        copy_entry_recursive(&state, &source, body.target_folder_id.clone(), &user_id).await?;
 
     // Update quota
     let now = Utc::now().to_rfc3339();
@@ -960,23 +984,25 @@ async fn is_descendant_of(state: &AppState, folder_id: &str, ancestor_id: &str) 
 fn compute_subtree_size<'a>(
     state: &'a AppState,
     folder_id: &'a str,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<i64, (StatusCode, String)>> + Send + 'a>> {
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<i64, (StatusCode, String)>> + Send + 'a>,
+> {
     Box::pin(async move {
-    let children: Vec<FileRecord> =
-        sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
-            .bind(folder_id)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut total = 0i64;
-    for child in children {
-        if child.is_folder {
-            total += compute_subtree_size(state, &child.id).await?;
-        } else {
-            total += child.size_bytes;
+        let children: Vec<FileRecord> =
+            sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
+                .bind(folder_id)
+                .fetch_all(&state.db)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut total = 0i64;
+        for child in children {
+            if child.is_folder {
+                total += compute_subtree_size(state, &child.id).await?;
+            } else {
+                total += child.size_bytes;
+            }
         }
-    }
-    Ok(total)
+        Ok(total)
     })
 }
 
@@ -987,14 +1013,16 @@ fn copy_entry_recursive<'a>(
     source: &'a FileRecord,
     target_parent_id: Option<String>,
     user_id: &'a str,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(String, i64), (StatusCode, String)>> + Send + 'a>> {
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(String, i64), (StatusCode, String)>> + Send + 'a>,
+> {
     Box::pin(async move {
-    let now = Utc::now().to_rfc3339();
-    let new_id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let new_id = Uuid::new_v4().to_string();
 
-    if source.is_folder {
-        let new_name = copy_display_name(&source.original_name);
-        sqlx::query(
+        if source.is_folder {
+            let new_name = copy_display_name(&source.original_name);
+            sqlx::query(
             "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
              VALUES (?, ?, ?, ?, 'inode/directory', 0, '', '', ?, 1, ?, ?, ?)"
         )
@@ -1010,44 +1038,56 @@ fn copy_entry_recursive<'a>(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
 
-        // Recurse into children
-        let children: Vec<FileRecord> =
-            sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
-                .bind(&source.id)
-                .fetch_all(&state.db)
+            // Recurse into children
+            let children: Vec<FileRecord> = sqlx::query_as(
+                "SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL",
+            )
+            .bind(&source.id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let mut added = 0i64;
+            for child in children {
+                let (_child_id, child_added) =
+                    copy_entry_recursive(state, &child, Some(new_id.clone()), user_id).await?;
+                added += child_added;
+            }
+            Ok((new_id, added))
+        } else {
+            // Physical blob copy
+            let source_abs = state.storage_root.join(&source.storage_path);
+            let data = fs::read(&source_abs).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Storage error: {}", e),
+                )
+            })?;
+
+            let ext = std::path::Path::new(&source.filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("bin");
+            let storage_filename = format!("{}.{}", new_id, ext);
+            let user_dir = state.storage_root.join(user_id);
+            fs::create_dir_all(&user_dir).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Storage error: {}", e),
+                )
+            })?;
+            let new_abs = user_dir.join(&storage_filename);
+            iora_shared_upload::atomic_write_async(&new_abs, &data)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let mut added = 0i64;
-        for child in children {
-            let (_child_id, child_added) =
-                copy_entry_recursive(state, &child, Some(new_id.clone()), user_id).await?;
-            added += child_added;
-        }
-        Ok((new_id, added))
-    } else {
-        // Physical blob copy
-        let source_abs = state.storage_root.join(&source.storage_path);
-        let data = fs::read(&source_abs)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e)))?;
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Write error: {}", e),
+                    )
+                })?;
 
-        let ext = std::path::Path::new(&source.filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("bin");
-        let storage_filename = format!("{}.{}", new_id, ext);
-        let user_dir = state.storage_root.join(user_id);
-        fs::create_dir_all(&user_dir).await.map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e))
-        })?;
-        let new_abs = user_dir.join(&storage_filename);
-        iora_shared_upload::atomic_write_async(&new_abs, &data)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {}", e)))?;
-
-        let new_name = copy_display_name(&source.original_name);
-        let storage_rel = format!("{}/{}", user_id, storage_filename);
-        sqlx::query(
+            let new_name = copy_display_name(&source.original_name);
+            let storage_rel = format!("{}/{}", user_id, storage_filename);
+            sqlx::query(
             "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
         )
@@ -1067,8 +1107,8 @@ fn copy_entry_recursive<'a>(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
 
-        Ok((new_id, source.size_bytes))
-    }
+            Ok((new_id, source.size_bytes))
+        }
     })
 }
 
@@ -1410,10 +1450,7 @@ async fn set_permission(
     // Family shares use a fixed grantee identity: every authenticated
     // (non-guest) family member gets access via the `family` grantee type.
     if !["user", "family"].contains(&grantee_type) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Invalid grantee type".to_string(),
-        ));
+        return Err((StatusCode::BAD_REQUEST, "Invalid grantee type".to_string()));
     }
     let grantee_id = if grantee_type == "family" {
         "family".to_string()
@@ -1532,21 +1569,34 @@ async fn net_mounts_list() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "mounts": smb_mount::list_mounts().await }))
 }
 
-async fn net_mount_create(Json(body): Json<MountCreateRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    match smb_mount::mount_share(&body.ip, &body.share, body.username.as_deref(), body.password.as_deref()).await {
+async fn net_mount_create(
+    Json(body): Json<MountCreateRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    match smb_mount::mount_share(
+        &body.ip,
+        &body.share,
+        body.username.as_deref(),
+        body.password.as_deref(),
+    )
+    .await
+    {
         Ok(record) => Ok(Json(serde_json::json!({ "mount": record }))),
         Err(e) => Err((StatusCode::BAD_REQUEST, e)),
     }
 }
 
-async fn net_mount_delete(Path(id): Path<String>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn net_mount_delete(
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     smb_mount::unmount_mount(&id)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
-async fn net_mount_files(Path(id): Path<String>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn net_mount_files(
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let files = smb_mount::list_mount_files(&id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "files": files })))
 }
@@ -1561,7 +1611,8 @@ async fn net_mount_download(
         StatusCode::OK,
         [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
         bytes,
-    ).into_response())
+    )
+        .into_response())
 }
 
 async fn get_quota(
@@ -1694,7 +1745,10 @@ async fn system_path(
     let raw = query.get("path").cloned().unwrap_or_default();
     const ALLOWED_ROOTS: [&str; 4] = ["/opt/iora", "/var/lib/iora", "/home/iora/iora", "/tmp"];
     if !ALLOWED_ROOTS.iter().any(|root| raw.starts_with(root)) {
-        return Err((StatusCode::FORBIDDEN, "Path is outside the allowed roots".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Path is outside the allowed roots".to_string(),
+        ));
     }
     let canonical = std::fs::canonicalize(&raw)
         .map_err(|_| (StatusCode::NOT_FOUND, "Path does not exist".to_string()))?;
@@ -1702,10 +1756,16 @@ async fn system_path(
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "Path does not exist".to_string()))?;
     if !meta.is_file() {
-        return Err((StatusCode::BAD_REQUEST, "Only files can be read".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Only files can be read".to_string(),
+        ));
     }
     if meta.len() > 25 * 1024 * 1024 {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, "File is too large".to_string()));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "File is too large".to_string(),
+        ));
     }
     let bytes = tokio::fs::read(&canonical)
         .await
@@ -1739,7 +1799,12 @@ fn extract_user_id_with_query(
                 })
             })
         })
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing authentication".to_string(),
+            )
+        })?;
     match crate::auth::verify_token(token, &jwt_secret) {
         Ok(user_id) => Ok(user_id),
         Err(_) => Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string())),
@@ -1786,7 +1851,12 @@ fn extract_claims(
                 })
             })
         })
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing authentication token".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing authentication token".to_string(),
+            )
+        })?;
 
     auth::verify_claims(token, &jwt_secret)
         .map_err(|error| (StatusCode::UNAUTHORIZED, format!("Invalid token: {error}")))

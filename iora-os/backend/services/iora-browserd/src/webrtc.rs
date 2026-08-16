@@ -16,8 +16,8 @@
 //! (dev VM: 127.0.0.1 + QEMU UDP forwarding - the host cannot reach the
 //! guest's private IP otherwise).
 
-use gstreamer::prelude::*;
 use glib::prelude::*;
+use gstreamer::prelude::*;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
@@ -118,7 +118,9 @@ fn run_session_inner(
          caps=image/jpeg,framerate=30/1 ! jpegdec ! videoconvert ! \
          vp8enc deadline=1 keyframe-max-dist=30 ! rtpvp8pay name=pay pt=96",
     ) {
-        Ok(p) => p.downcast::<gstreamer::Pipeline>().expect("pipeline downcast"),
+        Ok(p) => p
+            .downcast::<gstreamer::Pipeline>()
+            .expect("pipeline downcast"),
         Err(e) => {
             let _ = events.send(SessionEvent::Error(format!("parse_launch: {e}")));
             return;
@@ -131,7 +133,10 @@ fn run_session_inner(
             return;
         }
     };
-    webrtc.set_property("bundle-policy", gstreamer_webrtc::WebRTCBundlePolicy::MaxBundle);
+    webrtc.set_property(
+        "bundle-policy",
+        gstreamer_webrtc::WebRTCBundlePolicy::MaxBundle,
+    );
     if pipeline.add(&webrtc).is_err() {
         let _ = events.send(SessionEvent::Error("pipeline.add(webrtcbin) failed".into()));
         return;
@@ -140,14 +145,13 @@ fn run_session_inner(
     eprintln!("[webrtc] webrtcbin created, transceiver requested");
 
     // Sendonly transceiver.
-    let _transceiver = webrtc
-        .emit_by_name::<gstreamer_webrtc::WebRTCRTPTransceiver>(
-            "add-transceiver",
-            &[
-                &gstreamer_webrtc::WebRTCRTPTransceiverDirection::Sendonly,
-                &None::<gstreamer::Caps>,
-            ],
-        );
+    let _transceiver = webrtc.emit_by_name::<gstreamer_webrtc::WebRTCRTPTransceiver>(
+        "add-transceiver",
+        &[
+            &gstreamer_webrtc::WebRTCRTPTransceiverDirection::Sendonly,
+            &None::<gstreamer::Caps>,
+        ],
+    );
 
     let _ = pipeline.set_state(gstreamer::State::Playing);
 
@@ -206,7 +210,9 @@ fn run_session_inner(
             } else {
                 candidate.to_string()
             };
-            let _ = evt_ice.send(SessionEvent::Ice { candidate: rewritten });
+            let _ = evt_ice.send(SessionEvent::Ice {
+                candidate: rewritten,
+            });
         }
         None
     });
@@ -219,8 +225,10 @@ fn run_session_inner(
             return;
         }
     };
-    let offer_desc =
-        gstreamer_webrtc::WebRTCSessionDescription::new(gstreamer_webrtc::WebRTCSDPType::Offer, sdp_message);
+    let offer_desc = gstreamer_webrtc::WebRTCSessionDescription::new(
+        gstreamer_webrtc::WebRTCSDPType::Offer,
+        sdp_message,
+    );
 
     let webrtc_answer = webrtc.clone();
     let evt_answer = events.clone();
@@ -232,8 +240,7 @@ fn run_session_inner(
                 Ok(desc) => {
                     eprintln!("[webrtc] answer extracted, sending");
                     let local = gstreamer::Promise::new();
-                    webrtc_answer
-                        .emit_by_name::<()>("set-local-description", &[&desc, &local]);
+                    webrtc_answer.emit_by_name::<()>("set-local-description", &[&desc, &local]);
                     local.interrupt();
                     let sent = evt_answer.send(SessionEvent::Answer {
                         sdp: desc.sdp().as_text().unwrap_or_default(),
@@ -265,7 +272,9 @@ fn run_session_inner(
 
     // Frame pusher thread: CDP JPEGs -> appsrc.
     let appsrc = gstreamer_app::AppSrc::from(match pipeline.by_name("src") {
-        Some(s) => s.downcast::<gstreamer_app::AppSrc>().expect("appsrc downcast"),
+        Some(s) => s
+            .downcast::<gstreamer_app::AppSrc>()
+            .expect("appsrc downcast"),
         None => {
             let _ = events.send(SessionEvent::Error("appsrc missing".into()));
             return;
@@ -289,7 +298,7 @@ fn run_session_inner(
                     pts * frame_dur.as_nanos() as u64,
                 ));
                 buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(
-                    frame_dur.as_nanos() as u64,
+                    frame_dur.as_nanos() as u64
                 ));
             }
             pts += 1;
@@ -305,8 +314,7 @@ fn run_session_inner(
     let ice_webrtc = webrtc.clone();
     let ice_thread = thread::spawn(move || {
         while let Ok(candidate) = ice_rx.recv() {
-            let _ = ice_webrtc
-                .emit_by_name::<()>("add-ice-candidate", &[&0u32, &candidate]);
+            let _ = ice_webrtc.emit_by_name::<()>("add-ice-candidate", &[&0u32, &candidate]);
         }
     });
 

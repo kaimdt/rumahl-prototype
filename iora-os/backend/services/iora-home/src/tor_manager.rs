@@ -13,7 +13,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::spawn_blocking;
 
@@ -143,9 +142,12 @@ impl TorManager {
         for pid in stdout.split_whitespace() {
             if let Ok(pid) = pid.parse::<i32>() {
                 // Safety: only signal processes whose cmdline contains our torrc.
-                let cmd = std::fs::read_to_string(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+                let cmd =
+                    std::fs::read_to_string(format!("/proc/{pid}/cmdline")).unwrap_or_default();
                 if cmd.contains("tor") && cmd.contains("torrc") {
-                    let _ = std::process::Command::new("kill").args(["-HUP", &pid.to_string()]).status();
+                    let _ = std::process::Command::new("kill")
+                        .args(["-HUP", &pid.to_string()])
+                        .status();
                 }
             }
         }
@@ -192,6 +194,12 @@ impl TorManager {
 fn safe_name(app_id: &str) -> String {
     app_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }

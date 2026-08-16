@@ -323,7 +323,16 @@ pub async fn list_downloads(
     Extension(identity): Extension<AuthIdentity>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
-    let rows: Vec<(String, String, String, i32, String, serde_json::Value, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        i32,
+        String,
+        serde_json::Value,
+        chrono::DateTime<chrono::Utc>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    )> = sqlx::query_as(
         "SELECT id, name, status, progress, message, metadata, created_at, finished_at \
          FROM system_jobs WHERE created_by = $1 AND job_type = 'download' \
          ORDER BY created_at DESC LIMIT 50",
@@ -335,20 +344,22 @@ pub async fn list_downloads(
 
     let downloads: Vec<Value> = rows
         .iter()
-        .map(|(id, name, status, progress, message, metadata, created_at, finished_at)| {
-            json!({
-                "id": id,
-                "name": name,
-                "status": status,
-                "progress": progress,
-                "message": message,
-                "url": metadata.get("url"),
-                "file_id": metadata.get("file_id"),
-                "folder_name": metadata.get("folder_name"),
-                "created_at": created_at,
-                "finished_at": finished_at,
-            })
-        })
+        .map(
+            |(id, name, status, progress, message, metadata, created_at, finished_at)| {
+                json!({
+                    "id": id,
+                    "name": name,
+                    "status": status,
+                    "progress": progress,
+                    "message": message,
+                    "url": metadata.get("url"),
+                    "file_id": metadata.get("file_id"),
+                    "folder_name": metadata.get("folder_name"),
+                    "created_at": created_at,
+                    "finished_at": finished_at,
+                })
+            },
+        )
         .collect();
     Ok(Json(json!({ "downloads": downloads })))
 }
@@ -372,7 +383,9 @@ pub async fn cancel_download(
     .rows_affected();
 
     if affected == 0 {
-        return Err(ErrorResponse::not_found(format!("download job {job_id} not found or already finished")));
+        return Err(ErrorResponse::not_found(format!(
+            "download job {job_id} not found or already finished"
+        )));
     }
     Ok(Json(json!({ "cancelled": true, "job_id": job_id })))
 }

@@ -358,7 +358,9 @@ impl Daemon {
     pub async fn services(&self) -> Result<Vec<Value>> {
         let manager = self.manager.lock().await;
         let output = manager
-            .guest("systemctl list-units --type=service --all --no-legend --no-pager --plain 'iora-*'")
+            .guest(
+                "systemctl list-units --type=service --all --no-legend --no-pager --plain 'iora-*'",
+            )
             .await?;
         Ok(parse_services(&output))
     }
@@ -402,7 +404,9 @@ impl Daemon {
             let guard = self.force_sync_progress.lock().unwrap();
             if let Some(progress) = guard.as_ref() {
                 if progress.snapshot().running {
-                    anyhow::bail!("Force Sync & Rebuild läuft bereits — bitte den Abschluss im Log abwarten.");
+                    anyhow::bail!(
+                        "Force Sync & Rebuild läuft bereits — bitte den Abschluss im Log abwarten."
+                    );
                 }
             }
         }
@@ -438,11 +442,18 @@ impl Daemon {
                     format!("Force sync fehlgeschlagen: {error:#}")
                 };
                 snapshot.running = false;
-                snapshot.phase = if cancelled { "cancelled".into() } else { "error".into() };
+                snapshot.phase = if cancelled {
+                    "cancelled".into()
+                } else {
+                    "error".into()
+                };
                 snapshot.message = message.clone();
                 snapshot.updated_at = Some(devloop::now_iso());
                 *progress.inner.lock().unwrap() = snapshot;
-                self.emit(if cancelled { "status" } else { "error" }, format!("Force sync: {message}"));
+                self.emit(
+                    if cancelled { "status" } else { "error" },
+                    format!("Force sync: {message}"),
+                );
             }
         }
         result
@@ -610,9 +621,7 @@ impl Daemon {
                 json!({"command-line": format!("netdev_add {backend}")}),
             )
             .await;
-            let success = response
-                .as_ref()
-                .is_ok_and(|r| r.get("error").is_none());
+            let success = response.as_ref().is_ok_and(|r| r.get("error").is_none());
             if success {
                 added = true;
                 break;
@@ -621,12 +630,7 @@ impl Daemon {
             let message = response
                 .as_ref()
                 .ok()
-                .map(|r| {
-                    r["error"]["desc"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string()
-                })
+                .map(|r| r["error"]["desc"].as_str().unwrap_or_default().to_string())
                 .unwrap_or_default();
             let deferred_rule = pending
                 .iter()
@@ -742,7 +746,10 @@ impl Daemon {
                 },
             );
         }
-        self.emit("status", format!("Slirp network rebuilt ({} rules)", rules.len()));
+        self.emit(
+            "status",
+            format!("Slirp network rebuilt ({} rules)", rules.len()),
+        );
         Ok(format!(
             "Slirp network rebuilt with {} rules ({} deferred)",
             rules.len(),
@@ -766,16 +773,15 @@ impl Daemon {
         let mut steps: Vec<String> = Vec::new();
         // 1) graceful guest shutdown through the guest agent
         if let Some(qga_port) = info.qga_port {
-            if channels::qga(
-                qga_port,
-                &socket,
-                json!({"execute": "guest-shutdown"}),
-            )
-            .await
-            .is_ok()
+            if channels::qga(qga_port, &socket, json!({"execute": "guest-shutdown"}))
+                .await
+                .is_ok()
             {
                 steps.push("guest shutdown requested".into());
-                self.emit("status", format!("Foreign VM PID {pid}: guest shutdown requested"));
+                self.emit(
+                    "status",
+                    format!("Foreign VM PID {pid}: guest shutdown requested"),
+                );
                 for _ in 0..10 {
                     if !state::process_alive(pid) {
                         break;
@@ -785,7 +791,10 @@ impl Daemon {
             }
         }
         if !state::process_alive(pid) {
-            self.emit("status", format!("Foreign VM PID {pid} shut down gracefully"));
+            self.emit(
+                "status",
+                format!("Foreign VM PID {pid} shut down gracefully"),
+            );
             return Ok("VM shut down gracefully via guest agent".into());
         }
         // 2) ACPI powerdown through QMP
@@ -811,7 +820,10 @@ impl Daemon {
         if manager::kill_process(pid).is_ok() {
             steps.push("force-killed".into());
         }
-        self.emit("status", format!("Foreign VM PID {pid} stopped ({})", steps.join(", ")));
+        self.emit(
+            "status",
+            format!("Foreign VM PID {pid} stopped ({})", steps.join(", ")),
+        );
         Ok(format!("VM stopped: {}", steps.join(", ")))
     }
 
@@ -998,8 +1010,7 @@ impl Daemon {
                     RestartAction::None
                 } else {
                     desired.running = false;
-                    desired.message =
-                        "Reinstall finished but no QEMU process was found".into();
+                    desired.message = "Reinstall finished but no QEMU process was found".into();
                     RestartAction::GiveUp
                 }
             } else if lifecycle == "Ready" {
@@ -1010,7 +1021,11 @@ impl Daemon {
                 desired.retries = 0;
                 desired.message = "Ready".into();
                 RestartAction::None
-            } else if lifecycle == "Degraded" && probe.qga && !probe.internal_home && !desired.ever_ready {
+            } else if lifecycle == "Degraded"
+                && probe.qga
+                && !probe.internal_home
+                && !desired.ever_ready
+            {
                 // A freshly installed VM (dev-local first provision, or a
                 // source-mode first boot where iora-home still compiles)
                 // must never be torn down by the watchdog: only reinstall
@@ -1018,8 +1033,7 @@ impl Daemon {
                 // for a long time. The provisioned marker is checked in the
                 // guest and cached (re-checked every 60s).
                 if marker != Some(true) {
-                    desired.message =
-                        "Waiting for the guest installation to complete...".into();
+                    desired.message = "Waiting for the guest installation to complete...".into();
                     RestartAction::None
                 } else {
                     desired.retries += 1;
@@ -1077,7 +1091,10 @@ impl Daemon {
                 self.emit("error", full);
             }
             RestartAction::Reinstall => {
-                self.emit("status", "Installation health check failed; reinstalling VM");
+                self.emit(
+                    "status",
+                    "Installation health check failed; reinstalling VM",
+                );
                 if let Err(error) = self.reinstall().await {
                     let message = format!("auto-reinstall failed: {error:#}");
                     self.desired.lock().unwrap().message = message.clone();
@@ -1120,7 +1137,13 @@ impl Daemon {
     /// the persistent custom mappings.
     fn guest_ports(&self) -> Vec<u16> {
         let mut ports: Vec<u16> = manager::extra_ports();
-        ports.extend(self.mappings.lock().unwrap().iter().map(|mapping| mapping.guest));
+        ports.extend(
+            self.mappings
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|mapping| mapping.guest),
+        );
         ports.sort_unstable();
         ports.dedup();
         ports
@@ -1149,7 +1172,12 @@ impl Daemon {
                 .iter()
                 .filter_map(|value| value.as_u64().map(|host| host as u16))
                 .collect::<HashSet<_>>();
-            (forwarded, skipped, manager.state.qmp_port, manager.root.clone())
+            (
+                forwarded,
+                skipped,
+                manager.state.qmp_port,
+                manager.root.clone(),
+            )
         };
         let mappings = self.mappings.lock().unwrap().clone();
         let mut live = self.live_added.lock().unwrap().clone();
@@ -1213,7 +1241,11 @@ impl Daemon {
                 continue;
             }
             let local = columns.nth(2).unwrap_or_default();
-            let Some(port) = local.rsplit(':').next().and_then(|port| port.parse::<u16>().ok()) else {
+            let Some(port) = local
+                .rsplit(':')
+                .next()
+                .and_then(|port| port.parse::<u16>().ok())
+            else {
                 continue;
             };
             if !seen.insert(port) {
@@ -1263,8 +1295,8 @@ impl Daemon {
             .iter()
             .map(|mapping| {
                 let active = reachable.contains(&mapping.host);
-                let forwarded_ok = forwarded.contains(&mapping.host)
-                    || tunnel_alive.contains(&mapping.host);
+                let forwarded_ok =
+                    forwarded.contains(&mapping.host) || tunnel_alive.contains(&mapping.host);
                 let status = if active {
                     "active"
                 } else if forwarded_ok {
@@ -1319,7 +1351,10 @@ impl Daemon {
             self.save_mappings(&mappings);
         }
         self.apply_mapping_change().await;
-        self.emit("status", format!("Mapping 127.0.0.1:{host} -> guest:{guest} added"));
+        self.emit(
+            "status",
+            format!("Mapping 127.0.0.1:{host} -> guest:{guest} added"),
+        );
         Ok(())
     }
 
@@ -1427,13 +1462,18 @@ impl Daemon {
         };
         let env_path = repository.join("frontend").join(".env.development");
         let Ok(content) = std::fs::read_to_string(&env_path) else {
-            self.emit("error", "frontend/.env.development not found - cannot update backend URL");
+            self.emit(
+                "error",
+                "frontend/.env.development not found - cannot update backend URL",
+            );
             return;
         };
         let updated = content
             .lines()
             .map(|line| {
-                if line.starts_with("VITE_BACKEND_URL=") || line.starts_with("VITE_IORA_ASSIST_URL=") {
+                if line.starts_with("VITE_BACKEND_URL=")
+                    || line.starts_with("VITE_IORA_ASSIST_URL=")
+                {
                     let key = line.split('=').next().unwrap_or("");
                     format!("{key}=http://localhost:{port}")
                 } else {
@@ -1441,14 +1481,22 @@ impl Daemon {
                 }
             })
             .collect::<Vec<_>>()
-            .join("
-");
+            .join(
+                "
+",
+            );
         if updated == content {
-            self.emit("error", "frontend URL update skipped (no VITE_* lines found)");
+            self.emit(
+                "error",
+                "frontend URL update skipped (no VITE_* lines found)",
+            );
             return;
         }
         let _ = std::fs::write(&env_path, &updated);
-        self.emit("status", format!("frontend/.env.development -> http://localhost:{port} (host copy)"));
+        self.emit(
+            "status",
+            format!("frontend/.env.development -> http://localhost:{port} (host copy)"),
+        );
         // Guest copy + Vite restart so the running dev server picks it up.
         let encoded = channels::base64_encode(updated.as_bytes());
         let command = format!(
@@ -1457,7 +1505,10 @@ impl Daemon {
         );
         match channels::guest_exec(qga_port, &socket, &command).await {
             Ok(_) => self.emit("status", "Vite restarted with the updated backend URL"),
-            Err(error) => self.emit("error", format!("frontend URL update in guest failed: {error:#}")),
+            Err(error) => self.emit(
+                "error",
+                format!("frontend URL update in guest failed: {error:#}"),
+            ),
         }
     }
 
@@ -1609,10 +1660,16 @@ impl Daemon {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&apps_json) else {
             return;
         };
-        let Some(apps) = value["apps"].as_array() else { return };
+        let Some(apps) = value["apps"].as_array() else {
+            return;
+        };
         for app in apps {
-            let Some(app_id) = app["id"].as_str() else { continue };
-            let Some(ports) = app["ports"].as_array() else { continue };
+            let Some(app_id) = app["id"].as_str() else {
+                continue;
+            };
+            let Some(ports) = app["ports"].as_array() else {
+                continue;
+            };
             for port in ports {
                 let external = port
                     .as_str()
@@ -1750,9 +1807,9 @@ impl Daemon {
                 seed.total_mb = host_registry_mb();
             }
             let now = Instant::now();
-            let due = seed
-                .last_at
-                .map_or(true, |last| now.duration_since(last) >= Duration::from_secs(20));
+            let due = seed.last_at.map_or(true, |last| {
+                now.duration_since(last) >= Duration::from_secs(20)
+            });
             (seed.total_mb, due)
         };
         let total_mb = total_mb?;
@@ -1793,7 +1850,9 @@ impl Daemon {
         let percent = if done {
             100.0
         } else if total_mb > 0 {
-            ((current_mb as f64 / total_mb as f64) * 100.0).min(99.0).round()
+            ((current_mb as f64 / total_mb as f64) * 100.0)
+                .min(99.0)
+                .round()
         } else {
             0.0
         };
@@ -1964,7 +2023,10 @@ fi
         if will_escalate {
             match self.reset_network().await {
                 Ok(message) => {
-                    self.emit("status", format!("{message} (escalated network remediation)"));
+                    self.emit(
+                        "status",
+                        format!("{message} (escalated network remediation)"),
+                    );
                     self.net_repair.lock().unwrap().attempts = 0;
                 }
                 Err(error) => self.emit("error", format!("slirp rebuild failed: {error:#}")),
@@ -2009,7 +2071,10 @@ fn host_registry_mb() -> Option<u64> {
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .output()
             .ok()?;
-        String::from_utf8_lossy(&output.stdout).trim().parse::<u64>().ok()
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .ok()
     }
     #[cfg(not(windows))]
     {
@@ -2134,18 +2199,24 @@ pub fn spawn(daemon: Arc<Daemon>) {
         tokio::spawn(async move {
             while let Some(event) = dev_events.recv().await {
                 let (kind, message, watcher, sync) = match event {
-                    DevEvent::Watching => {
-                        ("status", "Live development watcher active".to_string(), Some("Running"), None)
-                    }
+                    DevEvent::Watching => (
+                        "status",
+                        "Live development watcher active".to_string(),
+                        Some("Running"),
+                        None,
+                    ),
                     DevEvent::Syncing(count) => (
                         "status",
                         format!("Synchronizing {count} changed files"),
                         None,
                         Some("Syncing"),
                     ),
-                    DevEvent::Building(service) => {
-                        ("status", format!("Building {service}"), Some("Building"), None)
-                    }
+                    DevEvent::Building(service) => (
+                        "status",
+                        format!("Building {service}"),
+                        Some("Building"),
+                        None,
+                    ),
                     DevEvent::Ready(detail) => {
                         ("status", detail, Some("Running"), Some("Watching"))
                     }
@@ -2199,8 +2270,8 @@ pub fn spawn(daemon: Arc<Daemon>) {
                         .unwrap_or(false);
                     let autostart = manager.config.autostart && !no_autostart;
                     let mode = manager.state.network_mode.clone();
-                    let running = manager.state.process_alive()
-                        || manager::bootstrap_alive(&manager.root);
+                    let running =
+                        manager.state.process_alive() || manager::bootstrap_alive(&manager.root);
                     (autostart && !running, mode)
                 };
                 if should_start {
@@ -2209,10 +2280,7 @@ pub fn spawn(daemon: Arc<Daemon>) {
                         "Autostart enabled (dev-manager.json) - starting the VM".to_string(),
                     );
                     if let Err(error) = autostart_daemon.start(mode).await {
-                        autostart_daemon.emit(
-                            "error",
-                            format!("Autostart failed: {error:#}"),
-                        );
+                        autostart_daemon.emit("error", format!("Autostart failed: {error:#}"));
                     }
                 }
             });
@@ -2380,7 +2448,10 @@ mod download_progress_tests {
     #[test]
     fn parses_latest_progress_line() {
         let tail = "[*] Downloading Debian cloud image (~400MB, one-time)...\n[DLP] 104857600 419430400\n[DLP] 209715200 419430400\n";
-        assert_eq!(parse_download_progress(tail), Some((209_715_200, 419_430_400)));
+        assert_eq!(
+            parse_download_progress(tail),
+            Some((209_715_200, 419_430_400))
+        );
     }
 
     #[test]

@@ -134,13 +134,9 @@ async fn main() -> Result<()> {
         Some(Command::Start { bridge, root }) => {
             let mode = if bridge { "bridge" } else { "slirp" };
             if let Some((_, port)) = daemon_info(root.clone()) {
-                print_result(delegate(
-                    port,
-                    "POST",
-                    "/api/start",
-                    Some(json!({"mode": mode})),
-                )
-                .await?)?;
+                print_result(
+                    delegate(port, "POST", "/api/start", Some(json!({"mode": mode}))).await?,
+                )?;
             } else {
                 let mut manager = Manager::discover(root)?;
                 let mode = if bridge {
@@ -154,12 +150,18 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Some(Command::Stop { root }) => {
-            run_with_daemon(root.clone(), "POST", "/api/stop", Some(json!({})), |root| async {
-                let manager = Manager::discover(root)?;
-                manager.graceful_stop().await?;
-                println!("Graceful shutdown requested");
-                Ok(())
-            })
+            run_with_daemon(
+                root.clone(),
+                "POST",
+                "/api/stop",
+                Some(json!({})),
+                |root| async {
+                    let manager = Manager::discover(root)?;
+                    manager.graceful_stop().await?;
+                    println!("Graceful shutdown requested");
+                    Ok(())
+                },
+            )
             .await
         }
         Some(Command::Kill { root }) => {
@@ -193,8 +195,7 @@ async fn main() -> Result<()> {
         }
         Some(Command::Logs { tail, root }) => {
             if let Some((_, port)) = daemon_info(root.clone()) {
-                let value =
-                    delegate(port, "GET", &format!("/api/logs?tail={tail}"), None).await?;
+                let value = delegate(port, "GET", &format!("/api/logs?tail={tail}"), None).await?;
                 for line in value["lines"].as_array().into_iter().flatten() {
                     println!("{}", line.as_str().unwrap_or_default());
                 }
@@ -274,8 +275,13 @@ async fn main() -> Result<()> {
         }
         Some(Command::Guest { command, root }) => {
             if let Some((_, port)) = daemon_info(root.clone()) {
-                let value = delegate(port, "POST", "/api/guest", Some(json!({"command": command})))
-                    .await?;
+                let value = delegate(
+                    port,
+                    "POST",
+                    "/api/guest",
+                    Some(json!({"command": command})),
+                )
+                .await?;
                 if let Some(output) = value["output"].as_str() {
                     print!("{output}");
                 } else {
@@ -307,7 +313,9 @@ async fn main() -> Result<()> {
                 "/api/network/reset",
                 None,
                 |_root| async {
-                    anyhow::bail!("no daemon running - reset the network via the dashboard or start the daemon")
+                    anyhow::bail!(
+                    "no daemon running - reset the network via the dashboard or start the daemon"
+                )
                 },
             )
             .await
@@ -320,7 +328,11 @@ async fn main() -> Result<()> {
             }
             println!("{:<8} {:<12} {:<44} {}", "PID", "Type", "Disk", "QMP/QGA");
             for vm in &vms {
-                let vm_type = if vm.is_iora_dev { "IORA Dev VM" } else { "foreign" };
+                let vm_type = if vm.is_iora_dev {
+                    "IORA Dev VM"
+                } else {
+                    "foreign"
+                };
                 let disk = vm
                     .disk
                     .as_deref()
@@ -342,8 +354,7 @@ async fn main() -> Result<()> {
         Some(Command::Attach { pid, root }) => {
             if let Some((_, port)) = daemon_info(root.clone()) {
                 print_result(
-                    delegate(port, "POST", "/api/vms/attach", Some(json!({"pid": pid})))
-                        .await?,
+                    delegate(port, "POST", "/api/vms/attach", Some(json!({"pid": pid}))).await?,
                 )?;
             } else {
                 let processes = manager::discover_qemu_processes();
@@ -365,7 +376,9 @@ async fn main() -> Result<()> {
                     delegate(port, "POST", "/api/vms/stop", Some(json!({"pid": pid}))).await?,
                 )?;
             } else {
-                anyhow::bail!("no daemon running - stop the VM with dev-local.ps1 -Stop or taskkill");
+                anyhow::bail!(
+                    "no daemon running - stop the VM with dev-local.ps1 -Stop or taskkill"
+                );
             }
             Ok(())
         }

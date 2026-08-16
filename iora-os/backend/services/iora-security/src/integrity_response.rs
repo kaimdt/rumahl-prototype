@@ -95,19 +95,32 @@ async fn run_pass(state: &AppState, last_reaction: &mut Option<String>) -> Resul
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    let report: IntegrityReport = serde_json::from_str(&contents).context("invalid integrity mismatch report")?;
+    let report: IntegrityReport =
+        serde_json::from_str(&contents).context("invalid integrity mismatch report")?;
     let age = std::fs::metadata(MISMATCH_FILE)
         .and_then(|m| m.modified())
         .and_then(|m| m.elapsed().map_err(std::io::Error::other))
         .unwrap_or_default();
     if age > MAX_EVIDENCE_AGE {
-        warn!(age_seconds = age.as_secs(), "integrity mismatch evidence is stale; ignoring");
+        warn!(
+            age_seconds = age.as_secs(),
+            "integrity mismatch evidence is stale; ignoring"
+        );
         return Ok(());
     }
     if report.mismatches.is_empty() {
         return Ok(());
     }
-    let fingerprint = format!("{}:{}", report.detected_at, report.mismatches.iter().map(|m| m.path.as_str()).collect::<Vec<_>>().join(","));
+    let fingerprint = format!(
+        "{}:{}",
+        report.detected_at,
+        report
+            .mismatches
+            .iter()
+            .map(|m| m.path.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
     if last_reaction.as_deref() == Some(fingerprint.as_str()) {
         return Ok(());
     }
@@ -116,10 +129,23 @@ async fn run_pass(state: &AppState, last_reaction: &mut Option<String>) -> Resul
         .iter()
         .filter(|m| is_critical_path(&m.path))
         .collect();
-    let audit_severity = if critical.is_empty() { "high" } else { "critical" };
-    record_audit(state, "integrity_mismatch", audit_severity, &report, &critical).await;
+    let audit_severity = if critical.is_empty() {
+        "high"
+    } else {
+        "critical"
+    };
+    record_audit(
+        state,
+        "integrity_mismatch",
+        audit_severity,
+        &report,
+        &critical,
+    )
+    .await;
     if critical.is_empty() {
-        metrics().non_critical_events.fetch_add(1, Ordering::Relaxed);
+        metrics()
+            .non_critical_events
+            .fetch_add(1, Ordering::Relaxed);
         info!("integrity mismatch without critical binaries — audit recorded, no lockdown");
     } else {
         metrics().critical_events.fetch_add(1, Ordering::Relaxed);
@@ -146,12 +172,30 @@ fn is_critical_path(path: &str) -> bool {
         .any(|marker| path.contains(marker))
 }
 
-async fn record_audit(state: &AppState, event_type: &str, severity: &str, report: &IntegrityReport, critical: &[&MismatchEvidence]) {
+async fn record_audit(
+    state: &AppState,
+    event_type: &str,
+    severity: &str,
+    report: &IntegrityReport,
+    critical: &[&MismatchEvidence],
+) {
     let critical_paths: Vec<&str> = critical.iter().map(|m| m.path.as_str()).collect();
+    let mismatches: Vec<serde_json::Value> = report
+        .mismatches
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "path": m.path,
+                "expected": m.expected,
+                "actual": m.actual,
+            })
+        })
+        .collect();
     let detail = serde_json::json!({
         "detected_at": report.detected_at,
         "mismatch_count": report.mismatches.len(),
         "critical_paths": critical_paths,
+        "mismatches": mismatches,
     });
     if let Err(error) = log_security_event(
         &state.security_db,
@@ -189,11 +233,17 @@ mod tests {
     #[test]
     fn critical_path_classification() {
         assert!(is_critical_path("/opt/iora/build/iora-home/bin/iora-home"));
-        assert!(is_critical_path("/opt/iora/build/iora-security-helper/bin/iora-security-helper"));
-        assert!(is_critical_path("/opt/iora/build/iora-supervisor/bin/iora-supervisor"));
+        assert!(is_critical_path(
+            "/opt/iora/build/iora-security-helper/bin/iora-security-helper"
+        ));
+        assert!(is_critical_path(
+            "/opt/iora/build/iora-supervisor/bin/iora-supervisor"
+        ));
         assert!(!is_critical_path("/opt/iora/apps/nextcloud/bin/nextcloud"));
         assert!(!is_critical_path("/usr/bin/openssl"));
-        assert!(!is_critical_path("/opt/iora/build/iora-nginx/bin/iora-nginx"));
+        assert!(!is_critical_path(
+            "/opt/iora/build/iora-nginx/bin/iora-nginx"
+        ));
     }
 
     #[test]
@@ -205,7 +255,9 @@ mod tests {
 
     #[tokio::test]
     async fn empty_report_is_ignored() {
-        let report: IntegrityReport = serde_json::from_str(r#"{"detected_at":"2026-08-16T00:00:00Z","mismatches":[]}"#).unwrap();
+        let report: IntegrityReport =
+            serde_json::from_str(r#"{"detected_at":"2026-08-16T00:00:00Z","mismatches":[]}"#)
+                .unwrap();
         assert!(report.mismatches.is_empty());
     }
 
@@ -215,7 +267,11 @@ mod tests {
             r#"{"detected_at":"2026-08-16T00:00:00Z","mismatches":[{"path":"/opt/iora/build/iora-home/bin/iora-home","expected":"a","actual":"b"}]}"#,
         )
         .unwrap();
-        let critical: Vec<&MismatchEvidence> = report.mismatches.iter().filter(|m| is_critical_path(&m.path)).collect();
+        let critical: Vec<&MismatchEvidence> = report
+            .mismatches
+            .iter()
+            .filter(|m| is_critical_path(&m.path))
+            .collect();
         assert_eq!(critical.len(), 1);
     }
 }

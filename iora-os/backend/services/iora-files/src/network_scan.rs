@@ -54,7 +54,11 @@ pub async fn scan_network_shares() -> Vec<NetworkHost> {
             .await
             .map(|r| r.is_ok())
             .unwrap_or(false);
-            if open { Some(ip) } else { None }
+            if open {
+                Some(ip)
+            } else {
+                None
+            }
         }));
     }
     let mut hosts = Vec::new();
@@ -82,7 +86,9 @@ async fn list_shares(ip: &str) -> Vec<ShareInfo> {
         .stderr(Stdio::null())
         .output()
         .await;
-    let Ok(output) = output else { return Vec::new() };
+    let Ok(output) = output else {
+        return Vec::new();
+    };
     if !output.status.success() {
         return Vec::new();
     }
