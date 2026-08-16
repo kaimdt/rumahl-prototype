@@ -162,7 +162,7 @@ async fn cdp_close_target(id: &str) {
 // ─── Tab lifecycle ────────────────────────────────────────────────────────
 
 async fn open_tab(state: &AppState, url: &str) -> anyhow::Result<Tab> {
-    let (id, ws_url) = cdp_new_target(&url).await?;
+    let (id, ws_url) = cdp_new_target(url).await?;
     let (events_tx, mut events_rx) = mpsc::channel::<cdp::TabEvent>(64);
     let cdp_tab = cdp::CdpTab::connect(&ws_url, events_tx).await?;
 
@@ -482,12 +482,12 @@ async fn ws_loop(socket: WebSocket, state: AppState) {
         tokio::select! {
             frame = frame_rx.recv() => {
                 let Ok(text) = frame else { break };
-                if sender.send(WsMessage::Text(text.into())).await.is_err() {
+                if sender.send(WsMessage::Text(text)).await.is_err() {
                     break;
                 }
             }
             _ = ping.tick() => {
-                if sender.send(WsMessage::Ping(vec![].into())).await.is_err() {
+                if sender.send(WsMessage::Ping(vec![])).await.is_err() {
                     break;
                 }
             }
@@ -593,7 +593,7 @@ async fn ws_loop(socket: WebSocket, state: AppState) {
                         json!({"type": "webrtc-error", "message": message})
                     }
                 };
-                if sender.send(WsMessage::Text(msg.to_string().into())).await.is_err() {
+                if sender.send(WsMessage::Text(msg.to_string())).await.is_err() {
                     break;
                 }
             }
