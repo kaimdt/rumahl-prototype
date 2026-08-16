@@ -187,6 +187,10 @@
           "path": "security/incident-correlation.md"
         },
         {
+          "title": "Security Smoke-Test",
+          "path": "security/smoke-test.md"
+        },
+        {
           "title": "Permission System",
           "path": "security/permissions.md"
         },

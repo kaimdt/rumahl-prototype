@@ -21,6 +21,7 @@ pub struct Metrics {
     pub timeline_dropped: u64,
     pub lifecycle_updates: u64,
 }
+#[derive(Default)]
 pub struct IncidentStore {
     latest: HashMap<Uuid, IncidentRecord>,
     revisions: HashMap<Uuid, IncidentRecord>,
@@ -29,20 +30,6 @@ pub struct IncidentStore {
     detection_index: HashMap<Uuid, Uuid>,
     journal_path: Option<PathBuf>,
     pub metrics: Metrics,
-}
-
-impl Default for IncidentStore {
-    fn default() -> Self {
-        Self {
-            latest: HashMap::new(),
-            revisions: HashMap::new(),
-            latest_order: VecDeque::new(),
-            revision_order: VecDeque::new(),
-            detection_index: HashMap::new(),
-            journal_path: None,
-            metrics: Metrics::default(),
-        }
-    }
 }
 
 impl IncidentStore {
@@ -392,7 +379,7 @@ fn severity(i: &CorrelationInput) -> Severity {
         .iter()
         .map(|f| f.severity)
         .max()
-        .unwrap_or_else(|| match i.detection.risk_score {
+        .unwrap_or(match i.detection.risk_score {
             90..=100 => Severity::Critical,
             70..=89 => Severity::High,
             40..=69 => Severity::Medium,
