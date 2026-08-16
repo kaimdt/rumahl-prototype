@@ -1,12 +1,17 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
+#[cfg(target_os = "linux")]
+use anyhow::Context;
 use axum::{extract::State, http::{HeaderMap, StatusCode}, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader}, net::UnixStream};
 use uuid::Uuid;
 
 use crate::AppState;
 
+#[cfg(target_os = "linux")]
+use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader}, net::UnixStream};
+
+#[cfg(target_os = "linux")]
 const HELPER_SOCKET: &str = "/run/iora/security-helper.sock";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,7 +40,7 @@ pub async fn overview(State(state): State<AppState>, headers: HeaderMap) -> Resu
     let quarantine = sqlx::query("SELECT COUNT(*) AS count FROM quarantine_items WHERE released_at IS NULL").fetch_one(&*state.security_db).await?.get::<i64,_>("count");
     let audit_chain_valid = verify_audit_chain(&state).await.unwrap_or(false);
     let (health, health_reasons) = classify_health(&helper, audit_chain_valid);
-    Ok(Json(serde_json::json!({"health":health,"health_reasons":health_reasons,"helper":helper,"audit_chain_valid":audit_chain_valid,"enabled_policies":policies,"active_scans":scans,"quarantine_items":quarantine,"default_response":"detect_alert_contain_confirm"})))
+    Ok(Json(serde_json::json!({"health":health,"health_reasons":health_reasons,"helper":helper,"audit_chain_valid":audit_chain_valid,"enabled_policies":policies,"active_scans":scans,"quarantine_items":quarantine,"default_response":"detect_alert_contain_confirm","automated_response":crate::automated_response::status()})))
 }
 
 fn classify_health(helper: &serde_json::Value, audit_chain_valid: bool) -> (&'static str, Vec<&'static str>) {
@@ -142,11 +147,17 @@ async fn select_providers(state: &AppState, requested: &[String]) -> Result<Vec<
 fn meminfo_kib(contents: &str, key: &str) -> u64 { contents.lines().find(|line| line.starts_with(key)).and_then(|line|line.split_whitespace().nth(1)).and_then(|value|value.parse().ok()).unwrap_or(0) }
 fn memory_pressure_avg10(contents: &str) -> f64 { contents.lines().find(|line|line.starts_with("some ")).and_then(|line|line.split_whitespace().find_map(|part|part.strip_prefix("avg10="))).and_then(|value|value.parse().ok()).unwrap_or(0.0) }
 
-async fn helper_call(value: serde_json::Value) -> Result<serde_json::Value> {
+#[cfg(target_os = "linux")]
+pub(crate) async fn helper_call(value: serde_json::Value) -> Result<serde_json::Value> {
     let mut stream = UnixStream::connect(HELPER_SOCKET).await.context("security helper unavailable")?;
     stream.write_all(serde_json::to_string(&value)?.as_bytes()).await?; stream.write_all(b"\n").await?;
     let mut response=String::new(); BufReader::new(stream).read_line(&mut response).await?;
     Ok(serde_json::from_str(&response)?)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) async fn helper_call(_value: serde_json::Value) -> Result<serde_json::Value> {
+    bail!("security helper unavailable on this platform")
 }
 
 fn require_permission(headers: &HeaderMap, permission: &str) -> Result<()> {

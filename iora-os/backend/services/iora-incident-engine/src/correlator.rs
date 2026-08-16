@@ -327,6 +327,13 @@ fn merge_graph(g: &mut CorrelationGraph, i: &CorrelationInput) {
             i.runtime.process_instance_id
         ));
     }
+    if let Some(v) = &i.runtime.executable_path {
+        g.executable_paths.insert(v.clone());
+        g.causal_edges.insert(format!(
+            "process:{}->read:path:{v}",
+            i.runtime.process_instance_id
+        ));
+    }
     if let Some(v) = &i.runtime.destination {
         g.destinations.insert(v.clone());
         g.causal_edges.insert(format!(
@@ -486,6 +493,7 @@ mod tests {
                 exec_generation: 1,
                 container_instance_id: Some("container-a".into()),
                 executable_hash: Some("abc".into()),
+                executable_path: Some("/opt/iora/apps/nextcloud/bin/nextcloud".into()),
                 socket_cookie: None,
                 destination: destination.map(str::to_owned),
                 summary: "suspicious shell activity".into(),

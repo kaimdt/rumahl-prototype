@@ -58,3 +58,7 @@ Security access is divided into read, policy management, scan execution, quarant
 ## Phase boundaries
 
 Phase 1 provides host and container firewalling, modular malware scans, hash/integrity checks, script heuristics, response policies, quarantine, audit events, and hardened independent services. eBPF runtime enforcement, full IDS/IPS, TPM attestation, Secure Boot, verified root filesystems, and offline recovery remain additive later phases.
+
+### Automated Response (Phase 2.5)
+
+The Security Center overview exposes an `automated_response` status block (interval, passes, evaluated/executed/skipped/transitioned counters). The background loop observes open incident recommendations from `iora-incident-engine`, matches them against enabled policies, and executes the policy actions through the frozen `iora-security-helper` boundary only. No phase-2 component gains a second privileged path; enforcement stays authorized by `iora-security` and is recorded in the keyed audit chain (`automated_response` / `automated_response_skipped` events).

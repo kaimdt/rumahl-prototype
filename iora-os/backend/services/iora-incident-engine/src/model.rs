@@ -62,6 +62,8 @@ pub struct RuntimeEvidence {
     pub exec_generation: u32,
     pub container_instance_id: Option<String>,
     pub executable_hash: Option<String>,
+    #[serde(default)]
+    pub executable_path: Option<String>,
     pub socket_cookie: Option<u64>,
     pub destination: Option<String>,
     pub summary: String,
@@ -99,6 +101,8 @@ pub struct CorrelationGraph {
     pub identity_snapshots: BTreeSet<Uuid>,
     pub socket_cookies: BTreeSet<u64>,
     pub executable_hashes: BTreeSet<String>,
+    #[serde(default)]
+    pub executable_paths: BTreeSet<String>,
     pub destinations: BTreeSet<String>,
     pub detection_types: BTreeSet<String>,
     pub causal_edges: BTreeSet<String>,

@@ -40,11 +40,11 @@ An eBPF loader may eventually require narrowly scoped kernel capabilities. That 
 
 ## Planned Phase 2 slices
 
-1. **2.1 Runtime Sensor:** collect and normalize telemetry without automatic blocking.
-2. **2.2 App Identity and Profiles:** attach every event to an ORA app, container, or system service and compare it with declared behavior.
-3. **2.3 Runtime Policy Engine:** combine profiles, telemetry, firewall state, and scanner results.
-4. **2.4 Incident Engine:** correlate related events into a single incident timeline.
-5. **2.5 Automated Response:** request existing typed Phase-1 actions according to policy.
+1. **2.1 Runtime Sensor:** collect and normalize telemetry without automatic blocking. *(delivered)*
+2. **2.2 App Identity and Profiles:** attach every event to an ORA app, container, or system service and compare it with declared behavior. *(delivered)*
+3. **2.3 Runtime Policy Engine:** combine profiles, telemetry, firewall state, and scanner results. *(delivered)*
+4. **2.4 Incident Engine:** correlate related events into a single incident timeline. *(delivered)*
+5. **2.5 Automated Response:** request existing typed Phase-1 actions according to policy. *(delivered: `iora-security` observes open incident recommendations and executes enabled policy actions exclusively through the Phase-1 helper boundary; the incident engine itself remains read-only)*
 
 ## Review checklist
 

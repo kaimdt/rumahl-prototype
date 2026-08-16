@@ -26,6 +26,7 @@ use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+mod automated_response;
 mod security_center;
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -1275,7 +1276,7 @@ async fn main() -> Result<()> {
         .route("/api/security/center/firewall", post(security_center::apply_firewall))
         .layer(CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state.clone());
 
     let port = system_config::service_port("iora-security", 8095).to_string();
     let addr = format!("0.0.0.0:{}", port);
@@ -1294,6 +1295,9 @@ async fn main() -> Result<()> {
         port.parse::<u16>().unwrap_or(8095),
         "Security policy & intrusion detection",
     );
+    // Phase 2.5: observe incident recommendations and execute authorized
+    // policy actions through the Phase-1 helper boundary.
+    automated_response::spawn(state.clone());
     axum::serve(listener, app).await?;
 
     Ok(())
