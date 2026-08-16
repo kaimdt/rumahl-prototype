@@ -369,7 +369,7 @@ mod linux {
     }
     fn container_id_from_cgroup(value: &str) -> Option<String> {
         value
-            .split(|character| character == '/' || character == '-')
+            .split(['/', '-'])
             .find(|part| {
                 part.len() >= 12
                     && part.len() <= 64
