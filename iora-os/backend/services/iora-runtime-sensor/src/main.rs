@@ -3,11 +3,17 @@ mod event;
 #[cfg(target_os = "linux")]
 mod pipeline;
 
+#[cfg(not(target_os = "linux"))]
 use anyhow::Result;
 
 #[cfg(not(target_os = "linux"))]
 fn main() -> Result<()> {
     anyhow::bail!("iora-runtime-sensor is a Linux-only service: it consumes kernel eBPF telemetry over a Unix socket")
+}
+
+#[cfg(target_os = "linux")]
+fn main() -> Result<()> {
+    linux::run()
 }
 
 #[cfg(target_os = "linux")]
@@ -81,7 +87,7 @@ mod linux {
     }
 
     #[tokio::main]
-    async fn main() -> Result<()> {
+    async fn run() -> Result<()> {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .init();
