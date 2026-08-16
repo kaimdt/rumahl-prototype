@@ -62,7 +62,7 @@ impl CdpTab {
             json!({"id": 4, "method": "Page.getNavigationHistory", "params": {}}),
         ];
         for msg in &setup {
-            write.send(Message::Text(msg.to_string().into())).await?;
+            write.send(Message::Text(msg.to_string())).await?;
         }
 
         let write = Arc::new(Mutex::new(write));
@@ -94,7 +94,7 @@ impl CdpTab {
                                 "params": { "sessionId": session }
                             });
                             let mut w = read_write.lock().await;
-                            let _ = w.send(Message::Text(ack.to_string().into())).await;
+                            let _ = w.send(Message::Text(ack.to_string())).await;
                             drop(w);
                             if !data.is_empty() {
                                 let _ = events
@@ -169,7 +169,7 @@ impl CdpTab {
         let id = next_id_inc(&self.next_id).await;
         let msg = json!({"id": id, "method": method, "params": params});
         let mut w = self.write.lock().await;
-        w.send(Message::Text(msg.to_string().into())).await?;
+        w.send(Message::Text(msg.to_string())).await?;
         drop(w);
         // Commands are fire-and-forget for the UI; the responses are
         // consumed by the read loop (only id 4 is inspected). Navigation

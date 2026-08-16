@@ -527,7 +527,7 @@ async fn ws_loop(socket: WebSocket, state: AppState) {
                             }
                             Err(e) => {
                                 let _ = sender.send(WsMessage::Text(
-                                    json!({"type": "webrtc-error", "message": e}).to_string().into(),
+                                    json!({"type": "webrtc-error", "message": e}).to_string(),
                                 )).await;
                             }
                         }

@@ -93,7 +93,7 @@ fn run_session(
     // (promises are dispatched on it); the frame/ICE threads are spawned
     // inside the guard so they inherit it as well.
     let ctx = main_loop.context().clone();
-    ctx.with_thread_default(|| {
+    let _ = ctx.with_thread_default(|| {
         run_session_inner(
             offer_sdp,
             events,
@@ -261,7 +261,7 @@ fn run_session_inner(
     let offer_promise = gstreamer::Promise::with_change_func(move |promise| {
         let _ = promise;
         eprintln!("[webrtc] remote description set, creating answer");
-        let _ = webrtc_offer.emit_by_name::<()>(
+        webrtc_offer.emit_by_name::<()>(
             "create-answer",
             &[&None::<gstreamer::Structure>, &answer_promise],
         );
@@ -271,7 +271,7 @@ fn run_session_inner(
     eprintln!("[webrtc] entering main loop");
 
     // Frame pusher thread: CDP JPEGs -> appsrc.
-    let appsrc = gstreamer_app::AppSrc::from(match pipeline.by_name("src") {
+    let appsrc = match pipeline.by_name("src") {
         Some(s) => s
             .downcast::<gstreamer_app::AppSrc>()
             .expect("appsrc downcast"),
@@ -279,7 +279,7 @@ fn run_session_inner(
             let _ = events.send(SessionEvent::Error("appsrc missing".into()));
             return;
         }
-    });
+    };
     let mut pts = 0u64;
     let frame_dur = Duration::from_secs_f64(1.0 / 30.0);
     let evt_err = events.clone();
@@ -314,7 +314,7 @@ fn run_session_inner(
     let ice_webrtc = webrtc.clone();
     let ice_thread = thread::spawn(move || {
         while let Ok(candidate) = ice_rx.recv() {
-            let _ = ice_webrtc.emit_by_name::<()>("add-ice-candidate", &[&0u32, &candidate]);
+            ice_webrtc.emit_by_name::<()>("add-ice-candidate", &[&0u32, &candidate]);
         }
     });
 
