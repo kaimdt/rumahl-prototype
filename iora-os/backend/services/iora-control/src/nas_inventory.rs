@@ -569,7 +569,7 @@ pub fn parse_smb_shares(input: &str) -> Vec<NasShare> {
     sections
         .into_iter()
         .filter(|(name, values)| {
-            name.to_ascii_lowercase() != "global" && values.contains_key("path")
+            !name.eq_ignore_ascii_case("global") && values.contains_key("path")
         })
         .map(|(name, values)| {
             let yes = |key: &str| {

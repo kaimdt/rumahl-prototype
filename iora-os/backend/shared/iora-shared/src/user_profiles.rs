@@ -29,11 +29,7 @@ pub struct UserRestrictions {
 impl UserRestrictions {
     /// Parse from the JSONB column (tolerant: `{}` or missing fields).
     pub fn from_value(value: &Value) -> Self {
-        if let Ok(restrictions) = serde_json::from_value::<UserRestrictions>(value.clone()) {
-            restrictions
-        } else {
-            UserRestrictions::default()
-        }
+        serde_json::from_value::<UserRestrictions>(value.clone()).unwrap_or_default()
     }
 }
 

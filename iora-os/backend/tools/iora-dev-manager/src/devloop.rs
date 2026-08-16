@@ -209,7 +209,7 @@ fn relevant(path: &Path) -> bool {
             .filter_map(|part| part.as_os_str().to_str())
             .collect();
         if let Some(i) = comps.iter().position(|name| *name == "iora-os") {
-            if comps.get(i + 1).map(|name| *name) == Some("tools") {
+            if comps.get(i + 1).copied() == Some("tools") {
                 return false;
             }
         }
@@ -654,6 +654,8 @@ async fn sync_path(repo: &Path, os_root: &Path, state: &RuntimeState, path: &Pat
         // QGA is only available when the daemon started the VM with a qga
         // chardev; the standard dev VM has none. SSH/SCP below is the
         // reliable path, so the QGA branch stays disabled.
+        #[allow(clippy::overly_complex_bool_expr)]
+        // deliberately disabled branch, see comment above
         if false && bytes.len() <= 1_048_576 {
             let parent = remote.parent().context("remote file has no parent")?;
             let temporary = format!("{}.iora-sync", remote.display());

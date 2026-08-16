@@ -501,13 +501,13 @@ async fn settings_set(
     let mut manager = daemon.manager.lock().await;
     let mut config = manager.config.clone();
     if let Some(value) = body.default_disk_gb {
-        if value < 4 || value > 4096 {
+        if !(4..=4096).contains(&value) {
             return Json(json!({"ok": false, "message": "defaultDiskGb must be 4..4096"}));
         }
         config.default_disk_gb = value;
     }
     if let Some(value) = body.default_ram_gb {
-        if value < 4 || value > 64 {
+        if !(4..=64).contains(&value) {
             return Json(json!({"ok": false, "message": "defaultRamGb must be 4..64"}));
         }
         config.default_ram_gb = value;
@@ -670,7 +670,7 @@ async fn ssh_terminal(mut socket: WebSocket, daemon: Arc<Daemon>) {
     tokio::spawn(pipe_read(stderr, out_tx));
     let out_task = tokio::spawn(async move {
         while let Some(bytes) = out_rx.recv().await {
-            if ws_tx.send(Message::Binary(bytes.into())).await.is_err() {
+            if ws_tx.send(Message::Binary(bytes)).await.is_err() {
                 return;
             }
         }

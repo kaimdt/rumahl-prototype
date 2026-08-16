@@ -851,7 +851,7 @@ async fn proxy_http(
 /// Raw upstream stream (plain TCP or TLS for wss:// upstreams).
 enum UpstreamStream {
     Plain(tokio::net::TcpStream),
-    Tls(tokio_rustls::client::TlsStream<tokio::net::TcpStream>),
+    Tls(Box<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>),
 }
 
 impl tokio::io::AsyncRead for UpstreamStream {
@@ -862,7 +862,7 @@ impl tokio::io::AsyncRead for UpstreamStream {
     ) -> std::task::Poll<std::io::Result<()>> {
         match &mut *self {
             UpstreamStream::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
-            UpstreamStream::Tls(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            UpstreamStream::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_read(cx, buf),
         }
     }
 }
@@ -875,7 +875,7 @@ impl tokio::io::AsyncWrite for UpstreamStream {
     ) -> std::task::Poll<Result<usize, std::io::Error>> {
         match &mut *self {
             UpstreamStream::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
-            UpstreamStream::Tls(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            UpstreamStream::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_write(cx, buf),
         }
     }
 
@@ -885,7 +885,7 @@ impl tokio::io::AsyncWrite for UpstreamStream {
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         match &mut *self {
             UpstreamStream::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
-            UpstreamStream::Tls(s) => std::pin::Pin::new(s).poll_flush(cx),
+            UpstreamStream::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_flush(cx),
         }
     }
 
@@ -895,7 +895,7 @@ impl tokio::io::AsyncWrite for UpstreamStream {
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         match &mut *self {
             UpstreamStream::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
-            UpstreamStream::Tls(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            UpstreamStream::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_shutdown(cx),
         }
     }
 }
@@ -920,7 +920,7 @@ async fn connect_upstream_stream(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid TLS server name")
         })?;
     let tls = connector.connect(server_name, tcp).await?;
-    Ok(UpstreamStream::Tls(tls))
+    Ok(UpstreamStream::Tls(Box::new(tls)))
 }
 
 /// True when the request is an HTTP upgrade (WebSocket) handshake.
@@ -1305,7 +1305,7 @@ pub async fn runtime_info(
                 // IORA_APPS_PUBLIC_PORT): the dev VM serves the gateway on
                 // http via a forwarded host port because *.apps.ora.local
                 // cannot be resolved on loopback otherwise.
-                public_app_runtime_url(&app_id, &base)
+                public_app_runtime_url(&app_id, base)
             })
     } else {
         None
@@ -1500,7 +1500,7 @@ mod tests {
         // All original directives preserved.
         let original_directives = policy
             .split(';')
-            .map(|d| d.trim().split_whitespace().next().unwrap())
+            .map(|d| d.split_whitespace().next().unwrap())
             .collect::<Vec<_>>();
         for directive in original_directives {
             assert!(rewritten.contains(directive));
@@ -2217,7 +2217,6 @@ mod https_upstream_tests {
     use super::*;
     use axum::body::Body;
     use std::convert::Infallible;
-    use std::io::Read as _;
 
     // Self-signed cert (CN=localhost, SAN localhost + 127.0.0.1) + PKCS#8 key
     // generated with openssl — used ONLY by this test to run a TLS mock
@@ -2312,7 +2311,7 @@ rzZT/YXil/zH/pH27a+wO0dH
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
                 let acceptor = acceptor.clone();
-                let service = service.clone();
+                let service = service;
                 tokio::spawn(async move {
                     let Ok(tls_stream) = acceptor.accept(stream).await else {
                         return;

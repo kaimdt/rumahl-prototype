@@ -45,6 +45,9 @@ impl JobStatus {
     }
 
     /// Parse from the wire representation (fallible, tolerant to unknown values).
+    // Not FromStr: tolerant and returns Option instead of Result; keep the
+    // name for the established call sites in iora-home.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "queued" => Some(JobStatus::Queued),

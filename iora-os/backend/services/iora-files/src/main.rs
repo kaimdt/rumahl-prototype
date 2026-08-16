@@ -599,12 +599,12 @@ async fn list_files(
         .fetch_all(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let shared = sqlx::query_as(&format!(
+        let shared = sqlx::query_as(
             "SELECT * FROM files WHERE deleted_at IS NULL AND parent_folder_id IS NULL \
              AND owner_id != ? \
              AND id IN (SELECT file_id FROM file_permissions WHERE grantee_type = 'family') \
-             ORDER BY is_folder DESC, original_name ASC"
-        ))
+             ORDER BY is_folder DESC, original_name ASC",
+        )
         .bind(&user_id)
         .fetch_all(&state.db)
         .await
@@ -981,12 +981,10 @@ async fn is_descendant_of(state: &AppState, folder_id: &str, ancestor_id: &str) 
 }
 
 /// Total size in bytes of every file below `folder_id` (folders themselves are free).
-fn compute_subtree_size<'a>(
-    state: &'a AppState,
-    folder_id: &'a str,
-) -> std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<i64, (StatusCode, String)>> + Send + 'a>,
-> {
+type SubtreeFuture<'a, T> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<T, (StatusCode, String)>> + Send + 'a>,
+>;
+fn compute_subtree_size<'a>(state: &'a AppState, folder_id: &'a str) -> SubtreeFuture<'a, i64> {
     Box::pin(async move {
         let children: Vec<FileRecord> =
             sqlx::query_as("SELECT * FROM files WHERE parent_folder_id = ? AND deleted_at IS NULL")
@@ -1013,9 +1011,7 @@ fn copy_entry_recursive<'a>(
     source: &'a FileRecord,
     target_parent_id: Option<String>,
     user_id: &'a str,
-) -> std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<(String, i64), (StatusCode, String)>> + Send + 'a>,
-> {
+) -> SubtreeFuture<'a, (String, i64)> {
     Box::pin(async move {
         let now = Utc::now().to_rfc3339();
         let new_id = Uuid::new_v4().to_string();
@@ -1707,7 +1703,7 @@ async fn resolve_path(
             file = query_segment(true)
                 .await
                 .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-                .or_else(|| None);
+                .or(None);
             if file.is_none() {
                 file = query_segment(false)
                     .await

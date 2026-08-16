@@ -121,11 +121,11 @@ pub async fn get_remote_config(
         .await
     {
         Ok(Some(pref)) => serde_json::from_str::<Value>(&pref.preference_value)
-            .and_then(|v| {
-                Ok(v.get("url")
+            .map(|v| {
+                v.get("url")
                     .and_then(|u| u.as_str())
                     .unwrap_or("")
-                    .to_string())
+                    .to_string()
             })
             .unwrap_or_default(),
         _ => String::new(),

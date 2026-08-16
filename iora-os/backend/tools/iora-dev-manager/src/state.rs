@@ -59,33 +59,20 @@ pub const CONFIG_FILE: &str = "dev-manager.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum NetworkMode {
+    #[default]
     Slirp,
     Bridge,
 }
 
-impl Default for NetworkMode {
-    fn default() -> Self {
-        Self::Slirp
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase")]
+#[derive(Default)]
 pub struct PortMapping {
     pub host: u16,
     pub guest: u16,
     pub label: Option<String>,
-}
-
-impl Default for PortMapping {
-    fn default() -> Self {
-        Self {
-            host: 0,
-            guest: 0,
-            label: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

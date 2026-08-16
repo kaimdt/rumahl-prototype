@@ -94,7 +94,7 @@ impl TorManager {
         } else {
             let log_path = self.data_dir.join("tor.log");
             let log_file = std::fs::File::create(&log_path)
-                .map(|f| Stdio::from(f))
+                .map(Stdio::from)
                 .unwrap_or(Stdio::null());
             let child = std::process::Command::new(&tor)
                 .arg("-f")

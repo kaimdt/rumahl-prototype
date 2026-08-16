@@ -175,7 +175,7 @@ pub async fn continue_watching(
                 "series": item.get("SeriesName").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 "season": item.get("SeasonNumber").and_then(|v| v.as_i64()).unwrap_or(0),
                 "episode": item.get("EpisodeNumber").and_then(|v| v.as_i64()).unwrap_or(0),
-                "progress_percent": (progress as f64).round(),
+                "progress_percent": progress.round(),
                 "provider": "jellyfin",
                 // Proxied image — the media token stays server-side.
                 "image_url": if id.is_empty() { None } else {
@@ -219,7 +219,7 @@ pub async fn continue_watching(
                                 "series": item.get("grandparentTitle").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                                 "season": item.get("parentIndex").and_then(|v| v.as_i64()).unwrap_or(0),
                                 "episode": item.get("index").and_then(|v| v.as_i64()).unwrap_or(0),
-                                "progress_percent": (progress as f64).round(),
+                                "progress_percent": progress.round(),
                                 "provider": "plex",
                             })
                         })

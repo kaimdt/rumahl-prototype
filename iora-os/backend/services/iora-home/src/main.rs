@@ -3809,6 +3809,7 @@ async fn bootstrap_admin_user(
 ///   1. `IORA_HOME_DIST` env var (absolute path, set by /etc/iora/iora-home.env on IORA OS)
 ///   2. `../dist`              (legacy: cargo run from backend/iora-home/)
 ///   3. `./dist`               (running from the workspace root)
+///
 /// Locate the app-icons directory (frontend/public/icons in the repo mirror).
 fn resolve_icons_dir() -> std::path::PathBuf {
     if let Ok(p) = std::env::var("IORA_ICONS_DIR") {
@@ -10329,6 +10330,7 @@ async fn app_host_port(app_id: &str) -> Option<u16> {
 ///   with `/` (but not `//`) are prefixed with the proxy prefix,
 /// - a `<base href="<prefix>">` is injected into `<head>` so relative URLs
 ///   resolve against the proxy prefix as well.
+///
 /// External (`http(s)`, `mailto:`), protocol-relative (`//`), `data:`,
 /// `blob:`, `javascript:` and fragment (`#`) URLs are left untouched.
 fn rewrite_app_html(html: &str, prefix: &str) -> String {
@@ -10361,7 +10363,7 @@ fn rewrite_html_attrs(html: &str, prefix: &str) -> String {
         let mut earliest: Option<(usize, &str)> = None;
         for attr in HTML_URL_ATTRS {
             if let Some(pos) = rest.find(attr) {
-                if earliest.map_or(true, |(p, _)| pos < p) {
+                if earliest.is_none_or(|(p, _)| pos < p) {
                     earliest = Some((pos, attr));
                 }
             }
@@ -10540,7 +10542,7 @@ async fn ws_tunnel(client: axum::extract::ws::WebSocket, base_url: String, sub_p
                     let close =
                         frame.map(|f| tokio_tungstenite::tungstenite::protocol::CloseFrame {
                             code: f.code.into(),
-                            reason: f.reason.into(),
+                            reason: f.reason,
                         });
                     let _ = up_tx.send(TungMessage::Close(close)).await;
                     break;
@@ -15520,11 +15522,10 @@ async fn admin_set_user_os_permissions(
     Path(user_id): Path<String>,
     Json(body): Json<HashMap<String, bool>>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    if body.keys().any(|permission| {
-        !OS_PERMISSIONS
-            .iter()
-            .any(|known| *known == permission.as_str())
-    }) {
+    if body
+        .keys()
+        .any(|permission| !OS_PERMISSIONS.contains(&permission.as_str()))
+    {
         return Err(ErrorResponse::bad_request("Unknown OS permission"));
     }
     let overrides: Vec<(String, bool)> = body.into_iter().collect();

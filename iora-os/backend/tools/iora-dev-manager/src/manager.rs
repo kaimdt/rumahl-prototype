@@ -1142,13 +1142,11 @@ fn execution_policy_name() -> Option<String> {
 fn disk_after(input: &str) -> Option<String> {
     let relative = input.find("iora-dev-vm")?;
     let start = input[..relative]
-        .rfind(|c| c == ' ' || c == '"' || c == '=')
+        .rfind([' ', '"', '='])
         .map(|position| position + 1)
         .unwrap_or(0);
     let rest = &input[start..];
-    let end = rest
-        .find(|c| c == ',' || c == '"' || c == ' ')
-        .unwrap_or(rest.len());
+    let end = rest.find([',', '"', ' ']).unwrap_or(rest.len());
     Some(rest[..end].to_string())
 }
 

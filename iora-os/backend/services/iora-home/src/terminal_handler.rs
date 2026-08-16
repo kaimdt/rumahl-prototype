@@ -88,10 +88,8 @@ async fn terminal_session(socket: WebSocket) {
                 }
                 let _ = stdin.flush().await;
             }
-            Ok(Message::Binary(data)) => {
-                if stdin.write_all(&data).await.is_err() {
-                    break;
-                }
+            Ok(Message::Binary(data)) if stdin.write_all(&data).await.is_err() => {
+                break;
             }
             Ok(Message::Close(_)) | Err(_) => break,
             _ => {}

@@ -326,7 +326,7 @@ async fn main() -> Result<()> {
                 println!("No running QEMU processes found.");
                 return Ok(());
             }
-            println!("{:<8} {:<12} {:<44} {}", "PID", "Type", "Disk", "QMP/QGA");
+            println!("{:<8} {:<12} {:<44} QMP/QGA", "PID", "Type", "Disk");
             for vm in &vms {
                 let vm_type = if vm.is_iora_dev {
                     "IORA Dev VM"

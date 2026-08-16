@@ -660,17 +660,13 @@ pub struct SandboxConfig {
 /// the iframe `allow` attribute (never granted globally).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AppDisplayMode {
     /// App runs inside the ORA desktop App Runner as an iframe.
+    #[default]
     Embedded,
     /// App opens outside the desktop runner (new browser context).
     External,
-}
-
-impl Default for AppDisplayMode {
-    fn default() -> Self {
-        AppDisplayMode::Embedded
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

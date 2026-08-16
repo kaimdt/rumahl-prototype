@@ -22,6 +22,18 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::middleware::AuthIdentity;
+
+/// Row shape of the download job listing query.
+type DownloadJobRow = (
+    String,
+    String,
+    String,
+    i32,
+    String,
+    serde_json::Value,
+    chrono::DateTime<chrono::Utc>,
+    Option<chrono::DateTime<chrono::Utc>>,
+);
 use crate::AppState;
 use crate::ErrorResponse;
 
@@ -118,7 +130,7 @@ pub async fn start_download(
     )
     .bind(&job_id)
     .bind(body.filename.as_deref().unwrap_or("Download").to_string())
-    .bind(&json!({ "url": url, "folder_id": folder.as_ref().map(|f| f.0.clone()) }))
+    .bind(json!({ "url": url, "folder_id": folder.as_ref().map(|f| f.0.clone()) }))
     .bind(&user_id)
     .execute(&state.db_pool)
     .await
@@ -177,6 +189,7 @@ async fn fetch_or_create_downloads_folder(
 }
 
 /// Background download: stream → temp file → upload to iora-files → job done.
+#[allow(clippy::too_many_arguments)] // internal task parameter bundle; not a public API
 async fn run_download_task(
     db: &sqlx::PgPool,
     job_id: &str,
@@ -323,16 +336,7 @@ pub async fn list_downloads(
     Extension(identity): Extension<AuthIdentity>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        i32,
-        String,
-        serde_json::Value,
-        chrono::DateTime<chrono::Utc>,
-        Option<chrono::DateTime<chrono::Utc>>,
-    )> = sqlx::query_as(
+    let rows: Vec<DownloadJobRow> = sqlx::query_as(
         "SELECT id, name, status, progress, message, metadata, created_at, finished_at \
          FROM system_jobs WHERE created_by = $1 AND job_type = 'download' \
          ORDER BY created_at DESC LIMIT 50",

@@ -642,8 +642,7 @@ impl Daemon {
                     // Fallback: defer a rule whose port appears in the error.
                     let port = message
                         .split(|c: char| !c.is_ascii_digit())
-                        .filter(|part| !part.is_empty())
-                        .next_back()
+                        .rfind(|part| !part.is_empty())
                         .and_then(|part| part.parse::<u16>().ok());
                     port.and_then(|port| {
                         pending
@@ -898,7 +897,7 @@ impl Daemon {
                 .last_provision_note
                 .lock()
                 .unwrap()
-                .map_or(true, |last| last.elapsed() >= Duration::from_secs(20));
+                .is_none_or(|last| last.elapsed() >= Duration::from_secs(20));
             if note_due {
                 *self.last_provision_note.lock().unwrap() = Some(Instant::now());
                 let download = self.download_progress_json(&root);
@@ -943,7 +942,7 @@ impl Daemon {
                 .last_build_check
                 .lock()
                 .unwrap()
-                .map_or(true, |last| last.elapsed() >= Duration::from_secs(60));
+                .is_none_or(|last| last.elapsed() >= Duration::from_secs(60));
             if build_check_due {
                 *self.last_build_check.lock().unwrap() = Some(Instant::now());
                 let (qga_port, socket) = {
@@ -1606,7 +1605,7 @@ impl Daemon {
                 &format!("root@{host}"),
             ];
             let child = match std::process::Command::new("ssh")
-                .args(&args)
+                .args(args)
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()
@@ -1778,8 +1777,7 @@ impl Daemon {
         let tail = manager::read_tail(&root.join(".cache/dev-local.log"), 80);
         let phase = tail
             .lines()
-            .filter(|line| line.contains("[*") || line.contains("[+") || line.contains("[!"))
-            .next_back()
+            .rfind(|line| line.contains("[*") || line.contains("[+") || line.contains("[!"))
             .map(str::trim)
             .unwrap_or("")
             .to_string();
@@ -1807,9 +1805,9 @@ impl Daemon {
                 seed.total_mb = host_registry_mb();
             }
             let now = Instant::now();
-            let due = seed.last_at.map_or(true, |last| {
-                now.duration_since(last) >= Duration::from_secs(20)
-            });
+            let due = seed
+                .last_at
+                .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(20));
             (seed.total_mb, due)
         };
         let total_mb = total_mb?;

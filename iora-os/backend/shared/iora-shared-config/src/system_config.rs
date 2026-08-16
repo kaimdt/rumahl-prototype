@@ -133,6 +133,7 @@ fn normalize_jwt_secret(value: &str) -> String {
 /// 1. `IORA_JWT_SECRET` environment variable
 /// 2. Settings cache key `jwt_secret` (populated from system_preferences table)
 /// 3. Auto-generated random secret (set by `persist_jwt_secret` or UUID v4 fallback)
+///
 /// Shared JWT-secret file: iora-home persists the canonical secret here so
 /// EVERY microservice on the host (iora-control, iora-files, iora-security,
 /// ...) validates with the SAME secret. Without this, each process falls
@@ -228,41 +229,6 @@ pub fn persist_jwt_secret(secret: &str) {
     let _ = AUTO_JWT_SECRET.set(secret.clone());
     // Share with all services on this host.
     write_jwt_secret_file(&secret);
-}
-
-#[cfg(test)]
-mod jwt_secret_tests {
-    use super::normalize_jwt_secret;
-
-    #[test]
-    fn removes_json_and_environment_file_quotes() {
-        assert_eq!(
-            normalize_jwt_secret(r#""shared-secret-value""#),
-            "shared-secret-value"
-        );
-        assert_eq!(
-            normalize_jwt_secret(r#"'shared-secret-value'"#),
-            "shared-secret-value"
-        );
-        assert_eq!(
-            normalize_jwt_secret("'shared-secret-value'"),
-            "shared-secret-value"
-        );
-        assert_eq!(
-            normalize_jwt_secret("  shared-secret-value\n"),
-            "shared-secret-value"
-        );
-    }
-
-    #[test]
-    fn canonical_path_is_etc_iora() {
-        if std::env::var_os("IORA_JWT_SECRET_FILE").is_none() {
-            assert_eq!(
-                super::jwt_secret_file(),
-                std::path::PathBuf::from("/etc/iora/jwt-secret")
-            );
-        }
-    }
 }
 
 /// Master encryption key for the secrets service.
@@ -682,4 +648,39 @@ pub fn get_cache_updated_at() -> std::time::SystemTime {
         .ok()
         .map(|ts| *ts)
         .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+}
+
+#[cfg(test)]
+mod jwt_secret_tests {
+    use super::normalize_jwt_secret;
+
+    #[test]
+    fn removes_json_and_environment_file_quotes() {
+        assert_eq!(
+            normalize_jwt_secret(r#""shared-secret-value""#),
+            "shared-secret-value"
+        );
+        assert_eq!(
+            normalize_jwt_secret(r#"'shared-secret-value'"#),
+            "shared-secret-value"
+        );
+        assert_eq!(
+            normalize_jwt_secret("'shared-secret-value'"),
+            "shared-secret-value"
+        );
+        assert_eq!(
+            normalize_jwt_secret("  shared-secret-value\n"),
+            "shared-secret-value"
+        );
+    }
+
+    #[test]
+    fn canonical_path_is_etc_iora() {
+        if std::env::var_os("IORA_JWT_SECRET_FILE").is_none() {
+            assert_eq!(
+                super::jwt_secret_file(),
+                std::path::PathBuf::from("/etc/iora/jwt-secret")
+            );
+        }
+    }
 }

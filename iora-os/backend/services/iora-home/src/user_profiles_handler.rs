@@ -121,19 +121,21 @@ pub async fn update_user_profile(
 
 /// GET /api/admin/users — all users with their profile fields (admin only).
 /// Used by the family-profile settings UI.
+/// Row shape of the user-with-profile listing query.
+type UserProfileRow = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    bool,
+    String,
+    Value,
+);
 pub async fn admin_list_users_with_profiles(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let rows: Vec<(
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-        bool,
-        String,
-        Value,
-    )> = sqlx::query_as(
+    let rows: Vec<UserProfileRow> = sqlx::query_as(
         "SELECT id, username, display_name, avatar_url, role, is_admin, profile_type, restrictions \
          FROM users WHERE username != 'guest' ORDER BY username",
     )

@@ -139,7 +139,7 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
             Ok(std::process::Output {
                 status: std::process::Command::new("false")
                     .status()
-                    .unwrap_or(std::process::ExitStatus::default()),
+                    .unwrap_or_default(),
                 stdout: Vec::new(),
                 stderr: b"timeout".to_vec(),
             })
