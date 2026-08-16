@@ -12,6 +12,7 @@ fn main() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use crate::event::*;
     use anyhow::Result;
     use axum::{
         extract::State,
@@ -19,7 +20,6 @@ mod linux {
         routing::get,
         Json, Router,
     };
-    use event::*;
     use serde::Serialize;
     use sha2::{Digest, Sha256};
     use std::{
