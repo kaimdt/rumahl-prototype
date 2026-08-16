@@ -4503,6 +4503,8 @@ LOG_TAG="iora-integrity"
 SECURITY_LOG="/var/log/iora-security.log"
 MANIFEST="/etc/iora/binary-manifest.sha256"
 RESULT_FILE="/run/iora/integrity-last-result"
+MISMATCH_FILE="/run/iora/integrity-mismatch.json"
+mismatch_json=""
 
 log()   { logger -t "$LOG_TAG" "$*"; }
 alert() {
@@ -4531,12 +4533,14 @@ while IFS= read -r line; do
     if [ ! -f "$bin_path" ]; then
         alert "binary missing: ${bin_path}"
         mismatches=$((mismatches + 1))
+        mismatch_json="${mismatch_json}{\"path\":\"${bin_path}\",\"expected\":\"${expected_hash}\",\"actual\":\"missing\"},"
         continue
     fi
     actual_hash=$(sha256sum "$bin_path" 2>/dev/null | awk '{print $1}')
     if [ "$actual_hash" != "$expected_hash" ]; then
         alert "integrity MISMATCH: ${bin_path}"
         mismatches=$((mismatches + 1))
+        mismatch_json="${mismatch_json}{\"path\":\"${bin_path}\",\"expected\":\"${expected_hash}\",\"actual\":\"${actual_hash}\"},"
     fi
 done < "$MANIFEST"
 
@@ -4545,8 +4549,15 @@ printf '{"checked":%d,"mismatches":%d,"ts":"%s"}\n' \
     "$total" "$mismatches" "$(date -Iseconds)" > "$RESULT_FILE" 2>/dev/null || true
 
 if [ "$mismatches" -eq 0 ]; then
+    rm -f "$MISMATCH_FILE" 2>/dev/null || true
     log "integrity OK — ${total} binaries verified"
 else
+    # Structured mismatch evidence for iora-security: it decides whether the
+    # affected binaries are critical and may request a lockdown through the
+    # approved helper boundary. The scan itself never mutates the host.
+    mismatch_json="${mismatch_json%,}"
+    printf '{"detected_at":"%s","mismatches":[%s]}\n' \
+        "$(date -Iseconds)" "$mismatch_json" > "$MISMATCH_FILE" 2>/dev/null || true
     alert "${mismatches}/${total} integrity failures — check $SECURITY_LOG"
 fi
 exit 0

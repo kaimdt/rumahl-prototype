@@ -40,7 +40,7 @@ pub async fn overview(State(state): State<AppState>, headers: HeaderMap) -> Resu
     let quarantine = sqlx::query("SELECT COUNT(*) AS count FROM quarantine_items WHERE released_at IS NULL").fetch_one(&*state.security_db).await?.get::<i64,_>("count");
     let audit_chain_valid = verify_audit_chain(&state).await.unwrap_or(false);
     let (health, health_reasons) = classify_health(&helper, audit_chain_valid);
-    Ok(Json(serde_json::json!({"health":health,"health_reasons":health_reasons,"helper":helper,"audit_chain_valid":audit_chain_valid,"enabled_policies":policies,"active_scans":scans,"quarantine_items":quarantine,"default_response":"detect_alert_contain_confirm","automated_response":crate::automated_response::status()})))
+    Ok(Json(serde_json::json!({"health":health,"health_reasons":health_reasons,"helper":helper,"audit_chain_valid":audit_chain_valid,"enabled_policies":policies,"active_scans":scans,"quarantine_items":quarantine,"default_response":"detect_alert_contain_confirm","automated_response":crate::automated_response::status(),"integrity_response":crate::integrity_response::status()})))
 }
 
 fn classify_health(helper: &serde_json::Value, audit_chain_valid: bool) -> (&'static str, Vec<&'static str>) {

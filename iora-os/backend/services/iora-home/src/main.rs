@@ -6964,10 +6964,9 @@ async fn proxy_files_share(
         .unwrap_or_else(|_| req.uri().clone());
     let (mut parts, body) = req.into_parts();
     parts.uri = new_uri;
-    // These routes live in the authenticated admin router. The downstream
-    // service rejects direct requests and trusts only this explicit marker.
-    parts.headers.insert("x-iora-proxy", axum::http::HeaderValue::from_static("iora-home"));
-    parts.headers.insert("x-iora-permissions", axum::http::HeaderValue::from_static("security_admin"));
+    // Share access is authenticated by the router this handler lives in.
+    // iora-files performs its own authorization and inspects no trusted
+    // markers, so none are attached here.
     let new_req = axum::extract::Request::<Body>::from_parts(parts, body);
     forward_request_to(&state, &base, new_req).await
 }
@@ -7444,6 +7443,13 @@ async fn proxy_core_security(
         .unwrap_or_else(|_| req.uri().clone());
     let (mut parts, body) = req.into_parts();
     parts.uri = new_uri;
+    // This router is layered with require_admin (JWT/API-key + is_admin),
+    // which runs before this handler. Strip any client-supplied trusted
+    // markers first, then attach the marker that iora-security trusts.
+    parts.headers.remove("x-iora-proxy");
+    parts.headers.remove("x-iora-permissions");
+    parts.headers.insert("x-iora-proxy", axum::http::HeaderValue::from_static("iora-home"));
+    parts.headers.insert("x-iora-permissions", axum::http::HeaderValue::from_static("security_admin"));
     let new_req = axum::extract::Request::<Body>::from_parts(parts, body);
     forward_request_to(&state, &base, new_req).await
 }

@@ -55,6 +55,14 @@ The keyed event chain makes offline database edits detectable as long as the Sec
 
 Security access is divided into read, policy management, scan execution, quarantine management, firewall management, and lockdown management. These permissions are intended for the integrated system app and administrators; plugins must never receive them. `security_admin` is the aggregate administrative role used by the authenticated internal proxy.
 
+### Access control architecture
+
+`iora-security` binds **loopback only** and is never reachable directly from the network. All Security Center requests flow through `iora-home`: the `/api/core/security/*` routes live in the admin router, which enforces authentication (JWT or API key) plus `is_admin` via `require_admin`. Only after that check does the proxy strip any client-supplied `x-iora-*` markers and attach the trusted pair `x-iora-proxy: iora-home` + `x-iora-permissions: security_admin`. `iora-security` rejects every request without that exact pair (`require_permission`), so neither network clients nor non-admin users can reach the privileged endpoints. The granular `security_*` permissions remain part of the API contract for future role refinement.
+
+### Integrity response
+
+The Security Center overview exposes an `integrity_response` status block (passes, critical/non-critical events, lockdowns). `iora-integrity.service` verifies the native binaries against `/etc/iora/binary-manifest.sha256` every five minutes and writes structured evidence to `/run/iora/integrity-mismatch.json` — the scan itself stays read-only and only alerts. The `integrity_response` watchdog in `iora-security` classifies the affected paths: tampering of critical core services (`iora-security`, `iora-security-helper`, `iora-home`, `iora-supervisor`, `iora-gateway`, `iora-assist`, `iora-core`, `iora-files`) requests a **lockdown** through the approved helper boundary and records keyed audit events (`integrity_mismatch`, `automated_lockdown`); non-critical mismatches (e.g. app binaries) are audited without a lockdown. The same evidence report triggers at most one reaction.
+
 ## Phase boundaries
 
 Phase 1 provides host and container firewalling, modular malware scans, hash/integrity checks, script heuristics, response policies, quarantine, audit events, and hardened independent services. eBPF runtime enforcement, full IDS/IPS, TPM attestation, Secure Boot, verified root filesystems, and offline recovery remain additive later phases.

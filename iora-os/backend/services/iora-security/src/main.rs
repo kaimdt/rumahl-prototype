@@ -27,6 +27,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 mod automated_response;
+mod integrity_response;
 mod security_center;
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -1279,7 +1280,11 @@ async fn main() -> Result<()> {
         .with_state(state.clone());
 
     let port = system_config::service_port("iora-security", 8095).to_string();
-    let addr = format!("0.0.0.0:{}", port);
+    // Loopback-only: the Security Center API is reached exclusively through
+    // the authenticated iora-home admin proxy, which attaches the trusted
+    // markers. Binding 0.0.0.0 would expose the privileged endpoints to any
+    // network client that can spoof the marker headers.
+    let addr = format!("127.0.0.1:{}", port);
 
     info!("🔒 iora-security starting on {} ({})", addr, iora_env);
     info!("Security monitoring active");
@@ -1298,6 +1303,9 @@ async fn main() -> Result<()> {
     // Phase 2.5: observe incident recommendations and execute authorized
     // policy actions through the Phase-1 helper boundary.
     automated_response::spawn(state.clone());
+    // Integrity watchdog: request lockdown through the helper when critical
+    // IORA binaries are tampered with (evidence from iora-integrity.service).
+    integrity_response::spawn(state.clone());
     axum::serve(listener, app).await?;
 
     Ok(())
