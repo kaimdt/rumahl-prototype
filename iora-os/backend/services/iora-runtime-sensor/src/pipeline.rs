@@ -260,7 +260,7 @@ pub async fn run(client: &reqwest::Client, event: RuntimeEvent) -> Result<()> {
         },
         policy_versions: Vec::new(),
     };
-    post::<_, CorrelationInput>(
+    post::<_, serde_json::Value>(
         client,
         format!("http://127.0.0.1:{incident_port}/api/runtime/incidents/correlate"),
         &input,
