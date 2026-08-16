@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
-    linux::run()
+    linux::serve()
 }
 
 #[cfg(target_os = "linux")]
@@ -107,7 +107,7 @@ mod linux {
     }
 
     #[tokio::main]
-    pub(crate) async fn run() -> Result<()> {
+    pub(crate) async fn serve() -> Result<()> {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .init();
