@@ -100,7 +100,7 @@ def load_state() -> dict | None:
 def bar(percent: int, width: int = 50) -> str:
     percent = max(0, min(100, percent))
     filled = int(width * percent / 100)
-    return f"[{'█' * filled}{'░' * (width - filled)}]"
+    return f"[{'#' * filled}{'-' * (width - filled)}]"
 
 
 def render(ip: str, state: dict | None, no_ip_seconds: float = 0,
@@ -108,10 +108,10 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0,
     lines: list[str] = []
     lines.append(CLEAR)
     # IORA-style header bar
-    lines.append(BOLD + FG_ACCENT + "━" * 78 + RESET)
+    lines.append(BOLD + FG_ACCENT + "=" * 78 + RESET)
     lines.append(BOLD + FG_WHITE + "   " + FG_ACCENT + "IORA" + FG_WHITE +
-                 " OS" + FG_GRAY + "  —  First-Boot Setup" + RESET)
-    lines.append(BOLD + FG_ACCENT + "━" * 78 + RESET)
+                 " OS" + FG_GRAY + "  -  First-Boot Setup" + RESET)
+    lines.append(BOLD + FG_ACCENT + "=" * 78 + RESET)
     lines.append("")
 
     if state is None or state.get("status") in (None, "pending"):
@@ -124,11 +124,11 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0,
         lines.append(BOLD + FG_GREEN + f"      {url}" + RESET)
         lines.append("")
         if not ip:
-            lines.append(FG_YELLOW + "  ⚠  No IP address detected." + RESET)
+            lines.append(FG_YELLOW + "  [!]  No IP address detected." + RESET)
             if no_ip_seconds >= NO_IP_PROMPT_AFTER:
                 lines.append(FG_YELLOW + "     Press [N] to configure a static IP address." + RESET)
             else:
-                lines.append(DIM + f"     Waiting for DHCP… ({int(no_ip_seconds)}s)" + RESET)
+                lines.append(DIM + f"     Waiting for DHCP... ({int(no_ip_seconds)}s)" + RESET)
             lines.append("")
         lines.append(DIM + "  Complete the setup wizard there. This screen will update live." + RESET)
     else:
@@ -151,14 +151,14 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0,
         # Show warnings for stale or stuck runs
         if status == "running":
             if stale_warning:
-                lines.append(FG_RED + BOLD + f"  ⚠ {stale_warning}" + RESET)
+                lines.append(FG_RED + BOLD + f"  [!] {stale_warning}" + RESET)
                 lines.append(FG_YELLOW + "  The setup server appears unresponsive." + RESET)
                 lines.append(FG_YELLOW + "  You can SSH in and run:" + RESET)
                 lines.append(DIM + "    rm -f /mnt/data/iora/setup-state.json" + RESET)
                 lines.append(DIM + "    systemctl restart iora-setup.service" + RESET)
                 lines.append("")
             if stuck_warning:
-                lines.append(FG_YELLOW + f"  ⚠ {stuck_warning}" + RESET)
+                lines.append(FG_YELLOW + f"  [!] {stuck_warning}" + RESET)
                 lines.append("")
 
         log = state.get("log") or []
@@ -175,7 +175,7 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0,
             lines.append("")
             lines.append(FG_RED + BOLD + "  Warnings:" + RESET)
             for e in errors[-5:]:
-                lines.append(FG_RED + f"    • {e[:72]}" + RESET)
+                lines.append(FG_RED + f"    * {e[:72]}" + RESET)
 
         if status == "done":
             lines.append("")
@@ -187,7 +187,7 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0,
                          f"  IORA OS dashboard: http://{ip or '<device-ip>'}:8126" + RESET)
 
     lines.append("")
-    lines.append(BOLD + FG_ACCENT + "─" * 78 + RESET)
+    lines.append(BOLD + FG_ACCENT + "-" * 78 + RESET)
     lines.append(DIM + "  Press Ctrl+Alt+F2 for a login console (after setup completes)." + RESET)
     sys.stdout.write("\n".join(lines) + "\n")
     sys.stdout.flush()
@@ -199,10 +199,10 @@ def configure_static_ip() -> None:
     sys.stdout.flush()
     try:
         sys.stdout.write(CLEAR)
-        sys.stdout.write(BOLD + FG_ACCENT + "━" * 78 + RESET + "\n")
+        sys.stdout.write(BOLD + FG_ACCENT + "=" * 78 + RESET + "\n")
         sys.stdout.write(BOLD + FG_WHITE + "   " + FG_ACCENT + "IORA" + FG_WHITE +
-                         " OS" + FG_GRAY + "  —  Network Configuration" + RESET + "\n")
-        sys.stdout.write(BOLD + FG_ACCENT + "━" * 78 + RESET + "\n\n")
+                         " OS" + FG_GRAY + "  -  Network Configuration" + RESET + "\n")
+        sys.stdout.write(BOLD + FG_ACCENT + "=" * 78 + RESET + "\n\n")
         sys.stdout.write(FG_WHITE + "  Configure a static IP address for this device.\n" + RESET)
         sys.stdout.write(DIM + "  Press Enter to keep current value. Leave gateway blank to skip.\n\n" + RESET)
         sys.stdout.flush()
@@ -247,7 +247,7 @@ def configure_static_ip() -> None:
         gateway = input("  Default gateway (e.g. 192.168.56.1): ").strip()
         dns = input("  DNS server [1.1.1.1]: ").strip() or "1.1.1.1"
 
-        sys.stdout.write(f"\n  Applying: {ip_cidr} on {iface}…\n")
+        sys.stdout.write(f"\n  Applying: {ip_cidr} on {iface}...\n")
         sys.stdout.flush()
 
         subprocess.run(["ip", "link", "set", iface, "up"], check=False)
@@ -305,16 +305,16 @@ def main() -> int:
                 # so ExecStopPost can hand tty1 back to getty.
                 sys.stdout.write(
                     CLEAR
-                    + BOLD + FG_ACCENT + "━" * 78 + RESET + "\n"
+                    + BOLD + FG_ACCENT + "=" * 78 + RESET + "\n"
                     + BOLD + FG_WHITE + "   " + FG_ACCENT + "IORA" + FG_WHITE
-                    + " OS" + FG_GRAY + "  —  Setup complete" + RESET + "\n"
-                    + BOLD + FG_ACCENT + "━" * 78 + RESET + "\n\n"
-                    + FG_GREEN + BOLD + "  ✔ Setup completed successfully.\n\n" + RESET
+                    + " OS" + FG_GRAY + "  -  Setup complete" + RESET + "\n"
+                    + BOLD + FG_ACCENT + "=" * 78 + RESET + "\n\n"
+                    + FG_GREEN + BOLD + "  [ OK ]  Setup completed successfully.\n\n" + RESET
                     + FG_WHITE + "  Open the IORA Home dashboard:\n\n" + RESET
                     + BOLD + FG_ACCENT
                     + f"      http://{ip or '<device-ip>'}:8126\n\n" + RESET
                     + FG_GRAY
-                    + "  Note: the dashboard backend may take 1–3 min after first\n"
+                    + "  Note: the dashboard backend may take 1-3 min after first\n"
                     + "  boot to finish initialising its database. If the page\n"
                     + "  doesn't load yet, just reload after a minute.\n\n" + RESET
                     + DIM + "  This screen will be replaced by the login console.\n" + RESET

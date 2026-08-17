@@ -9,20 +9,26 @@ export NCURSES_NO_UTF8_ACS=1
 # produced visible mojibake like "~U~T~U~P". We therefore stick to
 # pure 7-bit ASCII for the splash. All UI dialogs use the dialog(1)
 # program which has its own ACS handling.
+#
+# Colors use 256-color SGR escapes so the palette mirrors the web UI
+# accent (~#2563eb -> 39); consoles without 256-color support degrade
+# to the nearest 16-color match automatically.
 show_boot_splash() {
     # Clear screen and hide cursor
     clear 2>/dev/null || true
     printf '\033[?25l'  # Hide cursor
 
-    # ANSI colors
-    local CYAN='\033[0;36m'
-    local WHITE='\033[1;37m'
-    local BLUE='\033[0;34m'
+    # IORA palette (256-color, matches the dashboard accent)
+    local ACCENT='\033[38;5;39m'   # ~#2563eb
+    local CYAN='\033[38;5;45m'
+    local GRAY='\033[38;5;245m'
+    local WHITE='\033[1;97m'
+    local GREEN='\033[38;5;42m'
     local RESET='\033[0m'
 
-    # Display IORA logo and loading message (pure ASCII)
+    # IORA wordmark (pure ASCII — box-drawing/Braille mojibake on fbcon)
+    printf "${ACCENT}"
     cat <<'SPLASH'
-
 
            ___    ___    _____      _
           |_ _|  / _ \  |  __ \    / \
@@ -30,29 +36,25 @@ show_boot_splash() {
            | |  | | | | |  _  /  / ___ \
           |___|  \___/  |_| \_\ /_/   \_\
 
-       Interface for Optimized Residential Autonomy
-
-
 SPLASH
+    printf "${RESET}"
+    printf "${GRAY}        Interface for Optimized Residential Autonomy${RESET}\n"
+    printf "\n${WHITE}        Starting IORA OS Installer${RESET}\n"
 
-    printf "\n          ${CYAN}Starting IORA OS Installer...${RESET}\n"
-    printf "          "
-
-    # Show animated loading spinner (ASCII only)
+    # Animated loading spinner (ASCII only)
     local spinner='|/-\'
     local i=0
-    local delay=0.1
-
-    # Run spinner for ~2 seconds while system initializes
+    local delay=0.08
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
         local char=$(printf '%s' "$spinner" | cut -c$((i + 1)))
-        printf "\r          ${BLUE}${char}${RESET} Loading system components..."
+        printf "\r        ${CYAN}%s${RESET} Loading system components..." "$char"
         i=$(( (i + 1) % 4 ))
         sleep "$delay" 2>/dev/null || sleep 1
     done
+    printf "\r        ${GREEN}[ OK ]${RESET} System ready                      \n\n"
 
-    printf "\r          ${CYAN}[OK]${RESET} System ready                    \n\n"
-    sleep 0.5
+    printf "${GRAY}        Recovery shell: install | sysinfo | netsetup${RESET}\n"
+    sleep 0.8
 
     # Show cursor again
     printf '\033[?25h'
@@ -117,44 +119,55 @@ BACKTITLE="IORA OS Setup"
 IORA_HOSTNAME="iora"
 IORA_TIMEZONE="Europe/Berlin"
 IORA_NETWORK="dhcp"
+# First-boot headless config (admin account, locale) — collected by the
+# wizard and applied automatically on first boot via setup-config.json.
+IORA_ADMIN_USER="admin"
+IORA_ADMIN_PASS=""
+IORA_LANGUAGE="de"
+IORA_COUNTRY="DE"
+IORA_UNIT_SYSTEM="metric"
 
 # ── Modern dialog color theme ─────────────────────────────────────
+# Dark, modern installer look: black canvas with the IORA blue accent
+# used for selection and borders (matches the dashboard UI). dialog's
+# color names are limited to the 16 ANSI colors, so we approximate the
+# web palette as closely as the widget toolkit allows.
 setup_dialog_theme() {
     cat > /tmp/.dialogrc <<'DLGRC'
-# IORA OS installer -- IORA brand theme (cyan/yellow on blue)
+# IORA OS installer -- modern dark theme (IORA blue accent on black)
 aspect = 0
 separate_widget = ""
 tab_len = 4
 visit_items = ON
 use_shadow = ON
 use_colors = ON
-screen_color               = (WHITE,BLUE,ON)
+screen_color               = (WHITE,BLACK,ON)
 shadow_color               = (BLACK,BLACK,ON)
-dialog_color               = (BLACK,WHITE,OFF)
-title_color                = (YELLOW,BLUE,ON)
-border_color               = (CYAN,WHITE,ON)
-border2_color              = (CYAN,WHITE,ON)
-button_active_color        = (WHITE,BLACK,ON)
-button_inactive_color      = (BLACK,WHITE,OFF)
+dialog_color               = (WHITE,BLACK,OFF)
+title_color                = (CYAN,BLACK,ON)
+border_color               = (BLUE,BLACK,ON)
+border2_color              = (BLUE,BLACK,ON)
+button_active_color        = (BLACK,WHITE,ON)
+button_inactive_color      = (WHITE,BLACK,OFF)
 button_key_active_color    = (YELLOW,BLACK,ON)
-button_key_inactive_color  = (BLUE,WHITE,OFF)
+button_key_inactive_color  = (BLUE,BLACK,ON)
 button_label_active_color  = (YELLOW,BLACK,ON)
-button_label_inactive_color= (BLACK,WHITE,ON)
-inputbox_color             = (BLACK,WHITE,OFF)
-inputbox_border_color      = (CYAN,WHITE,ON)
-searchbox_color            = (BLACK,WHITE,OFF)
-searchbox_title_color      = (YELLOW,BLUE,ON)
-searchbox_border_color     = (CYAN,WHITE,ON)
-position_indicator_color   = (YELLOW,BLUE,ON)
-menubox_color              = (BLACK,WHITE,OFF)
-menubox_border_color       = (CYAN,WHITE,ON)
-item_color                 = (BLACK,WHITE,OFF)
+button_label_inactive_color= (WHITE,BLACK,ON)
+inputbox_color             = (WHITE,BLACK,OFF)
+inputbox_border_color      = (BLUE,BLACK,ON)
+searchbox_color            = (WHITE,BLACK,OFF)
+searchbox_title_color      = (CYAN,BLACK,ON)
+searchbox_border_color     = (BLUE,BLACK,ON)
+position_indicator_color   = (YELLOW,BLACK,ON)
+menubox_color              = (WHITE,BLACK,OFF)
+menubox_border_color       = (BLUE,BLACK,ON)
+item_color                 = (WHITE,BLACK,OFF)
 item_selected_color        = (WHITE,BLUE,ON)
-tag_color                  = (BLUE,WHITE,ON)
+tag_color                  = (BLUE,BLACK,ON)
 tag_selected_color         = (YELLOW,BLUE,ON)
-tag_key_color              = (BLUE,WHITE,ON)
+tag_key_color              = (BLUE,BLACK,ON)
 tag_key_selected_color     = (YELLOW,BLUE,ON)
-check_color                = (BLACK,WHITE,OFF)
+check_color                = (WHITE,BLACK,OFF)
 check_selected_color       = (WHITE,BLUE,ON)
 uarrow_color               = (GREEN,BLUE,ON)
 darrow_color               = (GREEN,BLUE,ON)
@@ -582,25 +595,25 @@ get_sd_optimizations() {
     fi
 
     cat <<'SDOPT'
-╔═══════════════════════════════════════════════════════════════╗
-║          SD CARD / FLASH STORAGE DETECTED                     ║
-╚═══════════════════════════════════════════════════════════════╝
++=================================================================+
+|          SD CARD / FLASH STORAGE DETECTED                     |
++=================================================================+
 
 This device appears to be SD card or flash-based storage.
 IORA OS will apply optimizations to extend its lifespan:
 
 AUTOMATIC OPTIMIZATIONS:
-• noatime mount option (reduce write operations)
-• commit=600 (batch writes every 10 minutes)
-• ZRAM for /tmp and /var (reduce physical writes)
-• Log rotation with aggressive compression
-• Reduced journaling on ext4 partitions
+* noatime mount option (reduce write operations)
+* commit=600 (batch writes every 10 minutes)
+* ZRAM for /tmp and /var (reduce physical writes)
+* Log rotation with aggressive compression
+* Reduced journaling on ext4 partitions
 
 RECOMMENDED PRACTICES:
-• Use a high-quality SD card (Class 10/UHS-I or better)
-• Enable periodic backups to external storage
-• Monitor disk health with SMART tools (if supported)
-• Consider upgrading to USB 3.0 SSD for better performance
+* Use a high-quality SD card (Class 10/UHS-I or better)
+* Enable periodic backups to external storage
+* Monitor disk health with SMART tools (if supported)
+* Consider upgrading to USB 3.0 SSD for better performance
 
 SD cards typically have ~10,000 write cycles per cell.
 These optimizations can extend lifespan by 5-10x.
@@ -897,6 +910,30 @@ LOGEOF
         # Mark system as SD-optimized
         echo "SD_OPTIMIZED=1" > "${target}/etc/iora-storage.conf" 2>/dev/null || true
         echo "STORAGE_TYPE=$(get_disk_type "$disk")" >> "${target}/etc/iora-storage.conf" 2>/dev/null || true
+    fi
+
+    # ── First-boot headless config ────────────────────────────────────────
+    # All wizard answers are written to /etc/iora/setup-config.json on the
+    # target. On the first boot iora-setup.service detects the file and
+    # applies it headlessly (DB credentials, secrets, admin account, docker
+    # stack, completion flags) — the interactive web wizard is NOT shown
+    # after an installer-based installation. The flash path (image written
+    # directly to SD/eMMC) has no config file and keeps the web wizard.
+    if [ -n "$IORA_ADMIN_USER" ] && [ -n "$IORA_ADMIN_PASS" ]; then
+        mkdir -p "${target}/etc/iora" 2>/dev/null || true
+        cat > "${target}/etc/iora/setup-config.json" <<JSONEOF
+{
+  "hostname": "${IORA_HOSTNAME:-iora}",
+  "timezone": "${IORA_TIMEZONE:-Europe/Berlin}",
+  "language": "${IORA_LANGUAGE:-de}",
+  "country": "${IORA_COUNTRY:-DE}",
+  "unit_system": "${IORA_UNIT_SYSTEM:-metric}",
+  "admin_username": "${IORA_ADMIN_USER}",
+  "admin_password": "${IORA_ADMIN_PASS}",
+  "auto_start": true
+}
+JSONEOF
+        chmod 600 "${target}/etc/iora/setup-config.json" 2>/dev/null || true
     fi
 
     sync
@@ -1354,6 +1391,79 @@ screen_password() {
     done
 }
 
+# ── Web-admin account (first-boot dashboard credentials) ──────────────────────
+# These are handed to iora-home via the headless apply (setup-config.json):
+# the first boot creates the dashboard admin without showing the web wizard.
+screen_admin() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local result
+    result=$(dlg --title " Web Admin User " --inputbox \
+        "\n Create the dashboard administrator account.\n\n Username (default: admin):\n" \
+        11 60 "${IORA_ADMIN_USER:-admin}" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 1
+    result="${result:-admin}"
+    # Keep the username simple (letters, digits, dash, underscore)
+    case "$result" in
+        *[!A-Za-z0-9_-]*|"") dlg_msg " Invalid Username " "Use only letters, digits, dash or underscore."; return 1 ;;
+    esac
+    IORA_ADMIN_USER="$result"
+
+    while true; do
+        local pw1 pw2
+        pw1=$(dlg --title " Admin Password " --insecure --passwordbox \
+            "\n Password for the dashboard admin.\n Minimum 8 characters — this protects your smart home!\n" \
+            11 60 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 1
+        if [ "${#pw1}" -lt 8 ]; then
+            dlg_msg " Too Short " "The admin password must be at least 8 characters."
+            continue
+        fi
+        pw2=$(dlg --title " Confirm Admin Password " --insecure --passwordbox \
+            "\n Repeat the admin password:\n" 10 60 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 1
+        if [ "$pw1" = "$pw2" ]; then
+            IORA_ADMIN_PASS="$pw1"
+            return 0
+        fi
+        dlg_msg " Mismatch " "The passwords do not match. Please try again."
+    done
+}
+
+# ── Locale (dashboard language / country / units) ─────────────────────────────
+# Stored in the headless config; the dashboard and the weather widgets read
+# these on first boot.
+screen_locale() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local lang
+    lang=$(dlg --title " Language " --menu \
+        "\n Dashboard language:\n" 12 60 2 \
+        "de" "Deutsch" \
+        "en" "English" \
+        3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$lang" ] && IORA_LANGUAGE="$lang"
+
+    local country
+    country=$(dlg --title " Country " --menu \
+        "\n Country (weather/locale defaults):\n" 16 60 5 \
+        "DE" "Germany" \
+        "AT" "Austria" \
+        "CH" "Switzerland" \
+        "US" "United States" \
+        "GB" "United Kingdom" \
+        3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$country" ] && IORA_COUNTRY="$country"
+
+    local unit
+    unit=$(dlg --title " Units " --menu \
+        "\n Measurement units:\n" 12 60 2 \
+        "metric" "Metric (°C, km/h)" \
+        "imperial" "Imperial (°F, mph)" \
+        3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$unit" ] && IORA_UNIT_SYSTEM="$unit"
+}
+
 screen_select_disk() {
     local disk_list
     disk_list=$(get_disks)
@@ -1486,6 +1596,12 @@ screen_confirm() {
     else
         summary="${summary}  Password:   (default)\n"
     fi
+    if [ -n "$IORA_ADMIN_USER" ] && [ -n "$IORA_ADMIN_PASS" ]; then
+        summary="${summary}  Web Admin:  ${IORA_ADMIN_USER} (password set)\n"
+    else
+        summary="${summary}  Web Admin:  none (register from the UI)\n"
+    fi
+    summary="${summary}  Locale:     ${IORA_LANGUAGE}/${IORA_COUNTRY} (${IORA_UNIT_SYSTEM})\n"
 
     summary="${summary}\n +------------------------------------+"
     summary="${summary}\n |  WARNING: ALL data on /dev/${disk}    |"
@@ -1636,18 +1752,27 @@ screen_complete() {
 
     if [ -n "$DIALOG_BIN" ]; then
         local action
-                action=$(dlg --title " Setup Complete " --menu "\
+        local admin_line=""
+        if [ -n "$IORA_ADMIN_USER" ] && [ -n "$IORA_ADMIN_PASS" ]; then
+            admin_line="\
+ Dashboard admin: ${IORA_ADMIN_USER} (password set)\n"
+        fi
+        action=$(dlg --title " Setup Complete " --menu "\
  IORA OS has been written to /dev/${SEL_DISK}.
 
- Next step after reboot:
-     http://${iora_ip}:8080
+ On first boot the configuration is applied automatically
+ and the dashboard starts directly — no setup wizard.
 
+ Dashboard URL:
+     http://${iora_ip}:8126
+
+${admin_line}
  First-boot settings:
      Hostname: ${IORA_HOSTNAME}
      Timezone: ${IORA_TIMEZONE}
 
  Remove the installation media before continuing.\n" \
-                        18 64 3 \
+                        22 68 3 \
             "reboot"   "Reboot now (recommended)" \
             "shell"    "Drop to shell" \
             "poweroff" "Shut down" \
@@ -1663,8 +1788,11 @@ screen_complete() {
         echo ""
         echo "  IORA OS installed successfully!"
         echo ""
-        echo "  After rebooting, open a browser:"
-        echo "    http://${iora_ip}:8080"
+        echo "  On first boot the configuration is applied automatically."
+        echo "  Dashboard: http://${iora_ip}:8126"
+        if [ -n "$IORA_ADMIN_USER" ] && [ -n "$IORA_ADMIN_PASS" ]; then
+            echo "  Admin user: ${IORA_ADMIN_USER} (password set)"
+        fi
         echo ""
         echo "  Remove the media and press ENTER to reboot..."
         read _
@@ -1677,6 +1805,13 @@ screen_complete() {
 # Uses smart defaults; only asks timezone, password, disk, confirm.
 run_express_wizard() {
     local BACKTITLE_BASE="IORA OS Installer  |  Quick Install"
+
+    # Quick install: create a strong random admin password for the dashboard
+    # so the first boot can apply the headless config without a wizard.
+    if [ -z "$IORA_ADMIN_PASS" ]; then
+        IORA_ADMIN_PASS=$(head -c 18 /dev/urandom 2>/dev/null | base64 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 16)
+        [ -z "$IORA_ADMIN_PASS" ] && IORA_ADMIN_PASS="iora-admin-$(date +%s)"
+    fi
 
     # Mount media with retries
     BACKTITLE="${BACKTITLE_BASE} -- Step 1/4: Loading"
@@ -1880,7 +2015,7 @@ run_wizard() {
         fi
     fi
 
-    local _TOTAL=9
+    local _TOTAL=11
 
     # Step 1: System info
     BACKTITLE="IORA OS Installer  |  Custom Install -- Step 1/${_TOTAL}: System Info"
@@ -1922,15 +2057,35 @@ run_wizard() {
         fi
     done
 
-    # Step 8: Disk selection
-    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 8/${_TOTAL}: Target Disk"
+    # Step 8: Web-admin account
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 8/${_TOTAL}: Web Admin"
+    while true; do
+        if screen_admin; then
+            break
+        fi
+        if dlg_yesno " Skip admin account? " "\
+ Without an admin account the dashboard has no\n\
+ administrator after first boot (register from the\n\
+ login screen instead).\n\n\
+ Yes  -> skip (recommended only for testing)\n\
+ No   -> create the admin account"; then
+            break
+        fi
+    done
+
+    # Step 9: Locale
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 9/${_TOTAL}: Locale"
+    screen_locale
+
+    # Step 10: Disk selection
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 10/${_TOTAL}: Target Disk"
     if ! screen_select_disk; then
         dlg_msg " Cancelled " "Installation cancelled."
         return 1
     fi
 
-    # Step 9: Confirmation summary
-    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 9/${_TOTAL}: Confirm & Install"
+    # Step 11: Confirmation summary
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 11/${_TOTAL}: Confirm & Install"
     if ! screen_confirm; then
         dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
         return 1
@@ -1952,10 +2107,13 @@ run_wizard() {
 cat > /bin/install <<'SHEOF'
 #!/bin/sh
 # Restart the IORA OS installation wizard
+AC='\033[38;5;39m'
+GR='\033[38;5;245m'
+RS='\033[0m'
 echo ""
-echo "  ╔══════════════════════════════════════════════════╗"
-echo "  ║  Restarting IORA OS Installation Wizard...      ║"
-echo "  ╚══════════════════════════════════════════════════╝"
+echo "  ${GR}+--------------------------------------------+${RS}"
+echo "  ${GR}|${RS}  ${AC}Restarting IORA OS Installation Wizard...${RS}  ${GR}|${RS}"
+echo "  ${GR}+--------------------------------------------+${RS}"
 echo ""
 sleep 1
 exec /init
@@ -1971,15 +2129,19 @@ chmod +x /bin/installer 2>/dev/null || true
 
 cat > /bin/sysinfo <<'SHEOF'
 #!/bin/sh
+AC='\033[38;5;39m'
+CY='\033[38;5;45m'
+GR='\033[38;5;245m'
+RS='\033[0m'
 echo ""
-echo "  ╔══════════════════════════════════════════════════╗"
-echo "  ║         IORA OS System Information               ║"
-echo "  ╚══════════════════════════════════════════════════╝"
+echo "  ${GR}+--------------------------------------------+${RS}"
+echo "  ${GR}|${RS}      ${AC}IORA OS System Information${RS}          ${GR}|${RS}"
+echo "  ${GR}+--------------------------------------------+${RS}"
 echo ""
-echo "  CPU:     $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')"
-echo "  Cores:   $(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
-echo "  Memory:  $(awk '/MemTotal/{printf "%.0f MB", $2/1024}' /proc/meminfo 2>/dev/null)"
-echo "  Boot:    $([ -d /sys/firmware/efi ] && echo UEFI || echo BIOS)"
+echo "  ${CY}CPU:${RS}     $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')"
+echo "  ${CY}Cores:${RS}   $(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
+echo "  ${CY}Memory:${RS}  $(awk '/MemTotal/{printf "%.0f MB", $2/1024}' /proc/meminfo 2>/dev/null)"
+echo "  ${CY}Boot:${RS}    $([ -d /sys/firmware/efi ] && echo UEFI || echo BIOS)"
 echo ""
 echo "  === Block Devices ==="
 lsblk 2>/dev/null || ls -l /sys/block/
@@ -1992,41 +2154,50 @@ chmod +x /bin/sysinfo 2>/dev/null || true
 
 cat > /bin/netsetup <<'SHEOF'
 #!/bin/sh
+AC='\033[38;5;39m'
+GN='\033[38;5;42m'
+RD='\033[38;5;203m'
+GR='\033[38;5;245m'
+RS='\033[0m'
 echo ""
-echo "  ╔══════════════════════════════════════════════════╗"
-echo "  ║         Network Configuration                    ║"
-echo "  ╚══════════════════════════════════════════════════╝"
+echo "  ${GR}+--------------------------------------------+${RS}"
+echo "  ${GR}|${RS}      ${AC}Network Configuration${RS}                ${GR}|${RS}"
+echo "  ${GR}+--------------------------------------------+${RS}"
 echo ""
 echo "  Bringing up network interfaces..."
 for iface in /sys/class/net/*; do
     name=$(basename "$iface")
     [ "$name" = "lo" ] && continue
     ip link set "$name" up 2>/dev/null
-    udhcpc -i "$name" -n -q 2>/dev/null && echo "  ✓ $name: DHCP configured" && exit 0
-    dhclient "$name" 2>/dev/null && echo "  ✓ $name: DHCP configured" && exit 0
+    udhcpc -i "$name" -n -q 2>/dev/null && echo "  ${GN}[ OK ]${RS} $name: DHCP configured" && exit 0
+    dhclient "$name" 2>/dev/null && echo "  ${GN}[ OK ]${RS} $name: DHCP configured" && exit 0
 done
-echo "  ✗ No DHCP lease obtained."
+echo "  ${RD}[FAIL]${RS} No DHCP lease obtained."
 echo ""
 SHEOF
 chmod +x /bin/netsetup 2>/dev/null || true
 
 cat > /bin/help <<'SHEOF'
 #!/bin/sh
+AC='\033[38;5;39m'
+CY='\033[38;5;45m'
+GR='\033[38;5;245m'
+RS='\033[0m'
 echo ""
-echo "  ╔══════════════════════════════════════════════════╗"
-echo "  ║     IORA OS Installer - Available Commands      ║"
-echo "  ╚══════════════════════════════════════════════════╝"
+echo "  ${GR}+--------------------------------------------+${RS}"
+echo "  ${GR}|${RS}   ${AC}IORA OS Installer - Available Commands${RS}   ${GR}|${RS}"
+echo "  ${GR}+--------------------------------------------+${RS}"
 echo ""
-echo "  install     - Restart the IORA OS installation wizard"
-echo "  installer   - Alias for 'install' command"
-echo "  sysinfo     - Display system information"
-echo "  netsetup    - Configure network via DHCP"
-echo "  help        - Show this help message"
-echo "  reboot      - Reboot the system"
-echo "  poweroff    - Shut down the system"
+echo "  ${CY}install${RS}     - Restart the IORA OS installation wizard"
+echo "  ${CY}installer${RS}   - Alias for 'install' command"
+echo "  ${CY}sysinfo${RS}     - Display system information"
+echo "  ${CY}netsetup${RS}    - Configure network via DHCP"
+echo "  ${CY}help${RS}        - Show this help message"
+echo "  ${CY}reboot${RS}      - Reboot the system"
+echo "  ${CY}poweroff${RS}    - Shut down the system"
 echo ""
 echo "  To return to the installer at any time, type:"
-echo "  ${CYAN}install${RESET} or ${CYAN}installer${RESET}"
+echo "  ${AC}install${RS} or ${AC}installer${RS}"
 echo ""
 SHEOF
 chmod +x /bin/help 2>/dev/null || true
@@ -2036,13 +2207,15 @@ rc=$?
 
 # Display enhanced help after wizard exits
 clear 2>/dev/null || true
+CY='\033[38;5;45m'
+RS='\033[0m'
 cat <<'BANNER'
 
-  ╔══════════════════════════════════════════════════════════════╗
-  ║                                                              ║
-  ║          IORA OS Installation - Recovery Shell              ║
-  ║                                                              ║
-  ╚══════════════════════════════════════════════════════════════╝
+  +--------------------------------------------------------------+
+  |                                                              |
+  |        IORA OS Installation - Recovery Shell                |
+  |                                                              |
+  +--------------------------------------------------------------+
 
 BANNER
 
@@ -2050,13 +2223,13 @@ echo "  The installation wizard has exited."
 echo "  You are now in a recovery shell."
 echo ""
 echo "  Available commands:"
-echo "    install     - Restart the installation wizard"
-echo "    installer   - Restart the installation wizard (alias)"
-echo "    sysinfo     - Show system information"
-echo "    netsetup    - Configure network via DHCP"
-echo "    help        - Show all available commands"
-echo "    reboot      - Reboot the system"
-echo "    poweroff    - Shut down"
+echo "    ${CY}install${RS}     - Restart the installation wizard"
+echo "    ${CY}installer${RS}   - Restart the installation wizard (alias)"
+echo "    ${CY}sysinfo${RS}     - Show system information"
+echo "    ${CY}netsetup${RS}    - Configure network via DHCP"
+echo "    ${CY}help${RS}        - Show all available commands"
+echo "    ${CY}reboot${RS}      - Reboot the system"
+echo "    ${CY}poweroff${RS}    - Shut down"
 echo ""
 echo "  Type 'install' or 'installer' to return to the installation wizard."
 echo ""

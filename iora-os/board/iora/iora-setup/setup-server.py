@@ -125,7 +125,8 @@ def get_all_lan_ips() -> list:
 
 # ── Progress tracker ─────────────────────────────────────────────────────────
 # Persists apply-phase progress across page reloads and is read by the
-# console first-boot TUI (/usr/lib/iora/iora-setup-tui). The state file is
+# local first-boot display (framebuffer GUI or console TUI, see
+# iora-setup-display.service). The state file is
 # atomically rewritten on every update so concurrent readers never see a
 # partial JSON document.
 class ProgressTracker:
@@ -811,11 +812,16 @@ def apply_config(config):
 
     # Create data directory structure
     PROGRESS.set_phase("init")
-    os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(os.path.join(DATA_DIR, "config"), exist_ok=True)
-    os.makedirs(os.path.join(DATA_DIR, "media"), exist_ok=True)
-    os.makedirs(os.path.join(DATA_DIR, "backups"), exist_ok=True)
-    os.makedirs(os.path.join(DATA_DIR, "addons"), exist_ok=True)
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, "config"), exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, "media"), exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, "backups"), exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, "addons"), exist_ok=True)
+    except Exception as e:
+        msg = f"Failed to create data directories under {DATA_DIR}: {e}"
+        errors.append(msg)
+        PROGRESS.add_error(msg)
 
     # ── Security: Recovery PIN + LUKS ─────────────────────────────────────
     if IS_IORA_OS:
@@ -1249,10 +1255,10 @@ def apply_config(config):
                 check=False, capture_output=True, text=True, timeout=30,
             )
             subprocess.run(
-                ["systemctl", "disable", "iora-setup-tui.service"],
+                ["systemctl", "disable", "iora-setup-display.service"],
                 check=False, capture_output=True, text=True, timeout=30,
             )
-            PROGRESS.log("Disabled iora-setup.service + iora-setup-tui.service")
+            PROGRESS.log("Disabled iora-setup.service + iora-setup-display.service")
         except Exception as e:
             errors.append(f"Failed to disable setup service: {e}")
             PROGRESS.add_error(f"Failed to disable setup service: {e}")
@@ -1705,8 +1711,17 @@ body {
 }
 .form-group input:focus, .form-group select:focus {
   border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 .form-group select option { background: var(--bg); }
+
+/* Keyboard focus rings — visible but soft, matching the IORA accent */
+:focus-visible {
+  outline: 2px solid var(--primary-light);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.btn:focus-visible, .toggle-row label:focus-visible, a:focus-visible { border-radius: 8px; }
 
 /* Toggles */
 .toggle-row {
@@ -1773,14 +1788,18 @@ body {
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
 }
 .btn:active { transform: scale(0.98); }
 .btn-primary {
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 60%, var(--primary-hover) 100%);
   color: #fff;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
 }
-.btn-primary:hover { background: var(--primary-hover); }
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary-hover) 100%);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.45);
+}
 .btn-secondary {
   background: var(--surface2);
   color: var(--text);
@@ -1862,9 +1881,19 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Hide steps */
+/* Hide steps — animated entrance like the dashboard's page transitions */
 .step-page { display: none; }
-.step-page.active { display: block; }
+.step-page.active {
+  display: block;
+  animation: step-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes step-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-page.active { animation: none; }
+}
 
 /* Responsive */
 @media (max-width: 600px) {
@@ -3085,6 +3114,46 @@ def reset_stale_setup_state() -> bool:
 
 
 def main():
+    # ── Headless apply mode ──────────────────────────────────────────────
+    # Used by the installer flow: the installer collects every answer into
+    # a JSON config, and the first boot applies it automatically without
+    # ever starting the web wizard. The flash path (image written directly
+    # to SD/eMMC without an installer) has no config file, so the normal
+    # web-wizard path below remains the fallback.
+    if "--apply-config" in sys.argv:
+        idx = sys.argv.index("--apply-config")
+        if idx + 1 >= len(sys.argv):
+            print("ERROR: --apply-config requires a config file path", file=sys.stderr)
+            return 2
+        cfg_path = sys.argv[idx + 1]
+        try:
+            with open(cfg_path, "r") as f:
+                config = json.load(f)
+        except Exception as e:
+            print(f"ERROR: cannot read config {cfg_path}: {e}", file=sys.stderr)
+            return 2
+        print(f"IORA OS Setup — applying configuration from {cfg_path} (headless)")
+        errors, recovery_pin = apply_config(config)
+        for e in errors:
+            print(f"  warning: {e}")
+        if recovery_pin:
+            print("Recovery PIN (write it down):")
+            print(f"  {recovery_pin}")
+            # Root-only copy for the local display (GUI/TUI) so the user can
+            # read the PIN from the device screen — there is no browser tab
+            # in the headless/installer flow.
+            try:
+                os.makedirs("/etc/iora", exist_ok=True)
+                with open("/etc/iora/recovery-pin", "w") as f:
+                    f.write(recovery_pin + "\n")
+                os.chmod("/etc/iora/recovery-pin", 0o600)
+            except Exception as e:
+                print(f"  warning: could not store PIN for display: {e}")
+        ok = is_setup_complete()
+        print("Setup complete." if ok else "Setup finished with warnings (flags not set).")
+        return 0 if ok else 1
+
+    # ── Interactive web-wizard path (flash / no config file) ──────────────
     # Check if setup is already complete (dual-flag strategy).
     if is_setup_complete():
         print(f"Setup already completed. Remove {SETUP_DONE_FLAG} or {SETUP_DONE_FLAG_ROOTFS} to re-run.")

@@ -2099,9 +2099,27 @@ fi
 chmod +x "${TARGET_DIR}/usr/lib/iora/iora-disk-expand.sh" 2>/dev/null || true
 
 # Create iora-setup.service (first-boot setup wizard)
+# Two flows share this unit:
+#   installer flow  -> /etc/iora/setup-config.json exists (written by the
+#                      installer) -> setup is applied headlessly, no wizard
+#   flash flow      -> no config (image flashed directly to SD/eMMC) -> the
+#                      interactive web wizard on :8080 is started
+cat > "${TARGET_DIR}/usr/lib/iora/iora-setup-run.sh" <<'EOF'
+#!/bin/sh
+# IORA first-boot setup runner: headless apply when the installer supplied
+# a config file, otherwise the interactive web wizard (flash path).
+if [ -f /etc/iora/setup-config.json ]; then
+    exec /usr/bin/python3 /opt/iora/setup/setup-server.py \
+        --apply-config /etc/iora/setup-config.json
+else
+    exec /usr/bin/python3 /opt/iora/setup/setup-server.py
+fi
+EOF
+chmod 0755 "${TARGET_DIR}/usr/lib/iora/iora-setup-run.sh"
+
 cat > "${TARGET_DIR}/etc/systemd/system/iora-setup.service" <<'EOF'
 [Unit]
-Description=IORA OS First-Boot Setup Wizard
+Description=IORA OS First-Boot Setup (headless apply or web wizard)
 # Start even if iora-init-data fails (no iora-data partition): the setup
 # server creates /mnt/data/iora itself on whatever FS backs /mnt/data.
 # network-online is Wants= (not Requires=) so a slow link doesn't block it.
@@ -2119,8 +2137,8 @@ ConditionPathExists=!/etc/iora/.setup-complete
 [Service]
 Type=simple
 ExecStartPre=/bin/mkdir -p /mnt/data/iora /etc/iora
-ExecStart=/usr/bin/python3 /opt/iora/setup/setup-server.py
-# Hard timeout: if the setup server hasn't completed within 30 minutes,
+ExecStart=/bin/sh /usr/lib/iora/iora-setup-run.sh
+# Hard timeout: if the setup hasn't completed within 30 minutes,
 # something is wrong (stuck LUKS, broken Python, etc.). Kill it so the
 # boot can continue. The state file preserves progress for a retry.
 TimeoutStartSec=1800
@@ -2142,20 +2160,42 @@ EOF
 ln -sf /etc/systemd/system/iora-setup.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-setup.service"
 
-# ── First-boot progress TUI on tty1 ───────────────────────────────────────
-# Render the setup progress (phase, percent, log tail, URL) on the local
-# console while the user is running the wizard from another device. This
-# replaces the blank prompt behind the login screen that made users think
-# the system was frozen.
+# ── First-boot progress display on tty1 ───────────────────────────────────
+# Render the setup progress (phase, percent, log tail, URL) locally while
+# the user is running the wizard from another device. A graphical GUI is
+# drawn directly on the framebuffer (/dev/fb0) when a display is attached;
+# otherwise the console TUI is used. Either way the screen replaces the
+# blank prompt behind the login screen that made users think the system
+# was frozen.
 mkdir -p "${TARGET_DIR}/usr/lib/iora"
 if [ -f "${SETUP_SRC}/iora-setup-tui" ]; then
     install -Dm0755 "${SETUP_SRC}/iora-setup-tui" \
         "${TARGET_DIR}/usr/lib/iora/iora-setup-tui"
 fi
+if [ -f "${SETUP_SRC}/iora-setup-gui.py" ]; then
+    install -Dm0755 "${SETUP_SRC}/iora-setup-gui.py" \
+        "${TARGET_DIR}/usr/lib/iora/iora-setup-gui.py"
+fi
+if [ -f "${SETUP_SRC}/iora_qr.py" ]; then
+    install -Dm0644 "${SETUP_SRC}/iora_qr.py" \
+        "${TARGET_DIR}/usr/lib/iora/iora_qr.py"
+fi
 
-cat > "${TARGET_DIR}/etc/systemd/system/iora-setup-tui.service" <<'EOF'
+cat > "${TARGET_DIR}/usr/lib/iora/iora-setup-display.sh" <<'EOF'
+#!/bin/sh
+# IORA first-boot display: graphical GUI on the framebuffer when a display
+# is attached, otherwise the console TUI. Both read the same state file.
+if [ -c /dev/fb0 ]; then
+    exec /usr/bin/python3 /usr/lib/iora/iora-setup-gui.py
+else
+    exec /usr/bin/python3 /usr/lib/iora/iora-setup-tui
+fi
+EOF
+chmod 0755 "${TARGET_DIR}/usr/lib/iora/iora-setup-display.sh"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-setup-display.service" <<'EOF'
 [Unit]
-Description=IORA OS first-boot progress display on tty1
+Description=IORA OS first-boot display on tty1 (GUI on framebuffer, TUI on console)
 # Only run while setup has not yet completed. Dual-flag: skip if either
 # flag exists (both ANDed with ! = run only when BOTH absent).
 ConditionPathExists=!/mnt/data/iora/.setup-complete
@@ -2169,8 +2209,8 @@ Before=getty@tty1.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/lib/iora/iora-setup-tui
-# Hand TTY back to getty when the setup TUI stops (setup complete or crashed).
+ExecStart=/bin/sh /usr/lib/iora/iora-setup-display.sh
+# Hand TTY back to getty when the setup display stops (setup complete or crashed).
 # Without this, Alt+Ctrl+F2 / tty1 stays blank after setup finishes.
 ExecStopPost=/bin/systemctl start getty@tty1.service
 StandardInput=tty
@@ -2179,19 +2219,19 @@ StandardError=journal
 TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
-# Only restart on crash (non-zero exit). When setup completes the TUI exits
-# with code 0 and must NOT be restarted.
+# Only restart on crash (non-zero exit). When setup completes the display
+# exits with code 0 and must NOT be restarted.
 Restart=on-failure
 RestartSec=2
-# Use a login-like environment (TERM so ANSI renders).
+# Use a login-like environment (TERM so the TUI's ANSI renders).
 Environment=TERM=linux
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-ln -sf /etc/systemd/system/iora-setup-tui.service \
-    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-setup-tui.service"
+ln -sf /etc/systemd/system/iora-setup-display.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-setup-display.service"
 # ──────────────────────────────────────────────────────────────────────────
 
 # Install IORA OS Update Client (Rust binary replaces the old shell script)

@@ -73,11 +73,11 @@ WIZARD_REQUEST="continue"   # set by on_sigint, consumed by ask()
 
 # ── Colors ─────────────────────────────────────────────────────────────────────
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
+RED='\033[38;5;203m'
+GREEN='\033[38;5;42m'
+YELLOW='\033[38;5;221m'
+BLUE='\033[38;5;39m'
+CYAN='\033[38;5;45m'
 BOLD='\033[1m'
 NC='\033[0m'
 
@@ -274,15 +274,15 @@ ask() {
 show_banner() {
     echo -e "${CYAN}"
     cat <<'BANNER'
-  ___ ___  ____    _      ___  ____
- |_ _/ _ \|  _ \  / \    / _ \/ ___|
-  | | | | | |_) |/ _ \  | | | \___ \
-  | | |_| |  _ </ ___ \ | |_| |___) |
- |___\___/|_| \_/_/   \_\ \___/|____/
+           ___    ___    _____      _
+          |_ _|  / _ \  |  __ \    / \
+           | |  | | | | | |__) |  / _ \
+           | |  | | | | |  _  /  / ___ \
+          |___|  \___/  |_| \_\ /_/   \_\
 
 BANNER
     echo -e "${NC}"
-    echo -e "${BOLD}  IORA OS Net Installer${NC}"
+    echo -e "${BOLD}${CYAN}  IORA OS Net Installer${NC}"
     echo -e "  Server: ${BLUE}${UPDATE_SERVER}${NC}"
     echo ""
 }

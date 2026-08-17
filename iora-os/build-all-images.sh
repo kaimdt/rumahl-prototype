@@ -2016,48 +2016,50 @@ fi
 # -- Boot splash ----------------------------------------------------
 # NOTE: The kernel framebuffer console with the default 8x16 VGA font
 # cannot render UTF-8 box-drawing characters. Stick to 7-bit ASCII.
+# Palette mirrors the web UI accent via 256-color SGR escapes; basic
+# VTs degrade to the nearest 16-color match automatically.
 show_boot_splash() {
     clear 2>/dev/null || true
     printf '\033[?25l'  # Hide cursor
 
-    # ANSI colours (7-bit, safe on VGA framebuffer console)
-    local C='\033[1;36m'   # bright cyan
-    local W='\033[1;37m'   # bright white
-    local Y='\033[1;33m'   # bright yellow
-    local D='\033[0;37m'   # dim white
-    local B='\033[0;34m'   # blue
-    local R='\033[0m'      # reset
+    # IORA palette (256-color, matches the dashboard accent)
+    local ACCENT='\033[38;5;39m'   # ~#2563eb
+    local CYAN='\033[38;5;45m'
+    local GRAY='\033[38;5;245m'
+    local WHITE='\033[1;97m'
+    local GREEN='\033[38;5;42m'
+    local RESET='\033[0m'
 
-    printf "\n\n"
-    printf "${C}  +----------------------------------------------------------+${R}\n"
-    printf "${C}  |${R}                                                          ${C}|${R}\n"
-    printf "${C}  |${R}${W}       ___    ___    _____      _                        ${R}${C}|${R}\n"
-    printf "${C}  |${R}${W}      |_ _|  / _ \\  |  __ \\    / \\                       ${R}${C}|${R}\n"
-    printf "${C}  |${R}${W}       | |  | | | | | |__) |  / _ \\                      ${R}${C}|${R}\n"
-    printf "${C}  |${R}${W}       | |  | | | | |  _  /  / ___ \\                     ${R}${C}|${R}\n"
-    printf "${C}  |${R}${C}      |___|  \\___/  |_| \\_\\ /_/   \\_\\                    ${R}${C}|${R}\n"
-    printf "${C}  |${R}                                                          ${C}|${R}\n"
-    printf "${C}  |${R}${D}    Interface for Optimized Residential Autonomy          ${R}${C}|${R}\n"
-    printf "${C}  |${R}                                                          ${C}|${R}\n"
-    printf "${C}  +----------------------------------------------------------+${R}\n"
-    printf "\n"
-    printf "              ${Y}IORA OS Installer${R}\n"
-    printf "\n"
-    printf "         ${C}Starting system components...${R}\n"
-    printf "         "
+    # IORA wordmark (pure ASCII -- box-drawing/Braille mojibake on fbcon)
+    printf "${ACCENT}"
+    cat <<'SPLASH'
 
+           ___    ___    _____      _
+          |_ _|  / _ \  |  __ \    / \
+           | |  | | | | | |__) |  / _ \
+           | |  | | | | |  _  /  / ___ \
+          |___|  \___/  |_| \_\ /_/   \_\
+
+SPLASH
+    printf "${RESET}"
+    printf "${GRAY}        Interface for Optimized Residential Autonomy${RESET}\n"
+    printf "\n${WHITE}        Starting IORA OS Installer${RESET}\n"
+
+    # Animated loading spinner (ASCII only; %s keeps the backslash frame
+    # from colliding with the trailing color escape).
     local spinner='|/-\'
     local i=0
-    local delay=0.1
+    local delay=0.08
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
         local char=$(printf '%s' "$spinner" | cut -c$((i + 1)))
-        printf "\r         ${B}[${char}]${R} Loading system components..."
+        printf "\r        ${CYAN}%s${RESET} Loading system components..." "$char"
         i=$(( (i + 1) % 4 ))
         sleep "$delay" 2>/dev/null || sleep 1
     done
+    printf "\r        ${GREEN}[ OK ]${RESET} System ready                      \n\n"
 
-    printf "\r         ${C}[OK]${R} System ready                          \n\n"
-    sleep 0.3
+    printf "${GRAY}        Recovery shell: install | sysinfo | netsetup${RESET}\n"
+    sleep 0.8
     printf '\033[?25h'  # Show cursor
 }
 show_boot_splash

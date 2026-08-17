@@ -15,16 +15,17 @@ Window.SetBackgroundBottomColor(0.02, 0.02, 0.06);
 screen_width  = Window.GetWidth();
 screen_height = Window.GetHeight();
 
-// ── Logo (ASCII / text fallback rendered via a sprite) ───────────────────────
 // ── Logo (PNG preferred, text fallback) ──────────────────────────────────────
-// Place "logo.png" in the theme directory for a graphical logo.
-// Falls back to a text label if the file is absent.
+// logo.png ships in this theme directory (480x112, transparent bg:
+// brand mark + wordmark). Replace it to rebrand; if the file is absent
+// the theme falls back to a plain text label.
 logo_sprite = Sprite();
 logo_image  = Image("logo.png");
 if (logo_image) {
     logo_sprite.SetImage(logo_image);
     logo_sprite.SetX(screen_width  / 2 - logo_image.GetWidth()  / 2);
-    logo_sprite.SetY(screen_height / 2 - logo_image.GetHeight() / 2 - 70);
+    // Bottom-anchored so the wordmark clears the tagline below it.
+    logo_sprite.SetY(screen_height / 2 - logo_image.GetHeight() - 48);
     logo_sprite.SetOpacity(1);
 } else {
     // Image.Text(string, r, g, b) — Plymouth 22.x script API

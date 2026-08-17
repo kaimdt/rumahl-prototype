@@ -1,396 +1,249 @@
-# IORA OS Installer Boot Splash and CLI Navigation
+# IORA OS Installer — Boot Splash, Wizard UI and Recovery Shell
 
-This document describes the boot splash screen and enhanced CLI navigation features added to the IORA OS installer.
+This document describes the IORA OS installer's boot splash, the
+first-boot progress TUI and the recovery-shell command suite.
 
 ## Boot Splash Screen
 
 ### Overview
 
-When IORA OS installer boots, instead of a black screen, users now see:
-- **IORA Logo** in ASCII art
-- **Loading spinner** with animation
-- **Colored status messages** indicating boot progress
+When the IORA OS installer boots, instead of a black screen the user
+sees a branded boot screen:
+
+- **IORA wordmark** in the IORA accent color (256-color, ~#2563eb)
+- **Tagline** "Interface for Optimized Residential Autonomy"
+- **Animated loading spinner** with a live status line
+- **[ OK ] completion marker** and a recovery-shell hint
 
 ### Visual Example
 
 ```
-          ██╗ ██████╗ ██████╗  █████╗
-          ██║██╔═══██╗██╔══██╗██╔══██╗
-          ██║██║   ██║██████╔╝███████║
-          ██║██║   ██║██╔══██╗██╔══██║
-          ██║╚██████╔╝██║  ██║██║  ██║
-          ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+           ___    ___    _____      _
+          |_ _|  / _ \  |  __ \    / \
+           | |  | | | | | |__) |  / _ \
+           | |  | | | | |  _  /  / ___ \
+          |___|  \___/  |_| \_\ /_/   \_\
 
-       Interface for Optimized Residential Autonomy
+        Interface for Optimized Residential Autonomy
 
+        Starting IORA OS Installer
+        | Loading system components...            <- animated
+        [ OK ] System ready
 
-          Starting IORA OS Installer...
-          ⠋ Loading system components...
+        Recovery shell: install | sysinfo | netsetup
 ```
 
 ### Technical Details
 
-**Implementation**: `init_extracted.sh` - `show_boot_splash()` function
+**Implementation**: `init_extracted.sh` — `show_boot_splash()`.
 
-**Features**:
-- **ANSI Color Support**: Uses escape codes for cyan, blue, and white text
-- **Cursor Management**: Hides cursor during animation, restores after
-- **Animated Spinner**: Braille pattern spinner (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) with 10 frames
-- **Duration**: ~2 seconds of animation while system initializes
-- **Compatibility**: Falls back gracefully if colors not supported
+**Palette (256-color SGR)** — mirrors the dashboard accent so the
+console and web UI share one identity:
 
-**Color Codes**:
 ```sh
-CYAN='\033[0;36m'   # Cyan for main messages
-WHITE='\033[1;37m'  # Bold white for logo
-BLUE='\033[0;34m'   # Blue for spinner
-RESET='\033[0m'     # Reset to default
+ACCENT='\033[38;5;39m'    # ~#2563eb  (wordmark)
+CYAN='\033[38;5;45m'      # spinner
+WHITE='\033[1;97m'        # status headline
+GREEN='\033[38;5;42m'     # [ OK ]
+GRAY='\033[38;5;245m'     # tagline / hints
 ```
 
-### Plymouth Integration
+Consoles without 256-color support degrade to the nearest 16-color
+match automatically.
 
-For full graphical boot splash (on systems with framebuffer support):
+**IMPORTANT — pure 7-bit ASCII only.** The kernel framebuffer console
+with the default VGA font does **not** render UTF-8 box-drawing or
+Braille glyphs (`╔═╗ • ✓ ⠋` …) — they show up as mojibake. All splash
+and shell output is therefore restricted to 7-bit ASCII. The `dialog(1)`
+wizard dialogs are exempt because dialog renders its own ACS border
+glyphs internally.
 
-**Buildroot Packages Added**:
-- `BR2_PACKAGE_PLYMOUTH` - Main Plymouth package
-- `BR2_PACKAGE_PLYMOUTH_THEMES` - Theme support
-- `BR2_PACKAGE_FBV` - Framebuffer image viewer
-- `BR2_PACKAGE_FBSET` - Framebuffer configuration
+### Spinner
 
-**Future Enhancement**: Custom Plymouth theme with IORA branding can be added to `/board/iora/rootfs-overlay/usr/share/plymouth/themes/iora/`
+Four-frame ASCII spinner (`|/-\`), driven with a `printf %s` argument
+so the backslash frame does not collide with the trailing color escape:
 
-## CLI Navigation and Helper Commands
-
-### Enhanced Command Suite
-
-The installer now provides a comprehensive set of helper commands accessible from the recovery shell.
-
-### Available Commands
-
-| Command | Description | Alias |
-|---------|-------------|-------|
-| `install` | Restart the IORA OS installation wizard | - |
-| `installer` | Alias for `install` command | Yes |
-| `help` | Show all available commands with descriptions | - |
-| `sysinfo` | Display detailed system information | - |
-| `netsetup` | Configure network interfaces via DHCP | - |
-| `reboot` | Reboot the system | - |
-| `poweroff` | Shut down the system | - |
-
-### Returning to Installer from CLI
-
-Users can return to the installation wizard from the shell at any time by typing:
-
-```bash
-install
+```sh
+printf "\r        ${CYAN}%s${RESET} Loading system components..." "$char"
 ```
 
-or
+### Cursor handling
 
-```bash
-installer
+The cursor is hidden during the splash (`\033[?25l`) and restored
+before the wizard starts (`\033[?25h`).
+
+## Wizard UI (dialog)
+
+The installer wizard uses `dialog(1)` (falls back to `whiptail`, then
+to plain text prompts). A modern **dark theme** is installed via
+`/tmp/.dialogrc` (`setup_dialog_theme()` in `init_extracted.sh`):
+
+- Black canvas (`screen_color = (WHITE,BLACK,ON)`)
+- IORA blue borders and selection (`BLUE`) — approximates the web accent
+- Cyan titles, yellow highlights and gauge, green scroll arrows
+
+## First-Boot Progress Display (local GUI or console TUI)
+
+On first boot the setup progress is shown locally on tty1 by
+`iora-setup-display.service`, which picks the best available surface:
+
+- **Graphical GUI** (`iora-setup-gui.py`) when a framebuffer is present
+  (`/dev/fb0` — HDMI display attached). It draws a branded screen
+directly on the framebuffer: navy gradient, the IORA hexagon mark,
+wordmark, a status card with live progress bar + phase + log tail, the
+setup URL, and a completion screen with the dashboard URL.
+- **Console TUI** (`iora-setup-tui`, Python) as fallback when no
+display is attached. It also keeps its interactive static-IP prompt
+(`[N]` when no DHCP address appears) — the GUI has no keyboard input,
+so on headless/static-IP setups the TUI remains the way to configure
+networking from the device itself.
+
+Both read the same `setup-state.json` written by the setup server, so
+the local screen and the web wizard always agree. The GUI renders in
+bulk scanlines (a 1080p frame takes ~1 s on the device-class CPU) and
+only redraws when the state actually changes. On completion it exits
+with code 0 and `ExecStopPost` hands tty1 back to `getty@tty1.service`.
+
+The GUI has a test mode that renders one frame to a PPM file without a
+framebuffer (used for development/verification):
+
+```sh
+python3 iora-setup-gui.py --ppm /tmp/frame.ppm --size 1920x1080 [--state /path/state.json]
 ```
 
-Both commands display a confirmation message and restart the wizard:
+## First-Boot Setup — Two Flows
+
+IORA OS has **two deployment paths**, and the first-boot setup adapts to
+the path automatically via `/etc/iora/setup-config.json`:
+
+1. **Installer flow** (CD/USB): the installer wizard collects every answer
+   — hostname, network, timezone, root password, **web-admin account** and
+   **locale** (language/country/units) — and writes a
+   `setup-config.json` into the target. On first boot
+   `iora-setup.service` detects the file and applies it **headlessly**
+   (`setup-server.py --apply-config`): DB credentials + secrets, admin
+   bootstrap, docker-compose, completion flags. The interactive web
+   wizard is **never shown**; the dashboard is ready immediately. The
+   Recovery PIN generated during the apply is shown on the local display.
+2. **Flash flow** (image written directly to SD/eMMC — Raspberry Pi etc.):
+   no config file exists, so `iora-setup.service` starts the interactive
+   **web wizard** on port 8080 exactly as before.
+
+The single unit (`iora-setup.service` → `iora-setup-run.sh`) decides
+which path to take; the headless apply reuses the same `apply_config()`
+engine as the wizard, so both paths behave identically.
+
+## Setup Web GUI (browser)
+
+The full graphical setup wizard is served by `setup-server.py` at
+`http://<IP>:8080/setup` (flash path; the TUI/GUI points the user there).
+It is a 5-step wizard (system check → configuration → disk/LUKS → apply →
+Recovery PIN/dashboard) styled with the IORA design tokens
+(`--primary: #2563eb` etc.): dark theme, cards, toggles, live apply
+progress with log pane, animated step transitions and soft keyboard
+focus rings.
+
+## Plymouth (Graphical Boot Splash)
+
+For systems with framebuffer support, Plymouth is compiled in
+(`BR2_PACKAGE_PLYMOUTH=y`) and an IORA theme ships in:
 
 ```
-  ╔══════════════════════════════════════════════════╗
-  ║  Restarting IORA OS Installation Wizard...      ║
-  ╚══════════════════════════════════════════════════╝
+board/iora/rootfs-overlay/usr/share/plymouth/themes/iora/
+├── iora.plymouth    # theme descriptor
+└── iora.script      # dark navy bg, wordmark label, tagline, progress bar
 ```
 
-### Command Examples
+The script theme renders:
 
-#### 1. System Information (`sysinfo`)
+- Dark navy background
+- **`logo.png`** (ships in this directory, 480x112 transparent PNG:
+  brand mark + wordmark) — falls back to a text label if removed
+- Tagline "Your Home. Your Control."
+- A boot progress bar fed by Plymouth's progress events
 
-```bash
-$ sysinfo
+To rebrand, replace `logo.png` (wide and short, transparent background)
+and rebuild.
 
-  ╔══════════════════════════════════════════════════╗
-  ║         IORA OS System Information               ║
-  ╚══════════════════════════════════════════════════╝
+## Recovery Shell and CLI Commands
 
-  CPU:     Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
-  Cores:   8
-  Memory:  16384 MB
-  Boot:    UEFI
+After the wizard exits (cancel or completion) the user lands in a
+recovery shell with the following commands (`/bin/*`):
 
-  === Block Devices ===
-  NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
-  sda      8:0    0 238.5G  0 disk
-  ├─sda1   8:1    0   512M  0 part
-  ├─sda2   8:2    0     2G  0 part
-  ├─sda3   8:3    0     2G  0 part
-  └─sda4   8:4    0   234G  0 part
+| Command     | Description                              | Alias   |
+|-------------|------------------------------------------|---------|
+| `install`   | Restart the IORA OS installation wizard  | `installer` |
+| `sysinfo`   | Display CPU, memory, boot mode, disks, network | —  |
+| `netsetup`  | Configure network interfaces via DHCP    | —       |
+| `help`      | Show all available commands              | —       |
+| `reboot`    | Reboot the system                        | —       |
+| `poweroff`  | Shut down the system                     | —       |
 
-  === Network ===
-  eth0             UP             192.168.1.100/24
+All helper scripts use ASCII frames and the same 256-color palette;
+`netsetup` reports `[ OK ]` / `[FAIL]` instead of Unicode glyphs so the
+output stays readable on framebuffer consoles.
+
+### Returning to the Wizard
+
+```sh
+install          # or: installer
 ```
 
-#### 2. Network Setup (`netsetup`)
-
-```bash
-$ netsetup
-
-  ╔══════════════════════════════════════════════════╗
-  ║         Network Configuration                    ║
-  ╚══════════════════════════════════════════════════╝
-
-  Bringing up network interfaces...
-  ✓ eth0: DHCP configured
-```
-
-#### 3. Help Command (`help`)
-
-```bash
-$ help
-
-  ╔══════════════════════════════════════════════════╗
-  ║     IORA OS Installer - Available Commands      ║
-  ╚══════════════════════════════════════════════════╝
-
-  install     - Restart the IORA OS installation wizard
-  installer   - Alias for 'install' command
-  sysinfo     - Display system information
-  netsetup    - Configure network via DHCP
-  help        - Show this help message
-  reboot      - Reboot the system
-  poweroff    - Shut down the system
-
-  To return to the installer at any time, type:
-  install or installer
-```
-
-## Recovery Shell Experience
-
-### Welcome Banner
-
-When the installation wizard exits (user cancels or completes), a formatted banner appears:
-
-```
-  ╔══════════════════════════════════════════════════════════════╗
-  ║                                                              ║
-  ║          IORA OS Installation - Recovery Shell              ║
-  ║                                                              ║
-  ╚══════════════════════════════════════════════════════════════╝
-
-  The installation wizard has exited.
-  You are now in a recovery shell.
-
-  Available commands:
-    install     - Restart the installation wizard
-    installer   - Restart the installation wizard (alias)
-    sysinfo     - Show system information
-    netsetup    - Configure network via DHCP
-    help        - Show all available commands
-    reboot      - Reboot the system
-    poweroff    - Shut down
-
-  Type 'install' or 'installer' to return to the installation wizard.
-```
-
-### Shell Availability
-
-The system attempts to use the best available shell:
-
-1. `/bin/bash` (Bash shell) - preferred
-2. `/bin/sh` (POSIX shell) - fallback
-3. `/bin/busybox sh` (BusyBox shell) - minimal fallback
-4. `sh` (system default)
-
-## Use Cases
-
-### Scenario 1: User Needs System Information Before Installing
-
-```bash
-# Boot IORA OS installer
-# See boot splash with logo and spinner
-# Exit wizard to shell (press Cancel or Esc)
-
-$ sysinfo
-# Review hardware specs
-
-$ netsetup
-# Configure network if needed
-
-$ install
-# Return to installation wizard
-```
-
-### Scenario 2: Network Configuration During Install
-
-```bash
-# Start installation wizard
-# Realize network isn't working
-# Exit to shell
-
-$ netsetup
-# Configure DHCP
-
-$ installer
-# Return to wizard with network configured
-```
-
-### Scenario 3: Troubleshooting Install Issues
-
-```bash
-# Installation fails
-# Automatically drops to recovery shell
-
-$ sysinfo
-# Check available disk space
-
-$ lsblk
-# Manually inspect block devices
-
-$ help
-# See what commands are available
-
-$ install
-# Try installation again
-```
+Both restart `/init` (splash + wizard).
 
 ## Customization
 
-### Changing Boot Splash Logo
+### Changing the Boot Splash Logo
 
-Edit `init_extracted.sh`, function `show_boot_splash()`:
+Edit `show_boot_splash()` in `init_extracted.sh` — the wordmark is a
+quoted heredoc inside the function. Keep it pure ASCII.
 
-```bash
-cat <<'SPLASH'
-    # Your custom ASCII art here
-SPLASH
+### Changing the Spinner Style
+
+Modify the `spinner` variable:
+
+```sh
+local spinner='|/-\'           # current (ASCII-safe)
+local spinner='+-x'            # alternative
+local spinner='.oOo'           # alternative
 ```
 
-### Changing Spinner Style
+Braille spinners (`⠋⠙⠹…`) are **not** safe on framebuffer consoles.
 
-Modify the spinner variable in `show_boot_splash()`:
+### Changing the Wizard Theme
 
-```bash
-# Current (Braille dots)
-local spinner='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+Edit `setup_dialog_theme()` — the dialog color names are limited to the
+16 ANSI colors; the IORA blue (`BLUE`) approximates `#2563eb`.
 
-# Alternative options:
-local spinner='|/-\\'           # Classic
-local spinner='◐◓◑◒'            # Circles
-local spinner='▁▂▃▄▅▆▇█▇▆▅▄▃▂'  # Blocks
-local spinner='⣾⣽⣻⢿⡿⣟⣯⣷'        # Dots
-```
+## Performance
 
-### Adding Custom Commands
-
-Add new commands by creating executable scripts in `/bin/`:
-
-```bash
-cat > /bin/mycommand <<'SHEOF'
-#!/bin/sh
-echo "My custom command"
-# Your logic here
-SHEOF
-chmod +x /bin/mycommand
-```
-
-Then add to the help display in the entry point section.
-
-## Plymouth Theme Development (Future)
-
-To create a full graphical boot splash:
-
-1. **Create Theme Directory**:
-   ```bash
-   mkdir -p board/iora/rootfs-overlay/usr/share/plymouth/themes/iora
-   ```
-
-2. **Add Theme Files**:
-   - `iora.plymouth` - Theme configuration
-   - `iora.script` - Plymouth script (animations)
-   - `logo.png` - IORA logo image
-   - `background.png` - Background image
-
-3. **Configure Default Theme**:
-   ```bash
-   plymouth-set-default-theme iora
-   ```
-
-4. **Rebuild Initramfs**:
-   Plymouth themes are loaded from initramfs during early boot.
-
-## Performance Considerations
-
-### Boot Splash Timing
-
-- **Splash Display**: ~2 seconds
-- **System Initialization**: Parallel with splash
-- **Total Overhead**: Negligible (~100ms for rendering)
-
-### Memory Usage
-
-- **ASCII Splash**: <1 KB
-- **Helper Scripts**: ~5 KB total
-- **Plymouth (if enabled)**: ~2-3 MB RAM
-
-### Disabling Boot Splash
-
-To disable the boot splash screen, comment out in `init_extracted.sh`:
-
-```bash
-# show_boot_splash  # Disabled
-```
+- ASCII splash: < 1 KB, ~2 seconds, negligible overhead
+- Helper scripts: ~5 KB total
+- Plymouth (when enabled): ~2-3 MB RAM
 
 ## Troubleshooting
 
 ### Boot Splash Not Showing
 
-**Symptoms**: Black screen, no logo appears
+1. Check console: `ls -l /dev/console`
+2. Test colors: `echo -e "\033[38;5;39mTest\033[0m"`
+3. Check init: `grep show_boot_splash /init`
 
-**Possible Causes**:
-1. Console not available yet
-2. Terminal doesn't support ANSI colors
-3. Script error before splash
+### Mojibake / Garbage Characters on the Console
 
-**Solutions**:
-```bash
-# Check console
-ls -l /dev/console
-
-# Test ANSI colors
-echo -e "\033[0;36mTest\033[0m"
-
-# Check init script
-cat /init | grep show_boot_splash
-```
-
-### Cannot Return to Installer
-
-**Symptoms**: `install` command not found
-
-**Possible Causes**:
-1. `/bin/install` not created
-2. PATH doesn't include `/bin`
-
-**Solutions**:
-```bash
-# Check if command exists
-ls -l /bin/install
-
-# Add to PATH
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PATH
-
-# Run directly
-/bin/install
-```
+The framebuffer console cannot render UTF-8 box-drawing/Braille glyphs
+with the default VGA font. Any new splash/shell output must stay 7-bit
+ASCII (see above). The dialog widgets are unaffected.
 
 ### Colors Not Displaying
 
-**Symptoms**: See escape codes instead of colors
+Some basic VTs only support 16 colors; 256-color SGR escapes degrade
+automatically. Colors are cosmetic — the installer works without them.
 
-**Cause**: Terminal doesn't support ANSI escape sequences
+### Cannot Return to Installer
 
-**Solution**: Colors are cosmetic and don't affect functionality. The installer will work fine without them.
-
-## References
-
-- [ANSI Escape Codes](https://en.wikipedia.org/wiki/ANSI_escape_code)
-- [Plymouth Boot Splash](https://www.freedesktop.org/wiki/Software/Plymouth/)
-- [BusyBox Shell](https://busybox.net/downloads/BusyBox.html#ash)
-- [Linux Framebuffer](https://www.kernel.org/doc/Documentation/fb/framebuffer.txt)
+```sh
+ls -l /bin/install       # must exist
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PATH
+/bin/install             # or: installer
+```
