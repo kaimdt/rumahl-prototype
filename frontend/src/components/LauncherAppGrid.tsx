@@ -194,6 +194,7 @@ export function LauncherAppGrid({
 
   const openQuickMenu = (app: OsAppDefinition, event: React.MouseEvent) => {
     event.preventDefault()
+    event.stopPropagation()
     closeAllContextMenus()
     setMoreOpen(false)
     setMorePos(null)
@@ -349,7 +350,7 @@ export function LauncherAppGrid({
       {createPortal(
       <AnimatePresence>{openFolder && <>
         <motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpenFolderId(null)} className="fixed inset-0 z-[84] bg-black/55 backdrop-blur-md" aria-label={t('common.close')} />
-        <motion.section initial={{ opacity: 0, scale: 0.92, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.94, y: 16 }} role="dialog" aria-modal="true" aria-label={openFolder.name} className="glass-card fixed left-1/2 top-1/2 z-[85] max-h-[80dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[2rem] p-5 shadow-2xl sm:p-7">
+        <motion.section initial={{ opacity: 0, scale: 0.92, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.94, y: 16 }} role="dialog" aria-modal="true" aria-label={openFolder.name} className="glass-card fixed left-1/2 top-1/2 z-[85] max-h-[80dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-4xl p-5 shadow-2xl sm:p-7">
           <div className="flex items-center gap-3">
             <Folder size={24} weight="duotone" className="shrink-0 text-accent" />
             <input value={openFolder.name} onChange={(event) => updateFolder(openFolder.id, (folder) => ({ ...folder, name: event.target.value }))} aria-label={t('os.launcher.folderName')} className="min-w-0 flex-1 rounded-xl bg-foreground/5 px-3 py-2 text-xl font-semibold text-foreground outline-none focus:ring-2 focus:ring-accent/40" />
@@ -375,7 +376,7 @@ export function LauncherAppGrid({
           initial={{ opacity: 0, y: 6, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 4, scale: 0.97 }}
-          className="fixed z-[87] w-48 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+          className="fixed z-[87] w-48 overflow-hidden rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
           style={{ left: Math.min(quickMenu.x, window.innerWidth - 200), top: Math.min(quickMenu.y + 8, window.innerHeight - (isManagedApp(quickMenu.app) ? 340 : 260)) }}
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}

@@ -132,6 +132,22 @@
     }
   }
 
+  /* ─── Native OS pointer cursor ───
+   * Tailwind v4's preflight leaves buttons at cursor:default, which reads
+   * like a web form, not a desktop. Every interactive element gets the
+   * pointer so the OS feels native (macOS/Windows style). */
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="menuitem"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  [role="tab"]:not(:disabled),
+  [role="option"]:not(:disabled),
+  summary:not(:disabled),
+  select:not(:disabled),
+  label[for]:not(:disabled) {
+    cursor: pointer;
+  }
+
   /* ─── Custom Scrollbar ─── */
   * {
     scrollbar-width: thin;
@@ -662,12 +678,15 @@ html {
 
 .ora-topbar-action {
   color: var(--adaptive-text-soft, var(--foreground));
-  border-radius: 0.5rem;
-  transition: color 150ms ease, background-color 150ms ease;
+  border-radius: 0.65rem;
+  transition: color 150ms ease, background-color 150ms ease, transform 150ms var(--ora-ease-out);
 }
 .ora-topbar-action:hover {
   color: var(--adaptive-text-color, var(--foreground));
   background: color-mix(in oklch, var(--adaptive-text-color, var(--foreground)) 12%, transparent);
+}
+.ora-topbar-action:active {
+  transform: scale(0.9);
 }
 .ora-topbar-action.is-active {
   color: var(--adaptive-text-color, var(--foreground));
@@ -1217,9 +1236,12 @@ body {
   );
 }
 
-/* ─── Focus ring for accessibility ─── */
+/* ─── Focus ring for accessibility ───
+ * Soft accent ring: slightly translucent so it reads as a halo on glass
+ * surfaces instead of a hard outline, with an offset that survives
+ * rounded corners. */
 .focus-ring:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid color-mix(in oklch, var(--accent) 62%, transparent);
   outline-offset: 2px;
   border-radius: inherit;
 }
@@ -2705,6 +2727,25 @@ body {
 .ora-command-search input::placeholder { color: color-mix(in oklch, var(--foreground) 38%, transparent); }
 .ora-command-search:focus-within { border-color: color-mix(in oklch, var(--accent) 45%, transparent); box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 12%, transparent), 0 8px 32px oklch(0 0 0 / 0.18); }
 .ora-command-search kbd { border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent); border-radius: 0.45rem; background: color-mix(in oklch, var(--foreground) 6%, transparent); padding: 0.2rem 0.4rem; color: color-mix(in oklch, var(--foreground) 40%, transparent); font-size: 0.65rem; }
+
+/* ─── Auth inputs (login, lock screen) ───
+ * Glass field that picks up a soft accent ring on focus, matching the
+ * command search pill so auth surfaces feel like part of the OS. */
+.ora-auth-input {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  padding: 0 1rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+.ora-auth-input:focus-within {
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 14%, transparent);
+}
 .ora-app-icon { border-radius: 26%; box-shadow: 0 16px 28px rgb(0 0 0 / 0.3), 0 5px 10px rgb(0 0 0 / 0.18), inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 -1px 0 rgb(0 0 0 / 0.2); transform: translateZ(0); transition: transform var(--ora-duration-fast) var(--ora-ease-out), box-shadow var(--ora-duration-fast) var(--ora-ease-out), filter var(--ora-duration-fast); }
 .group:hover .ora-app-icon { box-shadow: 0 22px 38px rgb(0 0 0 / 0.36), 0 0 28px color-mix(in oklch, var(--accent) 16%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.36); filter: saturate(1.08) brightness(1.04); transform: translateZ(0) scale(1.06); }
 .ora-app-icon-highlight { background: linear-gradient(145deg, rgb(255 255 255 / 0.3), transparent 42%, rgb(0 0 0 / 0.12)); }
@@ -2795,11 +2836,12 @@ body {
   min-width: 1.9rem;
   min-height: 1.9rem;
   place-items: center;
-  border-radius: 0.6rem;
+  border-radius: 0.65rem;
   color: color-mix(in oklch, currentColor 65%, transparent);
-  transition: background var(--ora-duration-fast), color var(--ora-duration-fast);
+  transition: background var(--ora-duration-fast), color var(--ora-duration-fast), transform var(--ora-duration-fast) var(--ora-ease-out);
 }
 .ora-window-action:hover { color: inherit; background: var(--ora-glass-hover); }
+.ora-window-action:active { transform: scale(0.88); }
 
 .ora-os-split {
   position: absolute;

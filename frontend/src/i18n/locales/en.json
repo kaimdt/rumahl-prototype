@@ -524,6 +524,13 @@
       "actionFailed": "Action failed: {{detail}}",
       "uninstallConfirm": "Uninstall {{name}}? The app and its data will be removed."
     },
+    "desktopMenu": {
+      "settings": "Settings",
+      "appearance": "Appearance",
+      "appStore": "App Store",
+      "lock": "Lock Session",
+      "refresh": "Refresh"
+    },
     "window": {
       "asWindow": "Open as window",
       "exitFullscreen": "Exit fullscreen",
@@ -877,6 +884,25 @@
     "appearanceStandardsDesc": "Set global accent, glass and time-of-day defaults for all users",
     "services": "Services",
     "system": "System",
+    "systemInfo": {
+      "unavailable": "No system information available.",
+      "hostname": "Hostname",
+      "os": "Operating System",
+      "kernel": "Kernel",
+      "uptime": "Uptime",
+      "cores": "Cores",
+      "usage": "Usage",
+      "memory": "Memory",
+      "total": "Total",
+      "used": "Used",
+      "available": "Available",
+      "disks": "Disks ({{count}})",
+      "usedSuffix": "{{value}} used",
+      "freeOf": "{{value}} free of {{total}}",
+      "network": "Network ({{count}})",
+      "ipAddresses": "IP addresses:",
+      "refresh": "Refresh"
+    },
     "users": "Users",
     "network": "Network",
     "logs": "Logs",
@@ -901,6 +927,31 @@
       }
     },
     "database": "Database",
+    "appsTab": {
+      "appName": "App Name",
+      "appNamePlaceholder": "e.g. my-weather-app",
+      "dockerImage": "Docker Image",
+      "dockerImagePlaceholder": "e.g. ghcr.io/user/weather-app:latest",
+      "installTitle": "Install App",
+      "install": "Install",
+      "installedApps": "Installed Apps ({{count}})",
+      "noneInstalled": "No apps installed.",
+      "ports": "Ports:",
+      "stop": "Stop",
+      "start": "Start",
+      "uninstall": "Uninstall",
+      "refresh": "Refresh"
+    },
+    "pluginsTab": {
+      "sandbox": "Sandbox:",
+      "maxTime": "Max time:",
+      "maxRam": "Max RAM:",
+      "statistics": "Statistics:",
+      "total": "Total",
+      "success": "Success",
+      "failure": "Failures",
+      "refresh": "Refresh"
+    },
     "backups": "Backups",
     "updates": "Updates",
     "appStore": "App Store",

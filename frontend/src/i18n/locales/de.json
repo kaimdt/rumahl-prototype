@@ -524,6 +524,13 @@
       "actionFailed": "Aktion fehlgeschlagen: {{detail}}",
       "uninstallConfirm": "{{name}} deinstallieren? Die App und ihre Daten werden entfernt."
     },
+    "desktopMenu": {
+      "settings": "Einstellungen",
+      "appearance": "Erscheinungsbild",
+      "appStore": "App-Store",
+      "lock": "Session sperren",
+      "refresh": "Aktualisieren"
+    },
     "window": {
       "asWindow": "Als Fenster öffnen",
       "exitFullscreen": "Vollbild verlassen",
@@ -878,6 +885,25 @@
     "appearanceStandardsDesc": "Globale Standard-Akzent-, Glas- und Tageszeit-Einstellungen für alle Nutzer festlegen",
     "services": "Services",
     "system": "System",
+    "systemInfo": {
+      "unavailable": "Keine Systeminformationen verfügbar",
+      "hostname": "Hostname",
+      "os": "Betriebssystem",
+      "kernel": "Kernel",
+      "uptime": "Laufzeit",
+      "cores": "Kerne",
+      "usage": "Auslastung",
+      "memory": "Arbeitsspeicher",
+      "total": "Gesamt",
+      "used": "Belegt",
+      "available": "Verfügbar",
+      "disks": "Festplatten ({{count}})",
+      "usedSuffix": "{{value}} belegt",
+      "freeOf": "{{value}} frei von {{total}}",
+      "network": "Netzwerk ({{count}})",
+      "ipAddresses": "IP-Adressen:",
+      "refresh": "Aktualisieren"
+    },
     "users": "Users",
     "network": "Network",
     "logs": "Logs",
@@ -902,6 +928,31 @@
       }
     },
     "database": "Database",
+    "appsTab": {
+      "appName": "App-Name",
+      "appNamePlaceholder": "z.B. my-weather-app",
+      "dockerImage": "Docker-Image",
+      "dockerImagePlaceholder": "z.B. ghcr.io/user/weather-app:latest",
+      "installTitle": "App installieren",
+      "install": "Installieren",
+      "installedApps": "Installierte Apps ({{count}})",
+      "noneInstalled": "Keine Apps installiert.",
+      "ports": "Ports:",
+      "stop": "Stoppen",
+      "start": "Starten",
+      "uninstall": "Deinstallieren",
+      "refresh": "Aktualisieren"
+    },
+    "pluginsTab": {
+      "sandbox": "Sandbox:",
+      "maxTime": "Max Zeit:",
+      "maxRam": "Max RAM:",
+      "statistics": "Statistiken:",
+      "total": "Gesamt",
+      "success": "Erfolg",
+      "failure": "Fehler",
+      "refresh": "Aktualisieren"
+    },
     "backups": "Backups",
     "updates": "Updates",
     "appStore": "App Store",

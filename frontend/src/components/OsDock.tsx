@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { DUR_SLOW, EASE_SOFT, SPRING_SOFT } from '@/lib/motion'
 import { ArrowSquareOut, Check, PushPin, SquaresFour } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
@@ -37,6 +38,8 @@ export function OsDock() {
   const [recentIds, setRecentIds] = useState<string[]>(readRecentIds)
   const [menuId, setMenuId] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [hoverId, setHoverId] = useState<string | null>(null)
+  const reducedMotion = useReducedMotion()
   useCloseOnOtherMenu(() => setMenuId(null))
 
   const apps = useMemo(() => {
@@ -81,6 +84,21 @@ export function OsDock() {
     .filter((app): app is OsAppDefinition => Boolean(app))
     .filter((app) => !pinned.some((item) => item.id === app.id))
     .slice(0, MAX_RECENT_IN_DOCK)
+
+  // Flat dock order for the macOS-style neighbor magnification: the
+  // hovered icon grows, its direct neighbors grow slightly less, the rest
+  // stay at rest. Index 0 = launcher, then pinned, then recents.
+  const dockIds = useMemo(
+    () => ['launcher', ...pinned.map((app) => app.id), ...recents.map((app) => app.id)],
+    [pinned, recents]
+  )
+  const hoverIdx = hoverId ? dockIds.indexOf(hoverId) : -1
+  const magnification = (index: number) => {
+    if (reducedMotion || hoverIdx < 0) return 1
+    if (index === hoverIdx) return 1.22
+    if (Math.abs(index - hoverIdx) === 1) return 1.08
+    return 1
+  }
 
   const openApp = (pageId: string) => {
     setMenuId(null)
@@ -137,13 +155,23 @@ export function OsDock() {
 
   const getName = (app: OsAppDefinition) => (app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName)
 
-  const renderItem = (app: OsAppDefinition, pinnedApp: boolean) => {
+  const renderItem = (app: OsAppDefinition, pinnedApp: boolean, index = 0) => {
     const Icon = app.icon
     const active = app.pageId === currentPageId
     const name = getName(app)
     const menuOpen = menuId === app.id
+    const isHovered = hoverId === app.id
+    const scale = magnification(index)
     return (
-      <div key={app.id} className="relative">
+      <motion.div
+        key={app.id}
+        className="relative"
+        onMouseEnter={() => setHoverId(app.id)}
+        onMouseLeave={() => setHoverId(null)}
+        initial={reducedMotion ? false : { opacity: 0, y: 18, scale: 0.88 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 0.3 + index * 0.05, ...SPRING_SOFT }}
+      >
         <button
           type="button"
           onClick={() => handleItemClick(app)}
@@ -157,14 +185,17 @@ export function OsDock() {
           aria-label={name}
         >
           <span
-            className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-[1.1rem] text-white transition-transform duration-200 group-hover:-translate-y-1 group-hover:scale-110 sm:h-12 sm:w-12 ${
+            className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-[1.1rem] text-white transition-transform duration-200 will-change-transform sm:h-12 sm:w-12 ${
               app.iconUrl
                 ? 'border-0 bg-transparent shadow-none'
                 : `border shadow-lg ${active ? 'border-white/30 bg-white/10' : 'border-white/12 bg-transparent'}`
             }`}
             style={app.iconUrl
-              ? { boxShadow: 'none' }
-              : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 70%, black))` }}
+              ? { transform: `translateY(${isHovered ? -4 : 0}px) scale(${scale})` }
+              : {
+                  background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 70%, black))`,
+                  transform: `translateY(${isHovered ? -4 : 0}px) scale(${scale})`,
+                }}
           >
             {app.iconUrl ? (
               <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-0.5" />
@@ -172,16 +203,16 @@ export function OsDock() {
               <Icon size={24} weight="duotone" />
             )}
           </span>
-          <span className="pointer-events-none absolute -top-9 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-xl backdrop-blur-md transition-opacity duration-150 group-hover:opacity-100">
+          <span className="pointer-events-none absolute -top-9 left-1/2 z-50 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-lg border border-foreground/10 bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-xl backdrop-blur-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
             {name}
           </span>
           <AnimatePresence>
             {active && (
               <motion.span
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, width: 4 }}
+                animate={{ opacity: 1, width: isHovered ? 16 : 4 }}
                 exit={{ opacity: 0 }}
-                className="mt-1 h-1 w-1 rounded-full bg-accent shadow-[0_0_6px_var(--accent)]"
+                className="mt-1 h-1 rounded-full bg-accent shadow-[0_0_6px_var(--accent)]"
               />
             )}
           </AnimatePresence>
@@ -206,7 +237,7 @@ export function OsDock() {
                 initial={{ opacity: 0, y: 6, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                className="fixed z-[88] w-44 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+                className="fixed z-[88] w-44 overflow-hidden rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
                 style={{ left: Math.min(menuPos.x, window.innerWidth - 200), top: Math.min(menuPos.y + 8, window.innerHeight - 300) }}
                 onClick={(event) => event.stopPropagation()}
               >
@@ -262,22 +293,27 @@ export function OsDock() {
             </>
           )}
         </AnimatePresence>
-      </div>
+      </motion.div>
     )
   }
 
   return (
     <div className="fixed bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-1/2 z-[60] -translate-x-1/2 select-none">
-      <div className="flex items-end gap-1.5 rounded-2xl border border-white/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl">
-        {renderItem(launcherApp, false)}
-        {pinned.map((app) => renderItem(app, true))}
+      <motion.div
+        initial={reducedMotion ? false : { y: 28, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: DUR_SLOW, ease: EASE_SOFT, delay: 0.2 }}
+        className="flex items-end gap-1.5 rounded-[1.35rem] border border-foreground/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl"
+      >
+        {renderItem(launcherApp, false, 0)}
+        {pinned.map((app, index) => renderItem(app, true, index + 1))}
         {recents.length > 0 && (
           <>
-            <span className="mx-1 h-9 w-px self-center bg-white/12" aria-hidden="true" />
-            <div className="hidden gap-1.5 sm:flex">{recents.map((app) => renderItem(app, false))}</div>
+            <span className="mx-1 h-9 w-px self-center bg-foreground/12" aria-hidden="true" />
+            <div className="hidden gap-1.5 sm:flex">{recents.map((app, index) => renderItem(app, false, index + 1 + pinned.length))}</div>
           </>
         )}
-      </div>
+      </motion.div>
     </div>
   )
 }

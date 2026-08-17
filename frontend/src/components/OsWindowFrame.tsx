@@ -133,7 +133,7 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
           onDoubleClick={onTitleDoubleClick}
         >
           {icon}
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-[0.14em] text-foreground/60">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-normal text-foreground/75">
             {window.pageId ? name : t('os.window.emptyPane')}
           </span>
           <div className="flex shrink-0 items-center gap-0.5">

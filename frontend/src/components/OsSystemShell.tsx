@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import { DUR_PAGE, EASE_OS, MOTION_PANEL } from '@/lib/motion'
 import {
   ArrowClockwise,
   ArrowsIn,
@@ -311,7 +312,7 @@ export function OsSystemShell() {
             initial={{ y: -40, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -40, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: DUR_PAGE, ease: EASE_OS }}
             className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3"
             style={{ height: 'var(--topbar-height, 2rem)' }}
           >
@@ -400,6 +401,7 @@ export function OsSystemShell() {
               initial={{ opacity: 0, y: -14, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
+              transition={MOTION_PANEL}
               className="glass-card fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[57] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-white/15 p-4 shadow-2xl sm:right-6 sm:top-[3.5rem]"
             >
               <div className="mb-4 flex items-center justify-between">
@@ -572,7 +574,8 @@ export function OsSystemShell() {
               initial={{ y: 24, scale: 0.96 }}
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 16, scale: 0.98 }}
-              className="glass-card w-full max-w-3xl rounded-[2rem] border border-white/15 p-5 shadow-2xl"
+              transition={MOTION_PANEL}
+              className="glass-card w-full max-w-3xl rounded-4xl border border-white/15 p-5 shadow-2xl"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-4 flex items-center justify-between">

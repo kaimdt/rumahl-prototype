@@ -682,7 +682,7 @@ export function AdminPanel() {
         `}>
           {/* Close button for mobile overlay */}
           <div className="lg:hidden flex items-center justify-between mb-3 flex-shrink-0">
-            <p className="text-sm font-semibold text-foreground">Control Center</p>
+            <p className="text-sm font-semibold text-foreground">{t('os.apps.admin.name')}</p>
             <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-foreground/5">
               <X size={18} className="text-foreground/50" />
             </button>
@@ -700,8 +700,8 @@ export function AdminPanel() {
               <ShieldCheck size={20} weight="fill" className="text-accent" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">Control Center</p>
-              <p className="text-[10px] text-foreground/40">System & Apps verwalten</p>
+              <p className="text-sm font-semibold text-foreground">{t('os.apps.admin.name')}</p>
+              <p className="text-[10px] text-foreground/40">{t('os.apps.admin.description')}</p>
             </div>
           </div>
           <div ref={sidebarRef} className="space-y-3 overflow-y-auto flex-1 pr-1 -mr-1">
@@ -1083,10 +1083,11 @@ export function ConfigModal({ open, onClose, title, icon: Icon, children }: {
 // ── MQTT Tab ──────────────────────────────────────────────────
 
 export function LoadingSpinner() {
+  const { t } = useTranslation()
   return (
     <div className="rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-12 flex flex-col items-center justify-center gap-3">
       <div className="w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin" />
-      <p className="text-xs text-foreground/40">Lade…</p>
+      <p className="text-xs text-foreground/40">{t('common.loading')}</p>
     </div>
   )
 }

@@ -1325,7 +1325,7 @@ function AppStoreView({
 
   // ═══════════════════ STORE FRONT ═══════════════════
   return (
-    <div className="space-y-8 rounded-[2rem] bg-background/85 p-4 shadow-2xl ring-1 ring-foreground/8 backdrop-blur-2xl sm:p-7">
+    <div className="space-y-8 rounded-4xl bg-background/85 p-4 shadow-2xl ring-1 ring-foreground/8 backdrop-blur-2xl sm:p-7">
       {/* ─── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3">
         <div>

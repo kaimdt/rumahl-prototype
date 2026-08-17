@@ -16,8 +16,14 @@ import {
   PencilSimple,
   Cpu,
   Memory,
+  ArrowClockwise,
+  LockKey,
+  Palette,
+  Storefront,
 } from '@phosphor-icons/react'
 import { AnimatePresence, motion } from 'motion/react'
+import { DUR_BASE, EASE_OS } from '@/lib/motion'
+import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 import { buildLauncherItems, LauncherAppGrid, type LauncherFolder } from '@/components/LauncherAppGrid'
 import { useAuth } from '@/contexts/AuthContext'
 import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
@@ -78,7 +84,7 @@ function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'norma
 export function OsHomeScreen() {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
-  const { pages, setCurrentPageId } = usePageNavigation()
+  const { pages, setCurrentPageId, navigateToPage } = usePageNavigation()
   const { permissions } = useOsPermissions()
   const { backend, homeAssistant } = useConnection()
   const { installedApps, activeJobs } = useInstalledApps()
@@ -87,6 +93,15 @@ export function OsHomeScreen() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Desktop context menu (right-click on the wallpaper): one menu at a time,
+  // coordinated with every other OS menu via the global close event.
+  const [desktopMenu, setDesktopMenu] = useState<{ x: number; y: number } | null>(null)
+  useCloseOnOtherMenu(() => setDesktopMenu(null))
+  const openDesktopMenu = (event: React.MouseEvent) => {
+    event.preventDefault()
+    closeAllContextMenus()
+    setDesktopMenu({ x: event.clientX, y: event.clientY })
+  }
   const [customLaunchers, setCustomLaunchers] = useLocalStorage<LauncherManifest[]>(CUSTOM_LAUNCHERS_KEY, [])
   const [launcherId, setLauncherId] = useLocalStorage<string>(LAUNCHER_KEY, localStorage.getItem(LAUNCHER_KEY)?.replace(/^"|"$/g, '') || 'default')
   const [widgetIds, setWidgetIds] = useLocalStorage<string[]>(LAUNCHER_WIDGETS_KEY, ['home', 'clock'])
@@ -388,6 +403,7 @@ export function OsHomeScreen() {
       style={launcher?.accent ? { '--accent': launcher.accent } as React.CSSProperties : undefined}
       aria-label={t('os.launcher.label')}
       onWheel={onWheelPage}
+      onContextMenu={openDesktopMenu}
       {...swipeHandlers}
     >
       {layout === 'default' && (
@@ -439,7 +455,7 @@ export function OsHomeScreen() {
                     key={def.id}
                     type="button"
                     onClick={() => setCurrentPageId('app-store')}
-                    className="glass-card flex items-center gap-3 rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5 hover:border-foreground/15"
+                    className="glass-card flex items-center gap-3 rounded-2xl p-4 text-left transition-all hover:-translate-y-0.5 hover:border-foreground/15 hover:shadow-lg"
                   >
                     <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl shadow-lg" style={{ background: appGradient(def.id) }}>
                       {def.iconUrl && <img src={def.iconUrl} alt="" className="h-full w-full object-cover" />}
@@ -461,20 +477,20 @@ export function OsHomeScreen() {
 
       {layout === 'deck' && (
         <div className="mx-auto mt-7 grid max-w-7xl gap-5 px-1 lg:grid-cols-[0.85fr_1.15fr]">
-          <div className="glass-card rounded-[2rem] p-5 sm:p-7"><p className="text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.intelligent')}</p><h2 className="mt-2 text-2xl font-semibold sm:text-3xl">{t('os.launcher.whatToDo')}</h2><label className="mt-6 flex min-h-14 items-center gap-3 rounded-2xl border border-foreground/12 bg-foreground/5 px-4"><MagnifyingGlass size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm outline-none" /></label><div className="mt-5 flex flex-wrap gap-2">{apps.slice(0, 4).map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="rounded-full border border-foreground/10 bg-foreground/5 px-3 py-2 text-xs hover:bg-foreground/10">{getName(app)}</button>)}</div></div>
-          <div className="space-y-2"><p className="mb-3 px-2 text-sm font-semibold">{t('os.allApps')}</p>{visibleApps.map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="glass-card flex min-h-20 w-full touch-manipulation items-center gap-4 rounded-2xl p-3 text-left hover:bg-foreground/10 focus-ring"><AppIcon app={app} /><span className="min-w-0 flex-1"><span className="block font-semibold">{getName(app)}</span><span className="block truncate text-xs text-foreground/45">{getDescription(app)}</span></span><ArrowRight size={18} className="text-foreground/35" /></button>)}</div>
+          <div className="glass-card rounded-4xl p-5 sm:p-7"><p className="text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.intelligent')}</p><h2 className="mt-2 text-2xl font-semibold sm:text-3xl">{t('os.launcher.whatToDo')}</h2><label className="mt-6 flex min-h-14 items-center gap-3 rounded-2xl border border-foreground/12 bg-foreground/5 px-4 transition-all focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_14%,transparent)]"><MagnifyingGlass size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm outline-none" /></label><div className="mt-5 flex flex-wrap gap-2">{apps.slice(0, 4).map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="rounded-full border border-foreground/10 bg-foreground/5 px-3 py-2 text-xs transition-colors hover:bg-foreground/10">{getName(app)}</button>)}</div></div>
+          <div className="space-y-2"><p className="mb-3 px-2 text-sm font-semibold">{t('os.allApps')}</p>{visibleApps.map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="glass-card group flex min-h-20 w-full touch-manipulation items-center gap-4 rounded-2xl p-3 text-left transition-all hover:-translate-y-0.5 hover:bg-foreground/10 hover:shadow-lg focus-ring"><AppIcon app={app} /><span className="min-w-0 flex-1"><span className="block font-semibold">{getName(app)}</span><span className="block truncate text-xs text-foreground/45">{getDescription(app)}</span></span><ArrowRight size={18} className="text-foreground/35 transition-transform group-hover:translate-x-0.5" /></button>)}</div>
         </div>
       )}
 
       {layout === 'canvas' && (
-        <div className="mx-auto mt-8 max-w-7xl overflow-hidden px-1"><label className="glass-card mx-auto mb-10 flex min-h-12 max-w-sm items-center gap-3 rounded-full px-4"><MagnifyingGlass size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.search')} className="w-full bg-transparent text-sm outline-none" /></label><div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-[10vw] pb-6 [scrollbar-width:none]">{visibleApps.map((app, index) => <button key={app.id} type="button" onClick={() => openApp(app)} className={`glass-card group min-h-72 shrink-0 snap-center rounded-[2rem] p-5 text-left focus-ring ${index === 0 ? 'w-[min(78vw,28rem)]' : 'w-[min(68vw,20rem)]'}`}><AppIcon app={app} size="large" /><span className="mt-20 block text-2xl font-semibold">{getName(app)}</span><span className="mt-2 block text-sm text-foreground/50">{getDescription(app)}</span><span className="mt-5 inline-flex items-center gap-2 text-sm text-accent">{t('os.launcher.open')}<ArrowRight size={16} /></span></button>)}</div></div>
+        <div className="mx-auto mt-8 max-w-7xl overflow-hidden px-1"><label className="glass-card mx-auto mb-10 flex min-h-12 max-w-sm items-center gap-3 rounded-full px-4 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_14%,transparent)]"><MagnifyingGlass size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.search')} className="w-full bg-transparent text-sm outline-none" /></label><div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-[10vw] pb-6 [scrollbar-width:none]">{visibleApps.map((app, index) => <button key={app.id} type="button" onClick={() => openApp(app)} className={`glass-card group min-h-72 shrink-0 snap-center rounded-4xl p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl focus-ring ${index === 0 ? 'w-[min(78vw,28rem)]' : 'w-[min(68vw,20rem)]'}`}><AppIcon app={app} size="large" /><span className="mt-20 block text-2xl font-semibold">{getName(app)}</span><span className="mt-2 block text-sm text-foreground/50">{getDescription(app)}</span><span className="mt-5 inline-flex items-center gap-2 text-sm text-accent">{t('os.launcher.open')}<ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></span></button>)}</div></div>
       )}
 
       {layout === 'default' && appPages.length > 1 && <div className="mt-7 flex justify-center gap-2" aria-label={t('os.launcher.pages')}>{appPages.map((_, index) => <button key={index} type="button" onClick={() => setPage(index)} className={`h-2.5 rounded-full transition-all ${index === activePage ? 'w-7 bg-accent' : 'w-2.5 bg-foreground/25'}`} aria-label={t('os.launcher.page', { page: index + 1 })} />)}</div>}
       {layout === 'default' && (
         <div className="mx-auto max-w-6xl px-1">
           {widgetIds.length > 0 && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2">
-            {widgetIds.includes('home') && <button type="button" onClick={() => homeApp && openApp(homeApp)} className="glass-card group relative flex min-h-32 touch-manipulation items-center gap-4 rounded-[2rem] p-5 text-left focus-ring sm:p-6">
+            {widgetIds.includes('home') && <button type="button" onClick={() => homeApp && openApp(homeApp)} className="glass-card group relative flex min-h-32 touch-manipulation items-center gap-4 rounded-4xl p-5 text-left focus-ring sm:p-6">
               {homeApp && <AppIcon app={homeApp} size="large" />}
               <span className="min-w-0 flex-1"><span className="block text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.nativeHome')}</span><span className="mt-1 block text-xl font-semibold sm:text-2xl">{t('os.apps.home.name')}</span><span className="mt-1 block text-sm text-foreground/50">{t('os.apps.home.description')}</span></span>
               <ArrowRight size={22} className="text-foreground/35 transition-transform group-hover:translate-x-1" />
@@ -491,7 +507,7 @@ export function OsHomeScreen() {
                 </span>
               )}
             </button>}
-            {widgetIds.includes('clock') && <div className="glass-card relative flex min-h-32 items-center justify-between rounded-[2rem] p-5">
+            {widgetIds.includes('clock') && <div className="glass-card relative flex min-h-32 items-center justify-between rounded-4xl p-5">
               <div><p className="text-4xl font-semibold tabular-nums">{now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}</p><p className="mt-1 text-sm text-foreground/50">{now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}</p></div><Clock size={28} weight="duotone" className="text-accent" />
               {editMode && (
                 <span
@@ -507,7 +523,7 @@ export function OsHomeScreen() {
               )}
             </div>}
             {widgetIds.includes('system') && (
-              <div className="glass-card relative flex min-h-32 items-center justify-between rounded-[2rem] p-5 sm:col-span-2">
+              <div className="glass-card relative flex min-h-32 items-center justify-between rounded-4xl p-5 sm:col-span-2">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{t('os.launcher.systemWidget')}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -535,9 +551,64 @@ export function OsHomeScreen() {
               </div>
             )}
           </div>}
-          {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-[2rem] border border-white/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
+          {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-4xl border border-white/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
         </div>
       )}
+
+      {/* Desktop context menu (right-click on the wallpaper) */}
+      <AnimatePresence>
+        {desktopMenu && (
+          <>
+            <motion.button
+              type="button"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDesktopMenu(null)}
+              onContextMenu={(event) => { event.preventDefault(); setDesktopMenu(null) }}
+              className="fixed inset-0 z-[86] cursor-default"
+              aria-label={t('common.close')}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 6, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 4, scale: 0.97 }}
+              transition={{ duration: DUR_BASE, ease: EASE_OS }}
+              className="fixed z-[87] w-56 overflow-hidden rounded-xl border border-foreground/12 bg-background/90 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+              style={{ left: Math.min(desktopMenu.x, window.innerWidth - 240), top: Math.min(desktopMenu.y + 6, window.innerHeight - 320) }}
+              onClick={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.stopPropagation()}
+              role="menu"
+              aria-label={t('os.desktopMenu.settings')}
+            >
+              <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/35">ORA OS</div>
+              <div className="mx-1.5 my-1 h-px bg-foreground/8" />
+              <button type="button" role="menuitem" onClick={() => { setCurrentPageId('settings'); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <Gear size={16} className="text-foreground/55" />
+                {t('os.desktopMenu.settings')}
+              </button>
+              <button type="button" role="menuitem" onClick={() => { navigateToPage('settings', 'appearance'); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <Palette size={16} className="text-foreground/55" />
+                {t('os.desktopMenu.appearance')}
+              </button>
+              <div className="mx-1.5 my-1 h-px bg-foreground/8" />
+              <button type="button" role="menuitem" onClick={() => { setCurrentPageId('app-store'); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <Storefront size={16} className="text-foreground/55" />
+                {t('os.desktopMenu.appStore')}
+              </button>
+              <div className="mx-1.5 my-1 h-px bg-foreground/8" />
+              <button type="button" role="menuitem" onClick={() => { window.dispatchEvent(new Event('iora:lock-session')); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <LockKey size={16} className="text-foreground/55" />
+                {t('os.desktopMenu.lock')}
+              </button>
+              <button type="button" role="menuitem" onClick={() => window.location.reload()} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <ArrowClockwise size={16} className="text-foreground/55" />
+                {t('os.desktopMenu.refresh')}
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {settingsOpen && <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-[82] max-h-[52dvh] w-[min(23.5rem,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-background/95 p-3 shadow-2xl backdrop-blur-xl">
         <div className="mb-3 flex items-center justify-between gap-2 px-1"><p className="text-xs font-semibold uppercase tracking-wider text-foreground/45">{t('os.launcher.sync')}</p><span className={`text-[10px] ${storeReachable ? 'text-emerald-400' : storeReachable === false ? 'text-amber-400' : 'text-foreground/40'}`}>{storeReachable ? t('os.launcher.synced') : storeReachable === false ? t('os.launcher.offline') : t('os.launcher.syncing')}</span></div>

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
 import { useClock } from '@/hooks/useClock'
 import { useLocalStorage, storage } from '@/lib/storage'
+import { DUR_SLOW, EASE_SOFT } from '@/lib/motion'
 
 const LOCKED_KEY = 'iora-os-session-locked'
 const LAST_ACTIVITY_KEY = 'iora-os-last-activity'
@@ -91,23 +92,34 @@ export function OsSessionLock() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,color-mix(in_oklch,var(--accent)_22%,transparent),transparent_60%)]" />
 
       {/* Lock-screen clock (macOS/iOS style) */}
-      <div className="relative mb-12 text-center">
+      <motion.div
+        className="relative mb-12 text-center"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: DUR_SLOW, ease: EASE_SOFT }}
+      >
         <p className="text-6xl font-semibold tabular-nums tracking-tight text-foreground sm:text-8xl">
           {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>
         <p className="mt-2 text-base font-medium text-foreground/60 sm:text-lg">
-          {now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}
+          {now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
-      </div>
+      </motion.div>
 
-      <form onSubmit={unlock} className="glass-card relative w-full max-w-sm rounded-[2rem] border border-white/15 p-6 text-center shadow-2xl sm:p-8">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-white/15 bg-foreground/8">
+      <motion.form
+        onSubmit={unlock}
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 0.2, duration: DUR_SLOW, ease: EASE_SOFT }}
+        className="glass-card relative w-full max-w-sm rounded-4xl border border-white/15 p-6 text-center shadow-2xl sm:p-8"
+      >
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-white/15 bg-foreground/8 ring-2 ring-accent/20">
           <UserCircle size={42} weight="duotone" className="text-foreground/75" />
         </div>
         <h1 className="text-xl font-semibold text-foreground">{user.displayName || user.username}</h1>
         <p className="mt-1 text-sm text-foreground/45">{t('os.lock.sessionLocked')}</p>
 
-        <label className="mt-6 flex items-center gap-3 rounded-2xl border border-foreground/10 bg-foreground/5 px-4">
+        <label className="ora-auth-input mt-6 min-h-12">
           {mode === 'pin' ? <Fingerprint size={20} /> : <Password size={20} />}
           <span className="sr-only">{mode === 'pin' ? t('os.lock.pin') : t('os.lock.password')}</span>
           <input
@@ -122,7 +134,7 @@ export function OsSessionLock() {
           />
         </label>
         {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
-        <button type="submit" disabled={!credential || unlocking} className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 text-sm font-semibold text-accent-foreground disabled:opacity-50">
+        <button type="submit" disabled={!credential || unlocking} className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 text-sm font-semibold text-accent-foreground transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50">
           <LockKey size={17} weight="bold" />
           {unlocking ? t('os.lock.unlocking') : t('os.lock.unlock')}
         </button>
@@ -137,7 +149,7 @@ export function OsSessionLock() {
         >
           {mode === 'password' ? t('os.lock.usePin') : t('os.lock.usePassword')}
         </button>
-      </form>
+      </motion.form>
     </motion.div>
   )
 }

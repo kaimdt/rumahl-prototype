@@ -1,12 +1,22 @@
 import type { ReactNode } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import { OsWindowFrame } from '@/components/OsWindowFrame'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
+import { DUR_BASE, EASE_OS } from '@/lib/motion'
 
 interface Props {
   getApp: (pageId: string) => OsAppDefinition | undefined
   getName: (pageId: string) => string
   renderContent: (pageId: string) => ReactNode
+}
+
+/** Soft entrance/exit motion shared by floating + split windows. */
+const windowMotion = {
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: 10 },
+  transition: { duration: DUR_BASE, ease: EASE_OS },
 }
 
 /**
@@ -39,29 +49,42 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
             const win = split.find((w) => w.layout === side)
             if (!win) return null
             return (
-              <div key={side} className="ora-os-split-pane">
-                <OsWindowFrame
-                  window={win}
-                  name={win.pageId ? getName(win.pageId) : ''}
-                  icon={iconFor(win.pageId)}
-                  renderContent={renderContent}
-                />
-              </div>
+              <AnimatePresence key={side} initial={false}>
+                <motion.div
+                  key={win.pageId ?? side}
+                  className="ora-os-split-pane"
+                  {...windowMotion}
+                >
+                  <OsWindowFrame
+                    window={win}
+                    name={win.pageId ? getName(win.pageId) : ''}
+                    icon={iconFor(win.pageId)}
+                    renderContent={renderContent}
+                  />
+                </motion.div>
+              </AnimatePresence>
             )
           })}
         </div>
       )}
 
       {/* Floating windows */}
-      {floating.map((win) => (
-        <OsWindowFrame
-          key={win.pageId}
-          window={win}
-          name={win.pageId ? getName(win.pageId) : ''}
-          icon={iconFor(win.pageId)}
-          renderContent={renderContent}
-        />
-      ))}
+      <AnimatePresence>
+        {floating.map((win) => (
+          <motion.div
+            key={win.pageId}
+            className="absolute left-0 top-0"
+            {...windowMotion}
+          >
+            <OsWindowFrame
+              window={win}
+              name={win.pageId ? getName(win.pageId) : ''}
+              icon={iconFor(win.pageId)}
+              renderContent={renderContent}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   )
 }

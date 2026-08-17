@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'motion/react'
+import { DUR_BASE, MOTION_HERO } from '@/lib/motion'
 import { useAuth } from '@/contexts/AuthContext'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -123,7 +124,7 @@ function PinPad({
           <motion.div
             key={i}
             animate={i < pin.length ? { scale: [1, 1.3, 1] } : {}}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: DUR_BASE }}
             className={cn(
               'w-3.5 h-3.5 rounded-full transition-all duration-200',
               i < pin.length
@@ -341,16 +342,16 @@ export function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 24, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        transition={MOTION_HERO}
         className="relative z-10 w-full max-w-[420px] mx-4"
       >
-        <div className="backdrop-blur-2xl bg-white/4 border border-white/10 rounded-3xl shadow-2xl overflow-hidden">
+        <div className="backdrop-blur-2xl bg-white/5 border border-white/12 rounded-[1.9rem] shadow-2xl shadow-black/40 ring-1 ring-white/5 overflow-hidden">
           {/* Header */}
           <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-accent/15 via-accent/6 to-transparent" />
             <div className="relative p-6 pb-5">
               <div className="flex flex-col items-center gap-2 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/15 ring-1 ring-accent/20">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-accent/30 via-accent/15 to-accent/5 ring-1 ring-accent/25 shadow-lg shadow-accent/10">
                   <span className="text-lg font-bold text-accent">I</span>
                 </div>
                 <div>
@@ -382,9 +383,9 @@ export function LoginPage() {
                     registerForm.clearErrors()
                   }}
                   className={cn(
-                    'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all',
+                    'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all duration-200',
                     authMode === opt.mode
-                      ? 'bg-accent/15 text-accent shadow-sm'
+                      ? 'bg-accent text-white shadow-lg shadow-accent/25'
                       : 'text-white/50 hover:text-white/80 hover:bg-white/5'
                   )}
                   type="button"
@@ -404,7 +405,7 @@ export function LoginPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: DUR_BASE }}
                 >
                   {selectedUser ? (
                     <PinPad
@@ -433,7 +434,7 @@ export function LoginPage() {
                               <button
                                 key={u.id}
                                 onClick={() => setSelectedUser(u)}
-                                className="flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-white/4 hover:bg-accent/8 active:bg-accent/12 transition-all border border-white/5 hover:border-accent/15"
+                                className="flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-white/4 hover:bg-accent/8 active:bg-accent/12 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/25 transition-all border border-white/5 hover:border-accent/15"
                                 type="button"
                               >
                                 <div className="w-14 h-14 rounded-2xl bg-accent/12 ring-1 ring-accent/15 flex items-center justify-center text-accent font-bold text-lg">
@@ -459,7 +460,7 @@ export function LoginPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: DUR_BASE }}
                   className="space-y-4"
                   noValidate
                 >
@@ -580,7 +581,7 @@ export function LoginPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: DUR_BASE }}
                   className="space-y-4"
                   noValidate
                 >
