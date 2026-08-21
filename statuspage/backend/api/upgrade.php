@@ -64,34 +64,114 @@ $doBackup = $isCli
     ? !in_array('--no-backup', $argv, true)
     : ($_GET['backup'] ?? '1') !== '0';
 
-/** Full mysqldump into ../backups/. Returns the file path or null. */
-function upgrade_backup(array $config): ?string
+/**
+ * Backup directory: STATUSPAGE_BACKUP_DIR env / config.local.php
+ * ('backup_dir' key) wins; otherwise the system temp dir is used — it is
+ * always inside open_basedir, unlike a folder next to the web root.
+ */
+function upgrade_backup_dir(array $config): string
 {
-    if (!function_exists('exec')) {
-        return null;
+    $configured = trim((string) ($config['backup_dir'] ?? ''));
+    if ($configured !== '') {
+        return rtrim($configured, '/\\');
     }
-    $dir = dirname(__DIR__, 2) . '/backups';
-    if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
-        return null;
+    return sys_get_temp_dir() . '/rumahl-status-backups';
+}
+
+/**
+ * PHP-based logical dump (no mysqldump / exec required). Writes a plain
+ * SQL file that restores with: mysql -u USER -p DB < backup.sql
+ */
+function upgrade_backup_php(PDO $pdo, string $file): bool
+{
+    $fh = @fopen($file, 'w');
+    if ($fh === false) {
+        return false;
+    }
+    fwrite($fh, "-- rumahl Status backup (PHP dump) " . gmdate('Y-m-d H:i:s') . " UTC\n");
+    fwrite($fh, "SET NAMES utf8mb4;\n\n");
+
+    $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($tables as $table) {
+        $table = (string) $table;
+        $create = $pdo->query("SHOW CREATE TABLE `{$table}`")->fetch(PDO::FETCH_ASSOC);
+        $createSql = is_array($create) ? array_values($create)[1] ?? null : null;
+        if (!is_string($createSql) || $createSql === '') {
+            continue;
+        }
+        fwrite($fh, "DROP TABLE IF EXISTS `{$table}`;\n{$createSql};\n\n");
+
+        $rows = $pdo->query("SELECT * FROM `{$table}`")->fetchAll(PDO::FETCH_ASSOC);
+        if ($rows === []) {
+            continue;
+        }
+        $cols = array_keys($rows[0]);
+        $colsSql = '`' . implode('`,`', $cols) . '`';
+        $chunk = [];
+        $flush = function () use ($fh, $table, $colsSql, &$chunk): void {
+            if ($chunk === []) {
+                return;
+            }
+            fwrite($fh, "INSERT INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $chunk) . ";\n");
+            $chunk = [];
+        };
+        foreach ($rows as $row) {
+            $vals = [];
+            foreach ($cols as $col) {
+                $value = $row[$col];
+                $vals[] = $value === null ? 'NULL' : $pdo->quote((string) $value);
+            }
+            $chunk[] = '(' . implode(',', $vals) . ')';
+            if (count($chunk) >= 500) {
+                $flush();
+            }
+        }
+        $flush();
+        fwrite($fh, "\n");
+    }
+    fclose($fh);
+    return is_file($file) && (int) filesize($file) > 0;
+}
+
+/**
+ * Create the backup: mysqldump when available, otherwise a PHP dump.
+ * Returns ['file' => path|null, 'method' => 'mysqldump'|'php'|null,
+ *          'reason' => string].
+ */
+function upgrade_backup(array $config, PDO $pdo): array
+{
+    $dir = upgrade_backup_dir($config);
+    if (!@is_dir($dir) && !@mkdir($dir, 0775, true)) {
+        return ['file' => null, 'method' => null, 'reason' => "backup dir not writable: {$dir}"];
     }
     $file = $dir . '/statuspage-' . gmdate('Ymd-His') . '.sql';
-    $cmd = sprintf(
-        'mysqldump --host=%s --port=%d --user=%s --password=%s %s > %s 2>&1',
-        escapeshellarg($config['db']['host']),
-        (int) $config['db']['port'],
-        escapeshellarg($config['db']['user']),
-        escapeshellarg((string) $config['db']['pass']),
-        escapeshellarg($config['db']['name']),
-        escapeshellarg($file)
-    );
-    $out = [];
-    $code = 0;
-    exec($cmd, $out, $code);
-    if ($code !== 0 || !is_file($file) || (int) filesize($file) === 0) {
+
+    // 1) mysqldump via shell (best effort — often unavailable on shared hosting).
+    if (function_exists('exec')) {
+        $cmd = sprintf(
+            'mysqldump --host=%s --port=%d --user=%s --password=%s %s > %s 2>&1',
+            escapeshellarg($config['db']['host']),
+            (int) $config['db']['port'],
+            escapeshellarg($config['db']['user']),
+            escapeshellarg((string) $config['db']['pass']),
+            escapeshellarg($config['db']['name']),
+            escapeshellarg($file)
+        );
+        $out = [];
+        $code = 0;
+        exec($cmd, $out, $code);
+        if ($code === 0 && is_file($file) && (int) filesize($file) > 0) {
+            return ['file' => $file, 'method' => 'mysqldump', 'reason' => ''];
+        }
         @unlink($file);
-        return null;
     }
-    return $file;
+
+    // 2) PHP-based dump — works everywhere (no exec / mysqldump needed).
+    if (upgrade_backup_php($pdo, $file)) {
+        return ['file' => $file, 'method' => 'php', 'reason' => ''];
+    }
+    @unlink($file);
+    return ['file' => null, 'method' => null, 'reason' => 'PHP dump failed (disk full or no write permission)'];
 }
 
 set_time_limit(300);
@@ -117,9 +197,9 @@ try {
     $fromVersion = $row['svalue'] ?? 'v1';
     $toVersion = (string) array_key_last(schema_migrations());
 
-    $backupFile = null;
+    $backup = ['file' => null, 'method' => null, 'reason' => 'backup disabled'];
     if ($doBackup) {
-        $backupFile = upgrade_backup($config);
+        $backup = upgrade_backup($config, $pdo);
     }
 
     $applied = db_migrate($pdo);
@@ -128,6 +208,14 @@ try {
          ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)",
         [$toVersion]
     );
+
+    // The schema auto-migrates on every request (db_ensure_schema), so an
+    // installation may already be current while the version marker was never
+    // written — explain that instead of a confusing empty report.
+    $note = null;
+    if ($applied === [] && $fromVersion !== $toVersion) {
+        $note = 'Schema was already current (auto-migrated by the first request after the upload); version marker updated.';
+    }
 
     $result = [
         'ok' => true,
@@ -138,9 +226,10 @@ try {
             'migrations_applied' => $applied,
             'up_to_date' => $applied === [],
         ],
-        'backup' => $backupFile !== null
-            ? ['created' => true, 'file' => $backupFile]
-            : ['created' => false, 'reason' => 'mysqldump not available (or backup disabled)'],
+        'backup' => $backup['file'] !== null
+            ? ['created' => true, 'file' => $backup['file'], 'method' => $backup['method']]
+            : ['created' => false, 'reason' => $backup['reason']],
+        'note' => $note,
     ];
 
     if ($isCli) {
@@ -149,9 +238,13 @@ try {
         echo "App version        : {$result['version']}\n";
         echo "Schema version     : {$result['schema']['from']} → {$result['schema']['to']}\n";
         echo "Migrations applied : " . ($applied === [] ? '(none — already up to date)' : implode(', ', $applied)) . "\n";
-        echo "Backup             : " . ($backupFile !== null ? $backupFile : 'NOT created — ' . $result['backup']['reason']) . "\n";
-        if ($applied === [] && $backupFile !== null) {
-            echo "Note               : schema was already current — backup still created.\n";
+        if ($result['backup']['created']) {
+            echo "Backup             : {$result['backup']['file']} ({$result['backup']['method']})\n";
+        } else {
+            echo "Backup             : NOT created — {$result['backup']['reason']}\n";
+        }
+        if ($note !== null) {
+            echo "Note               : {$note}\n";
         }
         exit(0);
     }

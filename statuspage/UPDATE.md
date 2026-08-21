@@ -36,13 +36,35 @@ rumahl Status Page upgrade
 App version        : 1.2.0
 Schema version     : v1 → v3
 Migrations applied : v2, v3
-Backup             : /path/to/statuspage/backups/statuspage-20260626-101530.sql
+Backup             : /tmp/rumahl-status-backups/statuspage-20260626-101530.sql (php)
 ```
 
-- `Migrations applied : (none — already up to date)` → your schema was current.
-- `Backup : NOT created` → `mysqldump` is not available in the PHP environment
-  (or you used `--no-backup`). The migration itself is still safe (additive),
-  but take a manual dump if you want a restore point.
+- `Migrations applied : (none — already up to date)` → your schema was current
+  (the page auto-migrates on its first request, so this is normal right after
+  uploading the new files — the version marker is still updated).
+- `Backup : NOT created` → the backup directory was not writable or the dump
+  failed; the migration itself is still safe (additive), but take a manual
+  dump if you want a restore point.
+
+## Backups
+
+`upgrade.php` creates a full SQL dump **before** migrating, using the first
+method that works:
+
+1. `mysqldump` via the shell (when `exec()` is available on the host), or
+2. a **pure-PHP dump** (works on any shared hosting, no shell required).
+
+The dump lands in `{backup_dir}/statuspage-YYYYMMDD-HHMMSS.sql`. The default
+backup directory is the **system temp dir** (`sys_get_temp_dir()`, always
+inside `open_basedir`). To choose a different location, set the environment
+variable `STATUSPAGE_BACKUP_DIR` or add to `backend/api/src/config.local.php`:
+
+```php
+return [
+    // …existing keys…
+    'backup_dir' => '/var/www/vhosts/example.com/tmp',
+];
+```
 
 ## Version history
 
@@ -58,7 +80,7 @@ Backup             : /path/to/statuspage/backups/statuspage-20260626-101530.sql
 mysql -u USER -p DATABASE < backups/statuspage-YYYYMMDD-HHMMSS.sql
 ```
 
-## Manual backup (if mysqldump is missing)
+## Manual backup (if the automatic dump fails)
 
 ```bash
 mysqldump -u USER -p DATABASE > statuspage-backup.sql

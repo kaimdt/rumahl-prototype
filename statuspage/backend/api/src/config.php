@@ -38,6 +38,10 @@ function statuspage_config(): array
         'admin_token' => env('ADMIN_TOKEN', ''),
         // Key for the HTTP cron entry point (cron.php?key=…).
         'cron_key' => env('CRON_KEY', ''),
+        // Backup directory for api/upgrade.php. Empty = system temp dir
+        // (always inside open_basedir); set e.g. to an allowed path like
+        // /var/www/vhosts/example.com/tmp if you want the dumps elsewhere.
+        'backup_dir' => env('BACKUP_DIR', ''),
         'defaults' => [
             'page_name' => 'rumahl Status',
             'page_url' => 'https://status.rumahl.com',
