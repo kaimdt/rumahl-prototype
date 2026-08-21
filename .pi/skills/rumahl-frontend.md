@@ -1,6 +1,6 @@
-# IORA Frontend Skill
+# rumahl Frontend Skill
 
-You are working on the IORA React frontend (Vite + Tailwind + TypeScript).
+You are working on the rumahl React frontend (Vite + Tailwind + TypeScript).
 
 ## Structure
 - `frontend/src/components/` — React components (widgets, UI, pages)

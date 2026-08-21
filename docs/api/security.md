@@ -1,6 +1,6 @@
 # Security API
 
-The Security API is served by `iora-security` on port 8095. It provides security monitoring, threat detection, intrusion prevention, and system lockdown management.
+The Security API is served by `rumahl-security` on port 8095. It provides security monitoring, threat detection, intrusion prevention, and system lockdown management.
 
 ## Base URL
 
@@ -55,10 +55,10 @@ Response:
   "connections": [
     {
       "pid": 12345,
-      "username": "iora_home",
-      "database": "iora_home",
+      "username": "rumahl_home",
+      "database": "rumahl_home",
       "client_addr": "172.18.0.3",
-      "application_name": "iora-home",
+      "application_name": "rumahl-home",
       "state": "active",
       "query_start": "2026-06-01T12:00:00Z"
     }
@@ -99,7 +99,7 @@ Event types:
       "type": "connection",
       "severity": "info",
       "source_ip": "172.18.0.3",
-      "message": "New database connection from iora-home",
+      "message": "New database connection from rumahl-home",
       "hash": "sha256-chain-hash"
     }
   ],
@@ -235,8 +235,8 @@ POST /api/security/users
 Content-Type: application/json
 
 {
-  "service": "iora-home",
-  "database": "iora_home",
+  "service": "rumahl-home",
+  "database": "rumahl_home",
   "permissions": ["read", "write"]
 }
 
@@ -250,9 +250,9 @@ DELETE /api/security/users/{user_id}
 User creation response:
 ```json
 {
-  "username": "iora_home_a1b2c3d4",
+  "username": "rumahl_home_a1b2c3d4",
   "password": "64-char-hex-password",
-  "database": "iora_home",
+  "database": "rumahl_home",
   "permissions": ["read", "write"],
   "expires_at": "2026-06-30T12:00:00Z"
 }

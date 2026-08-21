@@ -1,6 +1,6 @@
 # Control Center API
 
-The Control Center API is served by `iora-control` on port 8091. It provides system administration, service management, and Home Assistant integration endpoints.
+The Control Center API is served by `rumahl-control` on port 8091. It provides system administration, service management, and Home Assistant integration endpoints.
 
 ## Base URL
 
@@ -38,7 +38,7 @@ GET /api/control/system
 Response:
 ```json
 {
-  "hostname": "iora-server",
+  "hostname": "rumahl-server",
   "os": "Debian 12",
   "kernel": "6.1.0",
   "cpu": { "model": "Intel Core i7", "cores": 4, "usage_percent": 15.2 },
@@ -52,7 +52,7 @@ Response:
 ## Service Management
 
 ```http
-# List all IORA services
+# List all rumahl services
 GET /api/control/services
 
 # Get service details
@@ -73,7 +73,7 @@ GET /api/control/mode
 
 ## User Management
 
-Proxied from `iora-home`:
+Proxied from `rumahl-home`:
 
 ```http
 # List users
@@ -275,7 +275,7 @@ Warning types:
 - `high_memory_usage` – Memory usage above 85%
 - `service_unhealthy` – A service is degraded or down
 - `security_threat` – Security threat detected
-- `update_available` – New IORA version available
+- `update_available` – New rumahl version available
 
 ## Notifications
 

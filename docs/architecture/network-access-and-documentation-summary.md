@@ -1,6 +1,6 @@
 # Implementation Summary: Network Access Control & Documentation
 
-This document summarizes the implementation of domain whitelist, network monitoring, and documentation enhancements for IORA.
+This document summarizes the implementation of domain whitelist, network monitoring, and documentation enhancements for rumahl.
 
 ## Overview
 
@@ -14,7 +14,7 @@ This implementation addresses the German feature request for:
 
 ### 1. Network Access Control ✅
 
-**Manifest Schema Extensions** (`backend/iora-shared/src/app_manifest.rs`)
+**Manifest Schema Extensions** (`backend/rumahl-shared/src/app_manifest.rs`)
 
 Added `NetworkAccessConfig` struct to app manifest:
 
@@ -57,7 +57,7 @@ pub struct NetworkAccessConfig {
 
 ### 2. Enhanced Permissions System ✅
 
-**New Permissions** (`backend/iora-shared/src/permissions.rs`)
+**New Permissions** (`backend/rumahl-shared/src/permissions.rs`)
 
 Added two new High-risk permissions:
 
@@ -78,7 +78,7 @@ Added two new High-risk permissions:
 
 ### 3. Network Monitoring Service ✅
 
-**New Service** (`backend/iora-network-monitor/`)
+**New Service** (`backend/rumahl-network-monitor/`)
 
 Created complete network monitoring service on port 8099:
 
@@ -130,19 +130,19 @@ CREATE TABLE network_devices (
 
 ### 4. NGINX Integration ✅
 
-**Updated Configuration** (`backend/iora-nginx/nginx-config/nginx.conf.template`)
+**Updated Configuration** (`backend/rumahl-nginx/nginx-config/nginx.conf.template`)
 
 Added network monitor route:
 
 ```nginx
-upstream iora_network_monitor {
+upstream rumahl_network_monitor {
     server 127.0.0.1:8099;
     keepalive 32;
 }
 
 location /api/network/ {
     limit_req zone=api_limit burst=10 nodelay;
-    proxy_pass http://iora_network_monitor/;
+    proxy_pass http://rumahl_network_monitor/;
     # ... proxy headers
 }
 ```
@@ -245,7 +245,7 @@ Hierarchical sidenav structure:
 **Complete Tutorial** (`docs/development/app-development.md`)
 
 **Contents:**
-- Overview of IORA apps
+- Overview of rumahl apps
 - Prerequisites and setup
 - Step-by-step first app creation
 - Complete manifest configuration
@@ -280,7 +280,7 @@ Hierarchical sidenav structure:
 **Complete Tutorial** (`docs/development/plugin-development.md`)
 
 **Contents:**
-- Overview of IORA plugins
+- Overview of rumahl plugins
 - 7 plugin types explained
 - Sandbox configuration
 - Resource limits
@@ -327,7 +327,7 @@ Hierarchical sidenav structure:
                         │
                         ▼
 ┌─────────────────────────────────────────────────────┐
-│  IORA Security Layer                                │
+│  rumahl Security Layer                                │
 │  ├── Permission Validation                          │
 │  ├── Network Access Control (TODO)                  │
 │  └── Domain/IP Filtering (TODO)                     │
@@ -373,17 +373,17 @@ Hierarchical sidenav structure:
 
 | Service | Port | Route |
 |---------|------|-------|
-| iora-home | 8080 | `/` |
-| iora-core | 8090 | `/api/core/` |
-| iora-control | 8091 | `/api/control/` |
-| iora-assist | 8092 | `/api/assist/` |
-| iora-secrets | 8093 | `/api/secrets/` |
-| iora-watchdog | 8094 | `/api/watchdog/` |
-| iora-security | 8095 | `/api/security/` |
-| iora-gateway | 8096 | `/api/gateway/` |
-| iora-supervisor | 8097 | `/api/supervisor/` |
-| iora-appstore | 8098 | `/api/appstore/` |
-| **iora-network-monitor** | **8099** | **/api/network/** |
+| rumahl-home | 8080 | `/` |
+| rumahl-core | 8090 | `/api/core/` |
+| rumahl-control | 8091 | `/api/control/` |
+| rumahl-assist | 8092 | `/api/assist/` |
+| rumahl-secrets | 8093 | `/api/secrets/` |
+| rumahl-watchdog | 8094 | `/api/watchdog/` |
+| rumahl-security | 8095 | `/api/security/` |
+| rumahl-gateway | 8096 | `/api/gateway/` |
+| rumahl-supervisor | 8097 | `/api/supervisor/` |
+| rumahl-appstore | 8098 | `/api/appstore/` |
+| **rumahl-network-monitor** | **8099** | **/api/network/** |
 
 ## Pending Implementation
 
@@ -417,7 +417,7 @@ Hierarchical sidenav structure:
    - New permissions (NetworkScan, NetworkLocalAccess)
 
 2. **0540337** - Network monitoring service
-   - Complete iora-network-monitor service
+   - Complete rumahl-network-monitor service
    - ARP table scanning
    - Device discovery and tracking
    - API endpoints for device management
@@ -537,13 +537,13 @@ All documentation is available at:
 
 - [Port Management Guide](PORT_MANAGEMENT_AND_SYSTEM_ENHANCEMENTS.md)
 - [System Enhancements Summary](SYSTEM_ENHANCEMENTS_SUMMARY.md)
-- [Network Monitor README](../backend/iora-network-monitor/README.md)
+- [Network Monitor README](../backend/rumahl-network-monitor/README.md)
 
 ## Contributors
 
 - Implementation: Claude Sonnet 4.5
 - Requirements: German feature request
-- Review: IORA Team
+- Review: rumahl Team
 
 ---
 

@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Common issues and solutions for IORA.
+Common issues and solutions for rumahl.
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@ ss -tlnp | grep -E ':(8126|8090|8091|8092|8093|8094|8095|8096|8097|5432)'
 df -h
 
 # View specific service logs
-docker compose logs iora-home
+docker compose logs rumahl-home
 ```
 
 **Solutions:**
@@ -39,13 +39,13 @@ docker compose logs iora-home
 - Check `.env` file for correct configuration
 - Ensure at least 4 GB free disk space
 
-### IORA OS Won't Boot
+### rumahl OS Won't Boot
 
-**Symptom:** Device doesn't boot after flashing IORA OS.
+**Symptom:** Device doesn't boot after flashing rumahl OS.
 
 ```bash
 # Verify the image is not corrupted
-sha256sum iora-os.img.xz
+sha256sum rumahl-os.img.xz
 
 # Try re-flashing with a different USB port/SD card
 # Check if your device is supported (x86_64 UEFI or ARM64)
@@ -66,16 +66,16 @@ newgrp docker
 
 ### Service Won't Start
 
-**Symptom:** A specific IORA service doesn't start.
+**Symptom:** A specific rumahl service doesn't start.
 
 ```bash
 # Check service logs
-docker compose logs iora-home
-# Or for IORA OS:
-journalctl -u iora-home -n 50
+docker compose logs rumahl-home
+# Or for rumahl OS:
+journalctl -u rumahl-home -n 50
 
 # Check if the service is running
-docker compose ps | grep iora-home
+docker compose ps | grep rumahl-home
 
 # Check health endpoint
 curl http://localhost:8126/health
@@ -96,7 +96,7 @@ curl http://localhost:8126/health
 docker compose ps
 
 # View last crash logs
-docker compose logs --tail=200 iora-home
+docker compose logs --tail=200 rumahl-home
 
 # Check system resources
 free -h
@@ -115,7 +115,7 @@ df -h
 
 ```bash
 # Inspect health check details
-docker inspect iora-home | jq '.[0].State.Health'
+docker inspect rumahl-home | jq '.[0].State.Health'
 
 # Manually test health endpoint
 curl -v http://localhost:8126/health
@@ -135,8 +135,8 @@ curl http://localhost:8097/api/supervisor/apps/{app_id}
 curl http://localhost:8126/api/apps/{app_id}/logs
 
 # Check Docker container
-docker ps -a | grep iora-app-{app_id}
-docker logs iora-app-{app_id}
+docker ps -a | grep rumahl-app-{app_id}
+docker logs rumahl-app-{app_id}
 ```
 
 **Common causes:**
@@ -165,10 +165,10 @@ docker logs iora-app-{app_id}
 curl http://localhost:8126/api/apps/{app_id}/proxy/
 
 # Check container is running
-docker ps | grep iora-app-{app_id}
+docker ps | grep rumahl-app-{app_id}
 
 # Check container IP and port
-docker inspect iora-app-{app_id} | jq '.[0].NetworkSettings'
+docker inspect rumahl-app-{app_id} | jq '.[0].NetworkSettings'
 ```
 
 ### App Container Build Fails
@@ -177,10 +177,10 @@ docker inspect iora-app-{app_id} | jq '.[0].NetworkSettings'
 
 ```bash
 # Check build logs
-docker compose logs iora-supervisor | grep -i build
+docker compose logs rumahl-supervisor | grep -i build
 
 # Test the build manually
-cd /var/lib/iora/local-apps/{app_id}
+cd /var/lib/ora/local-apps/{app_id}
 docker build -t test-build .
 ```
 
@@ -233,14 +233,14 @@ curl http://localhost:8090/api/core/sandbox/status
 ```bash
 # Check PostgreSQL is running
 docker compose ps postgres
-# Or for IORA OS:
+# Or for rumahl OS:
 systemctl status postgresql
 
 # Test connection
-docker compose exec postgres psql -U iora -d iora_home -c "SELECT 1"
+docker compose exec postgres psql -U ora -d rumahl_home -c "SELECT 1"
 
 # Check connection count
-docker compose exec postgres psql -U iora -d iora_home -c \
+docker compose exec postgres psql -U ora -d rumahl_home -c \
   "SELECT count(*) FROM pg_stat_activity"
 ```
 
@@ -256,7 +256,7 @@ docker compose exec postgres psql -U iora -d iora_home -c \
 
 ```bash
 # Check database integrity
-sqlite3 /var/lib/iora/local-apps/{app_id}/database.sqlite "PRAGMA integrity_check"
+sqlite3 /var/lib/ora/local-apps/{app_id}/database.sqlite "PRAGMA integrity_check"
 
 # Restore from backup
 curl -X POST http://localhost:8126/api/apps/{app_id}/database/backup
@@ -270,23 +270,23 @@ curl http://localhost:8126/api/apps/{app_id}/database/backups
 
 ```bash
 # Check migration status
-docker compose logs iora-home | grep -i migration
+docker compose logs rumahl-home | grep -i migration
 
 # Manually run migrations (development)
-cd iora-os/backend/services/iora-home
+cd rumahl-os/backend/services/rumahl-home
 cargo run --bin migrate
 ```
 
 **Solutions:**
 - Never modify existing migrations – create new ones
-- Check migration files in `services/iora-home/migrations/`
+- Check migration files in `services/rumahl-home/migrations/`
 - Verify database user has sufficient permissions
 
 ## Network Issues
 
-### Can't Access IORA
+### Can't Access rumahl
 
-**Symptom:** Browser can't connect to IORA.
+**Symptom:** Browser can't connect to rumahl.
 
 ```bash
 # Check service is listening
@@ -298,13 +298,13 @@ sudo iptables -L -n
 
 # Check Docker network
 docker network ls
-docker network inspect iora_default
+docker network inspect rumahl_default
 ```
 
 **Solutions:**
 - Ensure the service port is not blocked by firewall
 - Check the service is binding to `0.0.0.0`, not `127.0.0.1`
-- For Docker, check port mapping: `docker port iora-home`
+- For Docker, check port mapping: `docker port rumahl-home`
 
 ### App Can't Access External API
 
@@ -312,10 +312,10 @@ docker network inspect iora_default
 
 ```bash
 # Test connectivity from app container
-docker exec iora-app-{app_id} wget -O- https://api.example.com
+docker exec rumahl-app-{app_id} wget -O- https://api.example.com
 
 # Check DNS in container
-docker exec iora-app-{app_id} nslookup api.example.com
+docker exec rumahl-app-{app_id} nslookup api.example.com
 ```
 
 **Solutions:**
@@ -349,7 +349,7 @@ docker stats --no-stream
 top -bn1 | head -20
 
 # Check which process is consuming CPU
-docker top iora-home
+docker top rumahl-home
 ```
 
 **Solutions:**
@@ -366,7 +366,7 @@ free -h
 docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}"
 
 # Check for memory leaks
-docker stats iora-home
+docker stats rumahl-home
 ```
 
 **Solutions:**
@@ -384,7 +384,7 @@ docker stats iora-home
 time curl http://localhost:8126/api/states
 
 # Check database query performance
-docker compose exec postgres psql -U iora -d iora_home -c \
+docker compose exec postgres psql -U ora -d rumahl_home -c \
   "SELECT query, mean_exec_time FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10"
 ```
 
@@ -401,15 +401,15 @@ docker compose exec postgres psql -U iora -d iora_home -c \
 ```bash
 #!/bin/bash
 SERVICES=(
-  "8126:iora-home"
-  "8090:iora-core"
-  "8091:iora-control"
-  "8092:iora-assist"
-  "8093:iora-secrets"
-  "8094:iora-watchdog"
-  "8095:iora-security"
-  "8096:iora-gateway"
-  "8097:iora-supervisor"
+  "8126:rumahl-home"
+  "8090:rumahl-core"
+  "8091:rumahl-control"
+  "8092:rumahl-assist"
+  "8093:rumahl-secrets"
+  "8094:rumahl-watchdog"
+  "8095:rumahl-security"
+  "8096:rumahl-gateway"
+  "8097:rumahl-supervisor"
 )
 
 for svc in "${SERVICES[@]}"; do
@@ -427,7 +427,7 @@ done
 ### System Information
 
 ```bash
-# IORA version
+# rumahl version
 curl -s http://localhost:8126/health | jq .
 
 # Docker info
@@ -443,14 +443,14 @@ echo "Disk: $(df -h / | tail -1 | awk '{print $3 "/" $2}')"
 
 ```bash
 # Export all service logs
-docker compose logs > iora-logs-$(date +%Y%m%d).txt
+docker compose logs > rumahl-logs-$(date +%Y%m%d).txt
 
 # System info
 uname -a > system-info.txt
 docker info >> system-info.txt
 
 # Compress
-tar czf iora-support-$(date +%Y%m%d).tar.gz iora-logs-*.txt system-info.txt
+tar czf rumahl-support-$(date +%Y%m%d).tar.gz rumahl-logs-*.txt system-info.txt
 ```
 
 ### Reset to Default State
@@ -478,8 +478,8 @@ docker compose up -d      # Fresh start
 ## Still Need Help?
 
 1. **Check the logs** – Most issues are visible in service logs
-2. **Search existing issues** – [GitHub Issues](https://github.com/kaimdt/home-assistant-dashb/issues)
-3. **Ask the community** – [GitHub Discussions](https://github.com/kaimdt/home-assistant-dashb/discussions)
+2. **Search existing issues** – [GitHub Issues](https://github.com/rumahl/home-assistant-dashb/issues)
+3. **Ask the community** – [GitHub Discussions](https://github.com/rumahl/home-assistant-dashb/discussions)
 4. **Report a bug** – Include logs, system info, and steps to reproduce
 
 ## Related Documentation

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-ORA AI wurde erfolgreich in das IORA Smart Home System integriert. Alle Hauptphasen sind abgeschlossen und das System ist voll funktionsfähig.
+ORA AI wurde erfolgreich in das ORA Smart Home System integriert. Alle Hauptphasen sind abgeschlossen und das System ist voll funktionsfähig.
 
 ## ✅ Completed Features
 
@@ -46,11 +46,11 @@ ORA AI wurde erfolgreich in das IORA Smart Home System integriert. Alle Hauptpha
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     IORA Ecosystem                          │
+│                     ORA Ecosystem                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌──────────────────┐           ┌──────────────────┐      │
-│  │  IORA Home (Web) │           │ IORA Desktop App │      │
+│  │  rumahl Home (Web) │           │ ORA Desktop App │      │
 │  │                  │           │    (Tauri v2)    │      │
 │  │  - FAB Button    │           │  - Overlay Window│      │
 │  │  - Chat Dialog   │           │  - Transparent   │      │
@@ -63,7 +63,7 @@ ORA AI wurde erfolgreich in das IORA Smart Home System integriert. Alle Hauptpha
 │                          │                                 │
 │                          ▼                                 │
 │              ┌───────────────────────┐                     │
-│              │  IORA Assist Backend  │                     │
+│              │  ORA Assist Backend  │                     │
 │              │   (Rust/Actix-Web)    │                     │
 │              │   Port: 8092          │                     │
 │              │                       │                     │
@@ -96,19 +96,19 @@ ORA AI wurde erfolgreich in das IORA Smart Home System integriert. Alle Hauptpha
 
 ### 1. Backend starten
 ```bash
-cd backend/iora-assist
+cd backend/rumahl-assist
 cargo run --release
 # Läuft auf http://localhost:8092
 ```
 
-### 2. IORA Home (Web)
+### 2. rumahl Home (Web)
 ```bash
 npm install
 npm run dev
 # Läuft auf http://localhost:5173
 ```
 
-### 3. IORA Desktop
+### 3. ORA Desktop
 ```bash
 cd desktop
 npm install
@@ -143,7 +143,7 @@ Content-Type: application/json
 
 POST /api/assist/tools/search
 Content-Type: application/json
-{ "query": "IORA Smart Home", "max_results": 5 }
+{ "query": "ORA Smart Home", "max_results": 5 }
 
 POST /api/assist/tools/scrape
 Content-Type: application/json
@@ -219,7 +219,7 @@ base64 = "0.22"
 
 ## 🔮 Optional Future Enhancements
 
-- Wake Word Detection ("ORA"/"IORA")
+- Wake Word Detection ("ORA"/"ORA")
 - Vision AI Integration (OpenAI Vision, etc.)
 - Lottie Animations
 - Chart Rendering (Recharts)
@@ -229,8 +229,8 @@ base64 = "0.22"
 
 ## 📚 Documentation
 
-- [ORA_AI_README.md](./ORA_AI_README.md) - Setup & Usage Guide
-- [ORA_AI_PROGRESS.md](./ORA_AI_PROGRESS.md) - Detailed Implementation Progress
+- [RUMAHL_AI_README.md](./RUMAHL_AI_README.md) - Setup & Usage Guide
+- [RUMAHL_AI_PROGRESS.md](./RUMAHL_AI_PROGRESS.md) - Detailed Implementation Progress
 
 ## 🏆 Achievement Unlocked
 
@@ -241,6 +241,6 @@ ORA AI ist produktionsbereit und kann sofort verwendet werden. Das System bietet
 ---
 
 **Entwickelt von**: Claude AI (Anthropic)
-**Framework**: IORA Smart Home System
+**Framework**: ORA Smart Home System
 **Status**: ✅ Production Ready
 **Letzte Aktualisierung**: 2026-04-21

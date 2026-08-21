@@ -1,4 +1,4 @@
-# Mock / Stub / Fake / Dummy / Platzhalter Analyse – IORA Monorepo
+# Mock / Stub / Fake / Dummy / Platzhalter Analyse – rumahl Monorepo
 
 > Erstellt: 2026-05-01  
 > Auflistung aller Stellen im Projekt, die keine echte Implementierung haben  
@@ -11,12 +11,12 @@
 1. [Komplett als Stub markierte Microservices](#1-komplett-als-stub-markierte-microservices)
 2. [Microservices mit kaputten/ersetzten Kernmodulen](#2-microservices-mit-kaputtenersetzten-kernmodulen)
 3. [Microservices mit nur Health-Endpoint + `not_implemented`-Stubs](#3-microservices-mit-nur-health-endpoint--not_implemented-stubs)
-4. [iora-home: Proxy-Stubs (leiten an nicht-existente Microservices weiter)](#4-iora-home-proxy-stubs)
-5. [iora-home: Stub-App-Store-Operationen](#5-iora-home-stub-app-store-operationen)
-6. [iora-home: Hardcoded Fallback-Daten](#6-iora-home-hardcoded-fallback-daten)
+4. [rumahl-home: Proxy-Stubs (leiten an nicht-existente Microservices weiter)](#4-rumahl-home-proxy-stubs)
+5. [rumahl-home: Stub-App-Store-Operationen](#5-rumahl-home-stub-app-store-operationen)
+6. [rumahl-home: Hardcoded Fallback-Daten](#6-rumahl-home-hardcoded-fallback-daten)
 7. [Frontend: Hardcodierte Mock-Dokumentation](#7-frontend-hardcodierte-mock-dokumentation)
 8. [Frontend: Hardcodierte Admin-Endpoint-Liste](#8-frontend-hardcodierte-admin-endpoint-liste)
-9. [iora-assist: Platzhalter & TODOs](#9-iora-assist-platzhalter--todos)
+9. [rumahl-assist: Platzhalter & TODOs](#9-rumahl-assist-platzhalter--todos)
 10. [Sonstige Platzhalter in Microservices](#10-sonstige-platzhalter-in-microservices)
 11. [Zusammenfassung offener Baustellen](#11-zusammenfassung-offener-baustellen)
 
@@ -26,12 +26,12 @@
 
 Diese Services sind explizit als "stub" deklariert und geben nur Dummy-Daten zurück.
 
-### 1.1 iora-resource-manager
+### 1.1 rumahl-resource-manager
 
-**Datei:** `iora-os/backend/services/iora-resource-manager/src/main.rs`
+**Datei:** `rumahl-os/backend/services/rumahl-resource-manager/src/main.rs`
 
 ```rust
-// IORA Resource Manager - minimal compiling stub.
+// rumahl Resource Manager - minimal compiling stub.
 // Original implementation preserved as src/main.rs.broken.
 ```
 
@@ -48,9 +48,9 @@ Diese Services sind explizit als "stub" deklariert und geben nur Dummy-Daten zur
 
 ## 2. Microservices mit kaputten/ersetzten Kernmodulen
 
-### 2.1 iora-backup
+### 2.1 rumahl-backup
 
-**Datei:** `iora-os/backend/services/iora-backup/src/main.rs` (70 Zeilen)
+**Datei:** `rumahl-os/backend/services/rumahl-backup/src/main.rs` (70 Zeilen)
 
 | Datei | Status |
 |-------|--------|
@@ -77,33 +77,33 @@ Diese Services sind explizit als "stub" deklariert und geben nur Dummy-Daten zur
 
 ## 3. Microservices mit nur Health-Endpoint + `not_implemented`-Stubs
 
-### 3.1 iora-backup (siehe oben)
+### 3.1 rumahl-backup (siehe oben)
 
 Alle Business-Endpoints geben `501 NotImplemented` zurück.
 
 ---
 
-## 4. iora-home: Proxy-Stubs
+## 4. rumahl-home: Proxy-Stubs
 
-**Datei:** `iora-os/backend/services/iora-home/src/main.rs`
+**Datei:** `rumahl-os/backend/services/rumahl-home/src/main.rs`
 
 Diese Endpoints leiten per HTTP-Proxy an andere Microservices weiter. Wenn der Zielservice nicht läuft, kommt `503 SERVICE_UNAVAILABLE`.
 
 | Änderungsbedarf | Proxy | Ziel-Microservice | Default-Port | Routen |
 |----------------|-------|-------------------|-------------|--------|
-| 🔴 | `proxy_secrets` | iora-secrets | 8093 | `/api/secrets`, `/api/secrets/:id`, `/api/secrets/:id/rotate`, `/api/secrets/:id/audit` |
-| 🔴 | `proxy_files` | iora-files | 8100 | `/api/files/`, `/api/files/upload`, `/api/files/shares`, `/api/files/quota`, `/api/files/folders`, `/api/files/:id`, `/api/files/:id/download`, `/api/files/:id/move`, `/api/files/:id/rename`, `/api/files/:id/restore`, `/api/files/:id/versions`, `/api/files/permissions`, `/api/share/:token` |
-| 🔴 | `proxy_gateway` | iora-gateway | 8096 | `/api/gateway/email`, `/api/gateway/search`, `/api/gateway/http/get`, `/api/gateway/requests`, `/api/gateway/ai-requests` |
-| 🔴 | `proxy_watchdog` | iora-watchdog | 8094 | `/api/watchdog/status`, `/api/watchdog/services`, `/api/watchdog/metrics`, `/api/watchdog/recovery` |
-| 🔴 | `proxy_connector` | iora-connector | 8102 | `/api/connector/tunnels`, `/api/connector/services`, `/api/connector/pairing-tokens`, `/api/connector/blocked-ips` |
-| 🔴 | `proxy_domain_validator` | iora-domain-validator | 8104 | `/api/domain-validator/policy/:app_id`, `/api/domain-validator/logs/:app_id`, `/api/domain-validator/validate` |
-| 🔴 | `proxy_resources` | iora-resource-manager | 8105 | `/api/resources/containers`, `/api/resources/system`, `/api/resources/history`, `/api/resources/reallocate` |
-| 🔴 | `proxy_network_monitor` | iora-network-monitor | 8103 | `/api/network/peers`, `/api/network/devices`, `/api/network/stats`, `/api/network/scan`, `/api/metrics`, `/api/interfaces`, `/api/mqtt/topics` |
-| 🔴 | `proxy_iora_cloud` | iora-cloud | 8120 | `/api/admin/iora-cloud/config` |
-| 🟡 | `proxy_supervisor` | iora-supervisor | 8097 | `/api/supervisor/system/info` (früher Stub, jetzt Proxy) |
-| 🟡 | `proxy_appstore` | iora-appstore | 8098 | `/api/appstore/search`, `/api/appstore/apps/:app_id/settings`, `/api/appstore/permissions/grant`, `/api/appstore/settings` |
-| 🟡 | `proxy_core` | iora-core | 8090 | `/api/core/plugins/with-stats`, `/api/core/registrations`, `/api/core/updates/check`, `/api/core/updates/history`, `/api/core/widgets` |
-| 🟡 | `proxy_core_security` | iora-security | 8095 | `/api/core/security/events`, `/api/core/security/alerts`, `/api/core/security/resource-usage` |
+| 🔴 | `proxy_secrets` | rumahl-secrets | 8093 | `/api/secrets`, `/api/secrets/:id`, `/api/secrets/:id/rotate`, `/api/secrets/:id/audit` |
+| 🔴 | `proxy_files` | rumahl-files | 8100 | `/api/files/`, `/api/files/upload`, `/api/files/shares`, `/api/files/quota`, `/api/files/folders`, `/api/files/:id`, `/api/files/:id/download`, `/api/files/:id/move`, `/api/files/:id/rename`, `/api/files/:id/restore`, `/api/files/:id/versions`, `/api/files/permissions`, `/api/share/:token` |
+| 🔴 | `proxy_gateway` | rumahl-gateway | 8096 | `/api/gateway/email`, `/api/gateway/search`, `/api/gateway/http/get`, `/api/gateway/requests`, `/api/gateway/ai-requests` |
+| 🔴 | `proxy_watchdog` | rumahl-watchdog | 8094 | `/api/watchdog/status`, `/api/watchdog/services`, `/api/watchdog/metrics`, `/api/watchdog/recovery` |
+| 🔴 | `proxy_connector` | rumahl-connector | 8102 | `/api/connector/tunnels`, `/api/connector/services`, `/api/connector/pairing-tokens`, `/api/connector/blocked-ips` |
+| 🔴 | `proxy_domain_validator` | rumahl-domain-validator | 8104 | `/api/domain-validator/policy/:app_id`, `/api/domain-validator/logs/:app_id`, `/api/domain-validator/validate` |
+| 🔴 | `proxy_resources` | rumahl-resource-manager | 8105 | `/api/resources/containers`, `/api/resources/system`, `/api/resources/history`, `/api/resources/reallocate` |
+| 🔴 | `proxy_network_monitor` | rumahl-network-monitor | 8103 | `/api/network/peers`, `/api/network/devices`, `/api/network/stats`, `/api/network/scan`, `/api/metrics`, `/api/interfaces`, `/api/mqtt/topics` |
+| 🔴 | `proxy_rumahl_cloud` | rumahl-cloud | 8120 | `/api/admin/rumahl-cloud/config` |
+| 🟡 | `proxy_supervisor` | rumahl-supervisor | 8097 | `/api/supervisor/system/info` (früher Stub, jetzt Proxy) |
+| 🟡 | `proxy_appstore` | rumahl-appstore | 8098 | `/api/appstore/search`, `/api/appstore/apps/:app_id/settings`, `/api/appstore/permissions/grant`, `/api/appstore/settings` |
+| 🟡 | `proxy_core` | rumahl-core | 8090 | `/api/core/plugins/with-stats`, `/api/core/registrations`, `/api/core/updates/check`, `/api/core/updates/history`, `/api/core/widgets` |
+| 🟡 | `proxy_core_security` | rumahl-security | 8095 | `/api/core/security/events`, `/api/core/security/alerts`, `/api/core/security/resource-usage` |
 
 **Legende:**  
 🔴 = Microservice existiert, ist aber selbst ein Stub oder gibt nur leere Daten  
@@ -114,9 +114,9 @@ Diese Endpoints leiten per HTTP-Proxy an andere Microservices weiter. Wenn der Z
 
 ---
 
-## 5. iora-home: Stub-App-Store-Operationen
+## 5. rumahl-home: Stub-App-Store-Operationen
 
-**Datei:** `iora-os/backend/services/iora-home/src/main.rs`
+**Datei:** `rumahl-os/backend/services/rumahl-home/src/main.rs`
 
 Einige App-Store-Endpoints werden zwar von `proxy_appstore` weitergeleitet, aber die lokalen Fallbacks sind Dummy-Implementierungen:
 
@@ -128,11 +128,11 @@ Einige App-Store-Endpoints werden zwar von `proxy_appstore` weitergeleitet, aber
 
 ---
 
-## 6. iora-home: Hardcoded Fallback-Daten
+## 6. rumahl-home: Hardcoded Fallback-Daten
 
 ### 6.1 Embedded Fallback-Index-HTML
 
-**Datei:** `iora-os/backend/services/iora-home/src/fallback_index.html`
+**Datei:** `rumahl-os/backend/services/rumahl-home/src/fallback_index.html`
 
 Wenn kein Frontend-Build (`dist/index.html`) gefunden wird, wird diese statische HTML-Seite ausgeliefert. Enthält:
 - Harten UI-Code (CSS, HTML)
@@ -143,7 +143,7 @@ Wenn kein Frontend-Build (`dist/index.html`) gefunden wird, wird diese statische
 
 ### 6.2 Hardcodierte Dashboard-Einstellungen
 
-**Datei:** `iora-os/backend/services/iora-home/src/main.rs`  
+**Datei:** `rumahl-os/backend/services/rumahl-home/src/main.rs`  
 **Funktion:** `DASHBOARD_SETTINGS` (static LazyLock)
 
 ```rust
@@ -153,7 +153,7 @@ static DASHBOARD_SETTINGS: LazyLock<RwLock<Map<String, Value>>> = LazyLock::new(
     m.insert("brightness".into(), json!(100));
     m.insert("theme".into(), Value::String("auto".into()));
     m.insert("maintenance_mode".into(), Value::Bool(false));
-    m.insert("maintenance_message".into(), Value::String("IORA befindet sich im Wartungsmodus."));
+    m.insert("maintenance_message".into(), Value::String("rumahl befindet sich im Wartungsmodus."));
     // ...
 });
 ```
@@ -167,7 +167,7 @@ static DASHBOARD_SETTINGS: LazyLock<RwLock<Map<String, Value>>> = LazyLock::new(
 
 ### 6.3 In-Memory Speicher für Integration-Daten
 
-**Datei:** `iora-os/backend/services/iora-home/src/main.rs`
+**Datei:** `rumahl-os/backend/services/rumahl-home/src/main.rs`
 
 Diese statischen Variablen sind In-Memory nur und gehen bei Neustart verloren:
 
@@ -196,13 +196,13 @@ Die Datei enthält **~1100 Zeilen** mit hartcodierten Dokumentations-Artikeln:
 
 ```typescript
 const DOC_CATEGORIES: DocCategory[] = [
-  { id: 'iora-overview', title: 'IORA Plattform', ... },
-  { id: 'iora-core', title: 'IORA Core', ... },
+  { id: 'rumahl-overview', title: 'rumahl Plattform', ... },
+  { id: 'rumahl-core', title: 'rumahl Core', ... },
   // ...
 ];
 
 const DOC_ARTICLES: DocArticle[] = [
-  { id: 'what-is-iora', title: 'Was ist IORA?', content: '# Was ist IORA?\n\n...' },
+  { id: 'what-is-rumahl', title: 'Was ist rumahl?', content: '# Was ist rumahl?\n\n...' },
   { id: 'architecture', title: 'Architektur & Komponenten', ... },
   // ~30 Artikel
 ];
@@ -247,15 +247,15 @@ const endpoints: { label: string; path: string; description: string }[] = [
 
 | Änderungsbedarf | Problem |
 |----------------|---------|
-| 🟡 | Diese Endpoints sind nur Hardcode – könnten dynamisch aus iora-api-Konfiguration geladen werden |
+| 🟡 | Diese Endpoints sind nur Hardcode – könnten dynamisch aus rumahl-api-Konfiguration geladen werden |
 
 ---
 
-## 9. iora-assist: Platzhalter & TODOs
+## 9. rumahl-assist: Platzhalter & TODOs
 
 ### 9.1 Context-Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-assist/src/context.rs` (Zeilen 54-60)
+**Datei:** `rumahl-os/backend/services/rumahl-assist/src/context.rs` (Zeilen 54-60)
 
 ```rust
 // Get active scenes (placeholder - would need actual implementation)
@@ -265,7 +265,7 @@ const endpoints: { label: string; path: string; description: string }[] = [
 
 ### 9.2 Conversation Manager – Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-assist/src/conversation_manager.rs` (Zeile 256)
+**Datei:** `rumahl-os/backend/services/rumahl-assist/src/conversation_manager.rs` (Zeile 256)
 
 ```rust
 // This is a placeholder - in production, we'd query the thread
@@ -273,7 +273,7 @@ const endpoints: { label: string; path: string; description: string }[] = [
 
 ### 9.3 LSP – Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-assist/src/lsp/mod.rs` (Zeile 614)
+**Datei:** `rumahl-os/backend/services/rumahl-assist/src/lsp/mod.rs` (Zeile 614)
 
 ```rust
 // For now, this is a placeholder
@@ -281,7 +281,7 @@ const endpoints: { label: string; path: string; description: string }[] = [
 
 ### 9.4 Prompt Engine – Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-assist/src/self_evolution/prompt_engine.rs` (Zeile 477)
+**Datei:** `rumahl-os/backend/services/rumahl-assist/src/self_evolution/prompt_engine.rs` (Zeile 477)
 
 ```rust
 // For now, return a placeholder that demonstrates the approach
@@ -289,7 +289,7 @@ const endpoints: { label: string; path: string; description: string }[] = [
 
 ### 9.5 Tools – Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-assist/src/self_evolution/tools.rs` (Zeile 117)
+**Datei:** `rumahl-os/backend/services/rumahl-assist/src/self_evolution/tools.rs` (Zeile 117)
 
 ```rust
 // This is a placeholder that returns the original content with diff info
@@ -297,7 +297,7 @@ const endpoints: { label: string; path: string; description: string }[] = [
 
 ### 9.6 Main – TODO-Implementierungen
 
-**Datei:** `iora-os/backend/services/iora-assist/src/main.rs`
+**Datei:** `rumahl-os/backend/services/rumahl-assist/src/main.rs`
 
 ```rust
 // TODO: Implement automation suggestions based on entity history (Zeile 580)
@@ -319,9 +319,9 @@ const endpoints: { label: string; path: string; description: string }[] = [
 
 ## 10. Sonstige Platzhalter in Microservices
 
-### 10.1 iora-gateway – Search-API Platzhalter
+### 10.1 rumahl-gateway – Search-API Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-gateway/src/main.rs` (Zeile 361)
+**Datei:** `rumahl-os/backend/services/rumahl-gateway/src/main.rs` (Zeile 361)
 
 ```rust
 // Note: This is a placeholder. In production, integrate with actual search APIs
@@ -331,9 +331,9 @@ const endpoints: { label: string; path: string; description: string }[] = [
 |----------------|-------------|
 | 🟡 | Die Such-API ist ein Platzhalter – keine echte Integration mit externen Search-APIs |
 
-### 10.2 iora-connector – Tunnel-Modul Platzhalter
+### 10.2 rumahl-connector – Tunnel-Modul Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-connector/src/tunnel.rs` (Zeile 3)
+**Datei:** `rumahl-os/backend/services/rumahl-connector/src/tunnel.rs` (Zeile 3)
 
 ```rust
 //! This module is kept as a placeholder. The actual tunnel is managed
@@ -343,9 +343,9 @@ const endpoints: { label: string; path: string; description: string }[] = [
 |----------------|-------------|
 | 🔴 | Tunnel ist nur ein Platzhalter – echtes Tunnel-Management fehlt |
 
-### 10.3 iora-supervisor – Netzwerk-Platzhalter
+### 10.3 rumahl-supervisor – Netzwerk-Platzhalter
 
-**Datei:** `iora-os/backend/services/iora-supervisor/src/main.rs` (Zeile 612)
+**Datei:** `rumahl-os/backend/services/rumahl-supervisor/src/main.rs` (Zeile 612)
 
 ```rust
 // This is a placeholder that would need to interact with system networking
@@ -355,12 +355,12 @@ const endpoints: { label: string; path: string; description: string }[] = [
 |----------------|-------------|
 | 🟡 | Supervisor-Netzwerk-Interaktion ist Platzhalter |
 
-### 10.4 iora-developer-app – Platzhalter-Token
+### 10.4 rumahl-developer-app – Platzhalter-Token
 
-**Datei:** `iora-os/backend/apps/system/iora-developer-app/src/main.rs` (Zeile 20)
+**Datei:** `rumahl-os/backend/apps/system/rumahl-developer-app/src/main.rs` (Zeile 20)
 
 ```rust
-const DEVELOPER_APP_TOKEN: &str = match option_env!("IORA_DEVELOPER_APP_TOKEN") {
+const DEVELOPER_APP_TOKEN: &str = match option_env!("rumahl_DEVELOPER_APP_TOKEN") {
     Some(v) => v,
     None => "dev-token-placeholder"
 };
@@ -368,11 +368,11 @@ const DEVELOPER_APP_TOKEN: &str = match option_env!("IORA_DEVELOPER_APP_TOKEN") 
 
 | Änderungsbedarf | Beschreibung |
 |----------------|-------------|
-| 🟡 | Token ist `dev-token-placeholder` wenn nicht via Env-Var gesetzt – OK für Dev, aber in Production muss IORA_DEVELOPER_APP_TOKEN gesetzt sein |
+| 🟡 | Token ist `dev-token-placeholder` wenn nicht via Env-Var gesetzt – OK für Dev, aber in Production muss rumahl_DEVELOPER_APP_TOKEN gesetzt sein |
 
-### 10.5 iora-security – Placeholder-Daten
+### 10.5 rumahl-security – Placeholder-Daten
 
-**Datei:** `iora-os/backend/services/iora-security/src/main.rs` (Zeile 692)
+**Datei:** `rumahl-os/backend/services/rumahl-security/src/main.rs` (Zeile 692)
 
 ```rust
 // `available: false` so the admin UI renders a clean placeholder.
@@ -390,20 +390,20 @@ const DEVELOPER_APP_TOKEN: &str = match option_env!("IORA_DEVELOPER_APP_TOKEN") 
 
 | # | Bereich | Datei(en) | Problem |
 |---|---------|-----------|---------|
-| 1 | **iora-resource-manager** | `src/main.rs` | Kompletter Stub – alle 4 Endpoints |
-| 2 | **iora-backup** | `src/main.rs` + 3 `.broken`-Dateien | Alle 6 Backup-Endpoints geben `501` – Kernmodule kaputt |
-| 3 | **iora-connector** | `src/tunnel.rs` | Tunnel-Modul nur Platzhalter |
+| 1 | **rumahl-resource-manager** | `src/main.rs` | Kompletter Stub – alle 4 Endpoints |
+| 2 | **rumahl-backup** | `src/main.rs` + 3 `.broken`-Dateien | Alle 6 Backup-Endpoints geben `501` – Kernmodule kaputt |
+| 3 | **rumahl-connector** | `src/tunnel.rs` | Tunnel-Modul nur Platzhalter |
 | 4 | **Frontend: DocsPage.tsx** vs DocsPageNew.tsx | `frontend/src/components/` | Legacy-Komponente mit hartcodierten Artikeln ist redundant |
-| 5 | **In-Memory Datenverlust** | iora-home `main.rs` | Scenes, Schedules, Watchdogs, Settings gehen bei Neustart verloren |
+| 5 | **In-Memory Datenverlust** | rumahl-home `main.rs` | Scenes, Schedules, Watchdogs, Settings gehen bei Neustart verloren |
 
 ### 🟡 Mittel (sollte behoben werden)
 
 | # | Bereich | Problem |
 |---|---------|---------|
-| 6 | **iora-assist** (5 Stellen) | Context-Platzhalter, TODO-Implementierungen |
-| 7 | **iora-gateway** | Search-API ist Platzhalter |
-| 8 | **iora-supervisor** | Netzwerk-Interaktion ist Platzhalter |
-| 9 | **iora-developer-app** | Platzhalter-Token (Dev only) |
+| 6 | **rumahl-assist** (5 Stellen) | Context-Platzhalter, TODO-Implementierungen |
+| 7 | **rumahl-gateway** | Search-API ist Platzhalter |
+| 8 | **rumahl-supervisor** | Netzwerk-Interaktion ist Platzhalter |
+| 9 | **rumahl-developer-app** | Platzhalter-Token (Dev only) |
 | 10 | **Frontend: AdminPanel.tsx** | Hartcodierte API-Endpoint-Liste (sollte dynamisch sein) |
 | 11 | **10 Proxy-Stubs** | Leiten an Microservices weiter, die oft nicht laufen → 503 |
 
@@ -412,7 +412,7 @@ const DEVELOPER_APP_TOKEN: &str = match option_env!("IORA_DEVELOPER_APP_TOKEN") 
 | # | Bereich | Problem |
 |---|---------|---------|
 | 12 | **fallback_index.html** | Statische HTML-Seite – sollte aktualisiert werden bei neuen Hauptfunktionen |
-| 13 | **iora-security** | `available: false` ist bewusst, aber könnte detaillierter sein |
+| 13 | **rumahl-security** | `available: false` ist bewusst, aber könnte detaillierter sein |
 
 ---
 
@@ -420,19 +420,19 @@ const DEVELOPER_APP_TOKEN: &str = match option_env!("IORA_DEVELOPER_APP_TOKEN") 
 
 ```bash
 # Stubs im Backend
-grep -rn "stub" --include="*.rs" iora-os/
+grep -rn "stub" --include="*.rs" rumahl-os/
 
 # Broken/ersetzte Dateien
-find iora-os -name "*.broken"
+find rumahl-os -name "*.broken"
 
 # TODO/FIXME/HACK im Backend
-grep -rn "TODO\|FIXME\|HACK" --include="*.rs" iora-os/backend/services/ | grep -v target
+grep -rn "TODO\|FIXME\|HACK" --include="*.rs" rumahl-os/backend/services/ | grep -v target
 
 # Platzhalter-Kommentare
-grep -rn "placeholder\|not_implemented\|unimplemented" --include="*.rs" iora-os/
+grep -rn "placeholder\|not_implemented\|unimplemented" --include="*.rs" rumahl-os/
 
 # In-Memory statics (ohne Persistenz)
-grep -rn "static.*LazyLock\|static.*RwLock" iora-os/backend/services/iora-home/src/main.rs | head -20
+grep -rn "static.*LazyLock\|static.*RwLock" rumahl-os/backend/services/rumahl-home/src/main.rs | head -20
 
 # Hartcodierte Daten im Frontend
 grep -rn "const.*= \[$\|const DOC_\|const endpoints" frontend/src/ --include="*.tsx" --include="*.ts"

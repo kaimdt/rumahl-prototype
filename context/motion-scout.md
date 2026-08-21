@@ -178,7 +178,7 @@ interface SplashScreenProps {
 ### Behavior
 - Displays a full-screen animated splash with:
   - **Orbital rings logo** — rotating ring animation (20s linear rotation) with breathing scale/opacity on inner/outer rings, an orbiting dot, and pulse core
-  - **"IORA" brand text** — spring-animated scale entrance (stiffness: 200, damping: 20)
+  - **"rumahl" brand text** — spring-animated scale entrance (stiffness: 200, damping: 20)
   - **Eased progress bar** — width animated from 0%→100% using ease-out increments
   - **Status messages** — cycling through 4 German status messages via `AnimatePresence mode="wait"`
 - Exit animation: opacity→0, scale→1.02 over 0.5s with cubic-bezier(0.16, 1, 0.3, 1)

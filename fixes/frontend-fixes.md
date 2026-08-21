@@ -28,7 +28,7 @@
 - POSTs the overrides to `POST /api/themes/user/:userId` with `{ theme_id, auto_theme: false, overrides }`.
 - Uses `useAuth()` for user ID and token.
 - Shows saving state and disables button while saving.
-- Dispatches `iora-theme-saved` custom event for potential downstream refresh.
+- Dispatches `rumahl-theme-saved` custom event for potential downstream refresh.
 - Clears `hasChanges` on successful save via `onSaved` callback.
 
 **Changes:**

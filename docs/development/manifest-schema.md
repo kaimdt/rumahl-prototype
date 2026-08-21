@@ -1,6 +1,6 @@
 # Manifest Schema Reference
 
-Complete reference for the IORA app/plugin manifest (`manifest.json`).
+Complete reference for the rumahl app/plugin manifest (`manifest.json`).
 
 ## Top-Level Fields
 
@@ -367,8 +367,8 @@ PostgreSQL alternative:
     "source_url": "https://github.com/user/my-app",
     "support_url": "https://example.com/support",
     "license": "MIT",
-    "min_iora_version": "2.1.0",
-    "max_iora_version": null
+    "min_rumahl_version": "2.1.0",
+    "max_rumahl_version": null
   }
 }
 ```

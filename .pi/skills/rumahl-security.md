@@ -1,10 +1,10 @@
-# IORA Security & Deployment Skill
+# rumahl Security & Deployment Skill
 
-You are working on IORA security hardening, deployment, or DevOps tasks.
+You are working on rumahl security hardening, deployment, or DevOps tasks.
 
 ## Security Rules
 - **Path traversal**: Always canonicalize user-supplied paths. Use `.canonicalize()` + `starts_with(base_dir)`.
-- **SQL injection**: Never split SQL by raw `;`. Use quote-aware parsers (see `split_sql_statements` in iora-core).
+- **SQL injection**: Never split SQL by raw `;`. Use quote-aware parsers (see `split_sql_statements` in rumahl-core).
 - **XSS**: Never use `dangerouslySetInnerHTML` without DOMPurify sanitization.
 - **Command injection**: Never pass user input directly to `Command::new().arg()`. Validate and sanitize.
 
@@ -16,17 +16,17 @@ You are working on IORA security hardening, deployment, or DevOps tasks.
 ## Deployment
 - `deploy/docker-compose.yml` — Standard Docker Compose
 - `deploy/docker-compose.minimal.yml` — Minimal deployment
-- `iora-os/dev-local.ps1` / `.sh` — Local dev VM scripts
-- Services use systemd in IORA OS appliance mode
+- `rumahl-os/dev-local.ps1` / `.sh` — Local dev VM scripts
+- Services use systemd in rumahl OS appliance mode
 
 ## Port Map
 | Service | Dev | Prod |
 |---|---|---|
-| iora-home | 3001 | 8126 |
-| iora-core | 8090 | 8090 |
-| iora-assist | 8092 | 8092 |
-| iora-supervisor | 8097 | 8097 |
-| iora-appstore | 8098 | 8098 |
+| rumahl-home | 3001 | 8126 |
+| rumahl-core | 8090 | 8090 |
+| rumahl-assist | 8092 | 8092 |
+| rumahl-supervisor | 8097 | 8097 |
+| rumahl-appstore | 8098 | 8098 |
 
 ## Dependency Management
 - NEVER add new crates to Cargo.toml without asking
@@ -36,4 +36,4 @@ You are working on IORA security hardening, deployment, or DevOps tasks.
 ## Cross-Platform
 - Paths: use `std::path::PathBuf`, not hardcoded `/` or `\`
 - macOS: `/var` canonicalizes to `/private/var` — always canonicalize both sides
-- Windows: raw terminal mode fixes in `iora-dev-watch`
+- Windows: raw terminal mode fixes in `rumahl-dev-watch`

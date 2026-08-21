@@ -1,6 +1,6 @@
 # Supervisor & Container Management API
 
-The Supervisor API is served by `iora-supervisor` on port 8097. It manages Docker container orchestration, app lifecycle, and system updates.
+The Supervisor API is served by `rumahl-supervisor` on port 8097. It manages Docker container orchestration, app lifecycle, and system updates.
 
 ## Base URL
 
@@ -26,7 +26,7 @@ Response:
   "supervisor_version": "2.3.0",
   "docker_version": "26.1.4",
   "system": {
-    "hostname": "iora-server",
+    "hostname": "rumahl-server",
     "os": "Debian 12",
     "uptime_seconds": 86400
   },
@@ -53,8 +53,8 @@ Response:
   "containers": [
     {
       "id": "abc123",
-      "name": "iora-home",
-      "image": "iora-home:2.3.0",
+      "name": "rumahl-home",
+      "image": "rumahl-home:2.3.0",
       "status": "running",
       "health": "healthy",
       "ports": ["8126:8126"],
@@ -136,7 +136,7 @@ Response:
       "name": "Weather App",
       "version": "1.2.0",
       "status": "running",
-      "container_name": "iora-app-weather-app",
+      "container_name": "rumahl-app-weather-app",
       "ports": { "3000": 50123 },
       "uptime_seconds": 7200,
       "cpu_percent": 2.1,
@@ -205,7 +205,7 @@ Bundle status response:
     }
   ],
   "network": {
-    "name": "iora-bundle-ha-bundle",
+    "name": "rumahl-bundle-ha-bundle",
     "subnet": "172.28.0.0/24"
   }
 }
@@ -219,7 +219,7 @@ POST /api/supervisor/services/update
 Content-Type: application/json
 
 {
-  "service": "iora-home",
+  "service": "rumahl-home",
   "version": "latest"
 }
 
@@ -254,17 +254,17 @@ Response:
     "storage_driver": "overlay2"
   },
   "system": {
-    "hostname": "iora-server",
+    "hostname": "rumahl-server",
     "kernel": "6.1.0",
     "arch": "x86_64",
     "cpu_count": 4,
     "memory_total_mb": 8192,
     "disk_total_gb": 128
   },
-  "iora": {
+  "ora": {
     "version": "2.3.0",
     "services": [
-      { "name": "iora-home", "version": "2.3.0", "status": "running" }
+      { "name": "rumahl-home", "version": "2.3.0", "status": "running" }
     ]
   }
 }
@@ -282,7 +282,7 @@ Response:
 {
   "containers": [
     {
-      "name": "iora-home",
+      "name": "rumahl-home",
       "cpu_percent": 5.2,
       "memory_mb": 128,
       "memory_limit_mb": 512,
@@ -309,7 +309,7 @@ POST /api/supervisor/images/pull
 Content-Type: application/json
 
 {
-  "image": "iora-home:2.3.0"
+  "image": "rumahl-home:2.3.0"
 }
 
 # Remove unused images (prune)

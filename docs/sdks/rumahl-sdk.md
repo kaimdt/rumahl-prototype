@@ -1,8 +1,8 @@
-# IORA SDK Documentation
+# rumahl SDK Documentation
 
 ## Overview
 
-Welcome to the IORA SDK! This documentation will guide you through creating Apps and Plugins for the IORA platform. IORA provides a secure, isolated environment for extending the platform while ensuring system stability.
+Welcome to the rumahl SDK! This documentation will guide you through creating Apps and Plugins for the rumahl platform. rumahl provides a secure, isolated environment for extending the platform while ensuring system stability.
 
 ## Table of Contents
 
@@ -25,8 +25,8 @@ Welcome to the IORA SDK! This documentation will guide you through creating Apps
 
 - **For Apps**: Docker installed and basic Docker knowledge
 - **For Plugins**: Rust toolchain (rustc, cargo)
-- IORA Core running (localhost:8090) or access to IORA instance
-- IORA Supervisor running (localhost:8097) for Apps
+- rumahl Core running (localhost:8090) or access to rumahl instance
+- rumahl Supervisor running (localhost:8097) for Apps
 
 ### Quick Start
 
@@ -55,8 +55,8 @@ Welcome to the IORA SDK! This documentation will guide you through creating Apps
 - Run continuously as Docker containers
 - Full isolation via containerization
 - Can expose ports and volumes
-- Managed by `iora-supervisor` (port 8097)
-- Access IORA system via API Gateway only
+- Managed by `rumahl-supervisor` (port 8097)
+- Access rumahl system via API Gateway only
 
 **Example Use Cases:**
 - Weather data aggregation service
@@ -76,8 +76,8 @@ Welcome to the IORA SDK! This documentation will guide you through creating Apps
 **Characteristics:**
 - Execute on-demand in sandboxed environment
 - Resource limits (CPU, memory, execution time)
-- Managed by `iora-core` (port 8090)
-- Access IORA system via API Gateway only
+- Managed by `rumahl-core` (port 8090)
+- Access rumahl system via API Gateway only
 - Can register custom APIs and widgets
 
 **Example Use Cases:**
@@ -90,7 +90,7 @@ Welcome to the IORA SDK! This documentation will guide you through creating Apps
 
 ## Registration Process
 
-All Apps and Plugins must register with IORA before accessing the system.
+All Apps and Plugins must register with rumahl before accessing the system.
 
 ### 1. Create manifest.json
 
@@ -130,21 +130,21 @@ All Apps and Plugins must register with IORA before accessing the system.
 
 **For Apps:**
 ```bash
-curl -X POST http://iora-supervisor:8097/api/supervisor/apps/register \
+curl -X POST http://rumahl-supervisor:8097/api/supervisor/apps/register \
   -H "Content-Type: application/json" \
   -d @manifest.json
 ```
 
 **For Plugins:**
 ```bash
-curl -X POST http://iora-core:8090/api/core/plugins/register \
+curl -X POST http://rumahl-core:8090/api/core/plugins/register \
   -H "Content-Type: application/json" \
   -d @manifest.json
 ```
 
 ### 3. Wait for Approval
 
-An IORA administrator will review your registration request in the Admin Panel under "Registrierungen" tab. They can:
+An rumahl administrator will review your registration request in the Admin Panel under "Registrierungen" tab. They can:
 - Approve (grants API token)
 - Reject (denied access)
 - Suspend (temporary revocation)
@@ -157,7 +157,7 @@ Once approved, you'll receive an API token:
 ```json
 {
   "status": "approved",
-  "api_token": "iora_app_1234567890abcdef...",
+  "api_token": "rumahl_app_1234567890abcdef...",
   "approved_at": "2026-04-20T10:00:00Z"
 }
 ```
@@ -168,15 +168,15 @@ Store this token securely - it's required for all API calls.
 
 ## API Access
 
-All Apps and Plugins access IORA through the **API Gateway**. Direct access to internal services is prohibited.
+All Apps and Plugins access rumahl through the **API Gateway**. Direct access to internal services is prohibited.
 
 ### Making API Requests
 
 Every API request must include your token:
 
 ```bash
-curl -X GET http://iora-core:8090/api/gateway/system/status \
-  -H "Authorization: Bearer iora_app_1234567890abcdef..."
+curl -X GET http://rumahl-core:8090/api/gateway/system/status \
+  -H "Authorization: Bearer rumahl_app_1234567890abcdef..."
 ```
 
 ### Available APIs
@@ -218,16 +218,16 @@ API Gateway returns standard HTTP status codes:
 
 ## The `ora.*` SDK surface (JavaScript)
 
-The JavaScript SDK (`sdks/javascript`, package `iora-sdk`) exposes every OS
+The JavaScript SDK (`sdks/javascript`, package `rumahl-sdk`) exposes every OS
 capability through namespaced modules — the same surface apps and plugins
 use in the browser or in Node. Permission checks happen server-side; use
 `ora.permissions.request(...)` to ask the user for missing grants
 (Android/iOS-style dialog in the shell).
 
 ```ts
-import { IoraClient } from 'iora-sdk'
+import { rumahlClient } from 'rumahl-sdk'
 
-const ora = new IoraClient({ baseUrl: 'http://ora.local:8126', apiKey: process.env.IORA_APP_TOKEN })
+const ora = new rumahlClient({ baseUrl: 'http://rumahl.local:8126', apiKey: process.env.RUMAHL_APP_TOKEN })
 ora.setAppId('my-app')            // required for app-scoped calls (secrets)
 
 await ora.notifications.send({ title: 'Backup done', message: 'All good' })
@@ -272,12 +272,12 @@ await ora.system.reportEvent({ severity: 'warning', source: 'my-app', message: '
 | `system` | `reportEvent`, `listEvents`, `resolveEvent`, `stats` | `/api/system-events`, `/api/os/control/system` |
 
 Window management (`ora.windows`) is a shell (frontend) concept — desktop
-apps run inside ORA OS windows automatically; there is no HTTP surface for it.
+apps run inside rumahl OS windows automatically; there is no HTTP surface for it.
 
 ### Reacting to system events (`on_system_event`)
 
 Apps can subscribe to the system event log via a manifest lifecycle hook.
-When a matching event is recorded, iora-home POSTs to the app's runtime
+When a matching event is recorded, rumahl-home POSTs to the app's runtime
 endpoint:
 
 ```json
@@ -311,7 +311,7 @@ best-effort with a 3 s timeout. Apps can also push their own events via
 
 ## Widget Development
 
-Widgets allow your App/Plugin to provide UI components in the IORA dashboard.
+Widgets allow your App/Plugin to provide UI components in the rumahl dashboard.
 
 ### Widget Types
 
@@ -334,7 +334,7 @@ export function WeatherWidget({ config, apiToken }) {
   const [weather, setWeather] = useState(null)
 
   useEffect(() => {
-    fetch('http://iora-core:8090/api/gateway/weather/current', {
+    fetch('http://rumahl-core:8090/api/gateway/weather/current', {
       headers: { 'Authorization': `Bearer ${apiToken}` }
     })
       .then(r => r.json())
@@ -354,7 +354,7 @@ export function WeatherWidget({ config, apiToken }) {
 
 #### 2. Serve Widget Component
 
-Host your widget on a URL accessible to IORA:
+Host your widget on a URL accessible to rumahl:
 
 ```javascript
 // For Apps (in your Docker container)
@@ -367,7 +367,7 @@ app.get('/widgets/weather.js', (req, res) => {
 
 **Via Plugin Code:**
 ```rust
-use iora_shared::widget_registry::{WidgetDefinition, WidgetType};
+use rumahl_shared::widget_registry::{WidgetDefinition, WidgetType};
 
 impl IPlugin for WeatherPlugin {
     async fn get_widgets(&self) -> Vec<WidgetDefinition> {
@@ -391,7 +391,7 @@ impl IPlugin for WeatherPlugin {
 
 **Via API (for Apps):**
 ```bash
-curl -X POST http://iora-core:8090/api/core/widgets/register \
+curl -X POST http://rumahl-core:8090/api/core/widgets/register \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -411,7 +411,7 @@ curl -X POST http://iora-core:8090/api/core/widgets/register \
 1. **Registration**: Widget registered with component URL
 2. **Available**: Widget marked as available, shown in dashboard
 3. **Crash**: If provider crashes, widget marked unavailable
-4. **Default View**: IORA shows default "unavailable" view
+4. **Default View**: rumahl shows default "unavailable" view
 5. **Recovery**: When provider recovers, widget becomes available again
 
 ---
@@ -446,7 +446,7 @@ ApiEndpoint {
 
 ### Security Monitor
 
-IORA automatically monitors your App/Plugin:
+rumahl automatically monitors your App/Plugin:
 
 - **CPU Usage**: Alert if sustained >80%
 - **Memory Usage**: Alert if >90% of limit
@@ -487,7 +487,7 @@ PluginMetadata {
 
 ## Update System
 
-IORA provides automated update management for your App/Plugin.
+rumahl provides automated update management for your App/Plugin.
 
 ### Update Channels
 
@@ -518,7 +518,7 @@ Choose an update channel:
 #### 2. Publish Update
 
 ```bash
-curl -X POST http://iora-core:8090/api/core/updates/publish \
+curl -X POST http://rumahl-core:8090/api/core/updates/publish \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d @update-manifest.json
@@ -526,7 +526,7 @@ curl -X POST http://iora-core:8090/api/core/updates/publish \
 
 #### 3. Users Get Notified
 
-IORA automatically:
+rumahl automatically:
 - Checks for updates periodically
 - Notifies administrators in "Updates" tab
 - Highlights critical updates
@@ -547,7 +547,7 @@ Critical updates are highlighted in red in the admin UI.
 
 ### Rollback Support
 
-IORA automatically tracks update history. Administrators can rollback to previous versions if an update causes issues.
+rumahl automatically tracks update history. Administrators can rollback to previous versions if an update causes issues.
 
 ---
 
@@ -642,7 +642,7 @@ ApiEndpoint {
 
 ### 8. Test Before Publishing
 
-- Test locally with IORA dev environment
+- Test locally with rumahl dev environment
 - Verify all APIs return expected data
 - Test widget rendering in different themes
 - Test crash recovery
@@ -681,9 +681,9 @@ A Rust plugin that:
 
 ### Local Development Setup
 
-1. **Start IORA services:**
+1. **Start rumahl services:**
 ```bash
-docker-compose up -d iora-core iora-supervisor
+docker-compose up -d rumahl-core rumahl-supervisor
 ```
 
 2. **For Apps - Build and run your container:**
@@ -739,9 +739,9 @@ async fn test_provider_crash() {
 - **Documentation**: `/docs/`
 - **Examples**: `/examples/`
 - **Issue Tracker**: GitHub Issues
-- **Community**: IORA Discord Server
-- **Security**: security@iora.dev
+- **Community**: rumahl Discord Server
+- **Security**: security@ora.dev
 
 ## License
 
-IORA SDK is licensed under the MIT License. See LICENSE file for details.
+rumahl SDK is licensed under the MIT License. See LICENSE file for details.

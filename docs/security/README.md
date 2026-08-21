@@ -1,6 +1,6 @@
 # Security Overview
 
-IORA implements a comprehensive, defense-in-depth security model. This section covers all security features and best practices.
+rumahl implements a comprehensive, defense-in-depth security model. This section covers all security features and best practices.
 
 ## Security Architecture
 
@@ -35,10 +35,10 @@ IORA implements a comprehensive, defense-in-depth security model. This section c
 
 | Service | Port | Role |
 |---------|------|------|
-| **iora-security** | 8095 | Threat detection, intrusion prevention, lockdown, PostgreSQL user management |
-| **iora-secrets** | 8093 | Encrypted secrets storage (API keys, passwords, tokens) |
-| **iora-watchdog** | 8094 | Health monitoring, failover, circuit breaker |
-| **iora-gateway** | 8096 | Sandboxed external integrations, content validation |
+| **rumahl-security** | 8095 | Threat detection, intrusion prevention, lockdown, PostgreSQL user management |
+| **rumahl-secrets** | 8093 | Encrypted secrets storage (API keys, passwords, tokens) |
+| **rumahl-watchdog** | 8094 | Health monitoring, failover, circuit breaker |
+| **rumahl-gateway** | 8096 | Sandboxed external integrations, content validation |
 
 ## Key Security Features
 
@@ -98,7 +98,7 @@ Four severity levels:
 
 ## Reporting Security Issues
 
-If you discover a security vulnerability in IORA, please report it responsibly:
+If you discover a security vulnerability in rumahl, please report it responsibly:
 
 1. **Do not** open a public GitHub issue
 2. Email security details to the maintainers
@@ -107,12 +107,12 @@ If you discover a security vulnerability in IORA, please report it responsibly:
 
 ## Security Contacts
 
-- **GitHub Issues**: [Security-related issues](https://github.com/kaimdt/home-assistant-dashb/issues?q=label%3Asecurity)
-- **Discussions**: [Security category](https://github.com/kaimdt/home-assistant-dashb/discussions/categories/security)
+- **GitHub Issues**: [Security-related issues](https://github.com/rumahl/home-assistant-dashb/issues?q=label%3Asecurity)
+- **Discussions**: [Security category](https://github.com/rumahl/home-assistant-dashb/discussions/categories/security)
 
 ## Compliance
 
-IORA's security model is designed with the following principles:
+rumahl's security model is designed with the following principles:
 - **Least Privilege** – Apps and plugins request only needed permissions
 - **Defense in Depth** – Multiple independent security layers
 - **Fail-Secure** – System locks down on suspicious activity

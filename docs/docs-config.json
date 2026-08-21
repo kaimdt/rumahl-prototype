@@ -1,8 +1,8 @@
 {
-  "title": "IORA Documentation",
-  "description": "Complete documentation for the IORA home automation platform",
-  "logo": "/assets/iora-logo.png",
-  "repository": "https://github.com/kaimdt/home-assistant-dashb",
+  "title": "rumahl Documentation",
+  "description": "Complete documentation for the rumahl home automation platform",
+  "logo": "/assets/rumahl-logo.png",
+  "repository": "https://github.com/rumahl/home-assistant-dashb",
   "navigation": [
     {
       "section": "Getting Started",
@@ -158,7 +158,7 @@
           "path": "security/README.md"
         },
         {
-          "title": "ORA OS Security Center",
+          "title": "rumahl OS Security Center",
           "path": "security/security-center.md",
           "highlight": true
         },
@@ -270,7 +270,7 @@
         },
         {
           "title": "SDK Documentation",
-          "path": "sdks/iora-sdk.md"
+          "path": "sdks/rumahl-sdk.md"
         },
         {
           "title": "Domain Validation & Resources",
@@ -291,8 +291,8 @@
       "icon": "server",
       "items": [
         {
-          "title": "Docker & IORA OS",
-          "path": "deployment/docker-and-iora-os.md",
+          "title": "Docker & rumahl OS",
+          "path": "deployment/docker-and-rumahl-os.md",
           "highlight": true
         },
         {
@@ -314,7 +314,7 @@
       "icon": "brain",
       "items": [
         {
-          "title": "ORA AI Overview",
+          "title": "rumahl AI Overview",
           "path": "ai/README.md",
           "highlight": true
         },
@@ -364,17 +364,17 @@
     "links": [
       {
         "title": "GitHub",
-        "url": "https://github.com/kaimdt/home-assistant-dashb"
+        "url": "https://github.com/rumahl/home-assistant-dashb"
       },
       {
         "title": "Issues",
-        "url": "https://github.com/kaimdt/home-assistant-dashb/issues"
+        "url": "https://github.com/rumahl/home-assistant-dashb/issues"
       },
       {
         "title": "Discussions",
-        "url": "https://github.com/kaimdt/home-assistant-dashb/discussions"
+        "url": "https://github.com/rumahl/home-assistant-dashb/discussions"
       }
     ],
-    "copyright": "© 2026 IORA Project"
+    "copyright": "© 2026 rumahl Project"
   }
 }

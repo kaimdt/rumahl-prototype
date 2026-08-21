@@ -1,10 +1,10 @@
 # API Overview
 
-IORA exposes a comprehensive REST API across multiple services. This section documents all available endpoints.
+rumahl exposes a comprehensive REST API across multiple services. This section documents all available endpoints.
 
 ## API Base URLs
 
-| Environment | iora-home | iora-core | iora-control |
+| Environment | rumahl-home | rumahl-core | rumahl-control |
 |-------------|-----------|-----------|-------------|
 | Development | `http://localhost:3001` | `http://localhost:8090` | `http://localhost:8091` |
 | Production (Docker) | `http://localhost:8126` | `http://localhost:8090` | `http://localhost:8091` |
@@ -78,17 +78,17 @@ The Swagger UI provides:
 
 ## Service APIs
 
-Each IORA service exposes its own API:
+Each rumahl service exposes its own API:
 
 | Service | Port | API Section |
 |---------|------|-------------|
-| iora-home | 8126 | [Core API](core.md) – Entities, users, pages, files |
-| iora-core | 8090 | [Core API](core.md) – Plugins, service registry, events |
-| iora-control | 8091 | [Control Center API](control.md) – System stats, admin |
-| iora-appstore | 8098 | [App Store API](appstore.md) – App installation, catalog |
-| iora-security | 8095 | [Security API](security.md) – Threats, lockdown, audit |
-| iora-gateway | 8096 | [Network Monitor API](network.md) – Email, HTTP, search |
-| iora-supervisor | 8097 | [SSH Management API](ssh.md) – Container management |
+| rumahl-home | 8126 | [Core API](core.md) – Entities, users, pages, files |
+| rumahl-core | 8090 | [Core API](core.md) – Plugins, service registry, events |
+| rumahl-control | 8091 | [Control Center API](control.md) – System stats, admin |
+| rumahl-appstore | 8098 | [App Store API](appstore.md) – App installation, catalog |
+| rumahl-security | 8095 | [Security API](security.md) – Threats, lockdown, audit |
+| rumahl-gateway | 8096 | [Network Monitor API](network.md) – Email, HTTP, search |
+| rumahl-supervisor | 8097 | [SSH Management API](ssh.md) – Container management |
 
 ## Common Patterns
 

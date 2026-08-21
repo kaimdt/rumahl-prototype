@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide covers all configuration options for IORA services.
+This guide covers all configuration options for rumahl services.
 
 ## Table of Contents
 
@@ -13,23 +13,23 @@ This guide covers all configuration options for IORA services.
 
 ## Environment Variables
 
-IORA services are configured through environment variables. Create a `.env` file in the repository root (copy from `.env.example`).
+rumahl services are configured through environment variables. Create a `.env` file in the repository root (copy from `.env.example`).
 
 ### Shared Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `IORA_ENV` | Environment mode (`development` or `production`) | `development` |
+| `RUMAHL_ENV` | Environment mode (`development` or `production`) | `development` |
 | `RUST_LOG` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
 
 ### Database
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgres://iora:iora_password@localhost:5432/iora_home` |
-| `POSTGRES_USER` | PostgreSQL user | `iora` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgres://ora:rumahl_password@localhost:5432/rumahl_home` |
+| `POSTGRES_USER` | PostgreSQL user | `ora` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | *(required)* |
-| `POSTGRES_DB` | PostgreSQL database name | `iora_home` |
+| `POSTGRES_DB` | PostgreSQL database name | `rumahl_home` |
 
 ### Home Assistant Integration
 
@@ -47,54 +47,54 @@ IORA services are configured through environment variables. Create a `.env` file
 
 ## Service Configuration
 
-### iora-home (Main API)
+### rumahl-home (Main API)
 
 Port: `3001` (dev) / `8126` (production)
 
 ```env
 PORT=8126
-DATABASE_URL=postgres://iora:password@localhost:5432/iora_home
+DATABASE_URL=postgres://ora:password@localhost:5432/rumahl_home
 HA_URL=http://homeassistant.local:8123
 HA_TOKEN=eyJ...
 JWT_SECRET=your-secret-key
 RUST_LOG=info
 ```
 
-### iora-core (Orchestrator)
+### rumahl-core (Orchestrator)
 
 Port: `8090`
 
 ```env
 PORT=8090
-DATABASE_URL=postgres://iora:password@localhost:5432/iora_core
+DATABASE_URL=postgres://ora:password@localhost:5432/rumahl_core
 ```
 
-### iora-assist (AI Assistant)
+### rumahl-assist (AI Assistant)
 
 Port: `8092`
 
 ```env
 PORT=8092
-ORA_AI_PROVIDER=local          # openai, anthropic, local, desktop
-ORA_AI_API_KEY=sk-...          # For OpenAI/Anthropic
-ORA_AI_BASE_URL=http://localhost:11434  # For local/desktop
-ORA_AI_MODEL=llama3.2
+RUMAHL_AI_PROVIDER=local          # openai, anthropic, local, desktop
+RUMAHL_AI_API_KEY=sk-...          # For OpenAI/Anthropic
+RUMAHL_AI_BASE_URL=http://localhost:11434  # For local/desktop
+RUMAHL_AI_MODEL=llama3.2
 ```
 
-### iora-security
+### rumahl-security
 
 Port: `8095`
 
 ```env
 PORT=8095
-SECURITY_DB_PATH=/var/lib/iora/security.db
+SECURITY_DB_PATH=/var/lib/ora/security.db
 SECURITY_DB_KEY=<64-hex-char-key>
 AUTO_LOCKDOWN_ENABLED=true
 LOCKDOWN_THRESHOLD_CRITICAL=5
 THREAT_LEVEL_THRESHOLD=7
 ```
 
-### iora-supervisor
+### rumahl-supervisor
 
 Port: `8097`
 
@@ -103,13 +103,13 @@ PORT=8097
 RUST_LOG=info
 ```
 
-### iora-gateway
+### rumahl-gateway
 
 Port: `8096`
 
 ```env
 PORT=8096
-GATEWAY_DB_PATH=/var/lib/iora/gateway.db
+GATEWAY_DB_PATH=/var/lib/ora/gateway.db
 SMTP_SERVER=smtp.example.com:587
 SMTP_USERNAME=noreply@example.com
 SMTP_PASSWORD=<secure-password>
@@ -120,16 +120,16 @@ ENABLE_SANDBOXING=true
 
 ### PostgreSQL
 
-IORA uses PostgreSQL 16. The database is configured in `docker-compose.yml`:
+rumahl uses PostgreSQL 16. The database is configured in `docker-compose.yml`:
 
 ```yaml
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: iora
-      POSTGRES_PASSWORD: iora_password
-      POSTGRES_DB: iora_home
+      POSTGRES_USER: ora
+      POSTGRES_PASSWORD: rumahl_password
+      POSTGRES_DB: rumahl_home
     ports:
       - "5432:5432"
     volumes:
@@ -137,9 +137,9 @@ services:
 ```
 
 **Multiple databases:**
-- `iora_home` – Main application data (users, pages, entities)
-- `iora_core` – Service registry, system events
-- `iora_secrets` – Encrypted secrets
+- `rumahl_home` – Main application data (users, pages, entities)
+- `rumahl_core` – Service registry, system events
+- `rumahl_secrets` – Encrypted secrets
 
 **Connection string format:**
 ```
@@ -166,37 +166,37 @@ See [App Database Guide](../development/app-database.md).
 
 ## AI Provider Configuration
 
-ORA AI supports multiple providers. Configure via `ORA_AI_PROVIDER`:
+rumahl AI supports multiple providers. Configure via `RUMAHL_AI_PROVIDER`:
 
 ### OpenAI
 
 ```env
-ORA_AI_PROVIDER=openai
-ORA_AI_API_KEY=sk-proj-...
-ORA_AI_MODEL=gpt-4o-mini
+RUMAHL_AI_PROVIDER=openai
+RUMAHL_AI_API_KEY=sk-proj-...
+RUMAHL_AI_MODEL=gpt-4o-mini
 ```
 
 ### Anthropic Claude
 
 ```env
-ORA_AI_PROVIDER=anthropic
-ORA_AI_API_KEY=sk-ant-...
-ORA_AI_MODEL=claude-3-5-sonnet-20241022
+RUMAHL_AI_PROVIDER=anthropic
+RUMAHL_AI_API_KEY=sk-ant-...
+RUMAHL_AI_MODEL=claude-3-5-sonnet-20241022
 ```
 
 ### Local AI (Ollama)
 
 ```env
-ORA_AI_PROVIDER=local
-ORA_AI_BASE_URL=http://localhost:11434
-ORA_AI_MODEL=llama3.2
+RUMAHL_AI_PROVIDER=local
+RUMAHL_AI_BASE_URL=http://localhost:11434
+RUMAHL_AI_MODEL=llama3.2
 ```
 
-### Desktop AI (via IORA Desktop)
+### Desktop AI (via rumahl Desktop)
 
 ```env
-ORA_AI_PROVIDER=desktop
-ORA_AI_BASE_URL=http://localhost:11435
+RUMAHL_AI_PROVIDER=desktop
+RUMAHL_AI_BASE_URL=http://localhost:11435
 ```
 
 ## Security Configuration
@@ -257,16 +257,16 @@ Apps can be restricted to specific domains:
 
 ## Configuration File Locations
 
-### IORA OS
+### rumahl OS
 
 | File | Location |
 |------|----------|
-| Service configs | `/etc/iora/*.env` |
-| Binaries | `/opt/iora/bin/` |
-| Runtime data | `/var/lib/iora/` |
-| Security DB | `/var/lib/iora/security.db` |
-| Gateway DB | `/var/lib/iora/gateway.db` |
-| App data | `/var/lib/iora/local-apps/{app_id}/` |
+| Service configs | `/etc/ora/*.env` |
+| Binaries | `/opt/rumahl/bin/` |
+| Runtime data | `/var/lib/ora/` |
+| Security DB | `/var/lib/ora/security.db` |
+| Gateway DB | `/var/lib/ora/gateway.db` |
+| App data | `/var/lib/ora/local-apps/{app_id}/` |
 
 ### Docker
 

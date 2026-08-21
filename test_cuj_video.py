@@ -1,7 +1,7 @@
 from playwright.sync_api import sync_playwright
 
 def run_cuj(page):
-    page.goto("http://localhost:1420/ora-overlay")
+    page.goto("http://localhost:1420/rumahl-overlay")
     page.wait_for_timeout(2000)
 
     # Take a screenshot first to see what's on the screen

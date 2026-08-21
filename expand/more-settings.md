@@ -1,7 +1,7 @@
 # More Settings — Implementation Report
 
 ## Task
-Add 5 new `custom_settings` to all 10 IORA theme manifests in `apps/examples/`.
+Add 5 new `custom_settings` to all 10 rumahl theme manifests in `apps/examples/`.
 
 ## New Settings Added
 

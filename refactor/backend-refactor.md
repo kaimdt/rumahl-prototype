@@ -1,7 +1,7 @@
 # Backend Refactor – Theme Handler Robustness Improvements
 
 **Date:** 2026-05-25
-**File:** `iora-os/backend/services/iora-home/src/theme_handler.rs`
+**File:** `rumahl-os/backend/services/rumahl-home/src/theme_handler.rs`
 
 ---
 
@@ -49,7 +49,7 @@ The `animation` field derives from `capabilities.animation` for cached themes.
 | 614 | Pre-computation line | *(not present)* | `let animation = capabilities.as_ref().and_then(\|c\| c.animation.clone());` |
 | 624 | Fallback response (unchanged) | `animation: None,` | `animation: None,` |
 
-The cached response now correctly derives `animation` from `ThemeCapabilities::animation`, matching the existing `ThemeAnimationConfig` type already present in `iora-shared`.
+The cached response now correctly derives `animation` from `ThemeCapabilities::animation`, matching the existing `ThemeAnimationConfig` type already present in `rumahl-shared`.
 
 **Note:** `animation` is computed before the struct literal to avoid borrow-after-move, since `capabilities` is moved into the struct and doesn't implement `Copy`.
 
@@ -67,7 +67,7 @@ The `fn tm(...)` helper is never called (the code uses `&gs.theme_manager` or `&
 
 ## Validation
 
-- `cargo check -p iora-home` passes with **0 new errors, 0 new warnings in theme_handler.rs**
+- `cargo check -p rumahl-home` passes with **0 new errors, 0 new warnings in theme_handler.rs**
 - All 11 JSON parse sites now emit `tracing::warn!` on failure
 - `animation` field is properly populated from capabilities for cached themes
 - Auto theme and fallback paths correctly keep `animation: None`

@@ -1,4 +1,4 @@
-# ORA Security Scan Report
+# rumahl Security Scan Report
 
 **Datum:** 2026-06-21 02:00 UTC
 **Scanner:** cargo audit (RustSec DB rev 776615b) + npm audit
@@ -75,7 +75,7 @@
 ### Ausführbare `cargo update` Befehle:
 
 ```bash
-# Im iora-os/backend Verzeichnis ausführen:
+# Im rumahl-os/backend Verzeichnis ausführen:
 
 # KRITISCH: lettre TLS-Bug (CVSS 9.1)
 cargo update -p lettre --precise 0.11.22

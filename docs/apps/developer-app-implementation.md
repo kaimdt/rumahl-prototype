@@ -1,13 +1,13 @@
-# IORA Developer App - Implementation Summary
+# rumahl Developer App - Implementation Summary
 
 ## Overview
 
-Successfully implemented the **IORA Developer App**, an official development tool that provides exclusive hot-reload capabilities, IDE integration, and advanced development workflows for the IORA ecosystem.
+Successfully implemented the **rumahl Developer App**, an official development tool that provides exclusive hot-reload capabilities, IDE integration, and advanced development workflows for the rumahl ecosystem.
 
 ## What Was Implemented
 
 ### 1. Developer App (Rust Application)
-**Location:** `backend/iora-developer-app/`
+**Location:** `backend/rumahl-developer-app/`
 
 A complete Rust application using Actix-web that provides:
 - Hot reload APIs for updating apps without full restarts
@@ -41,15 +41,15 @@ A complete Rust application using Actix-web that provides:
 - `GET /api/ide/metrics` - Get system metrics
 
 ### 2. Auto-Installation Logic and Local Build
-**Location:** `backend/iora-supervisor/src/main.rs`
+**Location:** `backend/rumahl-supervisor/src/main.rs`
 
 Modified the supervisor to automatically install the Developer App when Developer Mode is enabled. **The Developer App is now built locally from the main backend Dockerfile** instead of pulling from a registry.
 
 **Implementation:**
 - Added `ensure_developer_app_installed()` function
 - Checks if Developer App already exists
-- **Uses locally-built image `iora-developer-app:local`** (no registry pull)
-- Image is built from main `backend/Dockerfile` target `iora-developer-app`
+- **Uses locally-built image `rumahl-developer-app:local`** (no registry pull)
+- Image is built from main `backend/Dockerfile` target `rumahl-developer-app`
 - Creates container with proper labels and permissions
 - Mounts Docker socket and data volume
 - Starts container automatically
@@ -57,27 +57,27 @@ Modified the supervisor to automatically install the Developer App when Develope
 
 **Local Build Integration:**
 - Developer App is included in main backend Dockerfile
-- Built alongside other IORA services (Core, Supervisor, etc.)
+- Built alongside other rumahl services (Core, Supervisor, etc.)
 - Uses same Rust toolchain and dependencies
-- **Bundled with IORA Core/Supervisor updates** - no separate updates needed
-- Special build argument `IORA_DEVELOPER_APP_OFFICIAL=true` for security
+- **Bundled with rumahl Core/Supervisor updates** - no separate updates needed
+- Special build argument `RUMAHL_DEVELOPER_APP_OFFICIAL=true` for security
 - Build script: `scripts/build-developer-app.sh`
 
 **Behavior:**
 - When Developer Mode is enabled → Developer App auto-installs from local image
 - If already installed → skips installation
 - If image not found → provides helpful error with build command
-- Sets `iora.app.installation_source=developer_app` label
+- Sets `ora.app.installation_source=developer_app` label
 - Grants all necessary permissions including exclusive `HotReload`
 
 **Security & Flexibility:**
 - System builds image itself with full control over build parameters
 - Can pass special build arguments for enhanced security
 - No external dependencies on container registries
-- Updated when IORA Core/Supervisor is updated
+- Updated when rumahl Core/Supervisor is updated
 
 ### 3. Python SDK Enhancements
-**Location:** `sdks/python/iora_sdk/client.py`
+**Location:** `sdks/python/rumahl_sdk/client.py`
 
 Added four new methods for interacting with the Developer App:
 
@@ -110,7 +110,7 @@ The example includes extensive comments and documentation for developers learnin
 Enhanced Developer Mode documentation with:
 
 **New Sections:**
-- IORA Developer App overview and features
+- rumahl Developer App overview and features
 - Auto-installation behavior
 - Exclusive HotReload permission documentation
 - Complete hot-reload workflow (Section 7)
@@ -137,8 +137,8 @@ Enhanced Developer Mode documentation with:
                         │
                         ▼
          ┌──────────────────────────────┐
-         │  IORA Developer App          │
-         │  (io.iora.developer-app)     │
+         │  rumahl Developer App          │
+         │  (io.rumahl.developer-app)     │
          │                              │
          │  Exclusive HotReload perm    │
          └──────────┬───────────────────┘
@@ -158,7 +158,7 @@ Enhanced Developer Mode documentation with:
                     │
                     ▼
         ┌───────────────────────┐
-        │   IORA Supervisor     │
+        │   rumahl Supervisor     │
         │   (Container Mgmt)    │
         └───────────────────────┘
 ```
@@ -196,7 +196,7 @@ Enhanced Developer Mode documentation with:
 **Decision:** Implement Developer App in Rust with Actix-web.
 
 **Rationale:**
-- Consistent with IORA ecosystem (other services use Rust)
+- Consistent with rumahl ecosystem (other services use Rust)
 - High performance and low resource usage
 - Strong type safety and error handling
 - Excellent async/await support for SSE streaming
@@ -294,9 +294,9 @@ Enhanced Developer Mode documentation with:
 
 ### Enable Developer Mode (Python SDK)
 ```python
-from iora_sdk import IoraClient
+from rumahl_sdk import rumahlClient
 
-async with IoraClient("http://localhost:8080", api_key="key") as client:
+async with rumahlClient("http://localhost:8080", api_key="key") as client:
     # This auto-installs the Developer App
     await client.toggle_developer_mode(enabled=True)
 ```
@@ -329,7 +329,7 @@ await client.hotreload_rollback(
 
 ## Building the Developer App
 
-The Developer App is built locally as part of the IORA system build process, not pulled from a registry.
+The Developer App is built locally as part of the rumahl system build process, not pulled from a registry.
 
 ### Manual Build
 
@@ -343,23 +343,23 @@ To build the Developer App image manually:
 ./scripts/build-developer-app.sh v1.0.0
 ```
 
-This builds the image as `iora-developer-app:local` using the main backend Dockerfile.
+This builds the image as `rumahl-developer-app:local` using the main backend Dockerfile.
 
 ### Automated Build
 
-The Developer App should be built automatically during IORA system updates:
+The Developer App should be built automatically during rumahl system updates:
 
 ```bash
-# Build all IORA backend services including Developer App
+# Build all rumahl backend services including Developer App
 cd backend
-docker build -t iora-backend:latest .
+docker build -t rumahl-backend:latest .
 
 # Build only Developer App
 docker build \
   -f Dockerfile \
-  -t iora-developer-app:local \
-  --target iora-developer-app \
-  --build-arg IORA_DEVELOPER_APP_OFFICIAL=true \
+  -t rumahl-developer-app:local \
+  --target rumahl-developer-app \
+  --build-arg RUMAHL_DEVELOPER_APP_OFFICIAL=true \
   .
 ```
 
@@ -368,10 +368,10 @@ docker build \
 The Developer App is integrated into the main build process:
 
 1. **Added to `backend/Dockerfile`**:
-   - Workspace includes `iora-developer-app`
+   - Workspace includes `rumahl-developer-app`
    - Source files copied during build stage
    - Binary built with `cargo build --release --workspace`
-   - Dedicated runtime stage `iora-developer-app`
+   - Dedicated runtime stage `rumahl-developer-app`
 
 2. **Build script** (`scripts/build-developer-app.sh`):
    - Standalone script for building Developer App
@@ -387,37 +387,37 @@ The Developer App is integrated into the main build process:
 
 ### Update Strategy
 
-The Developer App is updated alongside IORA Core/Supervisor:
+The Developer App is updated alongside rumahl Core/Supervisor:
 
-1. When IORA Core/Supervisor receives an update
+1. When rumahl Core/Supervisor receives an update
 2. The update includes new Developer App source
 3. Build process rebuilds all services including Developer App
-4. New `iora-developer-app:local` image is created
+4. New `rumahl-developer-app:local` image is created
 5. Next Developer Mode enable uses updated image
 
-**No separate update mechanism needed** - Developer App versions are tied to IORA system versions.
+**No separate update mechanism needed** - Developer App versions are tied to rumahl system versions.
 
 ## Files Modified/Created
 
 ### Created
-- `backend/iora-developer-app/Cargo.toml`
-- `backend/iora-developer-app/src/main.rs`
-- `backend/iora-developer-app/manifest.json`
-- `backend/iora-developer-app/Dockerfile` (standalone, for reference)
+- `backend/rumahl-developer-app/Cargo.toml`
+- `backend/rumahl-developer-app/src/main.rs`
+- `backend/rumahl-developer-app/manifest.json`
+- `backend/rumahl-developer-app/Dockerfile` (standalone, for reference)
 - `scripts/build-developer-app.sh` (build script)
 - `sdks/python/examples/developer_app_hotreload.py`
 
 ### Modified
 - `backend/Cargo.toml` - Added developer-app to workspace
 - `backend/Dockerfile` - Added Developer App build stages
-- `backend/iora-supervisor/src/main.rs` - Local build logic, no registry pull
-- `sdks/python/iora_sdk/client.py` - Hot-reload SDK methods
+- `backend/rumahl-supervisor/src/main.rs` - Local build logic, no registry pull
+- `sdks/python/rumahl_sdk/client.py` - Hot-reload SDK methods
 - `sdks/DEVELOPER_MODE.md` - Comprehensive documentation updates
 - `DEVELOPER_APP_IMPLEMENTATION.md` - Updated with local build details
 
 ## Commits Made
 
-1. **Add IORA Developer App with hot reload and IDE integration**
+1. **Add rumahl Developer App with hot reload and IDE integration**
    - Complete Rust application implementation
    - Hot reload, IDE, logs, metrics APIs
 
@@ -444,18 +444,18 @@ The Developer App is updated alongside IORA Core/Supervisor:
 7. **Build Developer App locally instead of pulling from registry**
    - Integrated into main backend Dockerfile
    - Local build with security parameters
-   - Bundled with IORA Core/Supervisor updates
+   - Bundled with rumahl Core/Supervisor updates
    - Build script for standalone builds
 
 ## Summary
 
-The IORA Developer App is now fully implemented and integrated into the IORA ecosystem. It provides developers with powerful hot-reload capabilities, IDE integration, and advanced development workflows while maintaining security through exclusive permissions and automatic installation.
+The rumahl Developer App is now fully implemented and integrated into the rumahl ecosystem. It provides developers with powerful hot-reload capabilities, IDE integration, and advanced development workflows while maintaining security through exclusive permissions and automatic installation.
 
-**Key Achievement:** The Developer App is now **built locally** as part of the IORA system, not pulled from an external registry. This provides:
+**Key Achievement:** The Developer App is now **built locally** as part of the rumahl system, not pulled from an external registry. This provides:
 - Full control over build parameters
 - Enhanced security through local builds
 - No external dependencies
-- Automatic updates bundled with IORA Core/Supervisor
+- Automatic updates bundled with rumahl Core/Supervisor
 
 **Status:** ✅ Complete and ready for use
 

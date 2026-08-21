@@ -3,19 +3,19 @@
 # ─── Rust Backend ────────────────────────────────────────
 
 check:
-	cd iora-os/backend && cargo check
+	cd rumahl-os/backend && cargo check
 
 clippy:
-	cd iora-os/backend && cargo clippy -- -D warnings
+	cd rumahl-os/backend && cargo clippy -- -D warnings
 
 fix:
-	cd iora-os/backend && cargo clippy --fix --allow-dirty
+	cd rumahl-os/backend && cargo clippy --fix --allow-dirty
 
 test:
-	cd iora-os/backend && cargo test
+	cd rumahl-os/backend && cargo test
 
 outdated:
-	cd iora-os/backend && cargo outdated 2>/dev/null || echo "install with: cargo install cargo-outdated"
+	cd rumahl-os/backend && cargo outdated 2>/dev/null || echo "install with: cargo install cargo-outdated"
 
 # ─── Frontend ───────────────────────────────────────────
 
@@ -40,5 +40,5 @@ quick: check frontend-check
 # ─── Clean ──────────────────────────────────────────────
 
 clean:
-	cd iora-os/backend && cargo clean
+	cd rumahl-os/backend && cargo clean
 	rm -rf frontend/node_modules

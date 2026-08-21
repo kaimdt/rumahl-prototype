@@ -1,10 +1,10 @@
 # Webhooks Guide
 
-Apps in IORA can register webhook endpoints that external services can call. The IORA system handles URL generation, request validation, retry logic, and delivery logging.
+Apps in rumahl can register webhook endpoints that external services can call. The rumahl system handles URL generation, request validation, retry logic, and delivery logging.
 
 ## Overview
 
-External services can send HTTP requests to your app's webhook URL, and IORA forwards them to your app's internal endpoint. This enables:
+External services can send HTTP requests to your app's webhook URL, and rumahl forwards them to your app's internal endpoint. This enables:
 
 - **GitHub webhooks** – react to push events, PRs, etc.
 - **IFTTT / Zapier integrations** – receive data from hundreds of services
@@ -133,9 +133,9 @@ GET /api/apps/:app_id/webhooks/:hook_id/stats
 ## SDK Usage
 
 ```typescript
-import IoraClient from '@iora/sdk';
+import rumahlClient from '@rumahl/sdk';
 
-const client = new IoraClient('http://localhost:8126', 'your-api-key');
+const client = new rumahlClient('http://localhost:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Create a webhook for GitHub
@@ -146,7 +146,7 @@ const result = await client.appWebhooks.create({
   max_retries: 3
 });
 
-const publicUrl = `https://my-iora.local${result.public_url}`;
+const publicUrl = `https://my-rumahl.local${result.public_url}`;
 console.log('Send webhook to:', publicUrl);
 
 // Get stats
@@ -161,25 +161,25 @@ const logs = await client.appWebhooks.getLogs(result.webhook_id);
 
 ### GitHub
 
-1. Create a webhook in IORA (note the secret)
+1. Create a webhook in rumahl (note the secret)
 2. Go to your GitHub repo → Settings → Webhooks → Add webhook
-3. Set Payload URL: `https://your-iora/api/webhooks/apps/my-app/{webhook_id}`
+3. Set Payload URL: `https://your-ora/api/webhooks/apps/my-app/{webhook_id}`
 4. Set Content type: `application/json`
-5. Set Secret: (the secret from your IORA webhook)
+5. Set Secret: (the secret from your rumahl webhook)
 6. Choose events and save
 
 ### IFTTT
 
-1. Create a webhook in IORA
+1. Create a webhook in rumahl
 2. In IFTTT, create an Applet with Webhook as the trigger
-3. Set the webhook URL to your IORA webhook URL
+3. Set the webhook URL to your rumahl webhook URL
 4. Configure the payload format as needed
 
 ## HMAC Signature Verification
 
 When `verify_signature` is enabled, incoming webhook requests are verified using HMAC-SHA256:
 
-- **Header**: `X-IORA-Signature-256`
+- **Header**: `X-rumahl-Signature-256`
 - **Format**: `sha256=<hex-encoded-signature>`
 
 The signature is computed over the raw request body using the webhook's secret key.

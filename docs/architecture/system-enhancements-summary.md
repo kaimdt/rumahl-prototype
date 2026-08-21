@@ -1,20 +1,20 @@
-# IORA System Enhancements - Summary
+# rumahl System Enhancements - Summary
 
 ## Overview
 
-This document summarizes the major enhancements made to the IORA system for improved port management, reverse proxy functionality, and SSH administration.
+This document summarizes the major enhancements made to the rumahl system for improved port management, reverse proxy functionality, and SSH administration.
 
 ## Changes Summary
 
 ### 1. Enhanced Port Manager ✅
 
-**File**: `backend/iora-shared/src/port_manager.rs`
+**File**: `backend/rumahl-shared/src/port_manager.rs`
 
 **Changes**:
 - Updated port ranges from 3000-4000 to **10000-20000** for apps/plugins
 - Added **30+ well-known port reservations** (HTTP, HTTPS, SSH, databases, etc.)
 - Implemented **PortAssignmentMode** enum with Random (default) and Fixed modes
-- Added IORA reserved ports 8080-8099 for system services
+- Added rumahl reserved ports 8080-8099 for system services
 - NGINX reserved on ports 80 and 443
 - Enhanced PortAssignment struct with `assignment_mode` field
 - Added comprehensive unit tests for both assignment modes
@@ -27,7 +27,7 @@ This document summarizes the major enhancements made to the IORA system for impr
 
 ### 2. App Manifest Schema Updates ✅
 
-**File**: `backend/iora-shared/src/app_manifest.rs`
+**File**: `backend/rumahl-shared/src/app_manifest.rs`
 
 **Changes**:
 - Added `assignment_mode` field to `InternalPort` struct
@@ -51,9 +51,9 @@ This document summarizes the major enhancements made to the IORA system for impr
 }
 ```
 
-### 3. IORA App Store Service Updates ✅
+### 3. rumahl App Store Service Updates ✅
 
-**File**: `backend/iora-appstore/src/main.rs`
+**File**: `backend/rumahl-appstore/src/main.rs`
 
 **Changes**:
 - Updated to use new port manager API with assignment modes
@@ -62,7 +62,7 @@ This document summarizes the major enhancements made to the IORA system for impr
 - Improved logging for port assignments
 - Added assignment_mode to database operations
 
-**File**: `backend/iora-appstore/schema.sql`
+**File**: `backend/rumahl-appstore/schema.sql`
 
 **Changes**:
 - Added `assignment_mode` column to `port_assignments` table
@@ -70,15 +70,15 @@ This document summarizes the major enhancements made to the IORA system for impr
 - CHECK constraint for valid values
 - Indexed for performance
 
-### 4. IORA NGINX Service (NEW) ✅
+### 4. rumahl NGINX Service (NEW) ✅
 
-**Location**: `backend/iora-nginx/`
+**Location**: `backend/rumahl-nginx/`
 
 **Features**:
 - Reverse proxy for all web traffic on ports 80/443
 - Dynamic NGINX configuration generation using Tera templates
 - Auto-reload configuration every 30 seconds
-- Static routes for all IORA services
+- Static routes for all rumahl services
 - Dynamic routes for installed apps (`/apps/{app-id}/`)
 - Security headers (X-Frame-Options, CSP, XSS Protection)
 - Rate limiting (API: 10 req/s, General: 50 req/s)
@@ -88,14 +88,14 @@ This document summarizes the major enhancements made to the IORA system for impr
 - Configuration backup and restore on errors
 
 **Files Created**:
-- `backend/iora-nginx/Cargo.toml` - Service dependencies
-- `backend/iora-nginx/src/main.rs` - Main service code
-- `backend/iora-nginx/nginx-config/nginx.conf.template` - NGINX config template
-- `backend/iora-nginx/README.md` - Service documentation
+- `backend/rumahl-nginx/Cargo.toml` - Service dependencies
+- `backend/rumahl-nginx/src/main.rs` - Main service code
+- `backend/rumahl-nginx/nginx-config/nginx.conf.template` - NGINX config template
+- `backend/rumahl-nginx/README.md` - Service documentation
 
 ### 5. SSH Management API (NEW) ✅
 
-**File**: `backend/iora-control/src/main.rs`
+**File**: `backend/rumahl-control/src/main.rs`
 
 **New Endpoints**:
 
@@ -121,14 +121,14 @@ This document summarizes the major enhancements made to the IORA system for impr
 **File**: `backend/Cargo.toml`
 
 **Changes**:
-- Added `iora-appstore` to workspace members
-- Added `iora-nginx` to workspace members
+- Added `rumahl-appstore` to workspace members
+- Added `rumahl-nginx` to workspace members
 
 ### 7. Documentation ✅
 
 **New Files**:
 - `docs/PORT_MANAGEMENT_AND_SYSTEM_ENHANCEMENTS.md` - Comprehensive guide
-- `backend/iora-nginx/README.md` - NGINX service documentation
+- `backend/rumahl-nginx/README.md` - NGINX service documentation
 
 ## Technical Details
 
@@ -139,7 +139,7 @@ This document summarizes the major enhancements made to the IORA system for impr
 │  Port Ranges                                │
 ├─────────────────────────────────────────────┤
 │  Well-Known: Various standard ports         │
-│  IORA Services: 8080-8099                   │
+│  rumahl Services: 8080-8099                   │
 │  Apps/Plugins: 10000-20000                  │
 └─────────────────────────────────────────────┘
 ```
@@ -158,10 +158,10 @@ Security Headers
 Gzip Compression
     ↓
 Route Matching
-    ├─ /api/core/ → iora-core (8090)
-    ├─ /api/control/ → iora-control (8091)
+    ├─ /api/core/ → rumahl-core (8090)
+    ├─ /api/control/ → rumahl-control (8091)
     ├─ /apps/my-app/ → my-app (10xxx)
-    └─ / → iora-home (8080)
+    └─ / → rumahl-home (8080)
 ```
 
 ### SSH User Creation Flow
@@ -248,7 +248,7 @@ None - All changes are backwards compatible with defaults
 - Gzip compression disabled for certain content types (prevents BREACH)
 
 ### SSH Management
-- Requires elevated permissions for iora-control service
+- Requires elevated permissions for rumahl-control service
 - Username validation prevents injection
 - Proper file permissions for SSH keys
 - Home directory isolation
@@ -273,11 +273,11 @@ None - All changes are backwards compatible with defaults
 - Existing apps will continue working
 
 ### NGINX
-- Stop iora-nginx service
+- Stop rumahl-nginx service
 - Configure direct access to services (port forwarding)
 
 ### SSH Management
-- Remove SSH endpoints from iora-control
+- Remove SSH endpoints from rumahl-control
 - Direct systemctl/useradd usage
 
 ## Future Enhancements
@@ -303,7 +303,7 @@ None - All changes are backwards compatible with defaults
    - Port ranges, well-known reservations, assignment modes
    - Database schema, manifest updates
 
-2. **feat: Add iora-nginx reverse proxy service** (74f2ad5)
+2. **feat: Add rumahl-nginx reverse proxy service** (74f2ad5)
    - NGINX service implementation
    - Template-based configuration
    - Auto-reload mechanism
@@ -316,7 +316,7 @@ None - All changes are backwards compatible with defaults
 ## Contributors
 
 - Claude Sonnet 4.5 (Implementation)
-- IORA Team (Requirements, Review)
+- rumahl Team (Requirements, Review)
 
 ## Related Issues
 

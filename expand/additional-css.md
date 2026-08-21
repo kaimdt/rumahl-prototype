@@ -1,6 +1,6 @@
 # Additional CSS – Implementation Summary
 
-## 10 IORA Themes Updated
+## 10 rumahl Themes Updated
 
 All 10 theme manifests in `/apps/examples/` now have comprehensive `additional_css` blocks covering 8 styling categories.
 

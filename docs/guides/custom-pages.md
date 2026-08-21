@@ -1,10 +1,10 @@
 # Creating Custom Pages
 
-Apps can add custom pages to the IORA dashboard navigation. This guide covers how to define, configure, and manage app pages.
+Apps can add custom pages to the rumahl dashboard navigation. This guide covers how to define, configure, and manage app pages.
 
 ## Overview
 
-When an app defines `custom_pages` in its manifest, IORA automatically:
+When an app defines `custom_pages` in its manifest, rumahl automatically:
 1. Creates dashboard pages for each entry
 2. Adds an Iframe widget pointing to the app's proxy URL
 3. Registers the pages in the navigation sidebar
@@ -205,7 +205,7 @@ IoT Hub
 
 ## Icon Reference
 
-IORA uses Phosphor Icons. Available icon names:
+rumahl uses Phosphor Icons. Available icon names:
 - `broadcast` – App default
 - `home`, `house` – Home/dashboard
 - `gear`, `sliders` – Settings
@@ -221,11 +221,11 @@ Full list: [Phosphor Icons](https://phosphoricons.com/)
 
 ## Iframe Communication
 
-Apps running in Iframes can communicate with IORA via postMessage. See the [App & Plugin System](../system/app-plugin-system.md#125-iframe-kommunikation-postmessage) for the complete API.
+Apps running in Iframes can communicate with rumahl via postMessage. See the [App & Plugin System](../system/app-plugin-system.md#125-iframe-kommunikation-postmessage) for the complete API.
 
 Quick example:
 ```javascript
-// Tell IORA to navigate to a page
+// Tell rumahl to navigate to a page
 window.parent.postMessage({
   type: 'call',
   id: 'nav-1',

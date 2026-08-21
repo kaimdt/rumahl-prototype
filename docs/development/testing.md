@@ -1,11 +1,11 @@
 # Testing & Debugging
 
-Guide for testing and debugging IORA apps and plugins.
+Guide for testing and debugging rumahl apps and plugins.
 
 ## Table of Contents
 
 - [Local Testing](#local-testing)
-- [Testing in IORA](#testing-in-iora)
+- [Testing in rumahl](#testing-in-ora)
 - [Debugging Tools](#debugging-tools)
 - [Logging](#logging)
 - [Common Testing Scenarios](#common-testing-scenarios)
@@ -15,7 +15,7 @@ Guide for testing and debugging IORA apps and plugins.
 
 ### App Testing (Docker)
 
-Test your app container locally before installing in IORA:
+Test your app container locally before installing in rumahl:
 
 ```bash
 # Build the Docker image
@@ -109,7 +109,7 @@ fi
 curl -s "$BASE_URL/api/hello" | jq .
 ```
 
-## Testing in IORA
+## Testing in rumahl
 
 ### Installation Testing
 
@@ -175,7 +175,7 @@ curl -N http://localhost:8126/api/apps/my-app/logs/stream
 
 ```bash
 # Get container ID
-CONTAINER=$(docker ps -q --filter "name=iora-app-my-app")
+CONTAINER=$(docker ps -q --filter "name=rumahl-app-my-app")
 
 # View container logs
 docker logs -f $CONTAINER
@@ -259,7 +259,7 @@ Use appropriate log levels:
 | `ERROR` | Errors that need attention |
 | `CRITICAL` | System-critical failures |
 
-### Viewing Logs in IORA
+### Viewing Logs in rumahl
 
 ```http
 # API
@@ -279,7 +279,7 @@ GET /api/apps/{app_id}/logs?source=system
 ```bash
 # 1. Install app
 # 2. Check container is running
-docker ps | grep iora-app-my-app
+docker ps | grep rumahl-app-my-app
 
 # 3. Wait for health check
 sleep 20
@@ -380,7 +380,7 @@ curl -w "\nTotal: %{time_total}s\nConnect: %{time_connect}s\nTTFB: %{time_startt
 Before reporting a bug:
 
 - [ ] Check app logs: `GET /api/apps/{id}/logs`
-- [ ] Check container status: `docker ps | grep iora-app-`
+- [ ] Check container status: `docker ps | grep rumahl-app-`
 - [ ] Check health endpoint: `curl http://localhost:8126/api/apps/{id}/proxy/health`
 - [ ] Verify permissions: `GET /api/appstore/apps/{id}/permissions`
 - [ ] Check network access: Verify domains are in whitelist

@@ -1,4 +1,4 @@
-# ORA Security Scan Report
+# rumahl Security Scan Report
 
 **Datum:** 2026-06-14 02:00 UTC  
 **Scan-Tool:** oryx-security-scan.sh (cargo audit + npm audit)  
@@ -50,14 +50,14 @@
 
 | RUSTSEC | Crate | Version | Ersatz | Betroffene Services |
 |---|---|---|---|---|
-| RUSTSEC-2021-0141 | **dotenv** ⚠️ | 0.15.0 | `dotenvy` | **17 Services** (iora-api, assist, backup, connector, control, core, domain-validator, files, gateway, home, intelligence, network-monitor, nginx, resource-manager, secrets, security, watchdog) |
+| RUSTSEC-2021-0141 | **dotenv** ⚠️ | 0.15.0 | `dotenvy` | **17 Services** (rumahl-api, assist, backup, connector, control, core, domain-validator, files, gateway, home, intelligence, network-monitor, nginx, resource-manager, secrets, security, watchdog) |
 | RUSTSEC-2025-0057 | **fxhash** | 0.2.1 | `rustc-hash` | Transitiv |
 | RUSTSEC-2024-0384 | **instant** | 0.1.13 | `web-time` | Transitiv |
 | RUSTSEC-2025-0119 | **number_prefix** | 0.4.0 | `unit-prefix` | Transitiv |
 | RUSTSEC-2024-0436 | **paste** | 1.0.15 | `pastey` / `with_builtin_macros` | Transitiv |
 | RUSTSEC-2024-0370 | **proc-macro-error** | 1.0.4 | `manyhow` | Transitiv (syn 1.x) |
 | RUSTSEC-2025-0134 | **rustls-pemfile** | 1.0.4 / 2.2.0 | `rustls-pki-types` (PemObject) | Transitiv |
-| RUSTSEC-2025-0017 | **trust-dns-proto** 🚩 | 0.23.2 | `hickory-proto` (Rebrand) | **iora-connector** + iora-domain-validator |
+| RUSTSEC-2025-0017 | **trust-dns-proto** 🚩 | 0.23.2 | `hickory-proto` (Rebrand) | **rumahl-connector** + rumahl-domain-validator |
 
 ### Unsound
 
@@ -73,7 +73,7 @@
 
 ```bash
 # [KRITISCH] lettre TLS-Bug – SOFORT AUSFÜHREN, 30 Sekunden
-cd iora-os/backend && cargo update -p lettre@0.11.21 --precise 0.11.22
+cd rumahl-os/backend && cargo update -p lettre@0.11.21 --precise 0.11.22
 ```
 
 ### Mittelfristig (benötigt Dependency-Upgrades in Cargo.toml):
@@ -81,25 +81,25 @@ cd iora-os/backend && cargo update -p lettre@0.11.21 --precise 0.11.22
 ```bash
 # rustls-webpki 0.101.7 → requwest/rustls Upgrade:
 #   reqwest v0.11.x → v0.12.x (nutzt rustls v0.23, das rustls-webpki 0.103.x verwendet)
-#   Betrifft: iora-api, iora-appstore, iora-assist, iora-cli, iora-connector, 
-#             iora-control, iora-core, iora-dev-bridge, iora-dev-watch, 
-#             iora-developer-app, iora-gateway, iora-home, iora-installer,
-#             iora-intelligence, iora-security, iora-shared + Abhängige
+#   Betrifft: rumahl-api, rumahl-appstore, rumahl-assist, rumahl-cli, rumahl-connector, 
+#             rumahl-control, rumahl-core, rumahl-dev-bridge, rumahl-dev-watch, 
+#             rumahl-developer-app, rumahl-gateway, rumahl-home, rumahl-installer,
+#             rumahl-intelligence, rumahl-security, rumahl-shared + Abhängige
 
 # rustls-webpki 0.102.8 → rumqttc Upgrade:
 #   rumqttc v0.24.0 → v0.25+ (nutzt rustls v0.23, das rustls-webpki 0.103.x verwendet)
-#   Betrifft: iora-home
+#   Betrifft: rumahl-home
 
 # idna 0.4.0 / trust-dns → hickory Migration:
 #   trust-dns-resolver v0.23 → hickory-resolver (neuere Versionen nutzen idna 1.x)
-#   Betrifft: iora-connector, iora-domain-validator
+#   Betrifft: rumahl-connector, rumahl-domain-validator
 ```
 
 ### Kein Patch verfügbar:
 
 - **rsa v0.9.10** (Marvin Attack) – Der Crate-Author arbeitet an constant-time Implementierung.
   - **Workaround**: Timing-Angriff nur bei Netzwerkzugriff relevant. Bei lokalem Einsatz (z.B. Signing-Tool auf nicht-kompromittiertem Host) geringeres Risiko.
-  - **Alternative**: Prüfen, ob RSA überhaupt verwendet wird. Falls nur für Signing/Verification in `iora-sign`/`iora-verify`, ggf. auf Ed25519 migrieren.
+  - **Alternative**: Prüfen, ob RSA überhaupt verwendet wird. Falls nur für Signing/Verification in `rumahl-sign`/`rumahl-verify`, ggf. auf Ed25519 migrieren.
 
 ### Frontend:
 

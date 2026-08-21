@@ -1,6 +1,6 @@
 # Docker Configuration Guide
 
-This guide covers Docker configuration for IORA apps, including container setup, networking, health checks, and multi-container bundles.
+This guide covers Docker configuration for rumahl apps, including container setup, networking, health checks, and multi-container bundles.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ This guide covers Docker configuration for IORA apps, including container setup,
 
 ### Auto-Build (Recommended for Development)
 
-IORA builds the Docker image from your app's source code:
+rumahl builds the Docker image from your app's source code:
 
 ```json
 {
@@ -34,7 +34,7 @@ IORA builds the Docker image from your app's source code:
 ```
 
 **Process:**
-1. IORA creates a Dockerfile from your configuration
+1. rumahl creates a Dockerfile from your configuration
 2. Copies your app files to `/app`
 3. Runs `install_cmd` (e.g., `npm install`)
 4. Sets `start_cmd` as the container entrypoint
@@ -420,4 +420,4 @@ CMD ["node", "dist/server.js"]
 
 - [Port Management](port-management.md) – Port configuration
 - [App Development Guide](../development/app-development.md) – Full manifest reference
-- [Deployment Guide](../deployment/docker-and-iora-os.md) – Production deployment
+- [Deployment Guide](../deployment/docker-and-rumahl-os.md) – Production deployment

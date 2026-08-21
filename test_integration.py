@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-End-to-End Integrationstest: IORA Dashboard <-> Home Assistant Integration
+End-to-End Integrationstest: rumahl Dashboard <-> Home Assistant Integration
 ==========================================================================
 Testet:
  1. WebSocket-Verbindung (Dashboard WS Server)
@@ -9,7 +9,7 @@ Testet:
  4. Automatisierungs-Trigger (call_service über WS)
 
 Umgebungsvariablen:
-  IORA_URL    - Backend-URL (default: http://localhost:8126)
+  RUMAHL_URL    - Backend-URL (default: http://localhost:8126)
   HA_URL      - HA-URL für Mock-Tests (optional)
   HA_TOKEN    - HA-Token (optional)
 """
@@ -21,8 +21,8 @@ import time
 import urllib.request
 import urllib.error
 
-IORA_URL = os.environ.get("IORA_URL", "http://localhost:8126")
-WS_URL = IORA_URL.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
+RUMAHL_URL = os.environ.get("RUMAHL_URL", "http://localhost:8126")
+WS_URL = RUMAHL_URL.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
 
 PASS = 0
 FAIL = 0
@@ -55,7 +55,7 @@ def skip(name: str, reason: str = ""):
 
 def http_get(path: str, timeout: int = 5):
     """Synchroner HTTP-GET."""
-    url = f"{IORA_URL}{path}"
+    url = f"{RUMAHL_URL}{path}"
     req = urllib.request.Request(url)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:

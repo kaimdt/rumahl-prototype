@@ -1,6 +1,6 @@
-# ORA Security Scan Report — 2026-06-07 02:01 UTC
+# rumahl Security Scan Report — 2026-06-07 02:01 UTC
 
-**Project:** IORA Monorepo (`/home/hermes/ora`)
+**Project:** rumahl Monorepo (`/home/hermes/ora`)
 **Scanner:** Hermes Agent (via `cargo audit` + `npm audit`)
 **Dependencies scanned:** 747 (Rust) + Frontend (npm)
 

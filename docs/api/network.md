@@ -1,6 +1,6 @@
 # Network Monitor API
 
-The Network Monitor API is served by `iora-gateway` on port 8096. It provides sandboxed external integrations including email sending, web search, HTTP requests, and network monitoring.
+The Network Monitor API is served by `rumahl-gateway` on port 8096. It provides sandboxed external integrations including email sending, web search, HTTP requests, and network monitoring.
 
 ## Base URL
 
@@ -22,7 +22,7 @@ Content-Type: application/json
 
 {
   "to": "recipient@example.com",
-  "subject": "IORA Alert",
+  "subject": "rumahl Alert",
   "body": "<h1>Notification</h1><p>Front door opened at 12:00</p>",
   "html": true
 }
@@ -111,7 +111,7 @@ POST /api/gateway/verify-update
 Content-Type: application/json
 
 {
-  "url": "https://releases.example.com/iora-v2.3.0.tar.gz",
+  "url": "https://releases.example.com/rumahl-v2.3.0.tar.gz",
   "expected_checksum": "sha256:abc123...",
   "checksum_type": "sha256"
 }
@@ -140,7 +140,7 @@ GET /api/gateway/requests?limit=100
 GET /api/gateway/requests?type=email
 
 # Get requests by service
-GET /api/gateway/requests?service=iora-assist
+GET /api/gateway/requests?service=rumahl-assist
 ```
 
 ## AI Request Monitoring
@@ -157,7 +157,7 @@ Response:
     {
       "id": "req-uuid",
       "timestamp": "2026-06-01T12:00:00Z",
-      "service": "iora-assist",
+      "service": "rumahl-assist",
       "type": "http_get",
       "url": "https://api.example.com/data",
       "threat_level": 0,

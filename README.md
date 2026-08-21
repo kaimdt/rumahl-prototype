@@ -1,9 +1,9 @@
-# ORA — Home Assistant Dashboard
+# rumahl — Home Assistant Dashboard
 
-[![CI](https://github.com/kaimdt/ora/actions/workflows/ci.yml/badge.svg)](https://github.com/kaimdt/ora/actions/workflows/ci.yml)
-[![Buildroot Release](https://github.com/kaimdt/ora/actions/workflows/buildroot-release.yml/badge.svg)](https://github.com/kaimdt/ora/actions/workflows/buildroot-release.yml)
-[![Release](https://img.shields.io/github/v/release/kaimdt/ora?sort=semver)](https://github.com/kaimdt/ora/releases)
-[![License](https://img.shields.io/github/license/kaimdt/ora)](LICENSE)
+[![CI](https://github.com/rumahl/ora/actions/workflows/ci.yml/badge.svg)](https://github.com/rumahl/ora/actions/workflows/ci.yml)
+[![Buildroot Release](https://github.com/rumahl/ora/actions/workflows/buildroot-release.yml/badge.svg)](https://github.com/rumahl/ora/actions/workflows/buildroot-release.yml)
+[![Release](https://img.shields.io/github/v/release/rumahl/ora?sort=semver)](https://github.com/rumahl/ora/releases)
+[![License](https://img.shields.io/github/license/rumahl/ora)](LICENSE)
 
 A modern, fully-featured **Home Assistant Dashboard** with real-time entity control, weather forecasts, history charts, drag-and-drop page design, multi-user/multi-device support, and an embedded appliance OS.
 
@@ -55,9 +55,9 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + 
 - **German locale** — date/time formatting in de-DE
 
 ### Desktop App
-- **ORA Desktop** — Tauri shell for remote ORA Home rendering, local system integration and tray control
+- **rumahl Desktop** — Tauri shell for remote rumahl Home rendering, local system integration and tray control
 - **Glass titlebar** — semi-transparent, borderless desktop titlebar with clean taskbar integration
-- **Remote home embedding** — live ORA Home page with desktop-sized viewport
+- **Remote home embedding** — live rumahl Home page with desktop-sized viewport
 - **Desktop-only settings** — tray, system, proxy, platform-specific features
 - **System controls** — brightness, always-on-top, kiosk mode, screensaver
 - **Proxy management** — automatically start local proxy, configure ports
@@ -77,7 +77,7 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + 
 ### Backend (Microservice Architecture)
 - **Rust + Axum** — fast, memory-safe backend microservices
 - **SQLite** — zero-config database with WAL mode (per-service)
-- **PostgreSQL** — for the App Store (iora-appstore)
+- **PostgreSQL** — for the App Store (rumahl-appstore)
 - **Persistent WebSocket** to Home Assistant for real-time state sync
 - **Entity state cache** — instant responses, no HA round-trips
 - **Service call buffer** — coalesces rapid slider/dial changes
@@ -85,7 +85,7 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + 
 - **Multi-user & multi-device** configuration profiles
 - **Background media proxy** — serves HA camera/agent images
 
-### IORA OS (Embedded Appliance)
+### rumahl OS (Embedded Appliance)
 - **Buildroot-based** embedded OS for dedicated hardware
 - **Systemd services** — all microservices run natively (no Docker)
 - **RAUC-based OTA updates** — dual-copy A/B partition scheme
@@ -105,7 +105,7 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + 
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/kaimdt/ora.git && cd ora
+git clone https://github.com/rumahl/ora.git && cd ora
 cd frontend && npm install
 ```
 
@@ -113,7 +113,7 @@ cd frontend && npm install
 
 ```bash
 # Backend configuration
-cp iora-os/backend/services/iora-home/.env.example iora-os/backend/services/iora-home/.env
+cp rumahl-os/backend/services/rumahl-home/.env.example rumahl-os/backend/services/rumahl-home/.env
 # Edit .env:
 #   HA_URL=http://homeassistant.local:8123
 #   HA_TOKEN=your_long_lived_access_token
@@ -126,26 +126,26 @@ cp iora-os/backend/services/iora-home/.env.example iora-os/backend/services/iora
 # Build frontend
 cd frontend && npm run build
 
-# Build backend (iora-home service)
-cd iora-os/backend && cargo build -p iora-home --release
+# Build backend (rumahl-home service)
+cd rumahl-os/backend && cargo build -p rumahl-home --release
 
 # Run
-./target/release/iora-home
+./target/release/rumahl-home
 ```
 
 The dashboard is available at **http://localhost:3001**.
 
 ### Development Mode
 
-**Dev VM (production-like IORA OS environment)**:
+**Dev VM (production-like rumahl OS environment)**:
 
 ```bash
-cd iora-os
+cd rumahl-os
 ./dev-local.sh --source-mode   # default: services run via cargo run from the 1:1 mirror
-./dev-local.sh --build-mode    # alternative: run deployed binaries (/usr/bin/iora-*)
+./dev-local.sh --build-mode    # alternative: run deployed binaries (/usr/bin/rumahl-*)
 ```
 
-The dev VM keeps a **1:1 mirror of your repository** at `/home/iora/iora`:
+The dev VM keeps a **1:1 mirror of your repository** at `/home/ora/ora`:
 
 ```bash
 ./dev-sync.sh --once           # full mirror now
@@ -154,12 +154,12 @@ The dev VM keeps a **1:1 mirror of your repository** at `/home/iora/iora`:
 
 - **Source mode**: Rust services run via `cargo run` from the mirror (incremental
   recompile on change); the frontend runs as a Vite dev server inside the VM with
-  HMR (backend proxies via `IORA_FRONTEND_DEV_URL`). The in-VM hot-reload daemon
-  (`iora-hot-reload.service`) restarts the affected service automatically when
+  HMR (backend proxies via `RUMAHL_FRONTEND_DEV_URL`). The in-VM hot-reload daemon
+  (`rumahl-hot-reload.service`) restarts the affected service automatically when
   its sources change.
 - **Build mode**: `dev-watch.sh` builds inside the VM and ships the binaries
-  through the mirror drop-box (`/home/iora/iora/.iora-dev/binaries`); the in-VM
-  hot-reload daemon installs them to `/usr/bin/iora-*` and restarts the
+  through the mirror drop-box (`/home/ora/ora/.rumahl-dev/binaries`); the in-VM
+  hot-reload daemon installs them to `/usr/bin/rumahl-*` and restarts the
   services – the classic production-like flow, fully mirror-based.
 - **Windows**: run the scripts in PowerShell (`dev-local.ps1 -Mode source`); the
   mirror sync uses WSL rsync (incremental) – start the watcher with
@@ -169,7 +169,7 @@ The dev VM keeps a **1:1 mirror of your repository** at `/home/iora/iora`:
 
 ```bash
 # Terminal 1 — Backend (with auto-reload)
-cd iora-os/backend && cargo run -p iora-home
+cd rumahl-os/backend && cargo run -p rumahl-home
 
 # Terminal 2 — Frontend (with hot reload)
 cd frontend && npm run dev
@@ -198,19 +198,19 @@ docker compose -f deploy/docker-compose.minimal.yml up -d
 
 ```
 +-------------+     WebSocket      +------------------+     WebSocket     +---------------+
-|   Browser   |<------------------>|  iora-home       |<----------------->| Home Assistant|
+|   Browser   |<------------------>|  rumahl-home       |<----------------->| Home Assistant|
 |  React SPA  |     REST API       |  (Axum + SQLite) |     REST API     |   Instance    |
 +-------------+                    +------------------+                   +---------------+
                                            |
                                     +------+------+
                                     |             |
-                              iora-core    iora-appstore
+                              rumahl-core    rumahl-appstore
                            (Service Disc.)   (PostgreSQL)
                                     |
-                              iora-supervisor
+                              rumahl-supervisor
                            (Docker Container)
                                     |
-                              iora-gateway
+                              rumahl-gateway
                            (Messaging/Webhooks)
 ```
 
@@ -225,14 +225,14 @@ docker compose -f deploy/docker-compose.minimal.yml up -d
 
 ```
 ora/
-├── iora-os/backend/          # 🏠 MAIN BACKEND (Rust Workspace, 20+ Crates)
-│   ├── shared/iora-shared/   # Shared types, traits, permissions
+├── rumahl-os/backend/          # 🏠 MAIN BACKEND (Rust Workspace, 20+ Crates)
+│   ├── shared/rumahl-shared/   # Shared types, traits, permissions
 │   └── services/             # Microservices
-│       ├── iora-home/        # Main API (Axum, Port 3001/8126)
-│       ├── iora-core/        # Service discovery & plugin registry
-│       ├── iora-appstore/    # App Store (PostgreSQL)
-│       ├── iora-supervisor/  # Docker container management
-│       └── ... (iora-files, iora-secrets, iora-security, etc.)
+│       ├── rumahl-home/        # Main API (Axum, Port 3001/8126)
+│       ├── rumahl-core/        # Service discovery & plugin registry
+│       ├── rumahl-appstore/    # App Store (PostgreSQL)
+│       ├── rumahl-supervisor/  # Docker container management
+│       └── ... (rumahl-files, rumahl-secrets, rumahl-security, etc.)
 ├── frontend/                 # React SPA (Vite + Tailwind)
 ├── desktop/                  # Tauri desktop app
 ├── sdks/                     # SDKs (JS, Go, Rust, C++, Python, PHP)
@@ -240,7 +240,7 @@ ora/
 ├── docs/                     # Documentation
 ├── deploy/                   # Docker Compose files
 ├── custom_components/        # Home Assistant integration
-└── iora-os/                  # Buildroot-based embedded OS
+└── rumahl-os/                  # Buildroot-based embedded OS
 ```
 
 ---

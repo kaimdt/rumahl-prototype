@@ -1,6 +1,6 @@
-# IORA App & Plugin Entwicklung – Anleitung für KI-Agenten
+# rumahl App & Plugin Entwicklung – Anleitung für KI-Agenten
 
-> Diese Anleitung beschreibt, wie KI-Assistenten (wie pi, Claude, ChatGPT) IORA-Apps und Plugins entwickeln können. Folgt strikt diesem Prozess für konsistente, funktionale Ergebnisse.
+> Diese Anleitung beschreibt, wie KI-Assistenten (wie pi, Claude, ChatGPT) rumahl-Apps und Plugins entwickeln können. Folgt strikt diesem Prozess für konsistente, funktionale Ergebnisse.
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Kriterium | App | Plugin |
 |-----------|-----|--------|
-| **Ausführung** | Docker-Container | IORA-interne Sandbox |
+| **Ausführung** | Docker-Container | rumahl-interne Sandbox |
 | **Sprachen** | Alle (JS/TS, Python, Rust, Go, ...) | JavaScript/TypeScript |
 | **UI** | Eigenes Web-Interface (Iframe/Proxy) | Widget im Dashboard |
 | **Persistenz** | Eigene SQLite-DB + File Storage | KV-Storage (beschränkt) |
@@ -23,11 +23,11 @@
 ### Datenfluss
 
 ```
-Externer Dienst → Webhook → IORA Gateway → App (Docker/Sandbox)
+Externer Dienst → Webhook → rumahl Gateway → App (Docker/Sandbox)
                                                  ↓
                                      App Storage / SQLite DB / Messaging
                                                  ↓
-                                    IORA API → Dashboard UI
+                                    rumahl API → Dashboard UI
 ```
 
 ---
@@ -80,20 +80,20 @@ Externer Dienst → Webhook → IORA Gateway → App (Docker/Sandbox)
 ### Phase 3: App-Code schreiben
 
 ```javascript
-// server.js – Express-App mit IORA Storage & DB
+// server.js – Express-App mit rumahl Storage & DB
 const express = require('express');
 const app = express();
 app.use(express.json());
 
-// Health-Check (Pflicht für IORA)
+// Health-Check (Pflicht für rumahl)
 app.get('/health', (req, res) => res.json({ status: 'healthy' }));
 
 // App-eigene API
 app.get('/api/weather', async (req, res) => {
   const city = req.query.city || 'Berlin';
   
-  // IORA Storage API (über API-Gateway)
-  const cached = await fetch(`http://iora-home:3001/api/apps/my-app/storage/kv/weather_${city}`);
+  // rumahl Storage API (über API-Gateway)
+  const cached = await fetch(`http://rumahl-home:3001/api/apps/my-app/storage/kv/weather_${city}`);
   // ... business logic
   
   res.json({ city, temperature: 22, condition: 'sunny' });
@@ -109,7 +109,7 @@ app.listen(PORT, () => console.log(`App running on ${PORT}`));
 # App als ZIP verpacken
 zip -r my-weather-app.zip manifest.json server.js package.json public/
 
-# Über IORA CLI installieren
+# Über rumahl CLI installieren
 ora app install my-weather-app.zip
 
 # Oder per API
@@ -120,14 +120,14 @@ curl -X POST http://localhost:8126/api/appstore/install \
 
 ---
 
-## 3. Neue IORA Core-Features entwickeln
+## 3. Neue rumahl Core-Features entwickeln
 
-Wenn ein KI-Agent neue Funktionen zum IORA-Kern hinzufügen soll:
+Wenn ein KI-Agent neue Funktionen zum rumahl-Kern hinzufügen soll:
 
-### Schritt 1: Typen definieren (`iora-shared`)
+### Schritt 1: Typen definieren (`rumahl-shared`)
 
 ```rust
-// shared/iora-shared/src/mein_modul.rs
+// shared/rumahl-shared/src/mein_modul.rs
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,15 +137,15 @@ pub struct MyNewType {
 }
 ```
 
-Registrieren in `shared/iora-shared/src/lib.rs`:
+Registrieren in `shared/rumahl-shared/src/lib.rs`:
 ```rust
 pub mod mein_modul;
 ```
 
-### Schritt 2: Handler schreiben (`iora-home`)
+### Schritt 2: Handler schreiben (`rumahl-home`)
 
 ```rust
-// services/iora-home/src/my_handler.rs
+// services/rumahl-home/src/my_handler.rs
 use axum::{extract::State, Json};
 // ... imports
 
@@ -159,7 +159,7 @@ pub async fn my_endpoint(
 
 ### Schritt 3: Module + Routen registrieren
 
-In `services/iora-home/src/main.rs`:
+In `services/rumahl-home/src/main.rs`:
 ```rust
 // Module-Deklaration (ca. Zeile 46)
 mod my_handler;
@@ -176,7 +176,7 @@ my_handler: Arc::new(my_handler::MyHandlerState::new()),
 
 ### Schritt 4: Berechtigungen ergänzen
 
-In `shared/iora-shared/src/permissions.rs`:
+In `shared/rumahl-shared/src/permissions.rs`:
 ```rust
 // Enum-Eintrag
 MyNewPermission,
@@ -197,21 +197,21 @@ MyNewPermission => bool (true/false),
 ### Schritt 5: Migration erstellen
 
 ```sql
--- services/iora-home/migrations/023_my_new_feature.sql
+-- services/rumahl-home/migrations/023_my_new_feature.sql
 CREATE TABLE IF NOT EXISTS my_new_table (
     id UUID PRIMARY KEY,
     ...
 );
 ```
 
-In `services/iora-home/src/db/mod.rs`:
+In `services/rumahl-home/src/db/mod.rs`:
 ```rust
 ("023_my_new_feature", include_str!("../../migrations/023_my_new_feature.sql")),
 ```
 
 ### Schritt 6: Manifest-Felder erweitern
 
-In `shared/iora-shared/src/app_manifest.rs`:
+In `shared/rumahl-shared/src/app_manifest.rs`:
 ```rust
 // Neues Feld in AppManifest
 #[serde(skip_serializing_if = "Option::is_none")]
@@ -250,9 +250,9 @@ cp -r docs/* frontend/public/docs/
 
 ## 4. Checkliste für neue Features
 
-- [ ] Typen in `iora-shared` definiert & in `lib.rs` exportiert
+- [ ] Typen in `rumahl-shared` definiert & in `lib.rs` exportiert
 - [ ] Manifest-Struktur erweitert (falls nötig)
-- [ ] Handler in `iora-home` geschrieben
+- [ ] Handler in `rumahl-home` geschrieben
 - [ ] Module-Deklaration in `main.rs`
 - [ ] State-Feld + Init in `main.rs`
 - [ ] Routen in `data_routes` registriert
@@ -284,10 +284,10 @@ cp -r docs/* frontend/public/docs/
 | Service | URL |
 |---------|-----|
 | Frontend (Vite Dev) | `http://localhost:5173` |
-| Backend API (iora-home) | `http://localhost:3001` |
+| Backend API (rumahl-home) | `http://localhost:3001` |
 | Swagger UI | `http://localhost:3001/api/docs` |
 | Statische Docs | `http://localhost:5173/docs/` |
-| App Store (iora-appstore) | `http://localhost:8098` |
+| App Store (rumahl-appstore) | `http://localhost:8098` |
 | Core Service | `http://localhost:8090` |
 | Health Check | `http://localhost:3001/health` |
 
@@ -297,13 +297,13 @@ cp -r docs/* frontend/public/docs/
 
 ```bash
 # Einzelnen Service bauen
-cargo build -p iora-home
+cargo build -p rumahl-home
 
 # Workspace bauen
 cargo build
 
 # Einzelnen Service starten
-cargo run -p iora-home
+cargo run -p rumahl-home
 
 # Alle Services starten (Windows)
 start.bat

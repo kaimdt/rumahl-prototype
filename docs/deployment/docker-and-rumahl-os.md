@@ -1,17 +1,17 @@
-# IORA - Complete Containerization and IORA OS
+# rumahl - Complete Containerization and rumahl OS
 
-This document describes the full containerization of IORA and the IORA OS custom operating system.
+This document describes the full containerization of rumahl and the rumahl OS custom operating system.
 
 ## Overview
 
-IORA is now a **fully containerized system** running on **IORA OS**, a custom Linux-based operating system built with Buildroot. Every component runs as a Docker container, managed by the `iora-supervisor` service.
+rumahl is now a **fully containerized system** running on **rumahl OS**, a custom Linux-based operating system built with Buildroot. Every component runs as a Docker container, managed by the `rumahl-supervisor` service.
 
 ## Architecture Changes
 
-### New Component: iora-supervisor (Port 8097)
+### New Component: rumahl-supervisor (Port 8097)
 
 The supervisor is the **master container** that controls Docker. It:
-- Manages all IORA service containers
+- Manages all rumahl service containers
 - Handles container start/stop/restart operations
 - Pulls updates and recreates containers
 - Aggregates logs from all services
@@ -27,7 +27,7 @@ The supervisor is the **master container** that controls Docker. It:
 - `POST /api/supervisor/services/update` - Update service
 - `GET /api/supervisor/containers/{name}/logs` - View logs
 
-### IORA OS Components
+### rumahl OS Components
 
 1. **Bootloader**
    - GRUB (x86_64 UEFI)
@@ -41,8 +41,8 @@ The supervisor is the **master container** that controls Docker. It:
 
 3. **Container Platform**
    - Docker Engine
-   - All IORA services run as containers
-   - Managed by iora-supervisor
+   - All rumahl services run as containers
+   - Managed by rumahl-supervisor
 
 4. **Updates**
    - RAUC Over-The-Air (OTA) updates
@@ -54,7 +54,7 @@ The supervisor is the **master container** that controls Docker. It:
    - AppArmor mandatory access control
    - Per-service security profiles
    - Read-only root filesystem
-   - Encrypted databases (iora-security, iora-secrets)
+   - Encrypted databases (rumahl-security, rumahl-secrets)
 
 ## Quick Start with Docker Compose
 
@@ -67,8 +67,8 @@ The supervisor is the **master container** that controls Docker. It:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-org/iora.git
-   cd iora
+   git clone https://github.com/your-org/ora.git
+   cd ora
    ```
 
 2. **Configure environment**
@@ -92,7 +92,7 @@ The supervisor is the **master container** that controls Docker. It:
    HA_TOKEN=your_ha_token
    ```
 
-3. **Start IORA**
+3. **Start rumahl**
    ```bash
    docker compose up -d
    ```
@@ -103,9 +103,9 @@ The supervisor is the **master container** that controls Docker. It:
    docker compose logs -f
    ```
 
-5. **Access IORA**
-   - **IORA Home**: http://localhost:8080
-   - **IORA Control**: http://localhost:8091
+5. **Access rumahl**
+   - **rumahl Home**: http://localhost:8080
+   - **rumahl Control**: http://localhost:8091
    - **Supervisor API**: http://localhost:8097
 
 ### Docker Compose Services
@@ -113,23 +113,23 @@ The supervisor is the **master container** that controls Docker. It:
 The complete stack includes:
 
 - `postgres` - PostgreSQL 16 database
-- `iora-supervisor` - Docker orchestration
-- `iora-core` - Central orchestrator
-- `iora-security` - Security monitoring
-- `iora-watchdog` - Health monitoring
-- `iora-secrets` - Encrypted secrets
-- `iora-gateway` - Sandboxed integrations
-- `iora-home` - Smart Home server
-- `iora-control` - Admin panel
-- `iora-assist` - AI assistant
+- `rumahl-supervisor` - Docker orchestration
+- `rumahl-core` - Central orchestrator
+- `rumahl-security` - Security monitoring
+- `rumahl-watchdog` - Health monitoring
+- `rumahl-secrets` - Encrypted secrets
+- `rumahl-gateway` - Sandboxed integrations
+- `rumahl-home` - Smart Home server
+- `rumahl-control` - Admin panel
+- `rumahl-assist` - AI assistant
 
 All services have:
 - Health checks
 - Automatic restart policies
 - AppArmor security profiles
-- Labeled with `iora.managed=true`
+- Labeled with `ora.managed=true`
 
-## Building IORA OS
+## Building rumahl OS
 
 ### Prerequisites
 
@@ -138,12 +138,12 @@ All services have:
 - 4GB+ RAM
 - Internet connection
 
-## Building IORA OS
+## Building rumahl OS
 
 ### Quick Build (All Formats)
 
 ```bash
-cd iora-os
+cd rumahl-os
 
 # Install dependencies
 sudo make install-deps
@@ -162,7 +162,7 @@ This single command creates:
 
 **Build time**: 1-2 hours (depending on hardware)
 
-**Output**: `iora-os/releases/YYYYMMDD-HHMMSS/` directory
+**Output**: `rumahl-os/releases/YYYYMMDD-HHMMSS/` directory
 
 ### Alternative Build Methods
 
@@ -177,7 +177,7 @@ make build
 ./build.sh all
 ```
 
-See [iora-os/BUILD_IMAGES.md](iora-os/BUILD_IMAGES.md) for comprehensive build documentation.
+See [rumahl-os/BUILD_IMAGES.md](rumahl-os/BUILD_IMAGES.md) for comprehensive build documentation.
 
 ### Manual Build Steps (Advanced)
 
@@ -193,15 +193,15 @@ For more control over the build:
 
 2. **Download Buildroot**
    ```bash
-   cd iora-os
+   cd rumahl-os
    wget https://buildroot.org/downloads/buildroot-2024.02.tar.gz
    tar xzf buildroot-2024.02.tar.gz
    cd buildroot-2024.02
    ```
 
-3. **Configure for IORA**
+3. **Configure for rumahl**
    ```bash
-   make BR2_EXTERNAL=../configs iora_defconfig
+   make BR2_EXTERNAL=../configs rumahl_defconfig
    ```
 
 4. **Build (1-2 hours)**
@@ -214,14 +214,14 @@ For more control over the build:
    output/images/
    ├── rootfs.squashfs    # Root filesystem
    ├── bzImage            # Linux kernel
-   └── iora-os.img.xz     # Complete disk image
+   └── rumahl-os.img.xz     # Complete disk image
    ```
 
 ### Flash to Device
 
 **USB/SD Card:**
 ```bash
-xzcat output/images/iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+xzcat output/images/rumahl-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 sync
 ```
 
@@ -229,44 +229,44 @@ sync
 ```bash
 qemu-system-x86_64 \
     -enable-kvm -m 2048 -smp 2 \
-    -drive file=output/images/iora-os.img,format=raw \
+    -drive file=output/images/rumahl-os.img,format=raw \
     -net nic,model=virtio \
     -net user,hostfwd=tcp::8080-:8080
 ```
 
 ### First Boot
 
-1. Boot from IORA OS image
-2. Default login: `root` / `iora` (change immediately!)
-3. System auto-starts Docker and iora-supervisor
-4. iora-supervisor starts all IORA containers
+1. Boot from rumahl OS image
+2. Default login: `root` / `ora` (change immediately!)
+3. System auto-starts Docker and rumahl-supervisor
+4. rumahl-supervisor starts all rumahl containers
 5. Access at http://[device-ip]:8080
 
 ## File Structure
 
 ```
-iora/
+ora/
 ├── backend/
 │   ├── Dockerfile                 # Multi-stage build for all services
-│   ├── iora-supervisor/          # New: Docker orchestration
-│   ├── iora-home/
-│   ├── iora-core/
-│   ├── iora-control/
-│   ├── iora-assist/
-│   ├── iora-secrets/
-│   ├── iora-watchdog/
-│   ├── iora-security/
-│   ├── iora-gateway/
+│   ├── rumahl-supervisor/          # New: Docker orchestration
+│   ├── rumahl-home/
+│   ├── rumahl-core/
+│   ├── rumahl-control/
+│   ├── rumahl-assist/
+│   ├── rumahl-secrets/
+│   ├── rumahl-watchdog/
+│   ├── rumahl-security/
+│   ├── rumahl-gateway/
 │   └── ...
-├── docker-compose.yml            # Full IORA stack definition
+├── docker-compose.yml            # Full rumahl stack definition
 ├── init-postgres.sh              # PostgreSQL initialization
 ├── .env.example                  # Environment template
-└── iora-os/                      # IORA OS build system
+└── rumahl-os/                      # rumahl OS build system
     ├── README.md                 # Detailed OS documentation
     ├── configs/
-    │   └── iora_defconfig       # Buildroot configuration
+    │   └── rumahl_defconfig       # Buildroot configuration
     ├── board/
-    │   └── iora/
+    │   └── ora/
     │       ├── post-build.sh    # OS customization
     │       └── post-image.sh    # Image creation
     ├── rauc/                     # Update system
@@ -274,10 +274,10 @@ iora/
     │   ├── manifest.raucm
     │   └── build-bundle.sh
     └── apparmor/                 # Security profiles
-        ├── iora-supervisor
-        ├── iora-security
-        ├── iora-secrets
-        ├── iora-gateway
+        ├── rumahl-supervisor
+        ├── rumahl-security
+        ├── rumahl-secrets
+        ├── rumahl-gateway
         └── ...
 ```
 
@@ -291,7 +291,7 @@ aa-status
 
 # Profiles applied in docker-compose.yml
 security_opt:
-  - apparmor=iora-service-name
+  - apparmor=rumahl-service-name
 ```
 
 Profiles enforce:
@@ -302,27 +302,27 @@ Profiles enforce:
 
 ## Updates
 
-### Container Updates (via iora-supervisor)
+### Container Updates (via rumahl-supervisor)
 
 ```bash
 # Via API
 curl -X POST http://localhost:8097/api/supervisor/services/update \
   -H "Content-Type: application/json" \
-  -d '{"service_name": "iora-home", "image_tag": "latest"}'
+  -d '{"service_name": "rumahl-home", "image_tag": "latest"}'
 
 # Via Docker Compose
 docker compose pull
 docker compose up -d
 ```
 
-### IORA OS Updates (via RAUC)
+### rumahl OS Updates (via RAUC)
 
 ```bash
 # Download update bundle
-wget https://releases.iora.io/updates/iora-os-v1.1.0.raucb
+wget https://releases.ora.io/updates/rumahl-os-v1.1.0.raucb
 
 # Install update
-rauc install iora-os-v1.1.0.raucb
+rauc install rumahl-os-v1.1.0.raucb
 
 # Reboot to apply
 reboot
@@ -360,10 +360,10 @@ docker compose ps
 docker compose logs -f
 
 # Specific service
-docker compose logs -f iora-home
+docker compose logs -f rumahl-home
 
 # Via supervisor API
-curl http://localhost:8097/api/supervisor/containers/iora-home/logs
+curl http://localhost:8097/api/supervisor/containers/rumahl-home/logs
 ```
 
 ### Health checks
@@ -383,7 +383,7 @@ done
 docker compose logs
 
 # Check supervisor
-docker compose logs iora-supervisor
+docker compose logs rumahl-supervisor
 
 # Rebuild
 docker compose build --no-cache
@@ -396,13 +396,13 @@ docker compose up -d
 docker compose logs postgres
 
 # Verify databases
-docker compose exec postgres psql -U iora -l
+docker compose exec postgres psql -U ora -l
 ```
 
 ### Permission issues
 ```bash
 # Check AppArmor
-aa-status | grep iora
+aa-status | grep ora
 
 # View denials
 dmesg | grep -i apparmor | grep DENIED
@@ -410,15 +410,15 @@ dmesg | grep -i apparmor | grep DENIED
 
 ## Migration from Non-Containerized
 
-If you have an existing IORA installation:
+If you have an existing rumahl installation:
 
 1. **Backup data**
    ```bash
-   pg_dump iora_home > iora_home_backup.sql
-   pg_dump iora_core > iora_core_backup.sql
+   pg_dump rumahl_home > rumahl_home_backup.sql
+   pg_dump rumahl_core > rumahl_core_backup.sql
    ```
 
-2. **Start containerized IORA**
+2. **Start containerized rumahl**
    ```bash
    docker compose up -d postgres
    # Wait for PostgreSQL to be ready
@@ -427,8 +427,8 @@ If you have an existing IORA installation:
 
 3. **Restore data**
    ```bash
-   docker compose exec -T postgres psql -U iora iora_home < iora_home_backup.sql
-   docker compose exec -T postgres psql -U iora iora_core < iora_core_backup.sql
+   docker compose exec -T postgres psql -U ora rumahl_home < rumahl_home_backup.sql
+   docker compose exec -T postgres psql -U ora rumahl_core < rumahl_core_backup.sql
    ```
 
 4. **Restart services**
@@ -449,8 +449,8 @@ If you have an existing IORA installation:
 ## References
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Complete system architecture
-- [iora-os/README.md](iora-os/README.md) - IORA OS documentation
-- [Home Assistant OS](https://github.com/home-assistant/operating-system) - Inspiration for IORA OS
+- [rumahl-os/README.md](rumahl-os/README.md) - rumahl OS documentation
+- [Home Assistant OS](https://github.com/home-assistant/operating-system) - Inspiration for rumahl OS
 - [Buildroot User Manual](https://buildroot.org/downloads/manual/manual.html)
 - [RAUC Documentation](https://rauc.readthedocs.io/)
 - [AppArmor Documentation](https://apparmor.net/)

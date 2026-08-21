@@ -1,6 +1,6 @@
 # Threat Detection & Response
 
-IORA includes an integrated Intrusion Detection System (IDS) with automatic threat scoring, IP blocking, and system lockdown capabilities.
+rumahl includes an integrated Intrusion Detection System (IDS) with automatic threat scoring, IP blocking, and system lockdown capabilities.
 
 ## Threat Detection Architecture
 
@@ -151,7 +151,7 @@ Lockdown release requires admin confirmation and logs the releasing admin's iden
 
 ### Database Connection Monitoring
 
-Every 5 seconds, `iora-security` queries `pg_stat_activity`:
+Every 5 seconds, `rumahl-security` queries `pg_stat_activity`:
 - Tracks PID, IP, username, database, application name
 - Compares against known authorized services
 - Flags any connection from unknown IPs or users
@@ -172,7 +172,7 @@ The database proxy inspects all SQL queries for:
 
 ### Content Validation (Gateway)
 
-The `iora-gateway` inspects all external content for:
+The `rumahl-gateway` inspects all external content for:
 - JavaScript code (`<script>`, `eval()`, event handlers)
 - Shell command patterns (`;`, `|`, `$()`)
 - Path traversal (`../`, `..\\`)

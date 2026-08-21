@@ -1,6 +1,6 @@
-# IORA App Development Best Practices
+# rumahl App Development Best Practices
 
-> Production-ready patterns and practices for building robust IORA apps
+> Production-ready patterns and practices for building robust rumahl apps
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@
 ### Always Validate Inputs
 
 ```typescript
-import { validateAppId, validateString, ValidationError } from '@iora/sdk';
+import { validateAppId, validateString, ValidationError } from '@rumahl/sdk';
 
 function processUserInput(data: any) {
   try {
@@ -44,7 +44,7 @@ async function loadEntities() {
     const entities = await client.entities.list();
     return { success: true, data: entities };
   } catch (error) {
-    if (error instanceof IoraError) {
+    if (error instanceof rumahlError) {
       console.error('Failed to load entities:', error);
       return { success: false, error: error.message };
     }
@@ -262,13 +262,13 @@ function renderUserContent(content: string) {
 ### Unit Tests
 
 ```typescript
-import { IoraClient, IoraError } from '@iora/sdk';
+import { rumahlClient, rumahlError } from '@rumahl/sdk';
 
 describe('EntityService', () => {
-  let client: IoraClient;
+  let client: rumahlClient;
 
   beforeEach(() => {
-    client = new IoraClient({
+    client = new rumahlClient({
       baseUrl: 'http://localhost:8126',
       defaultRetries: 0 // Disable retries in tests
     });
@@ -289,7 +289,7 @@ describe('EntityService', () => {
       } as Response)
     );
 
-    await expect(client.entities.list()).rejects.toThrow(IoraError);
+    await expect(client.entities.list()).rejects.toThrow(rumahlError);
   });
 });
 ```
@@ -312,10 +312,10 @@ describe('App Integration', () => {
 });
 ```
 
-### Mock IORA Services
+### Mock rumahl Services
 
 ```typescript
-class MockIoraClient {
+class MockrumahlClient {
   entities = {
     list: jest.fn(() => Promise.resolve([
       { entity_id: 'light.bedroom', state: 'on', attributes: {} }
@@ -329,7 +329,7 @@ class MockIoraClient {
 }
 
 // Use in tests
-const mockClient = new MockIoraClient();
+const mockClient = new MockrumahlClient();
 const result = await service.loadEntities(mockClient);
 ```
 

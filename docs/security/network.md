@@ -1,6 +1,6 @@
 # Network Security
 
-IORA implements multiple layers of network security to protect the system and its apps from unauthorized access and threats.
+rumahl implements multiple layers of network security to protect the system and its apps from unauthorized access and threats.
 
 ## Network Architecture
 
@@ -14,10 +14,10 @@ IORA implements multiple layers of network security to protect the system and it
 │  └───────────────────────────────┬──────────────────────────────┘│
 │                                   │                                │
 │  ┌────────────────────────────────┴─────────────────────────────┐│
-│  │                   IORA Internal Network                        ││
+│  │                   rumahl Internal Network                        ││
 │  │                                                                 ││
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐ ││
-│  │  │iora-home │  │iora-core │  │iora-     │  │App           │ ││
+│  │  │rumahl-home │  │rumahl-core │  │rumahl-     │  │App           │ ││
 │  │  │  :8126   │  │  :8090   │  │gateway   │  │Containers    │ ││
 │  │  │          │  │          │  │  :8096   │  │              │ ││
 │  │  └──────────┘  └──────────┘  └────┬─────┘  └──────┬───────┘ ││
@@ -147,14 +147,14 @@ Example NGINX configuration:
 ```nginx
 server {
     listen 443 ssl;
-    server_name iora.example.com;
+    server_name ora.example.com;
 
-    ssl_certificate /etc/ssl/iora.crt;
-    ssl_certificate_key /etc/ssl/iora.key;
+    ssl_certificate /etc/ssl/ora.crt;
+    ssl_certificate_key /etc/ssl/ora.key;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location / {
-        proxy_pass http://iora-home:8126;
+        proxy_pass http://rumahl-home:8126;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -167,7 +167,7 @@ server {
 
 ## Port Management
 
-IORA manages 10,000+ ports with intelligent assignment:
+rumahl manages 10,000+ ports with intelligent assignment:
 
 | Port Range | Purpose |
 |------------|---------|
@@ -203,8 +203,8 @@ For production deployments, configure your firewall:
 # Allow only necessary ports
 ufw allow 443/tcp    # HTTPS (NGINX)
 ufw allow 22/tcp     # SSH (management)
-ufw deny 8126/tcp    # Block direct iora-home access
-ufw deny 8090/tcp    # Block direct iora-core access
+ufw deny 8126/tcp    # Block direct rumahl-home access
+ufw deny 8090/tcp    # Block direct rumahl-core access
 
 # Enable firewall
 ufw enable
@@ -212,12 +212,12 @@ ufw enable
 
 ## Security Best Practices
 
-1. **Never expose IORA services directly** – Always use the NGINX reverse proxy
+1. **Never expose rumahl services directly** – Always use the NGINX reverse proxy
 2. **Use TLS everywhere** – Encrypt all external traffic
 3. **Enable rate limiting** – Prevent brute force and DoS attacks
 4. **Restrict app network access** – Only whitelist domains the app actually needs
 5. **Use random port assignment** – For apps that don't need stable ports
-6. **Monitor network traffic** – Use `iora-security` alerts for unusual patterns
+6. **Monitor network traffic** – Use `rumahl-security` alerts for unusual patterns
 7. **Keep services updated** – Apply security patches promptly
 
 ## Related Documentation
