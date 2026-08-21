@@ -10,7 +10,7 @@
 
 declare(strict_types=1);
 
-const STATUSPAGE_VERSION = '1.4.0';
+const STATUSPAGE_VERSION = '1.5.0';
 
 function env(string $key, ?string $default = null): ?string
 {

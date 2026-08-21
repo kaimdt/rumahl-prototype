@@ -138,6 +138,16 @@ function route(string $method, string $path): never
         if ($method === 'POST' && $path === '/admin/checks/run') {
             admin_checks_run();
         }
+        if ($method === 'POST' && $path === '/admin/checks') {
+            $body = json_body();
+            if (($body['action'] ?? '') === 'delete') {
+                admin_checks_delete();
+            }
+            if (($body['action'] ?? '') === 'clear') {
+                admin_checks_clear();
+            }
+            json_error('Unknown action', 400);
+        }
         if ($method === 'GET' && $path === '/admin/checks') {
             admin_checks_log();
         }

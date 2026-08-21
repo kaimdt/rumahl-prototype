@@ -31,7 +31,7 @@ function admin_components_save(): never
         json_error('Component name is required');
     }
     $kind = ($input['kind'] ?? 'manual') === 'auto' ? 'auto' : 'manual';
-    $checkType = in_array($input['check_type'] ?? '', ['http', 'tcp', 'ping'], true)
+    $checkType = in_array($input['check_type'] ?? '', ['http', 'tcp', 'ping', 'dns', 'ssl', 'smtp'], true)
         ? $input['check_type']
         : 'http';
     $headers = component_headers_json($input['headers'] ?? null);
@@ -389,6 +389,103 @@ function admin_checks_run(): never
             $result['results']
         ),
     ]);
+}
+
+/**
+ * Delete check results (e.g. false positives caused by an outage of the
+ * status page itself) and RECALCULATE everything that depends on them:
+ * the daily uptime aggregates, the derived component status and — via
+ * apply_status → sync_auto_incident — open auto incidents get resolved
+ * when the component recovers.
+ */
+function admin_checks_delete(): never
+{
+    $body = json_body();
+    $ids = $body['ids'] ?? [];
+    if (!is_array($ids) || $ids === []) {
+        json_error('ids required');
+    }
+    $ids = array_values(array_filter(array_map('intval', $ids), fn (int $id) => $id > 0));
+    if ($ids === []) {
+        json_error('ids required');
+    }
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+    $rows = db_all(
+        "SELECT component_id, ok, checked_at FROM check_results WHERE id IN ({$placeholders})",
+        $ids
+    );
+    if ($rows === []) {
+        json_out(['ok' => true, 'deleted' => 0, 'recalculated' => []]);
+    }
+
+    db_exec("DELETE FROM check_results WHERE id IN ({$placeholders})", $ids);
+    recalculate_after_delete($rows);
+
+    json_out([
+        'ok' => true,
+        'deleted' => count($rows),
+        'recalculated' => array_values(array_unique(array_column($rows, 'component_id'))),
+    ]);
+}
+
+/** Delete ALL failed results of one component (same recalculation). */
+function admin_checks_clear(): never
+{
+    $body = json_body();
+    $componentId = (string) ($body['component_id'] ?? '');
+    if ($componentId === '') {
+        json_error('component_id required');
+    }
+    $rows = db_all(
+        'SELECT component_id, ok, checked_at FROM check_results WHERE component_id = ? AND ok = 0',
+        [$componentId]
+    );
+    db_exec('DELETE FROM check_results WHERE component_id = ? AND ok = 0', [$componentId]);
+    recalculate_after_delete($rows);
+    json_out(['ok' => true, 'deleted' => count($rows)]);
+}
+
+/**
+ * Fix uptime_daily counters and re-derive the component statuses after
+ * check results were deleted. $rows = the deleted check_results rows.
+ */
+function recalculate_after_delete(array $rows): void
+{
+    // 1) Decrement the daily aggregates per (component, day).
+    $agg = [];
+    foreach ($rows as $row) {
+        $day = gmdate('Y-m-d', strtotime((string) $row['checked_at']));
+        $key = $row['component_id'] . '|' . $day;
+        $agg[$key] ??= ['component_id' => $row['component_id'], 'day' => $day, 'ok' => 0, 'total' => 0];
+        $agg[$key]['ok'] += (int) $row['ok'];
+        $agg[$key]['total']++;
+    }
+    foreach ($agg as $a) {
+        db_exec(
+            'UPDATE uptime_daily
+                SET ok_count = GREATEST(0, ok_count - ?), total_count = GREATEST(0, total_count - ?)
+              WHERE component_id = ? AND day = ?',
+            [$a['ok'], $a['total'], $a['component_id'], $a['day']]
+        );
+        db_exec(
+            'DELETE FROM uptime_daily WHERE component_id = ? AND day = ? AND total_count <= 0',
+            [$a['component_id'], $a['day']]
+        );
+    }
+
+    // 2) Re-derive the status of every affected auto component (this also
+    //    resolves open auto incidents on recovery via apply_status).
+    $settings = settings_get();
+    $componentIds = array_values(array_unique(array_column($rows, 'component_id')));
+    foreach ($componentIds as $componentId) {
+        $component = db_row('SELECT * FROM components WHERE id = ?', [$componentId]);
+        if ($component === null || $component['kind'] !== 'auto') {
+            continue;
+        }
+        $newStatus = derive_status($componentId, (int) $settings['failure_window'], $component);
+        apply_status($componentId, $newStatus);
+    }
 }
 
 function admin_checks_log(): never

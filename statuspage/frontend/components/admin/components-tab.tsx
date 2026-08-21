@@ -49,12 +49,18 @@ const ENDPOINT_HINT: Record<CheckType, string> = {
   http: "e.g. https://rumahl.com/health or https://status.rumahl.com/api/status",
   tcp: "e.g. db.internal:3306 or https://example.com (connects to 443)",
   ping: "Hostname or IPv4 address, e.g. rumahl.com or 8.8.8.8 (ICMP)",
+  dns: "Hostname to resolve, e.g. rumahl.com (A/AAAA records)",
+  ssl: "Host[:port] whose TLS certificate is checked, e.g. rumahl.com:443",
+  smtp: "Host:port of the mail server, e.g. mail.rumahl.com:587",
 };
 
 const CHECK_TYPE_LABEL: Record<CheckType, string> = {
   http: "HTTP(S) request",
   tcp: "TCP port reachable",
   ping: "ICMP ping",
+  dns: "DNS resolution",
+  ssl: "SSL/TLS certificate expiry",
+  smtp: "SMTP banner (mail server)",
 };
 
 export function ComponentsTab() {
@@ -279,7 +285,13 @@ export function ComponentsTab() {
                   <Input
                     value={form.endpoint_url}
                     onChange={(e) => set("endpoint_url", e.target.value)}
-                    placeholder={form.check_type === "ping" ? "example.com" : "https://…"}
+                    placeholder={
+                      form.check_type === "ping" || form.check_type === "dns"
+                        ? "example.com"
+                        : form.check_type === "ssl" || form.check_type === "smtp"
+                          ? "example.com:443"
+                          : "https://…"
+                    }
                   />
                 </Field>
               </div>

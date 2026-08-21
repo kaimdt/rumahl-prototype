@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS components (
   name VARCHAR(100) NOT NULL,
   description VARCHAR(500) NOT NULL DEFAULT '',
   kind ENUM('auto','manual') NOT NULL DEFAULT 'manual',
-  check_type ENUM('http','tcp','ping') NOT NULL DEFAULT 'http',
+  check_type ENUM('http','tcp','ping','dns','ssl','smtp') NOT NULL DEFAULT 'http',
   endpoint_url VARCHAR(500) NOT NULL DEFAULT '',
   method VARCHAR(10) NOT NULL DEFAULT 'GET',
   expected_status INT NOT NULL DEFAULT 200,

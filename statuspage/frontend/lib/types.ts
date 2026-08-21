@@ -9,7 +9,7 @@ export type ComponentStatus =
   | "partial_outage"
   | "major_outage";
 
-export type CheckType = "http" | "tcp" | "ping";
+export type CheckType = "http" | "tcp" | "ping" | "dns" | "ssl" | "smtp";
 
 export type IncidentStatus =
   | "investigating"

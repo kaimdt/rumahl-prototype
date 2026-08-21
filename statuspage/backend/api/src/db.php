@@ -47,6 +47,7 @@ function db(bool $ensureSchema = true): PDO
  *      history_days (0 = no history) on components
  *  v5  latency phases (dns/connect/tls/server) on check_results and a
  *      per-component latency threshold override on components
+ *  v6  check_type extended: dns, ssl (certificate expiry), smtp
  */
 function schema_migrations(): array
 {
@@ -72,32 +73,65 @@ function schema_migrations(): array
             ['check_results', 'server_ms', 'INT NULL'],
             ['components', 'latency_threshold_ms', 'INT NOT NULL DEFAULT 0'],
         ],
+        'v6' => [
+            // modify: idempotent — runs only while an enum value is missing
+            ['components', 'check_type', "ENUM('http','tcp','ping','dns','ssl','smtp') NOT NULL DEFAULT 'http'", 'modify'],
+        ],
     ];
 }
 
 /**
  * Apply all missing migrations. Returns the versions that were applied
  * (empty when the schema is already up to date).
+ * Migration format: [table, column, definition] or
+ * [table, column, definition, 'modify'] for ALTER … MODIFY COLUMN
+ * (idempotent: runs only while one of the enum values is missing).
  */
 function db_migrate(PDO $pdo): array
 {
     $existing = [];
+    $types = [];
     foreach ($pdo->query(
-        "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+        "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE()"
     )->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $existing[strtolower((string) $row['TABLE_NAME']) . '.' . strtolower((string) $row['COLUMN_NAME'])] = true;
+        $key = strtolower((string) $row['TABLE_NAME']) . '.' . strtolower((string) $row['COLUMN_NAME']);
+        $existing[$key] = true;
+        $types[$key] = strtolower((string) $row['COLUMN_TYPE']);
     }
 
     $applied = [];
-    foreach (schema_migrations() as $version => $additions) {
+    foreach (schema_migrations() as $version => $migrations) {
         $changed = false;
-        foreach ($additions as [$table, $column, $definition]) {
-            if (isset($existing[$table . '.' . $column])) {
+        foreach ($migrations as $migration) {
+            [$table, $column, $definition] = $migration;
+            $mode = $migration[3] ?? 'add';
+            $key = $table . '.' . $column;
+
+            if ($mode === 'modify') {
+                $current = $types[$key] ?? '';
+                $needsModify = $current === '';
+                if (!$needsModify && preg_match_all("/'([^']+)'/", $definition, $m)) {
+                    foreach ($m[1] as $value) {
+                        if (!str_contains($current, "'" . strtolower($value) . "'")) {
+                            $needsModify = true;
+                            break;
+                        }
+                    }
+                }
+                if ($needsModify) {
+                    $pdo->exec("ALTER TABLE `{$table}` MODIFY COLUMN `{$column}` {$definition}");
+                    $types[$key] = strtolower($definition);
+                    $changed = true;
+                }
+                continue;
+            }
+
+            if (isset($existing[$key])) {
                 continue;
             }
             $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
-            $existing[$table . '.' . $column] = true;
+            $existing[$key] = true;
             $changed = true;
         }
         if ($changed) {

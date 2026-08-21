@@ -157,4 +157,14 @@ export const adminApi = {
         componentId ? `&component=${encodeURIComponent(componentId)}` : ""
       }`
     ),
+  deleteChecks: (ids: number[]) =>
+    request<{ ok: boolean; deleted: number }>("/admin/checks", {
+      method: "POST",
+      body: { action: "delete", ids },
+    }),
+  clearCheckFailures: (componentId: string) =>
+    request<{ ok: boolean; deleted: number }>("/admin/checks", {
+      method: "POST",
+      body: { action: "clear", component_id: componentId },
+    }),
 };

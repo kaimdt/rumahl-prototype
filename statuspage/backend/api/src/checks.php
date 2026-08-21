@@ -47,6 +47,9 @@ function run_check(array $component): array
     return match ($type) {
         'tcp' => tcp_check($component),
         'ping' => ping_check($component),
+        'dns' => dns_check($component),
+        'ssl' => ssl_check($component),
+        'smtp' => smtp_check($component),
         default => http_check($component),
     };
 }
@@ -203,6 +206,173 @@ function ping_check(array $component): array
     }
     // For ping checks the round-trip IS the service time.
     return [true, $roundTrip ?? $latencyMs, null, null, false, null, null, null, $roundTrip ?? $latencyMs];
+}
+
+/** DNS resolution check — endpoint is a hostname; status_code = IP count. */
+function dns_check(array $component): array
+{
+    $host = trim((string) $component['endpoint_url']);
+    if ($host === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    if (!preg_match('/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/', $host)) {
+        return [false, null, null, 'Invalid DNS host', false, null, null, null, null];
+    }
+    if (!function_exists('dns_get_record')) {
+        return [false, null, null, 'DNS lookup unavailable (dns_get_record disabled)', false, null, null, null, null];
+    }
+
+    $start = hrtime(true);
+    $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+    $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
+
+    if ($records === false || $records === []) {
+        return [false, $latencyMs, null, "DNS resolution failed for {$host}", false, null, null, null, null];
+    }
+    $ipCount = count(array_filter($records, fn (array $r) => isset($r['ip'])));
+    // DNS lookup time IS the service time here.
+    return [true, $latencyMs, $ipCount, null, false, null, null, null, $latencyMs];
+}
+
+/**
+ * SSL/TLS certificate expiry check — endpoint is "host[:port]" (default 443).
+ * The certificate is fetched without verifying the chain (so self-signed
+ * certs do not fail the check); FAIL = expired, status_code = days left.
+ */
+function ssl_check(array $component): array
+{
+    $target = trim((string) $component['endpoint_url']);
+    if ($target === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    $host = $target;
+    $port = 443;
+    if (preg_match('/^(.*):(\d{1,5})$/', $target, $m)) {
+        $host = $m[1];
+        $port = (int) $m[2];
+        if ($port < 1 || $port > 65535) {
+            return [false, null, null, "Invalid port {$port}", false, null, null, null, null];
+        }
+    }
+    if ($host === '' || preg_match('/[\s;|&`$<>]/', $host)) {
+        return [false, null, null, 'Invalid SSL host', false, null, null, null, null];
+    }
+    if (!function_exists('openssl_x509_parse')) {
+        return [false, null, null, 'Certificate check unavailable (openssl disabled)', false, null, null, null, null];
+    }
+
+    $timeout = max(0.5, (int) $component['timeout_ms'] / 1000);
+    $context = stream_context_create([
+        'ssl' => [
+            'capture_peer_cert' => true,
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+            'allow_self_signed' => true,
+        ],
+    ]);
+    $start = hrtime(true);
+    $fp = @stream_socket_client(
+        "ssl://{$host}:{$port}",
+        $errno,
+        $errstr,
+        $timeout,
+        STREAM_CLIENT_CONNECT,
+        $context
+    );
+    $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
+    if ($fp === false) {
+        return [false, $latencyMs, null, "TLS handshake to {$host}:{$port} failed ({$errstr})", false, null, $latencyMs, $latencyMs, null];
+    }
+    $params = stream_context_get_params($fp);
+    fclose($fp);
+
+    $cert = $params['options']['ssl']['peer_certificate'] ?? null;
+    if ($cert === null) {
+        return [false, $latencyMs, null, "No certificate presented by {$host}:{$port}", false, null, $latencyMs, $latencyMs, null];
+    }
+    $parsed = openssl_x509_parse($cert);
+    $validTo = (int) ($parsed['validTo_time_t'] ?? 0);
+    $daysLeft = (int) floor(($validTo - time()) / 86400);
+    if ($daysLeft <= 0) {
+        return [
+            false,
+            $latencyMs,
+            $daysLeft,
+            'Certificate expired on ' . gmdate('Y-m-d', $validTo),
+            false,
+            null,
+            $latencyMs,
+            $latencyMs,
+            null,
+        ];
+    }
+    // TLS handshake time IS the service time here.
+    return [true, $latencyMs, $daysLeft, null, false, null, $latencyMs, $latencyMs, $latencyMs];
+}
+
+/** SMTP check — connects, waits for the banner and answers EHLO. */
+function smtp_check(array $component): array
+{
+    $target = trim((string) $component['endpoint_url']);
+    if ($target === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    $host = $target;
+    $port = 25;
+    if (preg_match('/^(.*):(\d{1,5})$/', $target, $m)) {
+        $host = $m[1];
+        $port = (int) $m[2];
+        if ($port < 1 || $port > 65535) {
+            return [false, null, null, "Invalid port {$port}", false, null, null, null, null];
+        }
+    }
+    if ($host === '' || preg_match('/[\s;|&`$<>]/', $host)) {
+        return [false, null, null, 'Invalid SMTP host', false, null, null, null, null];
+    }
+
+    $timeout = max(0.5, (int) $component['timeout_ms'] / 1000);
+    $start = hrtime(true);
+    $fp = @fsockopen($host, $port, $errno, $errstr, $timeout);
+    $connectMs = (int) round((hrtime(true) - $start) / 1e6);
+    if ($fp === false) {
+        return [false, $connectMs, null, "SMTP connection to {$host}:{$port} failed ({$errstr})", false, null, $connectMs, null, null];
+    }
+    stream_set_timeout($fp, (int) ceil($timeout));
+
+    $banner = fgets($fp, 512);
+    if ($banner === false || !preg_match('/^2\d\d/', trim((string) $banner))) {
+        fclose($fp);
+        $detail = trim((string) ($banner ?: ''));
+        return [
+            false,
+            $connectMs,
+            null,
+            "SMTP banner error from {$host}:{$port}" . ($detail !== '' ? ": {$detail}" : ' (no response)'),
+            false,
+            null,
+            $connectMs,
+            null,
+            null,
+        ];
+    }
+
+    $bannerMs = (int) round((hrtime(true) - $start) / 1e6);
+    fwrite($fp, "EHLO rumahl-status\r\n");
+    $last = '';
+    while (($line = fgets($fp, 512)) !== false) {
+        $last = $line;
+        if (preg_match('/^\d{3} /', $line)) {
+            break; // final reply line
+        }
+    }
+    fwrite($fp, "QUIT\r\n");
+    fclose($fp);
+
+    if (!preg_match('/^2\d\d/', trim((string) $last))) {
+        return [false, $bannerMs, null, "SMTP EHLO failed on {$host}:{$port}", false, null, $connectMs, null, null];
+    }
+    // Time until the banner IS the service time here.
+    return [true, $bannerMs, null, null, false, null, $connectMs, null, $bannerMs];
 }
 
 /**

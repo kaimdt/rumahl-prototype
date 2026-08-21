@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Play, TriangleAlert, XCircle } from "lucide-react";
+import { CheckCircle2, Eraser, Play, Trash2, TriangleAlert, XCircle } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type { CheckResult, Component } from "@/lib/types";
 import { Button, SectionCard, Select } from "@/components/admin/ui";
@@ -50,6 +50,28 @@ export function ChecksTab() {
     }
   };
 
+  const removeResult = async (result: CheckResult) => {
+    if (!window.confirm(`Delete this check result?\n\nUptime and status are recalculated — an open incident for this component may be resolved.`)) return;
+    try {
+      await adminApi.deleteChecks([result.id]);
+      await load(selected);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
+  const clearFailures = async () => {
+    if (!selected) return;
+    const name = components.find((c) => c.id === selected)?.name ?? selected;
+    if (!window.confirm(`Delete ALL failed results of "${name}"?\n\nUptime and status are recalculated — open incidents may be resolved.`)) return;
+    try {
+      await adminApi.clearCheckFailures(selected);
+      await load(selected);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Clear failed");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <SectionCard
@@ -66,7 +88,7 @@ export function ChecksTab() {
       </SectionCard>
 
       <SectionCard title="Check log">
-        <div className="mb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <Select
             value={selected}
             onChange={(e) => {
@@ -81,6 +103,16 @@ export function ChecksTab() {
               </option>
             ))}
           </Select>
+          {selected && (
+            <Button type="button" variant="ghost" onClick={clearFailures} title="Delete all failed results of this component">
+              <Eraser className="h-4 w-4" />
+              Clear failures
+            </Button>
+          )}
+          <span className="text-[11px] text-muted-foreground/70">
+            Deleting results recalculates uptime and status — useful for false positives
+            (e.g. the status page itself was down).
+          </span>
         </div>
 
         {results.length === 0 ? (
@@ -101,6 +133,7 @@ export function ChecksTab() {
                   <th className="px-3 py-2 font-bold">Code</th>
                   <th className="px-3 py-2 font-bold">Error</th>
                   <th className="px-3 py-2 font-bold">Checked at</th>
+                  <th className="px-2 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/15">
@@ -171,6 +204,15 @@ export function ChecksTab() {
                       </td>
                       <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                         {new Date(r.checked_at).toLocaleString("en-GB")}
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <button
+                          onClick={() => removeResult(r)}
+                          className="p-1 text-muted-foreground/40 hover:text-status-major transition-colors"
+                          title="Delete this result (recalculates uptime & status)"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </td>
                     </tr>
                   );
