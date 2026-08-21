@@ -28,6 +28,25 @@ ini_set('display_errors', '1');
 
 $isCli = PHP_SAPI === 'cli';
 
+/* ── Incomplete upload check ──────────────────────────────────────── */
+// schema_migrations()/db_migrate() live in src/db.php (loaded via
+// helpers.php). A stale src/ folder is the #1 upgrade mistake — fail
+// with a helpful message instead of a cryptic "undefined function".
+if (!function_exists('schema_migrations') || !function_exists('db_migrate')) {
+    $msg = 'Incomplete upgrade: the migration functions (schema_migrations/db_migrate) are missing. '
+        . 'Your server still has OLD backend files. Upload ALL files from backend/api/ — especially '
+        . 'src/db.php and src/helpers.php — and run this tool again. Do NOT delete '
+        . 'src/config.local.php (it holds your credentials).';
+    if ($isCli) {
+        fwrite(STDERR, "[rumahl-status] {$msg}\n");
+        exit(1);
+    }
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => $msg]);
+    exit;
+}
+
 /* ── Auth (HTTP only) ───────────────────────────────────────────── */
 if (!$isCli) {
     $config = statuspage_config();
