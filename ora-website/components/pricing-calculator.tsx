@@ -20,13 +20,13 @@ export function PricingCalculator() {
     }
     if (score < 110) {
       return {
-        plan: "ORA OS",
+        plan: "rumahl OS",
         hardware: "Intel N100 mini PC",
         power: "~15W average",
       };
     }
     return {
-      plan: "ORA OS + GPU Assist",
+      plan: "rumahl OS + GPU Assist",
       hardware: "NUC or desktop with 16GB RAM",
       power: "~28W average",
     };
@@ -39,7 +39,7 @@ export function PricingCalculator() {
   }, [recommendation.power]);
 
   return (
-    <div className="glass-card p-6 md:p-7 mt-12 max-w-4xl mx-auto">
+    <div className="surface-card p-6 md:p-7 mt-12 max-w-4xl mx-auto">
       <div className="text-center mb-6">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2">Sizing Calculator</p>
         <h3 className="text-2xl font-bold text-foreground">Find your ideal setup</h3>

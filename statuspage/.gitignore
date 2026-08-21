@@ -1,0 +1,13 @@
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+
+# PHP backend — local configuration must never be committed
+backend/api/src/config.local.php
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

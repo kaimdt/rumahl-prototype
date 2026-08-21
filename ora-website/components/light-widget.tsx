@@ -17,7 +17,7 @@ export function LightWidget() {
 
   return (
     <div className="w-full max-w-sm mx-auto">
-      {/* Full-size widget (not compact) — matches IORA LightWidget exactly */}
+      {/* Full-size widget (not compact) — matches rumahl LightWidget exactly */}
       <div
         className={`glass-card glass-card-shimmer rounded-2xl relative overflow-hidden cursor-pointer select-none ${displayIsOn ? 'widget-glow-active' : ''}`}
         onClick={toggle}
@@ -38,7 +38,7 @@ export function LightWidget() {
         <div className="relative p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
-              {/* Icon container — exact IORA style */}
+              {/* Icon container — exact rumahl style */}
               <div
                 className="icon-container-premium p-2.5 rounded-xl transition-all duration-300"
                 data-active={displayIsOn ? "true" : "false"}

@@ -2,163 +2,175 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Reveal } from "@/components/reveal";
 import { PricingCalculator } from "@/components/pricing-calculator";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "ORA is free and open source. Self-host or use our managed options.",
+  description:
+    "rumahl OS is free and open source. Self-host on your own hardware — no tiers, no subscriptions, no lock-in.",
 };
+
+const included = [
+  "The complete OS — no paid tiers",
+  "App Store & all system apps",
+  "ORA AI assistant with local models",
+  "Unlimited devices & automations",
+  "Updates, backups & security",
+  "Commercial use allowed (MIT)",
+];
 
 export default function PricingPage() {
   return (
-    <section className="py-24 lg:py-32">
-      <div className="mx-auto max-w-6xl px-6 lg:px-10">
-        <div className="text-center mb-16">
-          <Badge variant="accent" className="mb-4">Pricing</Badge>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground mb-4">
-            Free &amp;{" "}
-            <span className="gradient-text">Open Source</span>
-          </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            ORA is completely free and open source. Self-host on your own hardware
-            with no limitations.
-          </p>
+    <>
+      {/* ═══════════ HEADER ═══════════ */}
+      <section className="relative overflow-hidden pt-24 pb-10 lg:pt-32">
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(ellipse 50% 40% at 50% -10%, hsl(var(--primary) / 0.07), transparent 65%)",
+          }}
+        />
+        <div className="mx-auto max-w-3xl px-6 lg:px-10 text-center relative">
+          <Reveal>
+            <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-3">
+              Pricing
+            </p>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-[-0.03em] text-foreground leading-[1.03]">
+              rumahl OS is <span className="text-primary">free</span>.
+            </h1>
+            <p className="mx-auto mt-5 max-w-xl text-base text-muted-foreground leading-relaxed">
+              Open source under MIT. No tiers, no subscriptions, no artificial
+              limits. The only cost is the hardware you already own.
+            </p>
+          </Reveal>
         </div>
+      </section>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-          {plans.map((plan, i) => (
-            <div
-              key={plan.name}
-              className={`glass-card p-8 flex flex-col ${
-                plan.featured ? "ring-2 ring-primary/50 scale-[1.02]" : ""
-              }`}
-            >
-              {plan.featured && (
-                <Badge className="self-start mb-4">Most Popular</Badge>
-              )}
-              <h3 className="text-xl font-bold text-foreground mb-2">
-                {plan.name}
-              </h3>
-              <div className="mb-6">
-                <span className="text-4xl font-bold text-foreground">
-                  {plan.price}
-                </span>
-                {plan.period && (
-                  <span className="text-sm text-muted-foreground">
-                    {plan.period}
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground mb-6">
-                {plan.description}
+      {/* ═══════════ CORE — what's included ═══════════ */}
+      <section className="py-16 lg:py-20">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <div className="grid lg:grid-cols-5 gap-10 lg:gap-16 items-start">
+            <Reveal className="lg:col-span-2">
+              <p className="text-5xl font-bold tracking-[-0.03em] text-foreground">
+                €0<span className="text-xl font-semibold text-muted-foreground"> · forever</span>
               </p>
-              <ul className="space-y-3 mb-8 flex-1">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-foreground/80">
-                    <Check className="h-4 w-4 text-success shrink-0 mt-0.5" />
+              <p className="mt-4 text-base text-muted-foreground leading-relaxed">
+                Self-hosting is the core product. Download, install on your own
+                hardware, keep everything.
+              </p>
+              <div className="mt-8">
+                <Button size="lg" asChild>
+                  <Link href="/docs">
+                    Get Started
+                    <ArrowRight className="ml-1.5 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </Reveal>
+
+            <Reveal delay={120} className="lg:col-span-3">
+              <div className="grid sm:grid-cols-2 gap-x-10 gap-y-4">
+                {included.map((f) => (
+                  <div key={f} className="flex items-start gap-2.5 text-sm text-foreground/85">
+                    <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" strokeWidth={2.2} />
                     {f}
-                  </li>
+                  </div>
                 ))}
-              </ul>
-              <Button
-                variant={plan.featured ? "default" : "glass"}
-                size="lg"
-                className="w-full"
-                asChild
-              >
-                <Link href="/docs">
-                  {plan.cta}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
+              </div>
+              <p className="mt-6 text-xs text-muted-foreground leading-relaxed">
+                Everything is included in the source. If a feature doesn&apos;t exist
+                yet, it&apos;s on the roadmap — not behind a paywall.
+              </p>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════ HARDWARE — visually separate ═══════════ */}
+      <section className="py-16 lg:py-20 bg-[hsl(var(--surface))] border-y border-border/50">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+            <Reveal>
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-3">
+                rumahl hardware
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-bold tracking-[-0.02em] text-foreground leading-[1.08]">
+                A reference device
+                <br />
+                is in the works.
+              </h2>
+              <p className="mt-4 text-base text-muted-foreground leading-relaxed">
+                rumahl OS is built and tested against real hardware targets. A
+                dedicated appliance is planned — until then, rumahl runs on the
+                hardware you already have.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {["Raspberry Pi 4/5", "Mini PCs", "x86 / ARM", "Old laptops", "VMs"].map((p) => (
+                  <span
+                    key={p}
+                    className="rounded-full border border-border/70 px-3 py-1 text-[11px] font-medium text-muted-foreground"
+                  >
+                    {p}
+                  </span>
+                ))}
+              </div>
+            </Reveal>
+
+            <Reveal delay={120}>
+              <div className="rounded-2xl border border-dashed border-border/70 bg-card p-8 text-center">
+                <p className="text-sm font-semibold text-foreground">rumahl device</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Status: in planning — no specs announced yet. We won&apos;t invent them
+                  here.
+                </p>
+                <div className="mx-auto mt-6 flex h-24 w-24 items-center justify-center rounded-2xl border border-border/60 bg-[hsl(var(--surface))]">
+                  <span className="text-3xl text-muted-foreground/40">▣</span>
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════ SIZING CALCULATOR ═══════════ */}
+      <section className="py-16 lg:py-20">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <Reveal className="max-w-2xl">
+            <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-3">
+              Hardware sizing
+            </p>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-[-0.02em] text-foreground leading-[1.08]">
+              Which hardware fits your home?
+            </h2>
+            <p className="mt-4 text-base text-muted-foreground leading-relaxed">
+              A rough estimate based on devices, rooms and AI usage — real
+              requirements depend on your setup.
+            </p>
+          </Reveal>
+          <Reveal delay={120}>
+            <PricingCalculator />
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ═══════════ ENTERPRISE — low priority row ═══════════ */}
+      <section className="pb-24 lg:pb-32">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-border/60 bg-[hsl(var(--surface))] px-6 py-5">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Enterprise & managed support</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Available on request — the OS itself stays free.
+              </p>
             </div>
-          ))}
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/docs">Contact us</Link>
+            </Button>
+          </div>
         </div>
-
-        <PricingCalculator />
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-10 max-w-4xl mx-auto">
-          {[
-            {
-              title: "No lock-in",
-              body: "Move, export, and self-host at any time. Your automations remain yours.",
-            },
-            {
-              title: "Transparent updates",
-              body: "All releases are public, changelog-driven, and versioned on GitHub.",
-            },
-            {
-              title: "Local-first by default",
-              body: "No mandatory cloud account, no forced telemetry, no hidden paid features.",
-            },
-          ].map((item) => (
-            <div key={item.title} className="glass-card p-5">
-              <p className="text-sm font-semibold text-foreground">{item.title}</p>
-              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">{item.body}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="text-center mt-16">
-          <p className="text-sm text-muted-foreground">
-            All plans include the full feature set. No artificial limitations.
-            <br />
-            Your data stays on your hardware.
-          </p>
-        </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }
-
-const plans = [
-  {
-    name: "Self-Hosted",
-    price: "Free",
-    period: "",
-    description: "Run ORA on your own hardware with complete control.",
-    features: [
-      "All features included",
-      "Unlimited devices",
-      "Unlimited automations",
-      "Local AI processing",
-      "Full data privacy",
-      "Community support",
-    ],
-    cta: "Get Started",
-    featured: false,
-  },
-  {
-    name: "ORA OS",
-    price: "Free",
-    period: "",
-    description: "The full appliance experience with automatic updates.",
-    features: [
-      "Everything in Self-Hosted",
-      "Automatic updates",
-      "Pre-configured stack",
-      "Rust microservice architecture",
-      "Built-in monitoring",
-      "Production-ready systemd services",
-    ],
-    cta: "Get Started",
-    featured: true,
-  },
-  {
-    name: "Enterprise",
-    price: "Coming",
-    period: " soon",
-    description: "For businesses and professional installers.",
-    features: [
-      "Everything in ORA OS",
-      "Priority support",
-      "Custom integrations",
-      "SLA guarantees",
-      "Training & onboarding",
-      "Dedicated account manager",
-    ],
-    cta: "Contact Us",
-    featured: false,
-  },
-];

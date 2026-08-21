@@ -1,0 +1,16 @@
+# rumahl Status Page — API routing
+# All requests to /api/* that do not hit a real file go to the front controller.
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+# Pass the Authorization header to PHP.
+# Apache strips it by default before PHP-FPM/CGI — without this the admin
+# API always answers 401 "Unauthorized" (common on Plesk & shared hosting).
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+# Block direct access to PHP sources and local config
+<FilesMatch "^(config\.php|config\.local\.php)$">
+  Require all denied
+</FilesMatch>

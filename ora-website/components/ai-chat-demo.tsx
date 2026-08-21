@@ -26,16 +26,24 @@ const fallbackResponses = [
   "All done. Your home is now exactly how you want it.",
 ];
 
+/* Zufällige Demo-Antworten/Verzögerung — nur zur Laufzeit in Event-Handlern. */
+const pickFallback = () =>
+  fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+const randomDelay = () => 800 + Math.random() * 600;
+
 export function AIChatDemo() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
+  // Scroll only the message list — never the window (scrollIntoView would
+  // pull the whole page down on load).
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, isTyping]);
 
   useEffect(() => {
@@ -49,7 +57,7 @@ export function AIChatDemo() {
     for (const [key, response] of Object.entries(responses)) {
       if (lower.includes(key)) return response;
     }
-    return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+    return pickFallback();
   };
 
   const handleSend = () => {
@@ -65,7 +73,7 @@ export function AIChatDemo() {
       const response = getResponse(text);
       setMessages(prev => [...prev, { role: "ora", text: response }]);
       setIsTyping(false);
-    }, 800 + Math.random() * 600);
+    }, randomDelay());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -89,7 +97,7 @@ export function AIChatDemo() {
         const response = getResponse(text);
         setMessages(prev => [...prev, { role: "ora", text: response }]);
         setIsTyping(false);
-      }, 800 + Math.random() * 600);
+      }, randomDelay());
     }, 100);
     setHasStarted(true);
     composerRef.current?.focus();
@@ -116,7 +124,10 @@ export function AIChatDemo() {
         </div>
 
         {/* Messages */}
-        <div className="p-4 space-y-3 min-h-[280px] max-h-[280px] overflow-y-auto">
+        <div
+          ref={messagesContainerRef}
+          className="p-4 space-y-3 min-h-[280px] max-h-[280px] overflow-y-auto"
+        >
           {!hasStarted && (
             <div className="text-center py-8">
               <Sparkles className="h-8 w-8 text-primary/20 mx-auto mb-3" />
@@ -171,8 +182,6 @@ export function AIChatDemo() {
               </div>
             </div>
           )}
-
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Input */}

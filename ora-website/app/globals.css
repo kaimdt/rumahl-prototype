@@ -2,18 +2,66 @@
 @import "tw-animate-css";
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-geist-sans);
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-display: var(--font-manrope);
+
+  /* Map the runtime CSS variables (--card, --primary, …) to Tailwind v4
+     theme tokens so utilities like bg-card, text-foreground and
+     border-border are generated. The variables hold bare HSL triples
+     ("240 6% 6%"), so each token must be wrapped in hsl() — otherwise the
+     generated rules (background-color: var(--card)) are invalid CSS and
+     borders fall back to currentColor (= light lines in dark mode). */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-surface: hsl(var(--surface));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-accent: hsl(var(--primary-accent));
+  --color-primary-hover: hsl(var(--primary-hover));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-warm: hsl(var(--accent-warm));
+  --color-accent-warm-foreground: hsl(var(--accent-warm-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
 }
 
 @layer base {
   :root {
+    color-scheme: dark;
     --background: 240 8% 3%;
     --foreground: 220 10% 92%;
 
     --card: 240 6% 6%;
     --card-foreground: 220 10% 92%;
+
+    --surface: 240 6% 9%;
 
     --popover: 240 6% 6%;
     --popover-foreground: 220 10% 92%;
@@ -90,11 +138,14 @@
   }
 
   .light {
+    color-scheme: light;
     --background: 210 20% 98%;
     --foreground: 220 20% 10%;
 
     --card: 0 0% 100%;
     --card-foreground: 220 20% 10%;
+
+    --surface: 216 22% 96%;
 
     --popover: 0 0% 100%;
     --popover-foreground: 220 20% 10%;
@@ -127,7 +178,7 @@
     --info: 195 82% 48%;
     --info-foreground: 0 0% 100%;
 
-    --border: 210 14% 80%;
+    --border: 210 10% 85%;
     --input: 210 14% 86%;
     --ring: 215 90% 48%;
 
@@ -255,14 +306,14 @@
   background: hsl(var(--card) / 0.55);
   backdrop-filter: blur(16px) saturate(1.1);
   -webkit-backdrop-filter: blur(16px) saturate(1.1);
-  border: 1px solid hsl(var(--border) / 0.6);
+  border: 1px solid hsl(var(--border) / 0.45);
 }
 
 @utility glass-strong {
   background: hsl(var(--card) / 0.8);
   backdrop-filter: blur(24px) saturate(1.2);
   -webkit-backdrop-filter: blur(24px) saturate(1.2);
-  border: 1px solid hsl(var(--border) / 0.5);
+  border: 1px solid hsl(var(--border) / 0.4);
   box-shadow: 0 4px 24px hsl(0 0% 0% / 0.2);
 }
 
@@ -270,7 +321,7 @@
   background: hsl(var(--card) / 0.5);
   backdrop-filter: blur(20px) saturate(1.1);
   -webkit-backdrop-filter: blur(20px) saturate(1.1);
-  border: 1px solid hsl(var(--border) / 0.4);
+  border: 1px solid hsl(var(--border) / 0.3);
   border-radius: var(--radius);
   box-shadow: 0 2px 16px hsl(0 0% 0% / 0.06);
   transition: all 0.35s ease;
@@ -280,13 +331,34 @@
   background: hsl(var(--card) / 0.4);
   backdrop-filter: blur(20px) saturate(1.1);
   -webkit-backdrop-filter: blur(20px) saturate(1.1);
-  border: 1px solid hsl(var(--border) / 0.3);
+  border: 1px solid hsl(var(--border) / 0.2);
   border-radius: calc(var(--radius) + 2px);
   box-shadow: 0 1px 8px hsl(0 0% 0% / 0.04);
   transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   &:hover {
     border-color: hsl(var(--ring) / 0.2);
     box-shadow: 0 4px 24px hsl(var(--ring) / 0.06), 0 1px 4px hsl(var(--ring) / 0.04);
+    transform: translateY(-1px);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SURFACE CARDS — cleaner flat cards (umbrel-style)
+   ═══════════════════════════════════════════════════════════ */
+@utility surface-card {
+  background: hsl(var(--card) / 0.4);
+  border: 1px solid hsl(var(--border) / 0.25);
+  border-radius: calc(var(--radius) + 4px);
+  transition: all 0.3s ease;
+}
+
+@utility surface-card-interactive {
+  background: hsl(var(--card) / 0.4);
+  border: 1px solid hsl(var(--border) / 0.25);
+  border-radius: calc(var(--radius) + 4px);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  &:hover {
+    border-color: hsl(var(--ring) / 0.25);
     transform: translateY(-1px);
   }
 }
@@ -472,6 +544,28 @@
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@utility reveal {
+  opacity: 0;
+}
+@utility reveal-visible {
+  animation: reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 20px hsl(var(--ai-glow-blue) / 0.15); }
   50% { box-shadow: 0 0 40px hsl(var(--ai-glow-blue) / 0.3); }
@@ -521,7 +615,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════
-   IORA WIDGET STYLES — exact from @iora/frontend
+   rumahl WIDGET STYLES — exact from @rumahl/frontend
    ═══════════════════════════════════════════════════════════ */
 
 @keyframes shimmer-sweep {
@@ -598,4 +692,167 @@
 
 .icon-container-premium[data-active="true"]::after {
   border-color: hsl(var(--primary) / 0.20);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SMOOTH ANCHOR SCROLLING — base behavior for all in-page anchors
+   ═══════════════════════════════════════════════════════════ */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ORA INTRO — the O appears centered, rings glow, morphs away
+   ═══════════════════════════════════════════════════════════ */
+@keyframes ora-intro-appear {
+  0%   { opacity: 0; transform: scale(0.82); }
+  55%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes ora-intro-glow {
+  0%, 100% { filter: drop-shadow(0 0 6px hsl(var(--primary) / 0.35)); }
+  50%      { filter: drop-shadow(0 0 30px hsl(var(--primary) / 0.75)); }
+}
+
+@keyframes ora-intro-ring {
+  0%   { opacity: 0; transform: scale(0.55); }
+  25%  { opacity: 0.85; }
+  100% { opacity: 0; transform: scale(2.1); }
+}
+
+@keyframes ora-intro-morph-mark {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.62); }
+}
+
+@keyframes ora-intro-morph-word {
+  0%   { opacity: 0; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes ora-intro-overlay-out {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.ora-intro {
+  animation: ora-intro-appear 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ora-intro-mark {
+  animation: ora-intro-glow 1.8s ease-in-out infinite;
+}
+
+.ora-intro-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 2px solid hsl(var(--primary) / 0.55);
+  pointer-events: none;
+  animation: ora-intro-ring 1.7s ease-out infinite;
+}
+
+.ora-intro-ring-2 { animation-delay: 0.57s; }
+.ora-intro-ring-3 { animation-delay: 1.14s; }
+
+.ora-intro-morphing .ora-intro-mark {
+  animation: ora-intro-morph-mark 0.7s ease-in forwards;
+}
+
+.ora-intro-morphing .ora-intro-word {
+  animation: ora-intro-morph-word 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.ora-intro-out {
+  animation: ora-intro-overlay-out 0.7s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ora-intro,
+  .ora-intro-mark,
+  .ora-intro-ring,
+  .ora-intro-word {
+    animation: none !important;
+  }
+}
+
+/* ORA intro — soft glow ball behind the mark */
+@keyframes ora-intro-glowball {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50%      { opacity: 1;    transform: scale(1.08); }
+}
+
+.ora-intro-glowball {
+  animation: ora-intro-glowball 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ora-intro-glowball {
+    animation: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANIMATED HEADLINE — line reveal + shimmer highlight
+   ═══════════════════════════════════════════════════════════ */
+@keyframes hero-line-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hero-shimmer {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes hero-glow {
+  0%, 100% { filter: drop-shadow(0 0 8px hsl(var(--primary) / 0.2)); }
+  50%      { filter: drop-shadow(0 0 26px hsl(var(--primary) / 0.5)); }
+}
+
+.hero-line {
+  opacity: 0;
+}
+
+.hero-line-in {
+  animation: hero-line-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Shimmer line: reveal + shimmer + glow in ONE animation list — otherwise
+   the shimmer rule would override the reveal and the line stays invisible. */
+.hero-line-in.hero-shimmer-text {
+  animation:
+    hero-line-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+    hero-shimmer 5s linear infinite 1.2s,
+    hero-glow 3.5s ease-in-out infinite 1.2s;
+}
+
+.hero-shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--ai-glow-blue)),
+    hsl(var(--ai-glow-teal)),
+    hsl(var(--ai-glow-purple)),
+    hsl(var(--ai-glow-blue))
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-line,
+  .hero-line-in,
+  .hero-shimmer-text {
+    opacity: 1;
+    animation: none !important;
+  }
 }
