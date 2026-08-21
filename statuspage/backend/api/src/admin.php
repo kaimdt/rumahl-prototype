@@ -41,6 +41,7 @@ function admin_components_save(): never
     $historyDays = in_array((int) ($input['history_days'] ?? 90), [0, 7, 14, 30, 90, 180, 365], true)
         ? (int) $input['history_days']
         : 90;
+    $latencyThreshold = max(0, min(60000, (int) ($input['latency_threshold_ms'] ?? 0)));
 
     if (!empty($input['id'])) {
         // Update existing component
@@ -61,6 +62,7 @@ function admin_components_save(): never
             'headers' => $headers,
             'view_mode' => $viewMode,
             'history_days' => $historyDays,
+            'latency_threshold_ms' => $latencyThreshold,
             'enabled' => isset($input['enabled']) ? ($input['enabled'] ? 1 : 0) : (int) $existing['enabled'],
             'updated_at' => now_utc(),
         ];
@@ -69,6 +71,7 @@ function admin_components_save(): never
                     kind=:kind, check_type=:check_type, endpoint_url=:endpoint_url, method=:method,
                     expected_status=:expected_status, timeout_ms=:timeout_ms,
                     headers=:headers, view_mode=:view_mode, history_days=:history_days,
+                    latency_threshold_ms=:latency_threshold_ms,
                     enabled=:enabled, updated_at=:updated_at
               WHERE id = :id',
             array_merge($fields, ['id' => $input['id']])
@@ -89,8 +92,8 @@ function admin_components_save(): never
     db_exec(
         'INSERT INTO components (id, group_id, name, description, kind, check_type, endpoint_url,
                                  method, expected_status, timeout_ms, headers, view_mode, history_days,
-                                 position, enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                                 latency_threshold_ms, position, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
             $id,
             ($input['group_id'] ?? null) ?: null,
@@ -105,6 +108,7 @@ function admin_components_save(): never
             $headers,
             $viewMode,
             $historyDays,
+            $latencyThreshold,
             (int) ($input['position'] ?? 0),
             isset($input['enabled']) ? ($input['enabled'] ? 1 : 0) : 1,
             now_utc(),
@@ -417,7 +421,13 @@ function admin_checks_log(): never
             'check_type' => (string) ($row['check_type'] ?? 'http'),
             'ok' => (bool) $row['ok'],
             'softfail' => (bool) $row['softfail'],
-            'latency_ms' => $row['latency_ms'] !== null ? (int) $row['latency_ms'] : null,
+            // effective latency: server time, total as fallback (see checks.php)
+            'latency_ms' => $row['server_ms'] !== null ? (int) $row['server_ms'] : ($row['latency_ms'] !== null ? (int) $row['latency_ms'] : null),
+            'total_ms' => $row['latency_ms'] !== null ? (int) $row['latency_ms'] : null,
+            'dns_ms' => $row['dns_ms'] !== null ? (int) $row['dns_ms'] : null,
+            'connect_ms' => $row['connect_ms'] !== null ? (int) $row['connect_ms'] : null,
+            'tls_ms' => $row['tls_ms'] !== null ? (int) $row['tls_ms'] : null,
+            'server_ms' => $row['server_ms'] !== null ? (int) $row['server_ms'] : null,
             'status_code' => $row['status_code'] !== null ? (int) $row['status_code'] : null,
             'error' => $row['error'],
             'checked_at' => iso($row['checked_at']),

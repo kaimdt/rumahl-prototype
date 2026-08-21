@@ -79,7 +79,7 @@ export function LatencyChart({
     <div>
       <div className="flex items-baseline justify-between gap-4 mb-2">
         <h3 className="text-[12.5px] font-bold text-foreground">
-          Latency · last {days} days
+          Server time · last {days} days
         </h3>
         <div className="flex items-center gap-3 text-[10.5px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
@@ -181,7 +181,7 @@ export function LatencyChart({
               <span className="font-semibold text-foreground tabular-nums">
                 {hoverPoint.avg_latency_ms !== null ? `${hoverPoint.avg_latency_ms} ms` : "—"}
               </span>{" "}
-              avg latency
+              avg server time
             </p>
             <p className={cn(hoverPoint.success_ratio !== null && hoverPoint.success_ratio < 1 && "text-status-major font-semibold")}>
               {hoverPoint.success_ratio !== null ? `${(hoverPoint.success_ratio * 100).toFixed(0)}%` : "—"} ok · {hoverPoint.n} checks

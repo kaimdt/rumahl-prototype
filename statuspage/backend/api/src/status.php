@@ -55,7 +55,7 @@ function components_with_status(): array
                 (SELECT ok FROM check_results cr
                   WHERE cr.component_id = c.id
                   ORDER BY cr.checked_at DESC, cr.id DESC LIMIT 1) AS last_ok,
-                (SELECT latency_ms FROM check_results cr
+                (SELECT COALESCE(server_ms, latency_ms) FROM check_results cr
                   WHERE cr.component_id = c.id
                   ORDER BY cr.checked_at DESC, cr.id DESC LIMIT 1) AS last_latency_ms,
                 (SELECT checked_at FROM check_results cr
@@ -89,6 +89,7 @@ function components_with_status(): array
             'headers' => $row['headers'] !== null ? json_decode((string) $row['headers'], true) : null,
             'view_mode' => (string) ($row['view_mode'] ?? 'compact'),
             'history_days' => (int) ($row['history_days'] ?? 90),
+            'latency_threshold_ms' => (int) ($row['latency_threshold_ms'] ?? 0),
             'position' => (int) $row['position'],
             'enabled' => (bool) $row['enabled'],
             'status' => $status,

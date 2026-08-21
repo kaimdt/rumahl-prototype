@@ -95,7 +95,9 @@ export function ChecksTab() {
                   <th className="px-3 py-2 font-bold">Result</th>
                   <th className="px-3 py-2 font-bold">Component</th>
                   <th className="px-3 py-2 font-bold">Type</th>
-                  <th className="px-3 py-2 font-bold">Latency</th>
+                  <th className="px-3 py-2 font-bold">Server</th>
+                  <th className="px-3 py-2 font-bold">Network</th>
+                  <th className="px-3 py-2 font-bold">Total</th>
                   <th className="px-3 py-2 font-bold">Code</th>
                   <th className="px-3 py-2 font-bold">Error</th>
                   <th className="px-3 py-2 font-bold">Checked at</th>
@@ -127,8 +129,39 @@ export function ChecksTab() {
                           {r.check_type}
                         </span>
                       </td>
-                      <td className={cn("px-3 py-2 tabular-nums", r.latency_ms !== null && r.latency_ms > 3000 && "text-status-degraded font-semibold")}>
-                        {r.latency_ms !== null ? `${r.latency_ms} ms` : "—"}
+                      <td className="px-3 py-2">
+                        <span
+                          className={cn(
+                            "tabular-nums font-semibold",
+                            r.latency_ms !== null && r.latency_ms > 3000 && "text-status-degraded"
+                          )}
+                          title={
+                            r.server_ms !== null
+                              ? "Server time (TTFB minus DNS/TCP/TLS) — network phases are not counted"
+                              : "Total time (no server timing available for this check)"
+                          }
+                        >
+                          {r.latency_ms !== null ? `${r.latency_ms} ms` : "—"}
+                        </span>
+                        {r.server_ms !== null && r.total_ms !== null && r.total_ms > r.server_ms && (
+                          <span className="block text-[10px] text-muted-foreground/60 tabular-nums">
+                            server {r.server_ms} ms
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                        {r.dns_ms !== null || r.connect_ms !== null || r.tls_ms !== null ? (
+                          <span title="DNS / TCP / TLS — infrastructure, not counted">
+                            {[r.dns_ms, r.connect_ms, r.tls_ms]
+                              .map((v) => (v !== null ? `${v} ms` : "—"))
+                              .join(" + ")}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-muted-foreground/70">
+                        {r.total_ms ?? "—"} ms
                       </td>
                       <td className="px-3 py-2 tabular-nums text-muted-foreground">
                         {r.status_code ?? "—"}

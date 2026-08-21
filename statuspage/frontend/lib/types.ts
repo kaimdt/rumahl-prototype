@@ -52,6 +52,8 @@ export interface Component {
   view_mode: ComponentView;
   /** how much history the view shows (0 = no history), configured by the admin */
   history_days: number;
+  /** per-component degraded threshold; 0 = use the global setting */
+  latency_threshold_ms: number;
   position: number;
   enabled: boolean;
   /** current status — derived (auto) or manually set (manual) */
@@ -167,7 +169,14 @@ export interface CheckResult {
   ok: boolean;
   /** answered, but response did not match expectations (e.g. HTTP 308 vs 200) */
   softfail: boolean;
+  /** effective latency: server time (TTFB minus network), total as fallback */
   latency_ms: number | null;
+  /** total wall time incl. DNS/TCP/TLS */
+  total_ms: number | null;
+  dns_ms: number | null;
+  connect_ms: number | null;
+  tls_ms: number | null;
+  server_ms: number | null;
   status_code: number | null;
   error: string | null;
   checked_at: string;
@@ -189,6 +198,7 @@ export interface AdminComponentInput {
   headers?: string[];
   view_mode?: ComponentView;
   history_days?: number;
+  latency_threshold_ms?: number;
   position?: number;
   enabled?: boolean;
   manual_status?: ComponentStatus;

@@ -199,7 +199,7 @@ function route_latency(): never
     $bucketSeconds = max(300, (int) ceil($days * 86400 / 500));
     $rows = db_all(
         'SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(checked_at) / ?) * ?) AS bucket,
-                AVG(latency_ms) AS avg_latency_ms,
+                AVG(COALESCE(server_ms, latency_ms)) AS avg_latency_ms,
                 AVG(ok) AS success_ratio,
                 COUNT(*) AS n
            FROM check_results

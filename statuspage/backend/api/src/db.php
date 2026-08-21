@@ -45,6 +45,8 @@ function db(bool $ensureSchema = true): PDO
  *  v3  collapsed/auto_expand on component_groups
  *  v4  per-component display config: view_mode (compact/bars/extended),
  *      history_days (0 = no history) on components
+ *  v5  latency phases (dns/connect/tls/server) on check_results and a
+ *      per-component latency threshold override on components
  */
 function schema_migrations(): array
 {
@@ -62,6 +64,13 @@ function schema_migrations(): array
         'v4' => [
             ['components', 'view_mode', "VARCHAR(10) NOT NULL DEFAULT 'compact'"],
             ['components', 'history_days', 'INT NOT NULL DEFAULT 90'],
+        ],
+        'v5' => [
+            ['check_results', 'dns_ms', 'INT NULL'],
+            ['check_results', 'connect_ms', 'INT NULL'],
+            ['check_results', 'tls_ms', 'INT NULL'],
+            ['check_results', 'server_ms', 'INT NULL'],
+            ['components', 'latency_threshold_ms', 'INT NOT NULL DEFAULT 0'],
         ],
     ];
 }

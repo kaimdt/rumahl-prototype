@@ -32,10 +32,14 @@ function check_headers(array $component): array
 }
 
 /**
- * Perform a single check. Returns [ok, latency_ms, status_code, error, softfail].
- * softfail = the target answered, but the response did not match expectations
- * (e.g. HTTP 308 instead of 200) — as opposed to a hard failure (timeout,
- * connection refused, DNS error).
+ * Perform a single check. Returns
+ * [ok, latency_ms, status_code, error, softfail, dns_ms, connect_ms, tls_ms, server_ms]
+ *
+ * latency_ms is the TOTAL wall time; dns/connect/tls are the network phases
+ * and server_ms is the time the target itself needed (TTFB minus network) —
+ * the UI shows server_ms (falling back to latency_ms when unavailable, e.g.
+ * on failures or non-HTTP checks), because DNS/TCP/TLS are infrastructure
+ * and say nothing about the monitored service.
  */
 function run_check(array $component): array
 {
@@ -47,15 +51,15 @@ function run_check(array $component): array
     };
 }
 
-/** HTTP(S) check with custom headers. */
+/** HTTP(S) check with custom headers + per-phase timing. */
 function http_check(array $component): array
 {
     $url = $component['endpoint_url'];
     if ($url === '') {
-        return [false, null, null, 'No endpoint configured', false];
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
     }
     if (!filter_var($url, FILTER_VALIDATE_URL)) {
-        return [false, null, null, 'Invalid endpoint URL', false];
+        return [false, null, null, 'Invalid endpoint URL', false, null, null, null, null];
     }
 
     $curlHeaders = array_merge(['Accept: */*'], check_headers($component));
@@ -77,11 +81,27 @@ function http_check(array $component): array
     $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
     $statusCode = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $error = curl_error($ch);
+
+    // Per-phase timing (seconds → ms). Network phases (DNS/TCP/TLS) are
+    // infrastructure — the interesting value is server_ms (TTFB minus
+    // network), which is what the UI shows.
+    $info = curl_getinfo($ch);
+    $dnsMs = (float) ($info['namelookup_time'] ?? 0);
+    $connectMs = (float) ($info['connect_time'] ?? 0);
+    $appConnectMs = (float) ($info['appconnect_time'] ?? 0);
+    $startTransferMs = (float) ($info['starttransfer_time'] ?? 0);
+
+    $dns = max(0, (int) round($dnsMs * 1000));
+    $connect = $connectMs > 0 ? max(0, (int) round(($connectMs - $dnsMs) * 1000)) : null;
+    $tls = $appConnectMs > 0 ? max(0, (int) round(($appConnectMs - $connectMs) * 1000)) : null;
+    $server = $startTransferMs > 0
+        ? max(0, (int) round(($startTransferMs - ($appConnectMs > 0 ? $appConnectMs : $connectMs)) * 1000))
+        : null;
     curl_close($ch);
     unset($body);
 
     if ($error !== '') {
-        return [false, $latencyMs, $statusCode, $error, false];
+        return [false, $latencyMs, $statusCode, $error, false, $dns, $connect, $tls, $server];
     }
     $expected = (int) $component['expected_status'];
     $ok = $statusCode === $expected;
@@ -91,6 +111,10 @@ function http_check(array $component): array
         $statusCode,
         $ok ? null : "Unexpected HTTP status {$statusCode} (expected {$expected})",
         true, // answered → softfail, not a connectivity failure
+        $dns,
+        $connect,
+        $tls,
+        $server,
     ];
 }
 
@@ -99,7 +123,7 @@ function tcp_check(array $component): array
 {
     $target = trim((string) $component['endpoint_url']);
     if ($target === '') {
-        return [false, null, null, 'No endpoint configured', false];
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
     }
 
     $host = $target;
@@ -109,7 +133,7 @@ function tcp_check(array $component): array
         $scheme = strtolower($m[1]);
         $parts = parse_url($target);
         if ($parts === false || empty($parts['host'])) {
-            return [false, null, null, 'Invalid TCP endpoint URL', false];
+            return [false, null, null, 'Invalid TCP endpoint URL', false, null, null, null, null];
         }
         $host = (string) $parts['host'];
         $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
@@ -117,11 +141,11 @@ function tcp_check(array $component): array
         $host = $m[1];
         $port = (int) $m[2];
         if ($port < 1 || $port > 65535) {
-            return [false, null, null, "Invalid port {$port}", false];
+            return [false, null, null, "Invalid port {$port}", false, null, null, null, null];
         }
     }
     if ($host === '' || preg_match('/[\s;|&`$<>]/', $host)) {
-        return [false, null, null, 'Invalid TCP host', false];
+        return [false, null, null, 'Invalid TCP host', false, null, null, null, null];
     }
 
     $timeout = max(0.5, (int) $component['timeout_ms'] / 1000);
@@ -130,10 +154,11 @@ function tcp_check(array $component): array
     $fp = @fsockopen($address, $port, $errno, $errstr, $timeout);
     $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
     if ($fp === false) {
-        return [false, $latencyMs, null, "TCP connection to {$host}:{$port} failed ({$errstr})", false];
+        return [false, $latencyMs, null, "TCP connection to {$host}:{$port} failed ({$errstr})", false, null, null, null, null];
     }
     fclose($fp);
-    return [true, $latencyMs, null, null, false];
+    // For TCP checks the connect time IS the service time.
+    return [true, $latencyMs, null, null, false, null, $latencyMs, null, $latencyMs];
 }
 
 /** ICMP ping check — endpoint is a hostname or IP address. */
@@ -141,15 +166,15 @@ function ping_check(array $component): array
 {
     $host = trim((string) $component['endpoint_url']);
     if ($host === '') {
-        return [false, null, null, 'No endpoint configured', false];
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
     }
     // Whitelist: hostnames and IPv4 addresses only — never pass anything
     // else to the shell.
     if (!preg_match('/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/', $host)) {
-        return [false, null, null, 'Invalid ping host', false];
+        return [false, null, null, 'Invalid ping host', false, null, null, null, null];
     }
     if (!function_exists('exec')) {
-        return [false, null, null, 'Ping unavailable (exec disabled)', false];
+        return [false, null, null, 'Ping unavailable (exec disabled)', false, null, null, null, null];
     }
 
     $isWindows = strtoupper(PHP_OS_FAMILY ?? '') === 'WINDOWS';
@@ -168,7 +193,7 @@ function ping_check(array $component): array
     if ($exitCode !== 0) {
         $detail = trim((string) end($output));
         $error = $detail !== '' ? "Ping to {$host} failed: {$detail}" : "Ping to {$host} failed";
-        return [false, $latencyMs, null, $error, false];
+        return [false, $latencyMs, null, $error, false, null, null, null, null];
     }
 
     // Parse round-trip time: "time=12.3 ms" (Linux) / "time<1ms" (Windows).
@@ -176,7 +201,8 @@ function ping_check(array $component): array
     if (preg_match('/time[=<]([\d.]+)/i', $text, $m)) {
         $roundTrip = (int) round((float) $m[1]);
     }
-    return [true, $roundTrip ?? $latencyMs, null, null, false];
+    // For ping checks the round-trip IS the service time.
+    return [true, $roundTrip ?? $latencyMs, null, null, false, null, null, null, $roundTrip ?? $latencyMs];
 }
 
 /**
@@ -187,12 +213,16 @@ function ping_check(array $component): array
  *   - >= 60% ok                                  → degraded
  *   - >= 20% ok                                  → partial_outage
  *   - < 20% ok                                   → major_outage
+ *
+ * Latency is the EFFECTIVE service time (server_ms, falling back to the
+ * total for non-HTTP checks / old rows) — network phases are not counted.
+ * The threshold is the component's override (0 = global setting).
  */
-function derive_status(string $componentId, int $window): string
+function derive_status(string $componentId, int $window, ?array $component = null): string
 {
     $settings = settings_get();
     $rows = db_all(
-        'SELECT ok, latency_ms FROM check_results
+        'SELECT ok, COALESCE(server_ms, latency_ms) AS latency_ms FROM check_results
           WHERE component_id = ?
           ORDER BY checked_at DESC, id DESC LIMIT ?',
         [$componentId, $window]
@@ -212,7 +242,8 @@ function derive_status(string $componentId, int $window): string
     }
 
     $avgLatency = $okCount > 0 ? (int) round($latencySum / $okCount) : 0;
-    $threshold = (int) $settings['latency_threshold_ms'];
+    $override = (int) ($component['latency_threshold_ms'] ?? 0);
+    $threshold = $override > 0 ? $override : (int) $settings['latency_threshold_ms'];
     $allOk = $okCount === $count;
 
     if ($allOk) {
@@ -231,13 +262,18 @@ function derive_status(string $componentId, int $window): string
 function record_check(string $componentId, array $result): void
 {
     db_exec(
-        'INSERT INTO check_results (component_id, ok, softfail, latency_ms, status_code, error, checked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO check_results (component_id, ok, softfail, latency_ms, dns_ms, connect_ms,
+                                    tls_ms, server_ms, status_code, error, checked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
             $componentId,
             $result[0] ? 1 : 0,
             $result[4] ? 1 : 0,
             $result[1],
+            $result[5],
+            $result[6],
+            $result[7],
+            $result[8],
             $result[2],
             $result[3],
             now_utc(),
@@ -440,7 +476,7 @@ function run_monitor(): array
     foreach ($components as $component) {
         $result = run_check($component);
         record_check($component['id'], $result);
-        $newStatus = derive_status($component['id'], (int) $settings['failure_window']);
+        $newStatus = derive_status($component['id'], (int) $settings['failure_window'], $component);
         apply_status($component['id'], $newStatus);
         $results[] = [
             'component_id' => $component['id'],
@@ -449,6 +485,7 @@ function run_monitor(): array
             'ok' => $result[0],
             'softfail' => $result[4],
             'latency_ms' => $result[1],
+            'server_ms' => $result[8],
             'status_code' => $result[2],
             'error' => $result[3],
             'status' => $newStatus,

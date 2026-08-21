@@ -41,6 +41,7 @@ const EMPTY_FORM: AdminComponentInput & { manual_status: ComponentStatus } = {
   headers: [],
   view_mode: "compact",
   history_days: 90,
+  latency_threshold_ms: 0,
   manual_status: "operational",
 };
 
@@ -284,7 +285,7 @@ export function ComponentsTab() {
               </div>
               {form.check_type === "http" && (
                 <>
-                  <Field label="Method">
+                  <Field label="Method" hint="HEAD is fastest — no body is transferred">
                     <Select value={form.method} onChange={(e) => set("method", e.target.value)}>
                       {["GET", "HEAD", "POST", "OPTIONS"].map((m) => (
                         <option key={m}>{m}</option>
@@ -350,6 +351,17 @@ export function ComponentsTab() {
                   <option value="180">180 days</option>
                   <option value="365">1 year</option>
                 </Select>
+              </Field>
+              <Field
+                label="Latency threshold (ms)"
+                hint="Server time above this marks the service degraded — 0 uses the global setting"
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.latency_threshold_ms ?? 0}
+                  onChange={(e) => set("latency_threshold_ms", Number(e.target.value) || 0)}
+                />
               </Field>
             </>
           )}
@@ -524,6 +536,7 @@ export function ComponentsTab() {
                             headers: component.headers ?? [],
                             view_mode: component.view_mode,
                             history_days: component.history_days,
+                            latency_threshold_ms: component.latency_threshold_ms,
                             manual_status: component.status,
                           })
                         }
