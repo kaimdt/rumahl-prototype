@@ -139,6 +139,8 @@ function settings_get(): array
         'latency_threshold_ms' => (int) ($stored['latency_threshold_ms'] ?? $defaults['latency_threshold_ms']),
         'failure_window' => (int) ($stored['failure_window'] ?? $defaults['failure_window']),
         'auto_incidents_enabled' => (int) ($stored['auto_incidents_enabled'] ?? $defaults['auto_incidents_enabled']),
+        'version' => STATUSPAGE_VERSION,
+        'schema_version' => (string) ($stored['schema_version'] ?? 'v1'),
     ];
 }
 

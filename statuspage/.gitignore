@@ -7,6 +7,9 @@ frontend/.env.local
 # PHP backend — local configuration must never be committed
 backend/api/src/config.local.php
 
+# Automatic upgrade backups (created by api/upgrade.php)
+backups/
+
 # OS / editor
 .DS_Store
 Thumbs.db

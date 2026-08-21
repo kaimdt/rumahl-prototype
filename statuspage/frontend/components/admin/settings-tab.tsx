@@ -148,6 +148,10 @@ export function SettingsTab() {
         {saved && <span className="text-xs text-status-operational">Saved.</span>}
         {error && <span className="text-xs text-status-major">{error}</span>}
       </div>
+
+      <p className="text-[11px] text-muted-foreground/60 tabular-nums">
+        rumahl Status v{settings.version ?? "?"} · schema {settings.schema_version ?? "?"}
+      </p>
     </form>
   );
 }

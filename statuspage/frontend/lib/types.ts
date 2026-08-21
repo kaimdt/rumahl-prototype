@@ -203,4 +203,8 @@ export interface Settings {
   latency_threshold_ms: number;
   failure_window: number;
   auto_incidents_enabled: number;
+  /** app version, reported by the backend */
+  version?: string;
+  /** schema migration level, e.g. v3 */
+  schema_version?: string;
 }
