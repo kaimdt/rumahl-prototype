@@ -73,7 +73,7 @@ export function StatusBanner({
           </span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-foreground leading-[1.1] mb-4 flex items-center justify-center gap-3">
-          <Icon className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground/30" strokeWidth={1.5} />
+          <Icon className={cn("h-8 w-8 sm:h-10 sm:w-10", meta.text)} strokeWidth={1.5} />
           <span className="gradient-text">{BANNER_DESCRIPTION[status]}</span>
         </h1>
         <p className="text-sm text-muted-foreground">

@@ -2,10 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, History } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  History,
+  Minus,
+  TriangleAlert,
+  XCircle,
+} from "lucide-react";
 import type {
   Component,
   ComponentGroup,
+  ComponentStatus,
   DowntimeRangeResponse,
   LatencyResponse,
   UptimeResponse,
@@ -18,11 +28,21 @@ import { LatencyChart } from "./latency-chart";
 
 /* ── single component card ── */
 
+/** Round status badge icon — instant visual check at the end of each row. */
+const STATUS_BADGE_ICON: Record<ComponentStatus, typeof CheckCircle2> = {
+  operational: CheckCircle2,
+  degraded: TriangleAlert,
+  partial_outage: CircleAlert,
+  major_outage: XCircle,
+};
+
 function ComponentCard({ component }: { component: Component }) {
   const meta = STATUS_META[component.status];
   // View mode and history range are configured by the ADMIN per component
   // (backend fields) — visitors cannot change them.
   const monitoring = component.kind === "auto" && component.enabled;
+  // Self-monitoring components have no check history — hide the history link.
+  const isSelf = component.id.startsWith("__self");
   const view = monitoring ? component.view_mode : "compact";
   const days = monitoring ? component.history_days : 90;
   const showCharts = monitoring && view !== "compact" && days > 0;
@@ -77,10 +97,10 @@ function ComponentCard({ component }: { component: Component }) {
           )}
         </div>
         <div className="hidden sm:flex items-center gap-4 text-[12px] text-muted-foreground shrink-0">
-          {monitoring && component.last_latency_ms !== null && (
+          {monitoring && !isSelf && component.last_latency_ms !== null && (
             <span className="tabular-nums">{component.last_latency_ms} ms</span>
           )}
-          {monitoring && (
+          {monitoring && !isSelf && (
             <Link
               href={`/history/?component=${encodeURIComponent(component.id)}`}
               className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
@@ -99,6 +119,30 @@ function ComponentCard({ component }: { component: Component }) {
         >
           {monitoring ? meta.label : "No monitoring"}
         </span>
+        {monitoring ? (
+          (() => {
+            const BadgeIcon = STATUS_BADGE_ICON[component.status];
+            return (
+              <span
+                className={cn(
+                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+                  meta.bg,
+                  meta.text
+                )}
+                title={meta.label}
+              >
+                <BadgeIcon className="h-3.5 w-3.5" strokeWidth={2.2} />
+              </span>
+            );
+          })()
+        ) : (
+          <span
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted/40 text-muted-foreground/50"
+            title="No monitoring"
+          >
+            <Minus className="h-3.5 w-3.5" strokeWidth={2.2} />
+          </span>
+        )}
       </div>
 
       {showCharts && (

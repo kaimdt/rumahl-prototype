@@ -139,6 +139,7 @@ function settings_get(): array
         'latency_threshold_ms' => (int) ($stored['latency_threshold_ms'] ?? $defaults['latency_threshold_ms']),
         'failure_window' => (int) ($stored['failure_window'] ?? $defaults['failure_window']),
         'auto_incidents_enabled' => (int) ($stored['auto_incidents_enabled'] ?? $defaults['auto_incidents_enabled']),
+        'self_monitoring_enabled' => (int) ($stored['self_monitoring_enabled'] ?? $defaults['self_monitoring_enabled']),
         'version' => STATUSPAGE_VERSION,
         'schema_version' => (string) ($stored['schema_version'] ?? 'v1'),
     ];
@@ -157,6 +158,9 @@ function settings_save(array $settings): void
         'failure_window' => max(1, min(30, (int) ($settings['failure_window'] ?? 5))),
         'auto_incidents_enabled' => isset($settings['auto_incidents_enabled'])
             ? ((int) $settings['auto_incidents_enabled'] ? 1 : 0)
+            : 1,
+        'self_monitoring_enabled' => isset($settings['self_monitoring_enabled'])
+            ? ((int) $settings['self_monitoring_enabled'] ? 1 : 0)
             : 1,
     ];
     foreach ($pairs as $key => $value) {

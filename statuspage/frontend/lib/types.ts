@@ -109,6 +109,12 @@ export interface UptimeDay {
   ok: number;
   total: number;
   pct: number | null; // null when no checks that day
+  /** minutes with failed checks (stacked bar, red) — null when no data */
+  outage_min: number | null;
+  /** minutes covered by scheduled maintenance (stacked bar, blue) */
+  maintenance_min: number | null;
+  /** remaining minutes online (stacked bar, light green) */
+  online_min: number | null;
 }
 
 export interface UptimeResponse {
@@ -226,6 +232,8 @@ export interface Settings {
   latency_threshold_ms: number;
   failure_window: number;
   auto_incidents_enabled: number;
+  /** monitor the status page's own infrastructure and show it on the page */
+  self_monitoring_enabled: number;
   /** app version, reported by the backend */
   version?: string;
   /** schema migration level, e.g. v3 */

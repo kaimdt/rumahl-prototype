@@ -10,7 +10,7 @@
 
 declare(strict_types=1);
 
-const STATUSPAGE_VERSION = '1.5.0';
+const STATUSPAGE_VERSION = '1.6.0';
 
 function env(string $key, ?string $default = null): ?string
 {
@@ -52,6 +52,7 @@ function statuspage_config(): array
             'latency_threshold_ms' => 3000,
             'failure_window' => 5,
             'auto_incidents_enabled' => 1,
+            'self_monitoring_enabled' => 1,
         ],
     ];
 

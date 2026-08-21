@@ -171,23 +171,67 @@ function route_uptime(): never
           ORDER BY day ASC",
         [$componentId, $days]
     );
+
+    // Maintenance windows overlapping the range (still running = resolves_at NULL).
+    $maintenanceWindows = db_all(
+        "SELECT starts_at, resolves_at FROM incidents
+          WHERE type = 'maintenance'
+            AND (resolves_at IS NULL OR resolves_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY))
+            AND starts_at <= DATE_ADD(CURDATE(), INTERVAL 1 DAY)",
+        [$days]
+    );
+
     // Fill gaps (days without any checks) so the chart has a bar for each day.
     $uptime = [];
     $seen = array_fill_keys(array_column($rows, 'day'), true);
     for ($i = $days - 1; $i >= 0; $i--) {
         $day = gmdate('Y-m-d', strtotime("-{$i} days"));
+        $dayStart = strtotime($day . ' 00:00:00');
+        $dayEnd = $dayStart + 86400;
         if (isset($seen[$day])) {
             $row = $rows[array_search($day, array_column($rows, 'day'), true)];
             $total = (int) $row['total_count'];
             $ok = (int) $row['ok_count'];
+            // ~1 check per minute → failed checks ≈ outage minutes. For days
+            // without a single check total_count is 0 and the bar shows no data.
+            $outageMin = $total > 0 ? max(0, $total - $ok) : null;
+            $maintenanceMin = 0;
+            if ($outageMin !== null) {
+                foreach ($maintenanceWindows as $w) {
+                    $start = strtotime((string) $w['starts_at']);
+                    $end = $w['resolves_at'] !== null
+                        ? strtotime((string) $w['resolves_at'])
+                        : time();
+                    $overlap = max(0, min($end, $dayEnd) - max($start, $dayStart));
+                    if ($overlap > 0) {
+                        $maintenanceMin += (int) ceil($overlap / 60);
+                    }
+                }
+                // Maintenance cannot exceed the remaining minutes of the day.
+                $maintenanceMin = min($maintenanceMin, 1440 - $outageMin);
+            }
+            $onlineMin = $outageMin !== null
+                ? max(0, 1440 - $outageMin - $maintenanceMin)
+                : null;
             $uptime[] = [
                 'day' => $day,
                 'ok' => $ok,
                 'total' => $total,
                 'pct' => $total > 0 ? round($ok / $total * 100, 2) : null,
+                'outage_min' => $outageMin,
+                'maintenance_min' => $maintenanceMin,
+                'online_min' => $onlineMin,
             ];
         } else {
-            $uptime[] = ['day' => $day, 'ok' => 0, 'total' => 0, 'pct' => null];
+            $uptime[] = [
+                'day' => $day,
+                'ok' => 0,
+                'total' => 0,
+                'pct' => null,
+                'outage_min' => null,
+                'maintenance_min' => null,
+                'online_min' => null,
+            ];
         }
     }
     json_out(['component_id' => $componentId, 'days' => $days, 'uptime' => $uptime]);

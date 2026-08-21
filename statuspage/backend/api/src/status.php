@@ -199,11 +199,133 @@ function incidents_full(string $where, array $params, int $limit = 100): array
     return $out;
 }
 
+/**
+ * Self-monitoring — checks the status page's OWN infrastructure on every
+ * user request:
+ *   - database reachability
+ *   - monitor heartbeat: when did the last check run? If the cron is dead
+ *     the component flips to degraded / major_outage and the status is
+ *     persisted in settings.self_status (so it survives page reloads and
+ *     is visible even while the monitor itself is down).
+ */
+function self_health(): array
+{
+    $settings = settings_get();
+    if (!(int) ($settings['self_monitoring_enabled'] ?? 1)) {
+        return ['enabled' => false, 'components' => []];
+    }
+
+    $now = time();
+
+    // 1) Database.
+    $dbOk = true;
+    try {
+        db_row('SELECT 1');
+    } catch (Throwable) {
+        $dbOk = false;
+    }
+
+    // 2) Monitor heartbeat (last check of ANY component).
+    $last = db_row('SELECT MAX(checked_at) AS last_checked FROM check_results');
+    $lastTs = ($last !== null && $last['last_checked'] !== null)
+        ? strtotime((string) $last['last_checked'])
+        : null;
+    $ageMin = $lastTs !== null ? (int) floor(($now - $lastTs) / 60) : null;
+    $monitorStatus = match (true) {
+        $ageMin === null => 'major_outage', // never ran
+        $ageMin <= 3 => 'operational',
+        $ageMin <= 15 => 'degraded',
+        default => 'major_outage',
+    };
+    $monitorDetail = $ageMin !== null
+        ? "Last check {$ageMin} min ago (runs every minute)"
+        : 'No checks recorded yet — the cron has never run';
+
+    $components = [
+        [
+            'id' => '__self_web__',
+            'name' => 'Status page (web)',
+            'description' => 'The page itself answers requests',
+            'status' => 'operational',
+        ],
+        [
+            'id' => '__self_db__',
+            'name' => 'Database (MySQL)',
+            'description' => $dbOk ? 'Database reachable' : 'Database unreachable',
+            'status' => $dbOk ? 'operational' : 'major_outage',
+        ],
+        [
+            'id' => '__self_monitor__',
+            'name' => 'Monitor (check loop)',
+            'description' => $monitorDetail,
+            'status' => $monitorStatus,
+        ],
+    ];
+
+    // Persist the self status (throttled: only when changed or older than 60 s).
+    $stored = db_row("SELECT svalue FROM settings WHERE skey = 'self_status'");
+    $prev = $stored !== null ? json_decode((string) $stored['svalue'], true) : null;
+    $fresh = is_array($prev) && isset($prev['updated_at']) && ($now - strtotime((string) $prev['updated_at'])) < 60;
+    $unchanged = is_array($prev)
+        && ($prev['monitor'] ?? null) === $monitorStatus
+        && ($prev['db'] ?? null) === ($dbOk ? 'operational' : 'major_outage');
+    if (!$fresh || !$unchanged) {
+        db_exec(
+            "INSERT INTO settings (skey, svalue) VALUES ('self_status', ?)
+             ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)",
+            [json_encode([
+                'updated_at' => now_utc(),
+                'web' => 'operational',
+                'db' => $dbOk ? 'operational' : 'major_outage',
+                'monitor' => $monitorStatus,
+                'last_check_age_min' => $ageMin,
+            ], JSON_UNESCAPED_SLASHES)]
+        );
+    }
+
+    return ['enabled' => true, 'components' => $components];
+}
+
 /** Full public status payload. */
 function build_status_response(): array
 {
     $settings = settings_get();
     $components = components_with_status();
+
+    // Self-monitoring: the page's own infrastructure is checked on every
+    // request and shown as its own group (participates in the overall status).
+    $self = self_health();
+    if ($self['enabled']) {
+        $components = array_merge($components, array_map(function (array $c): array {
+            return [
+                'id' => $c['id'],
+                'group_id' => '__self__',
+                'name' => $c['name'],
+                'description' => $c['description'],
+                'kind' => 'auto',
+                'check_type' => 'http',
+                'endpoint_url' => '',
+                'method' => 'GET',
+                'expected_status' => 200,
+                'timeout_ms' => 10000,
+                'headers' => null,
+                'view_mode' => 'compact',
+                'history_days' => 0,
+                'latency_threshold_ms' => 0,
+                'position' => 0,
+                'enabled' => true,
+                'status' => $c['status'],
+                'changed_at' => null,
+                'uptime_30' => null,
+                'uptime_60' => null,
+                'uptime_90' => null,
+                'last_checked_at' => null,
+                'last_latency_ms' => null,
+                'last_ok' => null,
+            ];
+        }, $self['components']));
+    }
+
     $enabled = array_filter($components, fn (array $c) => $c['enabled']);
 
     $overall = worst_status(array_map(fn (array $c) => $c['status'], $enabled));
@@ -224,6 +346,45 @@ function build_status_response(): array
         5
     );
 
+    $groups = components_grouped($components);
+    if ($self['enabled']) {
+        $groups[] = [
+            'id' => '__self__',
+            'name' => 'rumahl Status infrastructure',
+            'position' => 10000,
+            'collapsed' => false,
+            'auto_expand' => true,
+            'components' => array_map(function (array $c): array {
+                return [
+                    'id' => $c['id'],
+                    'group_id' => '__self__',
+                    'name' => $c['name'],
+                    'description' => $c['description'],
+                    'kind' => 'auto',
+                    'check_type' => 'http',
+                    'endpoint_url' => '',
+                    'method' => 'GET',
+                    'expected_status' => 200,
+                    'timeout_ms' => 10000,
+                    'headers' => null,
+                    'view_mode' => 'compact',
+                    'history_days' => 0,
+                    'latency_threshold_ms' => 0,
+                    'position' => 0,
+                    'enabled' => true,
+                    'status' => $c['status'],
+                    'changed_at' => null,
+                    'uptime_30' => null,
+                    'uptime_60' => null,
+                    'uptime_90' => null,
+                    'last_checked_at' => null,
+                    'last_latency_ms' => null,
+                    'last_ok' => null,
+                ];
+            }, $self['components']),
+        ];
+    }
+
     return [
         'page' => [
             'name' => $settings['page_name'],
@@ -232,7 +393,7 @@ function build_status_response(): array
             'updated_at' => iso(now_utc()),
         ],
         'overall' => $overall,
-        'groups' => components_grouped($components),
+        'groups' => $groups,
         'active_incidents' => $active,
         'scheduled_maintenance' => $maintenance,
         'past_incidents' => $past,

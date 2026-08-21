@@ -4,14 +4,6 @@ import { useMemo, useState } from "react";
 import type { DowntimeResponse, UptimeDay } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-function barColor(pct: number | null): string {
-  if (pct === null) return "bg-muted/40";
-  if (pct >= 99.9) return "bg-status-operational/80";
-  if (pct >= 99) return "bg-status-degraded/80";
-  if (pct >= 95) return "bg-status-partial/80";
-  return "bg-status-major/80";
-}
-
 function dayLabel(day: string): string {
   const d = new Date(`${day}T12:00:00`);
   return d.toLocaleDateString("en-GB", {
@@ -28,6 +20,26 @@ function durationLabel(totalMin: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+/**
+ * Stacked segments for one day — outage (red), maintenance (blue), online
+ * (light green), sorted by duration DESCENDING, stacked bottom-up, so the
+ * longest block sits at the bottom and the shortest at the top.
+ */
+function daySegments(u: UptimeDay): { min: number; cls: string; label: string }[] {
+  if (u.total <= 0) return [];
+  const outage = u.outage_min ?? 0;
+  const maintenance = u.maintenance_min ?? 0;
+  const online =
+    u.online_min ?? Math.max(0, 1440 - outage - maintenance);
+  return [
+    { min: outage, cls: "bg-status-major", label: "outage" },
+    { min: maintenance, cls: "bg-info/70", label: "maintenance" },
+    { min: online, cls: "bg-status-operational/35", label: "online" },
+  ]
+    .filter((s) => s.min > 0)
+    .sort((a, b) => b.min - a.min);
+}
+
 function timeLabel(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-GB", {
     hour: "2-digit",
@@ -41,6 +53,8 @@ interface HoverState {
   day: string;
   pct: number | null;
   total: number;
+  outageMin: number;
+  maintenanceMin: number;
 }
 
 /**
@@ -117,26 +131,67 @@ export function UptimeChart({
           many ? "flex-nowrap overflow-x-auto pb-1" : "flex-wrap"
         )}
       >
-        {uptime.map((u) => (
-          <div
-            key={u.day}
-            onMouseEnter={(e) =>
-              setHover({ x: e.clientX, y: e.clientY, day: u.day, pct: u.pct, total: u.total })
-            }
-            onMouseMove={(e) =>
-              setHover((h) =>
-                h && h.day === u.day ? { ...h, x: e.clientX, y: e.clientY } : h
-              )
-            }
-            onMouseLeave={() => setHover(null)}
-            className={cn(
-              "rounded-[2px] transition-transform hover:scale-125",
-              compact ? "h-6" : "h-8",
-              barColor(u.pct)
-            )}
-            style={{ width: barW }}
-          />
-        ))}
+        {uptime.map((u) => {
+          const segments = daySegments(u);
+          const hoverData = {
+            x: 0,
+            y: 0,
+            day: u.day,
+            pct: u.pct,
+            total: u.total,
+            outageMin: u.outage_min ?? 0,
+            maintenanceMin: u.maintenance_min ?? 0,
+          };
+          const onEnter = (e: React.MouseEvent<HTMLDivElement>) =>
+            setHover({ ...hoverData, x: e.clientX, y: e.clientY });
+          const onMove = (e: React.MouseEvent<HTMLDivElement>) =>
+            setHover((h) => (h && h.day === u.day ? { ...h, x: e.clientX, y: e.clientY } : h));
+          const onLeave = () => setHover(null);
+          if (segments.length === 0) {
+            return (
+              <div
+                key={u.day}
+                onMouseEnter={onEnter}
+                onMouseMove={onMove}
+                onMouseLeave={onLeave}
+                className={cn(
+                  "rounded-[2px] transition-transform hover:scale-125",
+                  compact ? "h-6" : "h-8",
+                  "bg-muted/40"
+                )}
+                style={{ width: barW }}
+              />
+            );
+          }
+          const totalMin = segments.reduce((acc, s) => acc + s.min, 0) || 1;
+          let bottom = 0;
+          return (
+            <div
+              key={u.day}
+              onMouseEnter={onEnter}
+              onMouseMove={onMove}
+              onMouseLeave={onLeave}
+              className={cn(
+                "relative overflow-hidden rounded-[2px] transition-transform hover:scale-125",
+                compact ? "h-6" : "h-8"
+              )}
+              style={{ width: barW }}
+            >
+              {segments.map((s) => {
+                const height = (s.min / totalMin) * 100;
+                const el = (
+                  <div
+                    key={s.label}
+                    className={cn("absolute inset-x-0", s.cls)}
+                    style={{ bottom: `${bottom}%`, height: `${height}%` }}
+                  />
+                );
+                bottom += height;
+                return el;
+              })}
+            </div>
+          );
+        })}
       </div>
 
       <div className="relative mt-2 h-4 text-[10px] text-muted-foreground/70">
@@ -154,16 +209,13 @@ export function UptimeChart({
       {!compact && (
         <div className="mt-4 flex items-center gap-4 text-[11px] text-muted-foreground border-t border-border/30 pt-3">
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-sm bg-status-operational/80" /> 100%
+            <span className="h-2 w-2 rounded-sm bg-status-operational/35" /> online
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-sm bg-status-degraded/80" /> ≥ 99%
+            <span className="h-2 w-2 rounded-sm bg-status-major" /> outage
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-sm bg-status-partial/80" /> ≥ 95%
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-sm bg-status-major/80" /> &lt; 95%
+            <span className="h-2 w-2 rounded-sm bg-info/70" /> maintenance
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-sm bg-muted/40" /> no data
@@ -185,6 +237,13 @@ export function UptimeChart({
               {hover.total > 0 && hover.pct !== null ? `${hover.pct.toFixed(1)}%` : "no data"}
             </p>
           </div>
+          {hover.total > 0 && (hover.outageMin > 0 || hover.maintenanceMin > 0) && (
+            <p className="text-[11.5px] font-semibold text-status-major mb-1">
+              {hover.outageMin > 0 && `Down ${durationLabel(hover.outageMin)}`}
+              {hover.outageMin > 0 && hover.maintenanceMin > 0 && " · "}
+              {hover.maintenanceMin > 0 && `Maintenance ${durationLabel(hover.maintenanceMin)}`}
+            </p>
+          )}
           {hover.total === 0 ? (
             <p className="text-[11.5px] text-muted-foreground">No checks recorded.</p>
           ) : detail && detail.total_min > 0 ? (
