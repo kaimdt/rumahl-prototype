@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { CalendarClock, ChevronDown, Megaphone } from "lucide-react";
 import type { Incident } from "@/lib/types";
 import {
@@ -11,22 +12,19 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * BetterStack-style incident card:
- *
- *   Degraded Telemetry performance                    [Resolved]
- *   Resolved Aug 20, 2026 at 4:48 PM CEST
- *   The issue was resolved, we apologize …
- *   ▸ 1 previous update
+ * BetterStack-style incident card — the whole card links to the detail page
+ * (/incidents/?id=…), where the full timeline (start → updates → resolved)
+ * is shown. The "previous updates" toggle expands inline when not expanded.
  */
 export function IncidentCard({
   incident,
   expanded = false,
 }: {
   incident: Incident;
-  /** render all updates expanded (detail view) */
+  /** detail view — no link, no inline previous-updates list (timeline below) */
   expanded?: boolean;
 }) {
-  const [showPrevious, setShowPrevious] = useState(expanded);
+  const [showPrevious, setShowPrevious] = useState(false);
   const updates = incident.updates;
   const latest = updates.length > 0 ? updates[updates.length - 1] : null;
   const previous = updates.slice(0, -1);
@@ -36,8 +34,8 @@ export function IncidentCard({
   const latestTime =
     latest?.created_at ?? incident.resolves_at ?? incident.updated_at;
 
-  return (
-    <article className="surface-card p-5 sm:p-6">
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <span
@@ -81,9 +79,25 @@ export function IncidentCard({
           {latest.message}
         </p>
       )}
+    </>
+  );
 
-      {previous.length > 0 && (
-        <div className="mt-3 border-t border-border/25 pt-2.5">
+  return (
+    <article className="surface-card overflow-hidden">
+      {expanded ? (
+        <div className="p-5 sm:p-6">{content}</div>
+      ) : (
+        <Link
+          href={`/incidents/?id=${encodeURIComponent(incident.id)}`}
+          className="block p-5 sm:p-6 transition-colors hover:bg-muted/15"
+          title="View the full update timeline"
+        >
+          {content}
+        </Link>
+      )}
+
+      {!expanded && previous.length > 0 && (
+        <div className="border-t border-border/25 px-5 sm:px-6 py-2.5">
           <button
             onClick={() => setShowPrevious((s) => !s)}
             className="inline-flex items-center gap-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
@@ -91,8 +105,7 @@ export function IncidentCard({
             <ChevronDown
               className={cn("h-3.5 w-3.5 transition-transform", showPrevious && "rotate-180")}
             />
-            {previous.length} previous{" "}
-            {previous.length === 1 ? "update" : "updates"}
+            {previous.length} previous {previous.length === 1 ? "update" : "updates"}
           </button>
           {showPrevious && (
             <ul className="mt-2.5 space-y-3">

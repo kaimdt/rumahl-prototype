@@ -7,6 +7,7 @@ import { publicApi } from "@/lib/api";
 import type { Incident } from "@/lib/types";
 import { IncidentList } from "@/components/incident-list";
 import { IncidentCard } from "@/components/incident-card";
+import { IncidentTimeline } from "@/components/incident-timeline";
 import { cn } from "@/lib/utils";
 
 const PER_PAGE = 15;
@@ -114,6 +115,7 @@ function IncidentsContent() {
             All incidents
           </a>
           <IncidentCard incident={detail} expanded />
+          <IncidentTimeline incident={detail} />
         </div>
       ) : (
         <>
