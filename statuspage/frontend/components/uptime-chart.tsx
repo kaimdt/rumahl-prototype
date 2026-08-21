@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
-import type { UptimeDay } from "@/lib/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { DowntimeResponse, UptimeDay } from "@/lib/types";
+import { publicApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 function barColor(pct: number | null): string {
@@ -21,13 +22,80 @@ function dayLabel(day: string): string {
   });
 }
 
+function durationLabel(totalMin: number): string {
+  if (totalMin < 60) return `${totalMin} min`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function timeLabel(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+interface HoverState {
+  x: number;
+  y: number;
+  day: string;
+  pct: number | null;
+  ok: number;
+  total: number;
+}
+
+/**
+ * Uptime bar chart. Hovering a bar shows a custom tooltip with the outage
+ * details for that day (episodes are fetched on demand from /api/downtime
+ * and cached; days older than the raw retention show the aggregate).
+ */
 export function UptimeChart({
   uptime,
   days,
+  componentId,
+  density = "full",
 }: {
   uptime: UptimeDay[];
   days: number;
+  componentId: string;
+  density?: "full" | "compact";
 }) {
+  const [hover, setHover] = useState<HoverState | null>(null);
+  const [detail, setDetail] = useState<DowntimeResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const cacheRef = useRef<Map<string, DowntimeResponse>>(new Map());
+
+  useEffect(() => {
+    if (!hover) {
+      setDetail(null);
+      return;
+    }
+    const cached = cacheRef.current.get(hover.day);
+    if (cached) {
+      setDetail(cached);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setDetail(null);
+    publicApi
+      .downtime(componentId, hover.day)
+      .then((d) => {
+        cacheRef.current.set(hover.day, d);
+        if (!cancelled) setDetail(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hover, componentId]);
+
   const pct = useMemo(() => {
     const withData = uptime.filter((u) => u.total > 0);
     if (withData.length === 0) return null;
@@ -54,26 +122,57 @@ export function UptimeChart({
     return out;
   }, [uptime]);
 
+  const compact = density === "compact";
+  const many = uptime.length > 120;
+  const barW = compact ? (many ? 4 : 6) : many ? 6 : 8;
+
+  const tooltipX = hover
+    ? Math.min(hover.x + 14, (typeof window !== "undefined" ? window.innerWidth : 800) - 280)
+    : 0;
+  const tooltipTop = hover && hover.y < 190 ? hover.y + 18 : (hover?.y ?? 0) - 150;
+
   return (
-    <div className="surface-card p-5 sm:p-6">
+    <div className={cn(compact ? "" : "surface-card p-5 sm:p-6")}>
       <div className="flex items-baseline justify-between gap-4 mb-4">
-        <h3 className="text-sm font-bold text-foreground">
+        <h3 className={cn("font-bold text-foreground", compact ? "text-[12.5px]" : "text-sm")}>
           Uptime · last {days} days
         </h3>
-        <p className="text-lg font-bold tabular-nums text-status-operational">
+        <p className={cn("font-bold tabular-nums text-status-operational", compact ? "text-sm" : "text-lg")}>
           {pct !== null ? `${pct.toFixed(2)}%` : "—"}
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-[3px]">
+      <div
+        className={cn(
+          "flex gap-[3px]",
+          many ? "flex-nowrap overflow-x-auto pb-1" : "flex-wrap"
+        )}
+      >
         {uptime.map((u) => (
           <div
             key={u.day}
-            title={`${dayLabel(u.day)} — ${u.total > 0 ? ((u.ok / u.total) * 100).toFixed(1) : "no data"}% (${u.ok}/${u.total} checks)`}
+            onMouseEnter={(e) =>
+              setHover({
+                x: e.clientX,
+                y: e.clientY,
+                day: u.day,
+                pct: u.pct,
+                ok: u.ok,
+                total: u.total,
+              })
+            }
+            onMouseMove={(e) =>
+              setHover((h) =>
+                h && h.day === u.day ? { ...h, x: e.clientX, y: e.clientY } : h
+              )
+            }
+            onMouseLeave={() => setHover(null)}
             className={cn(
-              "h-8 w-[7px] rounded-[2px] transition-transform hover:scale-125",
+              "rounded-[2px] transition-transform hover:scale-125",
+              compact ? "h-6" : "h-8",
               barColor(u.pct)
             )}
+            style={{ width: barW }}
           />
         ))}
       </div>
@@ -90,23 +189,79 @@ export function UptimeChart({
         ))}
       </div>
 
-      <div className="mt-4 flex items-center gap-4 text-[11px] text-muted-foreground border-t border-border/30 pt-3">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-sm bg-status-operational/80" /> 100%
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-sm bg-status-degraded/80" /> ≥ 99%
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-sm bg-status-partial/80" /> ≥ 95%
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-sm bg-status-major/80" /> &lt; 95%
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-sm bg-muted/40" /> no data
-        </span>
-      </div>
+      {!compact && (
+        <div className="mt-4 flex items-center gap-4 text-[11px] text-muted-foreground border-t border-border/30 pt-3">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-status-operational/80" /> 100%
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-status-degraded/80" /> ≥ 99%
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-status-partial/80" /> ≥ 95%
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-status-major/80" /> &lt; 95%
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-muted/40" /> no data
+          </span>
+        </div>
+      )}
+
+      {hover && (
+        <div
+          className="fixed z-50 w-[260px] rounded-xl border border-border/40 bg-popover/95 backdrop-blur p-3.5 shadow-xl"
+          style={{ left: tooltipX, top: tooltipTop }}
+        >
+          <div className="flex items-baseline justify-between gap-3 mb-1.5">
+            <p className="text-[12px] font-bold text-foreground">{dayLabel(hover.day)}</p>
+            <p className="text-[11px] font-semibold tabular-nums text-muted-foreground">
+              {hover.total > 0 ? `${hover.pct?.toFixed(1)}%` : "no data"}
+            </p>
+          </div>
+          {hover.total === 0 ? (
+            <p className="text-[11.5px] text-muted-foreground">No checks recorded.</p>
+          ) : loading ? (
+            <p className="text-[11.5px] text-muted-foreground">Loading outage details…</p>
+          ) : detail && detail.total_min > 0 ? (
+            <>
+              <p className="text-[11.5px] font-semibold text-status-major">
+                Down for {durationLabel(detail.total_min)}
+                {detail.count > 0 && ` · ${detail.count} outage${detail.count > 1 ? "s" : ""}`}
+              </p>
+              {detail.approx ? (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Detailed episodes are only kept for 31 days.
+                </p>
+              ) : (
+                <ul className="mt-1.5 space-y-1">
+                  {detail.episodes.slice(0, 4).map((ep, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center justify-between text-[11px] text-muted-foreground"
+                    >
+                      <span className="tabular-nums">
+                        {timeLabel(ep.start)} – {timeLabel(ep.end)}
+                      </span>
+                      <span className="font-semibold text-foreground/80 tabular-nums">
+                        {durationLabel(ep.duration_min)}
+                      </span>
+                    </li>
+                  ))}
+                  {detail.episodes.length > 4 && (
+                    <li className="text-[10.5px] text-muted-foreground/70">
+                      +{detail.episodes.length - 4} more
+                    </li>
+                  )}
+                </ul>
+              )}
+            </>
+          ) : (
+            <p className="text-[11.5px] text-status-operational">No downtime.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

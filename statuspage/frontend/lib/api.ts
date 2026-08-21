@@ -3,7 +3,9 @@ import type {
   AdminIncidentInput,
   CheckResult,
   ComponentGroup,
+  DowntimeResponse,
   Incident,
+  LatencyResponse,
   Settings,
   StatusResponse,
   UptimeResponse,
@@ -83,6 +85,14 @@ export const publicApi = {
     request<UptimeResponse>(
       `/uptime?component=${encodeURIComponent(componentId)}&days=${days}`
     ),
+  latency: (componentId: string, days = 14) =>
+    request<LatencyResponse>(
+      `/latency?component=${encodeURIComponent(componentId)}&days=${days}`
+    ),
+  downtime: (componentId: string, day: string) =>
+    request<DowntimeResponse>(
+      `/downtime?component=${encodeURIComponent(componentId)}&day=${encodeURIComponent(day)}`
+    ),
 };
 
 /* ── Admin API ── */
@@ -103,8 +113,13 @@ export const adminApi = {
       method: "POST",
       body: { action: "delete", id },
     }),
-  saveGroup: (input: { id?: string; name: string; position?: number }) =>
-    request<{ ok: boolean }>("/admin/groups", { method: "POST", body: { group: input } }),
+  saveGroup: (input: {
+    id?: string;
+    name: string;
+    position?: number;
+    collapsed?: boolean;
+    auto_expand?: boolean;
+  }) => request<{ ok: boolean }>("/admin/groups", { method: "POST", body: { group: input } }),
   deleteGroup: (id: string) =>
     request<{ ok: boolean }>("/admin/groups", { method: "POST", body: { action: "delete", id } }),
 

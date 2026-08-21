@@ -105,17 +105,26 @@ function components_with_status(): array
 /** Components grouped by group, with an "__ungrouped__" pseudo group last. */
 function components_grouped(array $components): array
 {
-    $groups = db_all('SELECT id, name, position FROM component_groups ORDER BY position ASC, name ASC');
+    $groups = db_all('SELECT id, name, position, collapsed, auto_expand FROM component_groups ORDER BY position ASC, name ASC');
     $byId = [];
     foreach ($groups as $group) {
         $byId[$group['id']] = [
             'id' => $group['id'],
             'name' => $group['name'],
             'position' => (int) $group['position'],
+            'collapsed' => (bool) $group['collapsed'],
+            'auto_expand' => (bool) $group['auto_expand'],
             'components' => [],
         ];
     }
-    $ungrouped = ['id' => '__ungrouped__', 'name' => 'Ungrouped', 'position' => 9999, 'components' => []];
+    $ungrouped = [
+        'id' => '__ungrouped__',
+        'name' => 'Ungrouped',
+        'position' => 9999,
+        'collapsed' => false,
+        'auto_expand' => true,
+        'components' => [],
+    ];
 
     foreach ($components as $component) {
         if ($component['group_id'] !== null && isset($byId[$component['group_id']])) {

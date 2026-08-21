@@ -6,6 +6,8 @@
  *   GET  /api/status             full public status
  *   GET  /api/status.json        statuspage.io-style machine output
  *   GET  /api/uptime             daily uptime for one component
+ *   GET  /api/latency            latency series for one component (downsampled)
+ *   GET  /api/downtime           outage episodes for one component on one day
  *   GET  /api/incidents          incident list (pagination) or ?id= detail
  *   GET  /api/rss                RSS feed of incidents & maintenance
  *   GET  /api/feed               alias of /api/rss (kept for compatibility)
@@ -61,6 +63,12 @@ function route(string $method, string $path): never
     }
     if ($method === 'GET' && $path === '/uptime') {
         route_uptime();
+    }
+    if ($method === 'GET' && $path === '/latency') {
+        route_latency();
+    }
+    if ($method === 'GET' && $path === '/downtime') {
+        route_downtime();
     }
     if ($method === 'GET' && $path === '/incidents') {
         route_incidents();
@@ -167,6 +175,136 @@ function route_uptime(): never
         }
     }
     json_out(['component_id' => $componentId, 'days' => $days, 'uptime' => $uptime]);
+}
+
+/**
+ * Latency series for one component — downsampled into buckets so the
+ * chart stays light (target ~500 points). Raw check results are kept for
+ * 31 days, so older data is not available here.
+ */
+function route_latency(): never
+{
+    $componentId = (string) ($_GET['component'] ?? '');
+    if ($componentId === '') {
+        json_error('Missing component parameter');
+    }
+    $days = max(1, min(31, (int) ($_GET['days'] ?? 14)));
+
+    $bucketSeconds = max(300, (int) ceil($days * 86400 / 500));
+    $rows = db_all(
+        'SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(checked_at) / ?) * ?) AS bucket,
+                AVG(latency_ms) AS avg_latency_ms,
+                AVG(ok) AS success_ratio,
+                COUNT(*) AS n
+           FROM check_results
+          WHERE component_id = ?
+            AND checked_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+          GROUP BY bucket
+          ORDER BY bucket ASC',
+        [$bucketSeconds, $bucketSeconds, $componentId, $days]
+    );
+
+    json_out([
+        'component_id' => $componentId,
+        'days' => $days,
+        'bucket_seconds' => $bucketSeconds,
+        'points' => array_map(function (array $row): array {
+            return [
+                'bucket' => iso((string) $row['bucket']),
+                'avg_latency_ms' => $row['avg_latency_ms'] !== null ? round((float) $row['avg_latency_ms'], 1) : null,
+                'success_ratio' => $row['success_ratio'] !== null ? round((float) $row['success_ratio'], 4) : null,
+                'n' => (int) $row['n'],
+            ];
+        }, $rows),
+    ]);
+}
+
+/**
+ * Outage episodes for one component on one day — used by the uptime bar
+ * tooltip. Episodes are consecutive failing checks (gaps > 5 min split).
+ * Falls back to the daily aggregate for days older than the raw retention.
+ */
+function route_downtime(): never
+{
+    $componentId = (string) ($_GET['component'] ?? '');
+    $day = (string) ($_GET['day'] ?? '');
+    if ($componentId === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $day)) {
+        json_error('Missing component or day parameter');
+    }
+
+    $rows = db_all(
+        'SELECT checked_at, ok FROM check_results
+          WHERE component_id = ?
+            AND checked_at >= ? AND checked_at < DATE_ADD(?, INTERVAL 1 DAY)
+          ORDER BY checked_at ASC, id ASC',
+        [$componentId, $day . ' 00:00:00', $day]
+    );
+
+    if ($rows === []) {
+        // No raw data anymore (older than retention) — fall back to the
+        // daily aggregate: each check runs once a minute, so failures ≈ minutes.
+        $agg = db_row(
+            'SELECT total_count, ok_count FROM uptime_daily
+              WHERE component_id = ? AND day = ?',
+            [$componentId, $day]
+        );
+        if ($agg === null || (int) $agg['total_count'] === 0) {
+            json_out(['day' => $day, 'episodes' => [], 'total_min' => 0, 'count' => 0, 'approx' => false]);
+        }
+        $approxMin = (int) $agg['total_count'] - (int) $agg['ok_count'];
+        json_out([
+            'day' => $day,
+            'episodes' => [],
+            'total_min' => max(0, $approxMin),
+            'count' => 0,
+            'approx' => true,
+        ]);
+    }
+
+    // Group consecutive failing checks into episodes (gap > 5 min splits).
+    $episodes = [];
+    $current = null; // [start, last]
+    $failCount = 0;
+    foreach ($rows as $row) {
+        if ((int) $row['ok'] === 1) {
+            continue;
+        }
+        $failCount++;
+        $time = strtotime((string) $row['checked_at']);
+        if ($current === null || $time - $current[1] > 300) {
+            if ($current !== null) {
+                $episodes[] = $current;
+            }
+            $current = [$time, $time];
+        } else {
+            $current[1] = $time;
+        }
+    }
+    if ($current !== null) {
+        $episodes[] = $current;
+    }
+
+    $out = [];
+    $totalMin = 0;
+    foreach ($episodes as [$start, $end]) {
+        // Each failed check covers ~1 minute; add one minute for the last check.
+        $durationMin = max(1, (int) ceil(($end - $start + 60) / 60));
+        $totalMin += $durationMin;
+        $out[] = [
+            'start' => gmdate('Y-m-d\TH:i:s\Z', $start),
+            'end' => gmdate('Y-m-d\TH:i:s\Z', $end),
+            'duration_min' => $durationMin,
+        ];
+    }
+
+    json_out([
+        'day' => $day,
+        'episodes' => $out,
+        'total_min' => $totalMin,
+        'count' => count($out),
+        'approx' => false,
+        'failed_checks' => $failCount,
+    ]);
 }
 
 function route_incidents(): never

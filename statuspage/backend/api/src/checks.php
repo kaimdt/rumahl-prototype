@@ -455,8 +455,9 @@ function run_monitor(): array
         ];
     }
 
-    // Best-effort cleanup of raw check results (kept 14 days).
-    db_exec('DELETE FROM check_results WHERE checked_at < DATE_SUB(NOW(), INTERVAL 14 DAY)');
+    // Best-effort cleanup of raw check results (kept 31 days — long enough
+    // for the per-day outage episode details behind the uptime bars).
+    db_exec('DELETE FROM check_results WHERE checked_at < DATE_SUB(NOW(), INTERVAL 31 DAY)');
 
     $sent = process_alerts();
 

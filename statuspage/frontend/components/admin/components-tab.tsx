@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, GripVertical, Plus, Radar, Trash2 } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type {
   AdminComponentInput,
@@ -135,6 +135,36 @@ export function ComponentsTab() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
+  const toggleCollapsed = async (group: ComponentGroup) => {
+    try {
+      await adminApi.saveGroup({
+        id: group.id,
+        name: group.name,
+        position: group.position,
+        collapsed: !group.collapsed,
+        auto_expand: group.auto_expand,
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    }
+  };
+
+  const toggleAutoExpand = async (group: ComponentGroup) => {
+    try {
+      await adminApi.saveGroup({
+        id: group.id,
+        name: group.name,
+        position: group.position,
+        collapsed: group.collapsed,
+        auto_expand: !group.auto_expand,
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
     }
   };
 
@@ -306,17 +336,62 @@ export function ComponentsTab() {
                   {group.id === "__ungrouped__" ? "Ungrouped" : group.name}
                 </button>
                 {group.id !== "__ungrouped__" && (
-                  <button
-                    onClick={() => removeGroup(group)}
-                    className="ml-auto p-1 text-muted-foreground/50 hover:text-status-major transition-colors"
-                    title="Delete group"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => toggleCollapsed(group)}
+                      className={cn(
+                        "p-1 transition-colors",
+                        group.collapsed
+                          ? "text-primary"
+                          : "text-muted-foreground/50 hover:text-foreground"
+                      )}
+                      title={
+                        group.collapsed
+                          ? "Default: collapsed — click to default to expanded"
+                          : "Default: expanded — click to default to collapsed"
+                      }
+                    >
+                      {group.collapsed ? (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => toggleAutoExpand(group)}
+                      className={cn(
+                        "p-1 transition-colors",
+                        group.auto_expand
+                          ? "text-primary"
+                          : "text-muted-foreground/50 hover:text-foreground"
+                      )}
+                      title={
+                        group.auto_expand
+                          ? "Auto-expands on issues — click to disable"
+                          : "Auto-expand disabled — click to enable"
+                      }
+                    >
+                      <Radar className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => removeGroup(group)}
+                      className="ml-auto p-1 text-muted-foreground/50 hover:text-status-major transition-colors"
+                      title="Delete group"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
                 )}
-                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-                  {group.components.length}
-                </span>
+                {group.id === "__ungrouped__" && (
+                  <span className="ml-auto text-[10px] text-muted-foreground/60 tabular-nums">
+                    {group.components.length}
+                  </span>
+                )}
+                {group.id !== "__ungrouped__" && (
+                  <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+                    {group.components.length}
+                  </span>
+                )}
               </div>
 
               {group.components.length === 0 ? (

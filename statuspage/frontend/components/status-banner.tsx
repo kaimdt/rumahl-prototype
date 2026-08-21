@@ -1,14 +1,14 @@
 "use client";
 
-import { CheckCircle2, CloudOff, TriangleAlert, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
 import type { ComponentStatus } from "@/lib/types";
 import { STATUS_META } from "@/lib/status-meta";
 import { cn } from "@/lib/utils";
 
 const BANNER_ICON: Record<ComponentStatus, typeof CheckCircle2> = {
   operational: CheckCircle2,
-  degraded: TriangleAlert,
-  partial_outage: CloudOff,
+  degraded: Activity,
+  partial_outage: TriangleAlert,
   major_outage: XCircle,
 };
 

@@ -135,17 +135,23 @@ function admin_groups_save(): never
     if ($name === '') {
         json_error('Group name is required');
     }
+    $collapsed = isset($input['collapsed']) ? ($input['collapsed'] ? 1 : 0) : 0;
+    $autoExpand = isset($input['auto_expand']) ? ($input['auto_expand'] ? 1 : 0) : 1;
 
     if (!empty($input['id'])) {
+        $existing = db_row('SELECT collapsed, auto_expand FROM component_groups WHERE id = ?', [$input['id']]);
+        $collapsed = isset($input['collapsed']) ? ($input['collapsed'] ? 1 : 0) : (int) ($existing['collapsed'] ?? 0);
+        $autoExpand = isset($input['auto_expand']) ? ($input['auto_expand'] ? 1 : 0) : (int) ($existing['auto_expand'] ?? 1);
         db_exec(
-            'UPDATE component_groups SET name = ?, position = ? WHERE id = ?',
-            [$name, (int) ($input['position'] ?? 0), $input['id']]
+            'UPDATE component_groups SET name = ?, position = ?, collapsed = ?, auto_expand = ? WHERE id = ?',
+            [$name, (int) ($input['position'] ?? 0), $collapsed, $autoExpand, $input['id']]
         );
     } else {
         $id = uuid4();
         db_exec(
-            'INSERT INTO component_groups (id, name, position, created_at) VALUES (?, ?, ?, ?)',
-            [$id, $name, (int) ($input['position'] ?? 0), now_utc()]
+            'INSERT INTO component_groups (id, name, position, collapsed, auto_expand, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)',
+            [$id, $name, (int) ($input['position'] ?? 0), $collapsed, $autoExpand, now_utc()]
         );
     }
     json_out(['ok' => true]);

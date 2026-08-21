@@ -57,6 +57,8 @@ function db_ensure_schema(PDO $pdo): void
         ['components', 'headers', 'TEXT NULL'],
         ['check_results', 'softfail', 'TINYINT(1) NOT NULL DEFAULT 0'],
         ['incidents', 'source', "VARCHAR(10) NOT NULL DEFAULT 'manual'"],
+        ['component_groups', 'collapsed', 'TINYINT(1) NOT NULL DEFAULT 0'],
+        ['component_groups', 'auto_expand', 'TINYINT(1) NOT NULL DEFAULT 1'],
     ];
     foreach ($additions as [$table, $column, $definition]) {
         if (isset($existing[$table . '.' . $column])) {

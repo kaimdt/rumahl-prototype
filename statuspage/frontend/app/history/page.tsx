@@ -106,6 +106,7 @@ function HistoryContent() {
           {selected ? (
             <UptimeChart
               key={selected.id}
+              componentId={selected.id}
               uptime={uptime?.uptime ?? []}
               days={uptime?.days ?? 90}
             />

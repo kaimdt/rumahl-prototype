@@ -28,6 +28,10 @@ export interface ComponentGroup {
   id: string;
   name: string;
   position: number;
+  /** default collapsed state on the public page */
+  collapsed: boolean;
+  /** auto-expand on the public page when a component in the group has issues */
+  auto_expand: boolean;
   components: Component[];
 }
 
@@ -106,6 +110,43 @@ export interface UptimeResponse {
   days: number;
   uptime: UptimeDay[];
 }
+
+export interface LatencyPoint {
+  bucket: string; // ISO timestamp
+  avg_latency_ms: number | null;
+  /** 1 = all checks ok, 0 = all failed */
+  success_ratio: number | null;
+  n: number;
+}
+
+export interface LatencyResponse {
+  component_id: string;
+  days: number;
+  bucket_seconds: number;
+  points: LatencyPoint[];
+}
+
+export interface DowntimeEpisode {
+  start: string;
+  end: string;
+  duration_min: number;
+}
+
+export interface DowntimeResponse {
+  day: string; // YYYY-MM-DD
+  episodes: DowntimeEpisode[];
+  total_min: number;
+  count: number;
+  /** true when only the daily aggregate was available (older than retention) */
+  approx: boolean;
+  failed_checks?: number;
+}
+
+/** how much history a component view shows; "none" hides all charts */
+export type HistoryRange = "none" | "7" | "14" | "30" | "90" | "180" | "365";
+
+/** per-component view mode on the public page */
+export type ComponentView = "compact" | "bars" | "extended";
 
 export interface CheckResult {
   id: number;
