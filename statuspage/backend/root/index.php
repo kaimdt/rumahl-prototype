@@ -25,6 +25,10 @@ declare(strict_types=1);
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $path = rawurldecode($path);
 
+// Tolerate an accidental /httpdocs/ prefix (people copy the server path
+// into the URL, e.g. status.rumahl.com/httpdocs/src/cron.php → /cron.php).
+$path = preg_replace('#^/httpdocs(?=/|$)#i', '', $path) ?? $path;
+
 /* ── Backend routes ─────────────────────────────────────────────── */
 $isBackend =
     str_starts_with($path, '/api') ||

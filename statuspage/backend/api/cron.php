@@ -15,11 +15,16 @@ require_once __DIR__ . '/src/alerts.php';
 
 $config = statuspage_config();
 
-$key = (string) ($_GET['key'] ?? '');
-if ($config['cron_key'] === '' || $key === '' || !hash_equals($config['cron_key'], $key)) {
+$key = trim((string) ($_GET['key'] ?? ''));
+$configured = trim((string) $config['cron_key']);
+if ($configured === '' || $key === '' || !hash_equals($configured, $key)) {
     http_response_code(403);
-    header('Content-Type: application/json');
-    echo json_encode(['error' => 'Invalid cron key']);
+    header('Content-Type: application/json; charset=utf-8');
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    $hint = $host !== ''
+        ? " — expected URL: https://{$host}/cron.php?key=<cron_key> (no /httpdocs or /src path)"
+        : '';
+    echo json_encode(['error' => 'Invalid cron key' . $hint]);
     exit;
 }
 
