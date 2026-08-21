@@ -113,12 +113,18 @@ function route(string $method, string $path): never
             if (($body['action'] ?? '') === 'delete') {
                 admin_components_delete();
             }
+            if (($body['action'] ?? '') === 'move') {
+                admin_components_move();
+            }
             admin_components_save();
         }
         if ($method === 'POST' && $path === '/admin/groups') {
             $body = json_body();
             if (($body['action'] ?? '') === 'delete') {
                 admin_groups_delete();
+            }
+            if (($body['action'] ?? '') === 'move') {
+                admin_groups_move();
             }
             admin_groups_save();
         }
@@ -223,15 +229,30 @@ function route_latency(): never
  * Outage episodes for one component on one day — used by the uptime bar
  * tooltip. Episodes are consecutive failing checks (gaps > 5 min split).
  * Falls back to the daily aggregate for days older than the raw retention.
+ *
+ * With ?days=N instead of ?day= the whole range is returned in one request
+ * (all days with outages) so the frontend can render tooltips instantly.
  */
 function route_downtime(): never
 {
     $componentId = (string) ($_GET['component'] ?? '');
     $day = (string) ($_GET['day'] ?? '');
-    if ($componentId === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $day)) {
-        json_error('Missing component or day parameter');
+    if ($componentId === '') {
+        json_error('Missing component parameter');
     }
+    if ($day !== '') {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $day)) {
+            json_error('Invalid day parameter');
+        }
+        route_downtime_day($componentId, $day);
+    }
+    $days = max(1, min(365, (int) ($_GET['days'] ?? 31)));
+    route_downtime_range($componentId, $days);
+}
 
+/** Episodes for a single day. */
+function route_downtime_day(string $componentId, string $day): never
+{
     $rows = db_all(
         'SELECT checked_at, ok FROM check_results
           WHERE component_id = ?
@@ -304,6 +325,75 @@ function route_downtime(): never
         'count' => count($out),
         'approx' => false,
         'failed_checks' => $failCount,
+    ]);
+}
+
+/** Episodes for every day of a range — one request, instant tooltips. */
+function route_downtime_range(string $componentId, int $days): never
+{
+    // 1) Episodes from raw check results (kept 31 days).
+    $failRows = db_all(
+        'SELECT checked_at FROM check_results
+          WHERE component_id = ? AND ok = 0
+            AND checked_at >= DATE_SUB(NOW(), INTERVAL 31 DAY)
+          ORDER BY checked_at ASC, id ASC',
+        [$componentId]
+    );
+    $detail = [];
+    $current = null; // [day, start, last]
+    foreach ($failRows as $row) {
+        $ts = strtotime((string) $row['checked_at']);
+        $d = gmdate('Y-m-d', $ts);
+        if ($current !== null && $current['day'] === $d && $ts - $current['last'] <= 300) {
+            $current['last'] = $ts;
+            continue;
+        }
+        if ($current !== null) {
+            $detail[$current['day']][] = $current;
+        }
+        $current = ['day' => $d, 'start' => $ts, 'last' => $ts];
+    }
+    if ($current !== null) {
+        $detail[$current['day']][] = $current;
+    }
+
+    $daysData = [];
+    foreach ($detail as $d => $episodes) {
+        $total = 0;
+        $out = [];
+        foreach ($episodes as $ep) {
+            $dur = max(1, (int) ceil(($ep['last'] - $ep['start'] + 60) / 60));
+            $total += $dur;
+            $out[] = [
+                'start' => gmdate('Y-m-d\TH:i:s\Z', $ep['start']),
+                'end' => gmdate('Y-m-d\TH:i:s\Z', $ep['last']),
+                'duration_min' => $dur,
+            ];
+        }
+        $daysData[$d] = ['episodes' => $out, 'total_min' => $total, 'count' => count($out), 'approx' => false];
+    }
+
+    // 2) Days without raw data (older than retention): daily aggregate.
+    $aggRows = db_all(
+        'SELECT day, total_count, ok_count FROM uptime_daily
+          WHERE component_id = ? AND day >= DATE_SUB(CURDATE(), INTERVAL ? DAY)',
+        [$componentId, $days]
+    );
+    foreach ($aggRows as $r) {
+        $d = (string) $r['day'];
+        if (isset($daysData[$d])) {
+            continue;
+        }
+        $approxMin = max(0, (int) $r['total_count'] - (int) $r['ok_count']);
+        if ($approxMin > 0) {
+            $daysData[$d] = ['episodes' => [], 'total_min' => $approxMin, 'count' => 0, 'approx' => true];
+        }
+    }
+
+    json_out([
+        'component_id' => $componentId,
+        'days' => $days,
+        'days_data' => $daysData,
     ]);
 }
 

@@ -33,7 +33,7 @@ export function FaviconUpdater() {
           status.scheduled_maintenance.length > 0 ? "maintenance" : status.overall;
         const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
         if (link) {
-          link.href = `/api/favicon.svg?v=${FAVICON_KEY[key]}`;
+          link.href = `/favicon.svg?v=${FAVICON_KEY[key]}`;
         }
       } catch {
         /* keep the current favicon when the API is unreachable */

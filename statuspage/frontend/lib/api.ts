@@ -3,6 +3,7 @@ import type {
   AdminIncidentInput,
   CheckResult,
   ComponentGroup,
+  DowntimeRangeResponse,
   DowntimeResponse,
   Incident,
   LatencyResponse,
@@ -93,6 +94,10 @@ export const publicApi = {
     request<DowntimeResponse>(
       `/downtime?component=${encodeURIComponent(componentId)}&day=${encodeURIComponent(day)}`
     ),
+  downtimeRange: (componentId: string, days: number) =>
+    request<DowntimeRangeResponse>(
+      `/downtime?component=${encodeURIComponent(componentId)}&days=${days}`
+    ),
 };
 
 /* ── Admin API ── */
@@ -120,6 +125,16 @@ export const adminApi = {
     collapsed?: boolean;
     auto_expand?: boolean;
   }) => request<{ ok: boolean }>("/admin/groups", { method: "POST", body: { group: input } }),
+  moveGroup: (id: string, direction: "up" | "down") =>
+    request<{ ok: boolean }>("/admin/groups", {
+      method: "POST",
+      body: { action: "move", id, direction },
+    }),
+  moveComponent: (id: string, direction: "up" | "down") =>
+    request<{ ok: boolean }>("/admin/components", {
+      method: "POST",
+      body: { action: "move", id, direction },
+    }),
   deleteGroup: (id: string) =>
     request<{ ok: boolean }>("/admin/groups", { method: "POST", body: { action: "delete", id } }),
 

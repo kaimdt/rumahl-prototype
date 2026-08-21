@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { publicApi } from "@/lib/api";
-import type { StatusResponse, UptimeResponse } from "@/lib/types";
+import type { DowntimeRangeResponse, StatusResponse, UptimeResponse } from "@/lib/types";
 import { UptimeChart } from "@/components/uptime-chart";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +26,7 @@ function HistoryContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [uptime, setUptime] = useState<UptimeResponse | null>(null);
+  const [downtime, setDowntime] = useState<DowntimeRangeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const allComponents = useMemo(() => {
@@ -47,6 +48,11 @@ function HistoryContent() {
       .uptime(selectedId, 90)
       .then((u) => !cancelled && setUptime(u))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed"));
+    // Preload outage details for the whole range — instant tooltips on hover.
+    publicApi
+      .downtimeRange(selectedId, 90)
+      .then((d) => !cancelled && setDowntime(d))
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -109,6 +115,7 @@ function HistoryContent() {
               componentId={selected.id}
               uptime={uptime?.uptime ?? []}
               days={uptime?.days ?? 90}
+              downtimeDetails={downtime?.days_data ?? {}}
             />
           ) : (
             <div className="surface-card p-8 text-center text-sm text-muted-foreground">

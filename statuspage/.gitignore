@@ -6,6 +6,8 @@ frontend/.env.local
 
 # PHP backend — local configuration must never be committed
 backend/api/src/config.local.php
+backend/root/src/
+backend/root/frontend/
 
 # Automatic upgrade backups (created by api/upgrade.php)
 backups/

@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { DowntimeResponse, UptimeDay } from "@/lib/types";
-import { publicApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 function barColor(pct: number | null): string {
@@ -41,60 +40,29 @@ interface HoverState {
   y: number;
   day: string;
   pct: number | null;
-  ok: number;
   total: number;
 }
 
 /**
- * Uptime bar chart. Hovering a bar shows a custom tooltip with the outage
- * details for that day (episodes are fetched on demand from /api/downtime
- * and cached; days older than the raw retention show the aggregate).
+ * Uptime bar chart. The outage details for the whole range are loaded once
+ * (downtimeDetails prop) — hovering a bar shows them instantly in a tooltip
+ * that follows the cursor.
  */
 export function UptimeChart({
   uptime,
   days,
   componentId,
   density = "full",
+  downtimeDetails = {},
 }: {
   uptime: UptimeDay[];
   days: number;
   componentId: string;
   density?: "full" | "compact";
+  /** day → outage details, preloaded via /downtime?days=… */
+  downtimeDetails?: Record<string, Omit<DowntimeResponse, "day">>;
 }) {
   const [hover, setHover] = useState<HoverState | null>(null);
-  const [detail, setDetail] = useState<DowntimeResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const cacheRef = useRef<Map<string, DowntimeResponse>>(new Map());
-
-  useEffect(() => {
-    if (!hover) {
-      setDetail(null);
-      return;
-    }
-    const cached = cacheRef.current.get(hover.day);
-    if (cached) {
-      setDetail(cached);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setDetail(null);
-    publicApi
-      .downtime(componentId, hover.day)
-      .then((d) => {
-        cacheRef.current.set(hover.day, d);
-        if (!cancelled) setDetail(d);
-      })
-      .catch(() => {
-        if (!cancelled) setDetail(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [hover, componentId]);
 
   const pct = useMemo(() => {
     const withData = uptime.filter((u) => u.total > 0);
@@ -126,10 +94,11 @@ export function UptimeChart({
   const many = uptime.length > 120;
   const barW = compact ? (many ? 4 : 6) : many ? 6 : 8;
 
+  const detail = hover ? downtimeDetails[hover.day] : undefined;
   const tooltipX = hover
-    ? Math.min(hover.x + 14, (typeof window !== "undefined" ? window.innerWidth : 800) - 280)
+    ? Math.min(hover.x + 12, (typeof window !== "undefined" ? window.innerWidth : 800) - 280)
     : 0;
-  const tooltipTop = hover && hover.y < 190 ? hover.y + 18 : (hover?.y ?? 0) - 150;
+  const tooltipBelow = hover ? hover.y < 220 : false;
 
   return (
     <div className={cn(compact ? "" : "surface-card p-5 sm:p-6")}>
@@ -152,14 +121,7 @@ export function UptimeChart({
           <div
             key={u.day}
             onMouseEnter={(e) =>
-              setHover({
-                x: e.clientX,
-                y: e.clientY,
-                day: u.day,
-                pct: u.pct,
-                ok: u.ok,
-                total: u.total,
-              })
+              setHover({ x: e.clientX, y: e.clientY, day: u.day, pct: u.pct, total: u.total })
             }
             onMouseMove={(e) =>
               setHover((h) =>
@@ -211,19 +173,20 @@ export function UptimeChart({
 
       {hover && (
         <div
-          className="fixed z-50 w-[260px] rounded-xl border border-border/40 bg-popover/95 backdrop-blur p-3.5 shadow-xl"
-          style={{ left: tooltipX, top: tooltipTop }}
+          className={cn(
+            "fixed z-50 w-[260px] rounded-xl border border-border/40 bg-popover/95 backdrop-blur p-3.5 shadow-xl",
+            !tooltipBelow && "-translate-y-full"
+          )}
+          style={{ left: tooltipX, top: tooltipBelow ? hover.y + 14 : hover.y - 12 }}
         >
           <div className="flex items-baseline justify-between gap-3 mb-1.5">
             <p className="text-[12px] font-bold text-foreground">{dayLabel(hover.day)}</p>
             <p className="text-[11px] font-semibold tabular-nums text-muted-foreground">
-              {hover.total > 0 ? `${hover.pct?.toFixed(1)}%` : "no data"}
+              {hover.total > 0 && hover.pct !== null ? `${hover.pct.toFixed(1)}%` : "no data"}
             </p>
           </div>
           {hover.total === 0 ? (
             <p className="text-[11.5px] text-muted-foreground">No checks recorded.</p>
-          ) : loading ? (
-            <p className="text-[11.5px] text-muted-foreground">Loading outage details…</p>
           ) : detail && detail.total_min > 0 ? (
             <>
               <p className="text-[11.5px] font-semibold text-status-major">

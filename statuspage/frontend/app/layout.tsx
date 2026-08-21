@@ -27,8 +27,8 @@ export const metadata: Metadata = {
     "Current status of rumahl — system components, incidents and uptime history for rumahl.com, the rumahl Store and the rumahl OS services.",
   robots: "index, follow",
   icons: {
-    // served by the backend — color reflects the current status
-    icon: "/api/favicon.svg",
+    // served by the root router — color reflects the current status
+    icon: "/favicon.svg",
   },
   openGraph: {
     type: "website",

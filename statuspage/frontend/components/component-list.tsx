@@ -1,20 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  BarChart3,
-  ChevronDown,
-  ChevronRight,
-  History,
-  LineChart,
-  Rows3,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, History } from "lucide-react";
 import type {
   Component,
   ComponentGroup,
-  ComponentView,
-  HistoryRange,
+  DowntimeRangeResponse,
   LatencyResponse,
   UptimeResponse,
 } from "@/lib/types";
@@ -24,81 +16,38 @@ import { publicApi } from "@/lib/api";
 import { UptimeChart } from "./uptime-chart";
 import { LatencyChart } from "./latency-chart";
 
-/* ── per-component view preferences (stored in localStorage) ── */
-
-const viewKey = (id: string) => `rumahl-status:view:${id}`;
-const daysKey = (id: string) => `rumahl-status:days:${id}`;
-
-function loadPref<T extends string>(key: string, fallback: T, allowed: T[]): T {
-  if (typeof window === "undefined") return fallback;
-  const raw = window.localStorage.getItem(key);
-  return raw !== null && (allowed as string[]).includes(raw) ? (raw as T) : fallback;
-}
-
-function storePref(key: string, value: string) {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    /* private mode — preferences simply do not persist */
-  }
-}
-
-export const HISTORY_RANGES: { value: HistoryRange; label: string }[] = [
-  { value: "none", label: "No history" },
-  { value: "7", label: "7 days" },
-  { value: "14", label: "14 days" },
-  { value: "30", label: "30 days" },
-  { value: "90", label: "90 days" },
-  { value: "180", label: "180 days" },
-  { value: "365", label: "1 year" },
-];
-
-const VIEWS: { value: ComponentView; icon: typeof Rows3; title: string }[] = [
-  { value: "compact", icon: Rows3, title: "Compact — current view" },
-  { value: "bars", icon: BarChart3, title: "Uptime bars" },
-  { value: "extended", icon: LineChart, title: "Uptime bars + latency graph" },
-];
-
 /* ── single component card ── */
 
 function ComponentCard({ component }: { component: Component }) {
   const meta = STATUS_META[component.status];
+  // View mode and history range are configured by the ADMIN per component
+  // (backend fields) — visitors cannot change them.
+  const monitoring = component.kind === "auto" && component.enabled;
+  const view = monitoring ? component.view_mode : "compact";
+  const days = monitoring ? component.history_days : 90;
+  const showCharts = monitoring && view !== "compact" && days > 0;
+  const latencyDays = Math.min(days || 14, 31); // raw data kept 31 days
 
-  const [view, setView] = useState<ComponentView>(() =>
-    loadPref<ComponentView>(viewKey(component.id), "compact", ["compact", "bars", "extended"])
-  );
-  const [days, setDays] = useState<HistoryRange>(() =>
-    loadPref<HistoryRange>(
-      daysKey(component.id),
-      "90",
-      ["none", "7", "14", "30", "90", "180", "365"]
-    )
-  );
   const [uptime, setUptime] = useState<UptimeResponse | null>(null);
   const [latency, setLatency] = useState<LatencyResponse | null>(null);
-
-  const showCharts = component.kind === "auto" && view !== "compact" && days !== "none";
-  const latencyDays = Math.min(Number(days) || 14, 31); // raw data kept 31 days
-
-  const selectView = (v: ComponentView) => {
-    setView(v);
-    storePref(viewKey(component.id), v);
-  };
-  const selectDays = (d: HistoryRange) => {
-    setDays(d);
-    storePref(daysKey(component.id), d);
-  };
+  const [downtime, setDowntime] = useState<DowntimeRangeResponse | null>(null);
 
   useEffect(() => {
     if (!showCharts) {
       setUptime(null);
       setLatency(null);
+      setDowntime(null);
       return;
     }
     let cancelled = false;
     publicApi
-      .uptime(component.id, Number(days))
+      .uptime(component.id, days)
       .then((u) => !cancelled && setUptime(u))
+      .catch(() => undefined);
+    // Outage details for the whole range in ONE request — instant tooltips.
+    publicApi
+      .downtimeRange(component.id, days)
+      .then((d) => !cancelled && setDowntime(d))
       .catch(() => undefined);
     if (view === "extended") {
       publicApi
@@ -114,7 +63,13 @@ function ComponentCard({ component }: { component: Component }) {
   return (
     <div className="px-4 sm:px-5 py-3.5">
       <div className="flex items-center gap-3">
-        <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", meta.dot)} aria-hidden />
+        <span
+          className={cn(
+            "h-2.5 w-2.5 shrink-0 rounded-full",
+            monitoring ? meta.dot : "bg-muted-foreground/30"
+          )}
+          aria-hidden
+        />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground truncate">{component.name}</p>
           {component.description && (
@@ -122,66 +77,38 @@ function ComponentCard({ component }: { component: Component }) {
           )}
         </div>
         <div className="hidden sm:flex items-center gap-4 text-[12px] text-muted-foreground shrink-0">
-          {component.kind === "auto" && component.last_latency_ms !== null && (
+          {monitoring && component.last_latency_ms !== null && (
             <span className="tabular-nums">{component.last_latency_ms} ms</span>
           )}
-          <Link
-            href={`/history/?component=${encodeURIComponent(component.id)}`}
-            className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-            title="Uptime history"
-          >
-            <History className="h-3.5 w-3.5" />
-            {formatUptime(component.uptime_90)}
-          </Link>
+          {monitoring && (
+            <Link
+              href={`/history/?component=${encodeURIComponent(component.id)}`}
+              className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+              title="Uptime history"
+            >
+              <History className="h-3.5 w-3.5" />
+              {formatUptime(component.uptime_90)}
+            </Link>
+          )}
         </div>
         <span
-          className={cn("text-[12px] font-semibold shrink-0 tabular-nums", meta.text)}
+          className={cn(
+            "text-[12px] font-semibold shrink-0 tabular-nums",
+            monitoring ? meta.text : "text-muted-foreground/60"
+          )}
         >
-          {meta.label}
+          {monitoring ? meta.label : "No monitoring"}
         </span>
       </div>
-
-      {component.kind === "auto" && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <div className="flex items-center rounded-lg border border-border/30 p-0.5">
-            {VIEWS.map(({ value, icon: Icon, title }) => (
-              <button
-                key={value}
-                onClick={() => selectView(value)}
-                title={title}
-                className={cn(
-                  "inline-flex h-6 w-7 items-center justify-center rounded-md transition-colors",
-                  view === value
-                    ? "bg-primary/12 text-primary"
-                    : "text-muted-foreground/60 hover:text-foreground"
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-            ))}
-          </div>
-          <select
-            value={days}
-            onChange={(e) => selectDays(e.target.value as HistoryRange)}
-            title="How much history to show"
-            className="h-7 rounded-lg border border-border/30 bg-transparent px-2 text-[11.5px] font-semibold text-muted-foreground focus:outline-none focus:border-primary/40"
-          >
-            {HISTORY_RANGES.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {showCharts && (
         <div className="mt-3 space-y-3">
           <UptimeChart
             componentId={component.id}
             uptime={uptime?.uptime ?? []}
-            days={Number(days)}
+            days={days}
             density="compact"
+            downtimeDetails={downtime?.days_data ?? {}}
           />
           {view === "extended" && (
             <LatencyChart points={latency?.points ?? []} days={latencyDays} compact />

@@ -35,6 +35,12 @@ function admin_components_save(): never
         ? $input['check_type']
         : 'http';
     $headers = component_headers_json($input['headers'] ?? null);
+    $viewMode = in_array($input['view_mode'] ?? '', ['compact', 'bars', 'extended'], true)
+        ? $input['view_mode']
+        : 'compact';
+    $historyDays = in_array((int) ($input['history_days'] ?? 90), [0, 7, 14, 30, 90, 180, 365], true)
+        ? (int) $input['history_days']
+        : 90;
 
     if (!empty($input['id'])) {
         // Update existing component
@@ -53,6 +59,8 @@ function admin_components_save(): never
             'expected_status' => (int) ($input['expected_status'] ?? $existing['expected_status']),
             'timeout_ms' => max(500, (int) ($input['timeout_ms'] ?? $existing['timeout_ms'])),
             'headers' => $headers,
+            'view_mode' => $viewMode,
+            'history_days' => $historyDays,
             'enabled' => isset($input['enabled']) ? ($input['enabled'] ? 1 : 0) : (int) $existing['enabled'],
             'updated_at' => now_utc(),
         ];
@@ -60,7 +68,8 @@ function admin_components_save(): never
             'UPDATE components SET name=:name, group_id=:group_id, description=:description,
                     kind=:kind, check_type=:check_type, endpoint_url=:endpoint_url, method=:method,
                     expected_status=:expected_status, timeout_ms=:timeout_ms,
-                    headers=:headers, enabled=:enabled, updated_at=:updated_at
+                    headers=:headers, view_mode=:view_mode, history_days=:history_days,
+                    enabled=:enabled, updated_at=:updated_at
               WHERE id = :id',
             array_merge($fields, ['id' => $input['id']])
         );
@@ -79,8 +88,9 @@ function admin_components_save(): never
     $id = uuid4();
     db_exec(
         'INSERT INTO components (id, group_id, name, description, kind, check_type, endpoint_url,
-                                 method, expected_status, timeout_ms, headers, position, enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                                 method, expected_status, timeout_ms, headers, view_mode, history_days,
+                                 position, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
             $id,
             ($input['group_id'] ?? null) ?: null,
@@ -93,6 +103,8 @@ function admin_components_save(): never
             (int) ($input['expected_status'] ?? 200),
             max(500, (int) ($input['timeout_ms'] ?? 10000)),
             $headers,
+            $viewMode,
+            $historyDays,
             (int) ($input['position'] ?? 0),
             isset($input['enabled']) ? ($input['enabled'] ? 1 : 0) : 1,
             now_utc(),
@@ -119,6 +131,52 @@ function admin_components_delete(): never
         json_error('Component id required');
     }
     db_exec('DELETE FROM components WHERE id = ?', [$id]);
+    json_out(['ok' => true]);
+}
+
+/** Re-number component positions per group (0..n, gaps removed). */
+function normalize_component_positions(): void
+{
+    db_exec('SET @r := 0');
+    db_exec('UPDATE components SET position = (@r := @r + 1) WHERE group_id IS NULL ORDER BY position ASC, name ASC');
+    $groups = db_all('SELECT id FROM component_groups ORDER BY position ASC');
+    foreach ($groups as $group) {
+        db_exec('SET @r := 0');
+        db_exec('UPDATE components SET position = (@r := @r + 1) WHERE group_id = ? ORDER BY position ASC, name ASC', [$group['id']]);
+    }
+}
+
+/** Move a component up/down within its group (position swap + normalize). */
+function admin_components_move(): never
+{
+    $body = json_body();
+    $id = (string) ($body['id'] ?? '');
+    $direction = ($body['direction'] ?? '') === 'up' ? 'up' : 'down';
+    if ($id === '') {
+        json_error('Component id required');
+    }
+    $row = db_row('SELECT id, group_id, position FROM components WHERE id = ?', [$id]);
+    if ($row === null) {
+        json_error('Component not found', 404);
+    }
+
+    $groupCond = $row['group_id'] === null ? 'group_id IS NULL' : 'group_id = ?';
+    $params = $row['group_id'] === null ? [] : [$row['group_id']];
+    $neighbor = $direction === 'up'
+        ? db_row(
+            "SELECT id, position FROM components WHERE {$groupCond} AND position < ? ORDER BY position DESC, name DESC LIMIT 1",
+            [...$params, (int) $row['position']]
+        )
+        : db_row(
+            "SELECT id, position FROM components WHERE {$groupCond} AND position > ? ORDER BY position ASC, name ASC LIMIT 1",
+            [...$params, (int) $row['position']]
+        );
+
+    if ($neighbor !== null) {
+        db_exec('UPDATE components SET position = ? WHERE id = ?', [(int) $neighbor['position'], $row['id']]);
+        db_exec('UPDATE components SET position = ? WHERE id = ?', [(int) $row['position'], $neighbor['id']]);
+    }
+    normalize_component_positions();
     json_out(['ok' => true]);
 }
 
@@ -166,6 +224,39 @@ function admin_groups_delete(): never
     }
     // Components become ungrouped (FK ON DELETE SET NULL).
     db_exec('DELETE FROM component_groups WHERE id = ?', [$id]);
+    json_out(['ok' => true]);
+}
+
+/** Re-number group positions (0..n, gaps removed). */
+function normalize_group_positions(): void
+{
+    db_exec('SET @r := 0');
+    db_exec('UPDATE component_groups SET position = (@r := @r + 1) ORDER BY position ASC, name ASC');
+}
+
+/** Move a group up/down (position swap + normalize). */
+function admin_groups_move(): never
+{
+    $body = json_body();
+    $id = (string) ($body['id'] ?? '');
+    $direction = ($body['direction'] ?? '') === 'up' ? 'up' : 'down';
+    if ($id === '') {
+        json_error('Group id required');
+    }
+    $row = db_row('SELECT id, position FROM component_groups WHERE id = ?', [$id]);
+    if ($row === null) {
+        json_error('Group not found', 404);
+    }
+
+    $neighbor = $direction === 'up'
+        ? db_row('SELECT id, position FROM component_groups WHERE position < ? ORDER BY position DESC, name DESC LIMIT 1', [(int) $row['position']])
+        : db_row('SELECT id, position FROM component_groups WHERE position > ? ORDER BY position ASC, name ASC LIMIT 1', [(int) $row['position']]);
+
+    if ($neighbor !== null) {
+        db_exec('UPDATE component_groups SET position = ? WHERE id = ?', [(int) $neighbor['position'], $row['id']]);
+        db_exec('UPDATE component_groups SET position = ? WHERE id = ?', [(int) $row['position'], $neighbor['id']]);
+    }
+    normalize_group_positions();
     json_out(['ok' => true]);
 }
 

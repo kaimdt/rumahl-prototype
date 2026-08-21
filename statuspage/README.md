@@ -10,17 +10,50 @@ statuspage/
 │   ├── app/           public page, uptime history, incidents, admin
 │   └── lib/           API client + types
 ├── backend/
-│   ├── api/           PHP backend (front controller, admin API, cron, installer)
-│   │   ├── index.php  REST API (see below)
+│   ├── api/           PHP backend source (dev / legacy api/-mount deployment)
+│   │   ├── index.php  REST API front controller
 │   │   ├── cron.php   HTTP cron entry (cron.php?key=…)
 │   │   ├── install.php  one-time web installer
 │   │   ├── seed.php   optional: seed default components
-│   │   └── src/       config, db, checks, status, incidents, alerts (denied via .htaccess)
-│   ├── cron/monitor.php  CLI cron entry (php cron/monitor.php)
-│   ├── dev-router.php    local dev server router (php -S)
-│   └── api/schema.sql    MySQL schema (ships inside the api/ folder)
-└── README.md
+│   │   └── src/       config, db, checks, status, incidents, alerts
+│   ├── root/          ★ RECOMMENDED deployment: single-entry website root
+│   │   ├── index.php  router (backend routes + static frontend serving)
+│   │   ├── .htaccess  rewrite everything to the router, blocks src/
+│   │   └── build.sh   generates the deployable root (src/ + frontend/)
+│   └── cron/monitor.php  CLI cron entry (php cron/monitor.php)
+└── README.md, UPDATE.md
 ```
+
+## Deployment (recommended: root router)
+
+The website root contains exactly **one public PHP file** (`index.php`, the
+router) — fewer entry points, no `/api` mount, backend sources unreachable:
+
+```
+httpdocs/
+├── index.php          ← router (all requests)
+├── .htaccess          ← rewrite + src/ protection
+├── src/               ← backend modules (never served directly)
+├── frontend/          ← static Next.js export (out/)
+└── robots.txt, …      ← optional extra static files
+```
+
+Build + upload:
+
+```bash
+cd frontend && npm run build        # static export → frontend/out/
+bash backend/root/build.sh          # → backend/root/ ready to upload
+# upload the CONTENTS of backend/root/ to httpdocs/
+# then on the server:
+php src/upgrade.php
+```
+
+Routes handled by the router: `/api/*` (compat), `/rss`, `/feed`, `/favicon.svg`,
+`/status.json`, `/cron.php`, `/upgrade.php`, `/install.php` — everything else is
+served from `frontend/` (404.html fallback).
+
+> **Legacy deployment** (old style, still supported): upload `backend/api/` as
+> `httpdocs/api/` — the API keeps working under `/api/*`.
 
 ## Features (statuspage.io scope)
 

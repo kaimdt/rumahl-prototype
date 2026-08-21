@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, GripVertical, Plus, Radar, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  GripVertical,
+  Plus,
+  Radar,
+  Trash2,
+} from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type {
   AdminComponentInput,
@@ -10,6 +18,7 @@ import type {
   ComponentGroup,
   ComponentKind,
   ComponentStatus,
+  ComponentView,
 } from "@/lib/types";
 import { Button, Field, Input, SectionCard, Select, Textarea } from "@/components/admin/ui";
 import { cn } from "@/lib/utils";
@@ -30,6 +39,8 @@ const EMPTY_FORM: AdminComponentInput & { manual_status: ComponentStatus } = {
   expected_status: 200,
   timeout_ms: 10000,
   headers: [],
+  view_mode: "compact",
+  history_days: 90,
   manual_status: "operational",
 };
 
@@ -168,6 +179,24 @@ export function ComponentsTab() {
     }
   };
 
+  const moveGroup = async (group: ComponentGroup, direction: "up" | "down") => {
+    try {
+      await adminApi.moveGroup(group.id, direction);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Move failed");
+    }
+  };
+
+  const moveComponent = async (component: Component, direction: "up" | "down") => {
+    try {
+      await adminApi.moveComponent(component.id, direction);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Move failed");
+    }
+  };
+
 
   return (
 
@@ -298,6 +327,30 @@ export function ComponentsTab() {
                   </Field>
                 </div>
               )}
+              <Field label="View mode" hint="How this service is displayed on the public page">
+                <Select
+                  value={form.view_mode}
+                  onChange={(e) => set("view_mode", e.target.value as ComponentView)}
+                >
+                  <option value="compact">Compact (status only)</option>
+                  <option value="bars">Uptime bars</option>
+                  <option value="extended">Bars + latency graph</option>
+                </Select>
+              </Field>
+              <Field label="History range" hint="How much history the view shows">
+                <Select
+                  value={String(form.history_days)}
+                  onChange={(e) => set("history_days", Number(e.target.value) || 90)}
+                >
+                  <option value="0">No history</option>
+                  <option value="7">7 days</option>
+                  <option value="14">14 days</option>
+                  <option value="30">30 days</option>
+                  <option value="90">90 days</option>
+                  <option value="180">180 days</option>
+                  <option value="365">1 year</option>
+                </Select>
+              </Field>
             </>
           )}
           <div className="sm:col-span-2 flex items-center gap-3">
@@ -337,6 +390,20 @@ export function ComponentsTab() {
                 </button>
                 {group.id !== "__ungrouped__" && (
                   <>
+                    <button
+                      onClick={() => moveGroup(group, "up")}
+                      className="p-1 text-muted-foreground/50 hover:text-foreground transition-colors"
+                      title="Move group up"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => moveGroup(group, "down")}
+                      className="p-1 text-muted-foreground/50 hover:text-foreground transition-colors"
+                      title="Move group down"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={() => toggleCollapsed(group)}
                       className={cn(
@@ -422,10 +489,24 @@ export function ComponentsTab() {
                         </p>
                         <p className="text-[11px] text-muted-foreground truncate">
                           {component.kind === "auto"
-                            ? `${component.method} ${component.endpoint_url || "—"}`
+                            ? `${component.check_type.toUpperCase()} ${component.endpoint_url || "—"}`
                             : `manual · ${component.status.replace("_", " ")}`}
                         </p>
                       </div>
+                      <button
+                        onClick={() => moveComponent(component, "up")}
+                        className="p-1 text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
+                        title="Move up"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => moveComponent(component, "down")}
+                        className="p-1 text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
+                        title="Move down"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         onClick={() =>
                           setForm({
@@ -441,6 +522,8 @@ export function ComponentsTab() {
                             expected_status: component.expected_status,
                             timeout_ms: component.timeout_ms,
                             headers: component.headers ?? [],
+                            view_mode: component.view_mode,
+                            history_days: component.history_days,
                             manual_status: component.status,
                           })
                         }

@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS components (
   expected_status INT NOT NULL DEFAULT 200,
   timeout_ms INT NOT NULL DEFAULT 10000,
   headers TEXT NULL,
+  view_mode VARCHAR(10) NOT NULL DEFAULT 'compact',
+  history_days INT NOT NULL DEFAULT 90,
   position INT NOT NULL DEFAULT 0,
   enabled TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL,

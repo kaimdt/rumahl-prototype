@@ -48,6 +48,10 @@ export interface Component {
   timeout_ms: number;
   /** custom request headers, e.g. ["Authorization: Bearer …"] */
   headers: string[] | null;
+  /** display view configured by the admin */
+  view_mode: ComponentView;
+  /** how much history the view shows (0 = no history), configured by the admin */
+  history_days: number;
   position: number;
   enabled: boolean;
   /** current status — derived (auto) or manually set (manual) */
@@ -142,6 +146,13 @@ export interface DowntimeResponse {
   failed_checks?: number;
 }
 
+/** GET /downtime?component=…&days=… — all days with outages in one request */
+export interface DowntimeRangeResponse {
+  component_id: string;
+  days: number;
+  days_data: Record<string, Omit<DowntimeResponse, "day">>;
+}
+
 /** how much history a component view shows; "none" hides all charts */
 export type HistoryRange = "none" | "7" | "14" | "30" | "90" | "180" | "365";
 
@@ -176,6 +187,8 @@ export interface AdminComponentInput {
   expected_status?: number;
   timeout_ms?: number;
   headers?: string[];
+  view_mode?: ComponentView;
+  history_days?: number;
   position?: number;
   enabled?: boolean;
   manual_status?: ComponentStatus;

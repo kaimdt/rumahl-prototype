@@ -43,6 +43,8 @@ function db(bool $ensureSchema = true): PDO
  *  v2  check_type/headers on components, softfail on check_results,
  *      incidents.source (auto incidents)
  *  v3  collapsed/auto_expand on component_groups
+ *  v4  per-component display config: view_mode (compact/bars/extended),
+ *      history_days (0 = no history) on components
  */
 function schema_migrations(): array
 {
@@ -56,6 +58,10 @@ function schema_migrations(): array
         'v3' => [
             ['component_groups', 'collapsed', 'TINYINT(1) NOT NULL DEFAULT 0'],
             ['component_groups', 'auto_expand', 'TINYINT(1) NOT NULL DEFAULT 1'],
+        ],
+        'v4' => [
+            ['components', 'view_mode', "VARCHAR(10) NOT NULL DEFAULT 'compact'"],
+            ['components', 'history_days', 'INT NOT NULL DEFAULT 90'],
         ],
     ];
 }

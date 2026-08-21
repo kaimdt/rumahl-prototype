@@ -87,6 +87,8 @@ function components_with_status(): array
             'expected_status' => (int) $row['expected_status'],
             'timeout_ms' => (int) $row['timeout_ms'],
             'headers' => $row['headers'] !== null ? json_decode((string) $row['headers'], true) : null,
+            'view_mode' => (string) ($row['view_mode'] ?? 'compact'),
+            'history_days' => (int) ($row['history_days'] ?? 90),
             'position' => (int) $row['position'],
             'enabled' => (bool) $row['enabled'],
             'status' => $status,
