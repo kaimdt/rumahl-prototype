@@ -2474,7 +2474,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "iora-desktop"
+name = "rumahl-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",

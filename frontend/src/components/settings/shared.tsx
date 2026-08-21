@@ -71,8 +71,8 @@ export function generateBase32Secret(length = 20) {
 }
 
 export function formatOtpAuthUri(secret: string) {
-  const issuer = encodeURIComponent('IORA Home')
-  const label = encodeURIComponent('IORA Home')
+  const issuer = encodeURIComponent('rumahl Home')
+  const label = encodeURIComponent('rumahl Home')
   return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`
 }
 
@@ -94,7 +94,7 @@ export function downloadBackupCodes(codes: string[]) {
   const href = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = href
-  link.download = 'iora-backup-codes.txt'
+  link.download = 'rumahl-backup-codes.txt'
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
@@ -120,7 +120,7 @@ export function SettingsSection({
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
   return (
-    <div className="ora-settings-section-card overflow-hidden">
+    <div className="rumahl-settings-section-card overflow-hidden">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}

@@ -22,7 +22,7 @@ interface ThemeSplashScreenProps {
 
 /** Default status messages in German (if theme doesn't provide custom ones) */
 const DEFAULT_STATUS_MESSAGES = [
-  'ORA OS wird geladen…',
+  'rumahl OS wird geladen…',
   'Dienste werden verbunden…',
   'Oberfläche wird vorbereitet…',
   'System bereit.',
@@ -122,7 +122,7 @@ export function ThemeSplashScreen({ onComplete, duration }: ThemeSplashScreenPro
   const exitVariant = getExitVariant(config?.exit_animation || 'fade')
   const exitTransition = getExitTransition(config?.exit_animation || 'fade')
   const showProgress = config?.show_progress !== false
-  const brandText = config?.brand_text || 'ORA OS'
+  const brandText = config?.brand_text || 'rumahl OS'
   const tagline = config?.tagline
 
   useEffect(() => {

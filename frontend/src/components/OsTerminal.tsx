@@ -122,7 +122,7 @@ export function OsTerminal() {
     socket.onopen = () => {
       setConnected(true)
       setConnecting(false)
-      appendOutput('ORA Terminal — verbunden.\r\n')
+      appendOutput('rumahl Terminal — verbunden.\r\n')
     }
     socket.onmessage = (event) => {
       if (typeof event.data === 'string') appendOutput(event.data)

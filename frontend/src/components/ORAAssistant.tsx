@@ -67,12 +67,12 @@ interface AgentPreset {
 }
 
 const AGENT_PRESETS: AgentPreset[] = [
-  { id: 'general',  icon: Sparkle, color: 'from-purple-500/30 to-pink-500/30',  systemPrompt: 'You are ORA, the IORA smart-home assistant. Be concise, friendly and accurate.' },
+  { id: 'general',  icon: Sparkle, color: 'from-purple-500/30 to-pink-500/30',  systemPrompt: 'You are ORA, the rumahl smart-home assistant. Be concise, friendly and accurate.' },
   { id: 'code',     icon: Code,    color: 'from-blue-500/30 to-cyan-500/30',    systemPrompt: 'You are a senior software engineer. Write, refactor and review code with precision. Prefer minimal diffs and clear explanations.' },
   { id: 'devops',   icon: Wrench,  color: 'from-amber-500/30 to-orange-500/30', systemPrompt: 'You are a DevOps specialist. Help with Docker, CI/CD, Kubernetes, deployments, monitoring and reliability.' },
   { id: 'debug',    icon: Bug,     color: 'from-red-500/30 to-rose-500/30',     systemPrompt: 'You are a debugging expert. Analyse stack traces, find root causes and suggest performance improvements.' },
   { id: 'research', icon: Books,   color: 'from-emerald-500/30 to-teal-500/30', systemPrompt: 'You are a research assistant. Gather information, summarise findings and cite sources where possible.' },
-  { id: 'home',     icon: House,   color: 'from-violet-500/30 to-fuchsia-500/30', systemPrompt: 'You are a Smart-Home specialist for IORA. Help with devices, automations, scenes and Home-Assistant integration.' },
+  { id: 'home',     icon: House,   color: 'from-violet-500/30 to-fuchsia-500/30', systemPrompt: 'You are a Smart-Home specialist for rumahl. Help with devices, automations, scenes and Home-Assistant integration.' },
 ]
 
 const AGENT_BY_ID = Object.fromEntries(AGENT_PRESETS.map(a => [a.id, a])) as Record<AgentId, AgentPreset>
@@ -112,7 +112,7 @@ const INSTANT_TASK_LABELS: Record<string, string> = {
 
 // ─── Extensions panel ───────────────────────────────────────────────────────
 //
-// Wraps the built-in iora-assist tools (Internet Search, Web Scrape,
+// Wraps the built-in rumahl-assist tools (Internet Search, Web Scrape,
 // Screenshot) into a small UI so the user can invoke them directly from the
 // chat dialog without going through the LLM.
 type ExtensionId = 'search' | 'scrape' | 'screenshot'
@@ -322,7 +322,7 @@ function ExtensionsPanel() {
 
 export function ORAAssistant() {
   const { t, i18n } = useTranslation()
-  const [aiInstructions] = useLocalStorage('iora-ai-instructions', '')
+  const [aiInstructions] = useLocalStorage('rumahl-ai-instructions', '')
   const [isOpen, setIsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<DialogTab>('chat')
   const [state, setState] = useState<ORAState>('idle')
@@ -340,9 +340,9 @@ export function ORAAssistant() {
   // Label shown in the voice-task slow-path banner ("Suche läuft…")
   const [voiceTaskBanner, setVoiceTaskBanner] = useState<string | null>(null)
   // Selected agent preset (persists across sessions)
-  const [agentId, setAgentId] = useLocalStorage<AgentId>('iora-ai-agent', 'general')
+  const [agentId, setAgentId] = useLocalStorage<AgentId>('rumahl-ai-agent', 'general')
   // Selected model id ('' = automatic = let backend decide)
-  const [modelId, setModelId] = useLocalStorage<string>('iora-ai-model', '')
+  const [modelId, setModelId] = useLocalStorage<string>('rumahl-ai-model', '')
   // Health + provider snapshot, refreshed every time the dialog opens
   const [assistHealth, setAssistHealth] = useState<AssistHealth | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
@@ -504,7 +504,7 @@ export function ORAAssistant() {
 
           // Persist task id in sessionStorage so on next dialog open we can recover it
           try {
-            sessionStorage.setItem('ora_deferred_task', JSON.stringify({ taskId, msgTimestamp, ts: Date.now() }))
+            sessionStorage.setItem('rumahl_deferred_task', JSON.stringify({ taskId, msgTimestamp, ts: Date.now() }))
           } catch { /* storage unavailable */ }
 
           // Voice: announce deferral context-aware
@@ -541,7 +541,7 @@ export function ORAAssistant() {
         )
 
         // Clear deferred sessionStorage entry if we got the final result live
-        try { sessionStorage.removeItem('ora_deferred_task') } catch { /* ok */ }
+        try { sessionStorage.removeItem('rumahl_deferred_task') } catch { /* ok */ }
 
         // ── Voice-mode result delivery ─────────────────────────────────────
         const viTask = voiceInstantTask.current
@@ -602,13 +602,13 @@ export function ORAAssistant() {
     }
 
     // Dialog just opened: check if we have a deferred task result waiting in the DB.
-    const raw = (() => { try { return sessionStorage.getItem('ora_deferred_task') } catch { return null } })()
+    const raw = (() => { try { return sessionStorage.getItem('rumahl_deferred_task') } catch { return null } })()
     if (!raw) return
     try {
       const saved: { taskId: string; msgTimestamp: string; ts: number } = JSON.parse(raw)
       // Only recover tasks deferred within the last 30 minutes
       if (Date.now() - saved.ts > 30 * 60 * 1000) {
-        sessionStorage.removeItem('ora_deferred_task')
+        sessionStorage.removeItem('rumahl_deferred_task')
         return
       }
       // Poll the REST endpoint for the task result
@@ -617,7 +617,7 @@ export function ORAAssistant() {
         .then((task: { status?: string; result_text?: string; error_message?: string } | null) => {
           if (!task) return
           if (task.status === 'completed' || task.status === 'failed') {
-            sessionStorage.removeItem('ora_deferred_task')
+            sessionStorage.removeItem('rumahl_deferred_task')
             const resultText = task.result_text ?? task.error_message ?? t('ai.noAnswer')
             const status = task.status === 'completed' ? 'completed' : 'failed'
             // Inject as a notification-style message into the chat
@@ -658,7 +658,7 @@ export function ORAAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ─── Probe iora-assist health + load models when the dialog opens ───────
+  // ─── Probe rumahl-assist health + load models when the dialog opens ───────
   //
   // We refresh on every open (not just mount) so the banner reflects the
   // current state when the user re-opens after configuring a provider.
@@ -697,7 +697,7 @@ export function ORAAssistant() {
   const openAdminAssistTab = useCallback(() => {
     setIsOpen(false)
     try {
-      window.dispatchEvent(new CustomEvent('iora:open-admin', { detail: { tab: 'assist' } }))
+      window.dispatchEvent(new CustomEvent('rumahl:open-admin', { detail: { tab: 'assist' } }))
     } catch { /* noop */ }
   }, [])
 
@@ -744,7 +744,7 @@ export function ORAAssistant() {
       })
 
       if (!response.ok) {
-        // Try to surface the upstream proxy error (iora-home -> iora-assist)
+        // Try to surface the upstream proxy error (rumahl-home -> rumahl-assist)
         // Example body: { error: "...", available: false, upstream: "..." }
         let upstream: { error?: string; available?: boolean; upstream?: string } | null = null
         try { upstream = await response.json() } catch { /* not JSON */ }

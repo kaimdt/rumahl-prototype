@@ -9,7 +9,7 @@ import { useOsWindows } from '@/contexts/OsWindowContext'
  * OsFullscreenBar – slim OS status/action bar shown on the launcher and in
  * immersive (true fullscreen) apps.
  *
- *  - Launcher: acts as a status bar (ORA OS brand + live clock).
+ *  - Launcher: acts as a status bar (rumahl OS brand + live clock).
  *  - Immersive app: shows the app name plus the window actions
  *    (minimize → keeps running, exit fullscreen, close).
  *

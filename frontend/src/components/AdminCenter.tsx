@@ -136,7 +136,7 @@ export function AdminCenter() {
           {NATIVE_APPS.map((app) => {
             const Icon = app.icon
             return (
-              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="ora-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
+              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="rumahl-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
                 <span className="grid size-10 place-items-center rounded-xl bg-accent/15 text-accent"><Icon size={20} weight="duotone" /></span>
                 <span className="mt-3 block text-sm font-semibold">{t(app.nameKey, app.pageId)}</span>
                 <span className="mt-1 block text-[11px] text-foreground/45">{t('adminCenter.openApp')}</span>
@@ -153,7 +153,7 @@ export function AdminCenter() {
           {categories.filter((category) => category.id !== 'home').map((category) => {
             const Icon = category.icon
             return (
-              <button key={category.id} type="button" onClick={() => setCategoryId(category.id)} className="ora-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
+              <button key={category.id} type="button" onClick={() => setCategoryId(category.id)} className="rumahl-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
                 <span className="grid size-10 place-items-center rounded-xl bg-foreground/8 text-foreground/70"><Icon size={20} weight="duotone" /></span>
                 <span className="mt-3 block text-sm font-semibold">{category.title}</span>
                 <span className="mt-1 block text-[11px] text-foreground/45">{category.items.length} {t('adminCenter.items')}</span>
@@ -181,7 +181,7 @@ export function AdminCenter() {
           {category.apps.map((app) => {
             const Icon = app.icon
             return (
-              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="ora-card rounded-2xl border border-accent/25 bg-accent/6 p-4 text-left transition-colors hover:bg-accent/10">
+              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="rumahl-card rounded-2xl border border-accent/25 bg-accent/6 p-4 text-left transition-colors hover:bg-accent/10">
                 <span className="grid size-10 place-items-center rounded-xl bg-accent/15 text-accent"><Icon size={20} weight="duotone" /></span>
                 <span className="mt-3 block text-sm font-semibold">{t(app.nameKey, app.pageId)}</span>
                 <span className="mt-1 block text-[11px] text-foreground/45">{t('adminCenter.openApp')}</span>
@@ -197,7 +197,7 @@ export function AdminCenter() {
           if (!entry) return null
           const Icon = entry.icon as typeof Cpu
           return (
-            <button key={tabId} type="button" onClick={() => openDetail(tabId)} className="ora-card rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
+            <button key={tabId} type="button" onClick={() => openDetail(tabId)} className="rumahl-card rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
               <span className="grid size-10 place-items-center rounded-xl bg-foreground/8 text-foreground/70"><Icon size={20} weight="duotone" /></span>
               <span className="mt-3 block text-sm font-semibold">{entry.label}</span>
               {entry.description && <span className="mt-1 line-clamp-2 block text-[11px] text-foreground/45">{entry.description}</span>}
@@ -267,7 +267,7 @@ export function AdminCenter() {
 
 function StatusCard({ icon: Icon, label, value, good = true }: { icon: typeof Gauge; label: string; value: string; good?: boolean }) {
   return (
-    <div className="ora-card rounded-2xl p-4">
+    <div className="rumahl-card rounded-2xl p-4">
       <Icon size={20} className={good ? 'text-emerald-400' : 'text-amber-400'} />
       <p className="mt-3 text-lg font-semibold">{value}</p>
       <p className="text-xs text-foreground/40">{label}</p>

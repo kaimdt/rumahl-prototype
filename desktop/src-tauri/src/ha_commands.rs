@@ -1,4 +1,4 @@
-//! Tauri commands for Home Assistant integration (via iora-home gateway) and system control.
+//! Tauri commands for Home Assistant integration (via rumahl-home gateway) and system control.
 
 use crate::commands::AppState;
 use crate::ha_integration::{HaClient, HaConfig, HaEntity};
@@ -14,13 +14,13 @@ pub struct HaTestResult {
     pub error: Option<String>,
 }
 
-/// Test connection to iora-home gateway (which provides HA integration)
+/// Test connection to rumahl-home gateway (which provides HA integration)
 #[tauri::command]
 pub async fn test_ha_connection(state: State<'_, AppState>) -> Result<HaTestResult, String> {
     let cfg = state.config.lock().await.clone();
     let ha_config = HaConfig {
-        url: cfg.iora_home_url.clone(), // Connect to iora-home, not HA directly
-        token: cfg.ha_token.clone(),    // JWT token from iora-home
+        url: cfg.rumahl_home_url.clone(), // Connect to rumahl-home, not HA directly
+        token: cfg.ha_token.clone(),    // JWT token from rumahl-home
         device_name: cfg.client_name.clone(),
         update_interval_secs: cfg.ha_update_interval_secs,
         enabled: cfg.ha_enabled,
@@ -29,7 +29,7 @@ pub async fn test_ha_connection(state: State<'_, AppState>) -> Result<HaTestResu
     if ha_config.token.is_empty() {
         return Ok(HaTestResult {
             connected: false,
-            error: Some("Kein iora-home JWT Token konfiguriert".to_string()),
+            error: Some("Kein rumahl-home JWT Token konfiguriert".to_string()),
         });
     }
 
@@ -41,7 +41,7 @@ pub async fn test_ha_connection(state: State<'_, AppState>) -> Result<HaTestResu
         }),
         Ok(false) => Ok(HaTestResult {
             connected: false,
-            error: Some("Verbindung zu iora-home fehlgeschlagen".to_string()),
+            error: Some("Verbindung zu rumahl-home fehlgeschlagen".to_string()),
         }),
         Err(e) => Ok(HaTestResult {
             connected: false,
@@ -56,12 +56,12 @@ pub async fn get_system_metrics() -> Result<SystemMetrics, String> {
     collect_metrics().map_err(|e| e.to_string())
 }
 
-/// Send current metrics to iora-home (which forwards to HA)
+/// Send current metrics to rumahl-home (which forwards to HA)
 #[tauri::command]
 pub async fn send_metrics_to_ha(state: State<'_, AppState>) -> Result<(), String> {
     let cfg = state.config.lock().await.clone();
     let ha_config = HaConfig {
-        url: cfg.iora_home_url.clone(), // iora-home URL
+        url: cfg.rumahl_home_url.clone(), // rumahl-home URL
         token: cfg.ha_token.clone(),
         device_name: cfg.client_name.clone(),
         update_interval_secs: cfg.ha_update_interval_secs,
@@ -80,12 +80,12 @@ pub async fn send_metrics_to_ha(state: State<'_, AppState>) -> Result<(), String
         .map_err(|e| e.to_string())
 }
 
-/// Get list of Home Assistant entities (via iora-home gateway)
+/// Get list of Home Assistant entities (via rumahl-home gateway)
 #[tauri::command]
 pub async fn get_ha_entities(state: State<'_, AppState>) -> Result<Vec<HaEntity>, String> {
     let cfg = state.config.lock().await.clone();
     let ha_config = HaConfig {
-        url: cfg.iora_home_url.clone(), // iora-home URL
+        url: cfg.rumahl_home_url.clone(), // rumahl-home URL
         token: cfg.ha_token.clone(),
         device_name: cfg.client_name.clone(),
         update_interval_secs: cfg.ha_update_interval_secs,
@@ -96,7 +96,7 @@ pub async fn get_ha_entities(state: State<'_, AppState>) -> Result<Vec<HaEntity>
     client.get_entities().await.map_err(|e| e.to_string())
 }
 
-/// Call a Home Assistant service via iora-home gateway (validated & secure)
+/// Call a Home Assistant service via rumahl-home gateway (validated & secure)
 #[tauri::command]
 pub async fn call_ha_service(
     state: State<'_, AppState>,
@@ -107,7 +107,7 @@ pub async fn call_ha_service(
 ) -> Result<(), String> {
     let cfg = state.config.lock().await.clone();
     let ha_config = HaConfig {
-        url: cfg.iora_home_url.clone(), // iora-home URL
+        url: cfg.rumahl_home_url.clone(), // rumahl-home URL
         token: cfg.ha_token.clone(),
         device_name: cfg.client_name.clone(),
         update_interval_secs: cfg.ha_update_interval_secs,

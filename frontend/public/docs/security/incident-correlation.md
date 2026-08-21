@@ -1,6 +1,6 @@
 # Incident Correlation 2.5
 
-`iora-incident-engine` is a standalone, non-privileged correlator for `ora.runtime-detection.v1`. It produces revisioned `ora.security-incident.v1` records rather than turning every detection into a separate alert.
+`rumahl-incident-engine` is a standalone, non-privileged correlator for `ora.runtime-detection.v1`. It produces revisioned `ora.security-incident.v1` records rather than turning every detection into a separate alert.
 
 Correlation combines temporal proximity with causal evidence: process and parent-process instances, exec generations, identity snapshots, container instances, executable hashes, socket cookies, destinations, and detection types. Strong causal keys remain eligible for seven days; weaker contextual matches require multiple shared signals inside a 15-minute window. Repeated detection IDs are idempotent and repeated timeline evidence increments occurrence counts.
 
@@ -8,11 +8,11 @@ Incidents preserve severity independently from attribution confidence. Revisions
 
 Lifecycle states are `open`, `investigating`, `contained`, `resolved`, `false_positive`, and `suppressed`. Each transition creates a new revision linked to its predecessor and requires a reason. Marking an incident false-positive never updates a security profile.
 
-The engine may emit typed response recommendations, but `enforcement_requested` is always `false`. It cannot use Docker, nftables, systemd actions, signals, quarantine, or the Root Helper. Any future response must be authorized by `iora-security` and executed through the frozen Phase-1 helper boundary.
+The engine may emit typed response recommendations, but `enforcement_requested` is always `false`. It cannot use Docker, nftables, systemd actions, signals, quarantine, or the Root Helper. Any future response must be authorized by `rumahl-security` and executed through the frozen Phase-1 helper boundary.
 
 ## Automated Response (Phase 2.5)
 
-`iora-security` runs a background response loop (`automated_response` module) that implements slice 2.5 without changing the engine contract:
+`rumahl-security` runs a background response loop (`automated_response` module) that implements slice 2.5 without changing the engine contract:
 
 - Every `RESPONSE_INTERVAL` it lists open incidents over the engine's loopback API and evaluates incidents that carry recommendations against the enabled Security Center policies (`security_policies`).
 - A policy applies when its `threat_type` matches the incident's finding codes (`malware`, `network_attack`, `critical_integrity`, `script_execution`) and the incident severity meets `minimum_severity`.

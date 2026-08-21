@@ -594,9 +594,9 @@ export function AgentTab({ token }: { token: string }) {
     if (!selectedWorkspace) return
     const ws = workspaces.find(w => w.id === selectedWorkspace)
     const branch = ws?.git_branch || 'main'
-    const prTitle = prompt('PR Titel:', `ORA Agent: ${branch}`)
+    const prTitle = prompt('PR Titel:', `rumahl Agent: ${branch}`)
     if (!prTitle) return
-    const prBody = prompt('PR Beschreibung:', 'Automated changes by ORA Agent.')
+    const prBody = prompt('PR Beschreibung:', 'Automated changes by rumahl Agent.')
     try {
       await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/pr`, token, {
         method: 'POST', body: JSON.stringify({
@@ -645,7 +645,7 @@ export function AgentTab({ token }: { token: string }) {
   const selectedWs = workspaces.find(w => w.id === selectedWorkspace)
   const workspaceTasks = tasks.filter(t => t.workspace_id === selectedWorkspace)
   const runningCount = tasks.filter(t => t.status === 'running').length
-  // No hardcoded fallback list — only show models that the iora-assist
+  // No hardcoded fallback list — only show models that the rumahl-assist
   // registry actually discovered from configured providers. Otherwise the UI
   // claims to support models that don't exist in the user's setup.
   const availableModels = activeProvider?.models || []
@@ -670,7 +670,7 @@ export function AgentTab({ token }: { token: string }) {
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                     <Sparkle size={14} weight="fill" className="text-white" />
                   </div>
-                  <span className="text-sm font-semibold text-foreground">ORA Agent</span>
+                  <span className="text-sm font-semibold text-foreground">rumahl Agent</span>
                 </div>
                 <button onClick={() => setSidebarOpen(false)}
                   className="p-1 rounded-lg text-foreground/40 hover:text-foreground hover:bg-foreground/10">
@@ -911,7 +911,7 @@ export function AgentTab({ token }: { token: string }) {
                       }`}>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-[10px] font-semibold text-foreground/60">
-                            {msg.role === 'user' ? 'Du' : 'ORA Agent'}
+                            {msg.role === 'user' ? 'Du' : 'rumahl Agent'}
                           </span>
                           <span className="text-[9px] text-foreground/30">
                             {formatRelativeTime(msg.timestamp)}
@@ -975,7 +975,7 @@ export function AgentTab({ token }: { token: string }) {
                 </button>
               </div>
               <p className="text-[9px] text-foreground/30 mt-2 text-center">
-                ORA Agent kann Fehler machen. Überprüfe wichtige Informationen.
+                rumahl Agent kann Fehler machen. Überprüfe wichtige Informationen.
               </p>
             </div>
           </>
@@ -1017,7 +1017,7 @@ export function AgentTab({ token }: { token: string }) {
                 <div className="flex items-center gap-1.5">
                   {gitChanges.length > 0 && (
                     <>
-                      <button onClick={() => gitCommit('ORA Agent: Änderungen')}
+                      <button onClick={() => gitCommit('rumahl Agent: Änderungen')}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-green-500/10 text-green-300 hover:bg-green-500/20 transition-colors">
                         <GitCommit size={11} /> {gitChanges.length} Änderungen committen
                       </button>

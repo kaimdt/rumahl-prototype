@@ -1,5 +1,5 @@
 /**
- * Network Profiles Settings – manage per-network IORA Home URLs.
+ * Network Profiles Settings – manage per-network rumahl Home URLs.
  *
  * Allows users to define different connection endpoints for
  * Ethernet (LAN), WiFi (WLAN), Mobile, and VPN networks.
@@ -118,8 +118,8 @@ export function NetworkSettings() {
       {
         name: '',
         network_type: 'wifi' as NetworkType,
-        iora_home_url: '',
-        iora_backend_url: undefined,
+        rumahl_home_url: '',
+        rumahl_backend_url: undefined,
         priority: prev.length,
       },
     ])
@@ -139,7 +139,7 @@ export function NetworkSettings() {
     setSaving(true)
     try {
       const valid = editingProfiles.filter(
-        (p) => p.name.trim() && p.iora_home_url.trim()
+        (p) => p.name.trim() && p.rumahl_home_url.trim()
       )
       await tauriApi.saveNetworkProfiles(valid)
       setProfiles(valid)
@@ -182,7 +182,7 @@ export function NetworkSettings() {
       // Update apiBase with the new URL
       const profile = profiles[profileIndex]
       if (profile) {
-        setApiBase(profile.iora_home_url)
+        setApiBase(profile.rumahl_home_url)
       }
       toast.success(`Zu Profil "${profiles[profileIndex]?.name}" gewechselt`)
       // Refresh status
@@ -278,7 +278,7 @@ export function NetworkSettings() {
           <div>
             <h3 className="text-sm font-semibold text-foreground">Automatische Umschaltung</h3>
             <p className="text-xs text-foreground/50 mt-1">
-              Wechselt automatisch die IORA Home URL, wenn sich das Netzwerk ändert
+              Wechselt automatisch die rumahl Home URL, wenn sich das Netzwerk ändert
             </p>
           </div>
           <Switch checked={autoSwitch} onCheckedChange={toggleAutoSwitch} />
@@ -397,13 +397,13 @@ export function NetworkSettings() {
                     </div>
                     <div className="md:col-span-2">
                       <label className="text-[10px] uppercase tracking-wider text-foreground/40 mb-1 block">
-                        IORA Home URL
+                        rumahl Home URL
                       </label>
                       <input
                         type="url"
-                        value={profile.iora_home_url}
+                        value={profile.rumahl_home_url}
                         onChange={(e) =>
-                          updateProfile(index, { iora_home_url: e.target.value })
+                          updateProfile(index, { rumahl_home_url: e.target.value })
                         }
                         placeholder="https://192.168.1.100:3001"
                         className={inputClass}
@@ -411,14 +411,14 @@ export function NetworkSettings() {
                     </div>
                     <div className="md:col-span-2">
                       <label className="text-[10px] uppercase tracking-wider text-foreground/40 mb-1 block">
-                        IORA Assist URL (optional)
+                        rumahl Assist URL (optional)
                       </label>
                       <input
                         type="url"
-                        value={profile.iora_backend_url ?? ''}
+                        value={profile.rumahl_backend_url ?? ''}
                         onChange={(e) =>
                           updateProfile(index, {
-                            iora_backend_url: e.target.value || undefined,
+                            rumahl_backend_url: e.target.value || undefined,
                           })
                         }
                         placeholder="https://192.168.1.100:8092"
@@ -470,7 +470,7 @@ export function NetworkSettings() {
         <p className="text-xs text-foreground/50 leading-relaxed">
           <strong className="text-foreground/70">So funktioniert&apos;s:</strong> Die Desktop-App
           erkennt automatisch, ob du per LAN, WLAN oder Mobilfunk verbunden bist. Für jeden
-          Netzwerk-Typ kannst du eine eigene IORA Home URL hinterlegen. Bei aktiver automatischer
+          Netzwerk-Typ kannst du eine eigene rumahl Home URL hinterlegen. Bei aktiver automatischer
           Umschaltung wechselt die App nahtlos zwischen z.B. deiner lokalen Heimnetz-IP und
           einer externen Domain für unterwegs.
         </p>

@@ -63,7 +63,7 @@ export const FILE_TYPE_CATEGORIES: FileTypeCategory[] = [
 
 // ── Default-app persistence (per user, localStorage) ──────────────────────
 
-const DEFAULT_APPS_KEY = 'iora-default-apps'
+const DEFAULT_APPS_KEY = 'rumahl-default-apps'
 
 function readDefaults(): Record<string, string> {
   try {
@@ -124,8 +124,8 @@ export function registerFileTypeApp(extension: string, app: FileTypeApp) {
     appName: 'Bilder',
     appIcon: '/icons/Images.png',
     open: (file) => {
-      window.dispatchEvent(new CustomEvent('iora:open-image', { detail: file }))
-      window.dispatchEvent(new CustomEvent('iora:navigate', { detail: { pageId: 'os-images' } }))
+      window.dispatchEvent(new CustomEvent('rumahl:open-image', { detail: file }))
+      window.dispatchEvent(new CustomEvent('rumahl:navigate', { detail: { pageId: 'os-images' } }))
     },
   }
   const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic', 'avif']

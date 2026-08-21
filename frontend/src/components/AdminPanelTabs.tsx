@@ -222,7 +222,7 @@ export function SystemInfoTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="ora-secondary-button-sm">
+          className="rumahl-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} {t('admin.systemInfo.refresh')}
         </button>
       </div>
@@ -325,13 +325,13 @@ export function AppsTab({ token }: { token: string }) {
           <div>
             <label className="text-[10px] text-foreground/40 mb-1 block">{t('admin.appsTab.appName')}</label>
             <input type="text" value={newAppName} onChange={e => setNewAppName(e.target.value)}
-              className="ora-field-sm w-full text-xs"
+              className="rumahl-field-sm w-full text-xs"
               placeholder={t('admin.appsTab.appNamePlaceholder')} />
           </div>
           <div>
             <label className="text-[10px] text-foreground/40 mb-1 block">{t('admin.appsTab.dockerImage')}</label>
             <input type="text" value={newAppImage} onChange={e => setNewAppImage(e.target.value)}
-              className="ora-field-sm w-full text-xs"
+              className="rumahl-field-sm w-full text-xs"
               placeholder={t('admin.appsTab.dockerImagePlaceholder')} />
           </div>
           <button onClick={installApp} disabled={installing || !newAppImage || !newAppName}
@@ -401,7 +401,7 @@ export function AppsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="ora-secondary-button-sm">
+          className="rumahl-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} {t('admin.appsTab.refresh')}
         </button>
       </div>
@@ -492,32 +492,32 @@ export function PluginsTab({ token }: { token: string }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="ora-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('navigation.plugins')}</div>
           <div className="text-lg font-semibold text-foreground">{plugins.length}</div>
         </div>
-        <div className="ora-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.executions')}</div>
           <div className="text-lg font-semibold text-accent">{executions}</div>
         </div>
-        <div className="ora-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.failures')}</div>
           <div className="text-lg font-semibold text-red-300">{failures}</div>
         </div>
-        <div className="ora-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.network')}</div>
           <div className="text-lg font-semibold text-cyan-300">{networkEnabled}</div>
         </div>
       </div>
 
-      <div className="ora-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+      <div className="rumahl-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
         <div className="relative flex-1">
           <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('plugins.overview.search')}
-            className="ora-field-sm w-full pl-9 pr-3 text-xs"
+            className="rumahl-field-sm w-full pl-9 pr-3 text-xs"
           />
         </div>
         <div className="flex gap-1 overflow-x-auto">
@@ -631,7 +631,7 @@ export function PluginsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="ora-secondary-button-sm">
+          className="rumahl-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} {t('admin.pluginsTab.refresh')}
         </button>
       </div>

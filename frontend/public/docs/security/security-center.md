@@ -1,24 +1,24 @@
-# ORA OS Security Center
+# rumahl OS Security Center
 
 ## Architecture
 
 The Security Center separates policy, presentation, and privileged enforcement:
 
 1. The integrated system app displays status and submits authenticated actions.
-2. `iora-home` authenticates administrators and forwards explicit Security permissions.
-3. `iora-security` owns policies, scanner selection, events, scan jobs, and a keyed hash-chained audit log.
-4. `iora-security-helper` is the only root component. It listens on a root-owned Unix socket and accepts a closed, validated command enum. It never evaluates shell text.
+2. `rumahl-home` authenticates administrators and forwards explicit Security permissions.
+3. `rumahl-security` owns policies, scanner selection, events, scan jobs, and a keyed hash-chained audit log.
+4. `rumahl-security-helper` is the only root component. It listens on a root-owned Unix socket and accepts a closed, validated command enum. It never evaluates shell text.
 5. nftables, integrity timers, and the helper continue running without the frontend.
 
 Direct network access to privileged operations is intentionally impossible. The helper's Unix socket is available only to the Security service group on installed systems.
 
-The helper additionally validates Linux peer credentials for every accepted connection. Merely obtaining access to the socket path or joining an unrelated local group is insufficient; the peer UID must be the dedicated `iora-security` service UID.
+The helper additionally validates Linux peer credentials for every accepted connection. Merely obtaining access to the socket path or joining an unrelated local group is insufficient; the peer UID must be the dedicated `rumahl-security` service UID.
 
-`iora-security` has its own non-login UID and group; no other ORA service uses that identity. The shared `iora` group is supplementary and grants only access to existing database credentials, not access to the helper socket.
+`rumahl-security` has its own non-login UID and group; no other rumahl service uses that identity. The shared `ora` group is supplementary and grants only access to existing database credentials, not access to the helper socket.
 
 ## Firewall and containers
 
-The `inet iora_security` table installs an input and forward hook before Docker's normal forwarding path. Consequently, published ports and container forwarding remain subject to the ORA policy. Baseline rules provide state tracking, deny invalid traffic, restrict exposed TCP ports, and rate-limit new TCP and ICMP traffic. Container-to-container and outbound traffic are explicitly represented in the forward policy.
+The `inet rumahl_security` table installs an input and forward hook before Docker's normal forwarding path. Consequently, published ports and container forwarding remain subject to the rumahl policy. Baseline rules provide state tracking, deny invalid traffic, restrict exposed TCP ports, and rate-limit new TCP and ICMP traffic. Container-to-container and outbound traffic are explicitly represented in the forward policy.
 
 Policy activation is transactional: the helper writes a candidate, validates it with `nft -c`, activates it, and restores the previous policy if activation fails. Policies containing a global `flush ruleset` are rejected so they cannot erase unrelated safety rules.
 
@@ -27,7 +27,7 @@ Policy activation is transactional: the helper writes a candidate, validates it 
 The scanner layer supports:
 
 - `internal`: SHA-256, size validation, integrity data, and bounded script heuristics;
-- `yara`: recursively evaluates the curated rules under `/etc/iora/security/yara`;
+- `yara`: recursively evaluates the curated rules under `/etc/ora/security/yara`;
 - `clamav`: uses bounded per-job `clamscan` execution;
 - future providers through the same provider identifier and result model.
 
@@ -41,7 +41,7 @@ At most two scans run concurrently, every scan has a 120-second deadline, and so
 
 Policies map threat types and minimum severity to one or more actions: log, alert, temporary block, stop process, quarantine, isolate network, block IP, stop service, or lockdown. The defaults use detect, alert, bounded containment, and administrator confirmation. Confirmed modification of critical OS binaries can select the critical lockdown policy.
 
-The helper refuses to stop PID 1 or either Security service. Quarantine moves files into a root-owned store, removes access permissions, and writes separate provenance metadata. Scan and quarantine paths are restricted to ORA-managed roots.
+The helper refuses to stop PID 1 or either Security service. Quarantine moves files into a root-owned store, removes access permissions, and writes separate provenance metadata. Scan and quarantine paths are restricted to rumahl-managed roots.
 
 Restore never writes directly back to the original location and never restores original ownership or executable mode. It places the item in a dedicated recovery area with mode `0600` for explicit administrator inspection. The Security health response probes the effective nftables table, scanner availability, integrity-monitor freshness, and the keyed audit chain.
 
@@ -57,11 +57,11 @@ Security access is divided into read, policy management, scan execution, quarant
 
 ### Access control architecture
 
-`iora-security` binds **loopback only** and is never reachable directly from the network. All Security Center requests flow through `iora-home`: the `/api/core/security/*` routes live in the admin router, which enforces authentication (JWT or API key) plus `is_admin` via `require_admin`. Only after that check does the proxy strip any client-supplied `x-iora-*` markers and attach the trusted pair `x-iora-proxy: iora-home` + `x-iora-permissions: security_admin`. `iora-security` rejects every request without that exact pair (`require_permission`), so neither network clients nor non-admin users can reach the privileged endpoints. The granular `security_*` permissions remain part of the API contract for future role refinement.
+`rumahl-security` binds **loopback only** and is never reachable directly from the network. All Security Center requests flow through `rumahl-home`: the `/api/core/security/*` routes live in the admin router, which enforces authentication (JWT or API key) plus `is_admin` via `require_admin`. Only after that check does the proxy strip any client-supplied `x-rumahl-*` markers and attach the trusted pair `x-rumahl-proxy: rumahl-home` + `x-rumahl-permissions: security_admin`. `rumahl-security` rejects every request without that exact pair (`require_permission`), so neither network clients nor non-admin users can reach the privileged endpoints. The granular `security_*` permissions remain part of the API contract for future role refinement.
 
 ### Integrity response
 
-The Security Center overview exposes an `integrity_response` status block (passes, critical/non-critical events, lockdowns). `iora-integrity.service` verifies the native binaries against `/etc/iora/binary-manifest.sha256` every five minutes and writes structured evidence to `/run/iora/integrity-mismatch.json` — the scan itself stays read-only and only alerts. The `integrity_response` watchdog in `iora-security` classifies the affected paths: tampering of critical core services (`iora-security`, `iora-security-helper`, `iora-home`, `iora-supervisor`, `iora-gateway`, `iora-assist`, `iora-core`, `iora-files`) requests a **lockdown** through the approved helper boundary and records keyed audit events (`integrity_mismatch`, `automated_lockdown`); non-critical mismatches (e.g. app binaries) are audited without a lockdown. The same evidence report triggers at most one reaction.
+The Security Center overview exposes an `integrity_response` status block (passes, critical/non-critical events, lockdowns). `rumahl-integrity.service` verifies the native binaries against `/etc/ora/binary-manifest.sha256` every five minutes and writes structured evidence to `/run/ora/integrity-mismatch.json` — the scan itself stays read-only and only alerts. The `integrity_response` watchdog in `rumahl-security` classifies the affected paths: tampering of critical core services (`rumahl-security`, `rumahl-security-helper`, `rumahl-home`, `rumahl-supervisor`, `rumahl-gateway`, `rumahl-assist`, `rumahl-core`, `rumahl-files`) requests a **lockdown** through the approved helper boundary and records keyed audit events (`integrity_mismatch`, `automated_lockdown`); non-critical mismatches (e.g. app binaries) are audited without a lockdown. The same evidence report triggers at most one reaction.
 
 ## Phase boundaries
 
@@ -69,4 +69,4 @@ Phase 1 provides host and container firewalling, modular malware scans, hash/int
 
 ### Automated Response (Phase 2.5)
 
-The Security Center overview exposes an `automated_response` status block (interval, passes, evaluated/executed/skipped/transitioned counters). The background loop observes open incident recommendations from `iora-incident-engine`, matches them against enabled policies, and executes the policy actions through the frozen `iora-security-helper` boundary only. No phase-2 component gains a second privileged path; enforcement stays authorized by `iora-security` and is recorded in the keyed audit chain (`automated_response` / `automated_response_skipped` events).
+The Security Center overview exposes an `automated_response` status block (interval, passes, evaluated/executed/skipped/transitioned counters). The background loop observes open incident recommendations from `rumahl-incident-engine`, matches them against enabled policies, and executes the policy actions through the frozen `rumahl-security-helper` boundary only. No phase-2 component gains a second privileged path; enforcement stays authorized by `rumahl-security` and is recorded in the keyed audit chain (`automated_response` / `automated_response_skipped` events).

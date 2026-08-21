@@ -1,5 +1,5 @@
 /**
- * Canonical ORA OS application model.
+ * Canonical rumahl OS application model.
  *
  * Store, launcher, app management and the runtime runner consume these types
  * instead of maintaining their own interpretations of install/runtime state.

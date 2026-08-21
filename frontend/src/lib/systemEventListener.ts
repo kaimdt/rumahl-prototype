@@ -4,7 +4,7 @@
 // backend-side `system_event` broadcasts (errors / warnings from
 // background tasks the user didn't directly trigger) as toasts.
 //
-// Backend payload shape (see iora-home/src/system_events.rs):
+// Backend payload shape (see rumahl-home/src/system_events.rs):
 //   { type: "system_event", event: {
 //       fingerprint, severity, source, message, origin,
 //       occurred_at, group_count,

@@ -618,7 +618,7 @@ function SaveButton({ hasChanges, colors, fonts, layout, effects, selectedTheme,
       if (res.ok) {
         onSaved()
         // Also refresh the theme to apply changes immediately
-        window.dispatchEvent(new CustomEvent('iora-theme-saved'))
+        window.dispatchEvent(new CustomEvent('rumahl-theme-saved'))
       }
     } catch (err) {
       console.warn('Failed to save theme overrides:', err)
@@ -877,7 +877,7 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
               }}>
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: previewColors.accent || '#6366f1', boxShadow: `0 0 8px ${previewColors.accent || '#6366f1'}88` }} />
-                <span className="text-xs font-medium tracking-wider uppercase" style={{ fontFamily: fonts.heading }}>IORA Preview</span>
+                <span className="text-xs font-medium tracking-wider uppercase" style={{ fontFamily: fonts.heading }}>rumahl Preview</span>
               </div>
               <span className="text-[10px] opacity-40">Theme-Editor</span>
             </div>

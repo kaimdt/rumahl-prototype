@@ -1,21 +1,21 @@
-# IORA Domain Validation and Resource Management
+# rumahl Domain Validation and Resource Management
 
-This document describes two new system services added to IORA: Domain Validator and Resource Manager.
+This document describes two new system services added to rumahl: Domain Validator and Resource Manager.
 
 ## Overview
 
-Two major services have been implemented to enhance IORA's security and efficiency:
+Two major services have been implemented to enhance rumahl's security and efficiency:
 
-1. **IORA Domain Validator** - Enforces network access policies for apps with domain/IP whitelisting
-2. **IORA Resource Manager** - Intelligently monitors and reallocates Docker container resources
+1. **rumahl Domain Validator** - Enforces network access policies for apps with domain/IP whitelisting
+2. **rumahl Resource Manager** - Intelligently monitors and reallocates Docker container resources
 
 ---
 
-## 1. IORA Domain Validator
+## 1. rumahl Domain Validator
 
 ### Purpose
 
-The Domain Validator service acts as a network access control layer for IORA apps. It validates all external domain and IP access requests against app-specific whitelists, preventing unauthorized network access.
+The Domain Validator service acts as a network access control layer for rumahl apps. It validates all external domain and IP access requests against app-specific whitelists, preventing unauthorized network access.
 
 ### Key Features
 
@@ -114,11 +114,11 @@ Return Allow/Deny + Reason
 
 ---
 
-## 2. IORA Resource Manager
+## 2. rumahl Resource Manager
 
 ### Purpose
 
-The Resource Manager monitors all Docker container resource usage in real-time and dynamically adjusts CPU and memory allocations based on actual utilization patterns. This ensures optimal resource distribution across all IORA services and apps.
+The Resource Manager monitors all Docker container resource usage in real-time and dynamically adjusts CPU and memory allocations based on actual utilization patterns. This ensures optimal resource distribution across all rumahl services and apps.
 
 ### Key Features
 
@@ -197,7 +197,7 @@ No container will be reduced below these thresholds, ensuring stable operation.
 ```
 Every 30 seconds:
     ↓
-List All IORA Containers
+List All rumahl Containers
     ↓
 Fetch Docker Stats (CPU, Memory)
     ↓
@@ -258,7 +258,7 @@ Log Changes to Database
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              IORA NGINX (Port 80)               │
+│              rumahl NGINX (Port 80)               │
 │  Routes: /api/domain-validator/, /api/resources/│
 └─────────┬─────────────────────────┬─────────────┘
           │                         │
@@ -351,9 +351,9 @@ CREATE TABLE resource_allocations (
 
 **Environment Variables**:
 ```bash
-DATABASE_URL=postgresql://user:pass@iora.local/iora
+DATABASE_URL=postgresql://user:pass@rumahl.local/ora
 RUST_LOG=info
-BIND_ADDRESS=iora.local:8100
+BIND_ADDRESS=rumahl.local:8100
 DNS_CACHE_TTL=300  # seconds
 ```
 
@@ -361,10 +361,10 @@ DNS_CACHE_TTL=300  # seconds
 
 **Environment Variables**:
 ```bash
-DATABASE_URL=postgresql://user:pass@iora.local/iora
+DATABASE_URL=postgresql://user:pass@rumahl.local/ora
 DOCKER_HOST=unix:///var/run/docker.sock
 RUST_LOG=info
-BIND_ADDRESS=iora.local:8101
+BIND_ADDRESS=rumahl.local:8101
 MONITORING_INTERVAL=30  # seconds
 ```
 
@@ -528,9 +528,9 @@ const MIN_MEMORY_BYTES: i64 = 256 * 1024 * 1024;
 
 - [Network Access Control](NETWORK_ACCESS_AND_DOCUMENTATION_SUMMARY.md)
 - [Port Management](PORT_MANAGEMENT_AND_SYSTEM_ENHANCEMENTS.md)
-- [App Manifest Schema](../backend/iora-shared/src/app_manifest.rs)
-- [Domain Validator README](../backend/iora-domain-validator/README.md)
-- [Resource Manager README](../backend/iora-resource-manager/README.md)
+- [App Manifest Schema](../backend/rumahl-shared/src/app_manifest.rs)
+- [Domain Validator README](../backend/rumahl-domain-validator/README.md)
+- [Resource Manager README](../backend/rumahl-resource-manager/README.md)
 - [Security Best Practices](security/best-practices.md)
 
 ---
@@ -538,11 +538,11 @@ const MIN_MEMORY_BYTES: i64 = 256 * 1024 * 1024;
 ## Support
 
 For issues or questions:
-1. Check service logs: `journalctl -u iora-domain-validator` or `iora-resource-manager`
+1. Check service logs: `journalctl -u rumahl-domain-validator` or `rumahl-resource-manager`
 2. Review API responses for error details
 3. Check database connectivity and schema
 4. Consult README files for each service
-5. Submit issues on IORA repository
+5. Submit issues on rumahl repository
 
 ---
 

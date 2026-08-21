@@ -73,8 +73,8 @@ export function useAccentColor() {
         setSettings({ ...DEFAULT_ACCENT_SETTINGS, ...stored })
       }
     }
-    window.addEventListener('iora:settings-synced', onSynced)
-    return () => window.removeEventListener('iora:settings-synced', onSynced)
+    window.addEventListener('rumahl:settings-synced', onSynced)
+    return () => window.removeEventListener('rumahl:settings-synced', onSynced)
   }, [])
 
   // The theme panel locks the accent (data-accent-locked) when the user picks

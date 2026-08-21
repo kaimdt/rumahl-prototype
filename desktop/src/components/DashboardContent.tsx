@@ -1,16 +1,16 @@
 /**
- * @ai-info IORA Desktop – DashboardContent.tsx
+ * @ai-info rumahl Desktop – DashboardContent.tsx
  *
- * This is the main content shell for the IORA Desktop Tauri client.
+ * This is the main content shell for the rumahl Desktop Tauri client.
  * It renders ONLY:
  *   - The Desktop Settings page (SettingsPage — local Tauri config, no auth needed)
  *   - Admin panel, Docs, Streaming, Connection settings
  *   - A glass header bar
  *   - The NavigationMenu
  *
- * ALL legacy IORA Home widgets (lights, climate, switches, sensors,
+ * ALL legacy rumahl Home widgets (lights, climate, switches, sensors,
  * custom pages, splash screen, login modal, screensaver, maintenance mode,
- * emergency overlays, etc.) have been REMOVED. Those live in the IORA Home
+ * emergency overlays, etc.) have been REMOVED. Those live in the rumahl Home
  * frontend and are loaded via RemoteHomeView when connected.
  */
 import { useState, useEffect, useMemo } from 'react'
@@ -88,7 +88,7 @@ export function DashboardContent() {
   // If RemoteHome is configured and we're on home page, show the remote view
   if (isRemoteHome) {
     return (
-      <div className="iora-remote-view h-full">
+      <div className="rumahl-remote-view h-full">
         <RemoteHomeView />
       </div>
     )
@@ -163,7 +163,7 @@ export function DashboardContent() {
               <div className="max-w-[1500px] mx-auto px-4 md:px-6 lg:px-8 py-2.5 flex items-center">
                 <div className="flex items-center gap-3">
                   <div className="w-1.5 h-5 rounded-full bg-accent/70" />
-                  <h1 className="text-[13px] font-semibold tracking-tight text-foreground/90">IORA</h1>
+                  <h1 className="text-[13px] font-semibold tracking-tight text-foreground/90">rumahl</h1>
                   <span className="text-[10px] font-medium text-foreground/25 tracking-wider">
                     {currentPageId === 'admin' ? 'Control Center' : currentPageId === 'docs' ? 'Dokumentation' : currentPageId === 'streaming' ? 'Streaming' : currentPageId === 'connection' ? 'Verbindung' : 'Dashboard'}
                   </span>

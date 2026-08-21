@@ -152,7 +152,7 @@ function DashboardContent() {
   useUiScale()
   useDeviceCapabilities()
   // Kiosk mode: auto-start the dashboard (Home) and stay there.
-  const [kioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
+  const [kioskMode] = useLocalStorage<boolean>('rumahl-kiosk-mode', false)
   useEffect(() => {
     if (kioskMode && isAuthenticated && currentPageId === 'launcher') setCurrentPageId('home')
   }, [kioskMode, isAuthenticated, currentPageId, setCurrentPageId])
@@ -168,7 +168,7 @@ function DashboardContent() {
   const { allApps: installedRuntimeApps } = useInstalledApps()
   // App pages owned by the app runtime: installed apps + catalog apps render
   // even without a dashboard page record, so deep links like
-  // /app/ora-browser work directly (also with proxy-only/local apps that
+  // /app/rumahl-browser work directly (also with proxy-only/local apps that
   // have no host URL in appRuntimeUrls).
   const isRuntimeAppPage = (id: string) =>
     installedRuntimeApps.some((app) => app.id === id) ||
@@ -312,17 +312,17 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
       const detail = (e as CustomEvent).detail as { tab?: string } | undefined
       setCurrentPageId('admin')
       if (detail?.tab) {
-        try { sessionStorage.setItem('iora-admin-deep-link', detail.tab) } catch { /* ignore */ }
+        try { sessionStorage.setItem('rumahl-admin-deep-link', detail.tab) } catch { /* ignore */ }
       }
     }
-    window.addEventListener('iora:open-admin', handler)
-    return () => window.removeEventListener('iora:open-admin', handler)
+    window.addEventListener('rumahl:open-admin', handler)
+    return () => window.removeEventListener('rumahl:open-admin', handler)
   }, [setCurrentPageId])
   const userName = useMemo(() => user?.displayName || user?.username || 'Benutzer', [user])
 
   // Skip splash screen when opening in a new tab or navigating directly to a page
   const [showSplash, setShowSplash] = useState(() => {
-    // Check if opened in a new tab from IORA itself
+    // Check if opened in a new tab from rumahl itself
     const isNewTab = typeof window !== 'undefined' && (
       window.opener !== null ||
       document.referrer.includes(window.location.hostname)
@@ -408,7 +408,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-black/70" />
         {/* Brand watermark */}
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center">
-          <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">IORA</p>
+          <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">rumahl</p>
         </div>
         <LoginPage />
       </div>
@@ -526,7 +526,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
             transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
           }}
         />
-        <div className="fixed inset-0 z-10 pointer-events-none ora-wallpaper-vignette" />
+        <div className="fixed inset-0 z-10 pointer-events-none rumahl-wallpaper-vignette" />
         {nightModeSettings.isActive && (theme === 'night' || theme === 'sleep' || nightModeSettings.applyAlways) && (
           <div
             className="fixed inset-0 z-10 pointer-events-none"
@@ -567,7 +567,7 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
             const resolvePageType = (): 'dashboard' | 'app' | 'system' | 'custom' => {
               if (currentPage?.pageType) return currentPage.pageType
               if (currentPage?.pageSource?.kind === 'app') return 'app'
-              if (currentPage?.pageSource?.kind === 'iora') return 'system'
+              if (currentPage?.pageSource?.kind === 'rumahl') return 'system'
               if (isBuiltinPageId(currentPageId)) return 'system'
 
               // Backward compatibility for already persisted app pages without metadata.
@@ -852,10 +852,10 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
           )
         })()}
       </AnimatePresence>
-      {/* Blue-light reduction overlay (backdrop-filter, see .ora-night-filter in index.css).
+      {/* Blue-light reduction overlay (backdrop-filter, see .rumahl-night-filter in index.css).
           Kept OUT of the page container so the filter never becomes the containing
           block of fixed elements (dock/topbar would “fall to the floor”). */}
-      <div className="ora-night-filter" aria-hidden="true" />
+      <div className="rumahl-night-filter" aria-hidden="true" />
       <AppChrome
         showPageDesigner={showPageDesigner}
         immersivePageId={immersivePageId}

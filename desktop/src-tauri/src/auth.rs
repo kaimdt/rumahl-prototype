@@ -1,4 +1,4 @@
-//! Authentication commands for the IORA Home backend.
+//! Authentication commands for the rumahl Home backend.
 
 use crate::commands::AppState;
 use crate::config;
@@ -40,14 +40,14 @@ pub async fn login(
     username: String,
     password: String,
 ) -> Result<AuthUser, String> {
-    let iora_home_url = state.config.lock().await.iora_home_url.clone();
+    let rumahl_home_url = state.config.lock().await.rumahl_home_url.clone();
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let url = format!("{}/api/auth/login", iora_home_url.trim_end_matches('/'));
+    let url = format!("{}/api/auth/login", rumahl_home_url.trim_end_matches('/'));
 
     let resp = client
         .post(&url)

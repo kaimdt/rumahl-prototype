@@ -15,7 +15,7 @@ import { isAppOpenExternal } from '@/lib/appOpenPrefs'
 import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchModes'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 
-const RECENT_APPS_KEY = 'iora-os-recent-apps'
+const RECENT_APPS_KEY = 'rumahl-os-recent-apps'
 const MAX_RECENT_IN_DOCK = 3
 
 function readRecentIds(): string[] {
@@ -59,11 +59,11 @@ export function OsDock() {
     const refreshPins = () => setPinnedIds(readDockPins())
     const refreshRecents = () => setRecentIds(readRecentIds())
     window.addEventListener(DOCK_PINS_EVENT_NAME, refreshPins)
-    window.addEventListener('iora:recents-changed', refreshRecents)
+    window.addEventListener('rumahl:recents-changed', refreshRecents)
     window.addEventListener('focus', refreshRecents)
     return () => {
       window.removeEventListener(DOCK_PINS_EVENT_NAME, refreshPins)
-      window.removeEventListener('iora:recents-changed', refreshRecents)
+      window.removeEventListener('rumahl:recents-changed', refreshRecents)
       window.removeEventListener('focus', refreshRecents)
     }
   }, [])
@@ -181,7 +181,7 @@ export function OsDock() {
             setMenuId(menuOpen ? null : app.id)
             setMenuPos({ x: event.clientX, y: event.clientY })
           }}
-          className="ora-dock-item group relative flex touch-manipulation flex-col items-center rounded-2xl p-0.5 focus-ring"
+          className="rumahl-dock-item group relative flex touch-manipulation flex-col items-center rounded-2xl p-0.5 focus-ring"
           aria-label={name}
         >
           <span

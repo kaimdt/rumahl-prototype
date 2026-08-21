@@ -1,6 +1,6 @@
 # App Security Profiles 2.3
 
-The machine-readable schema is shipped as `/usr/share/iora/security/profile-v1.schema.json`. `iora-runtime-policy` loads versioned `ora.security-profile.v1` documents from `/etc/iora/security-profiles`. Profiles describe expected behavior for ORA apps and system services; they never contain or execute enforcement actions.
+The machine-readable schema is shipped as `/usr/share/ora/security/profile-v1.schema.json`. `rumahl-runtime-policy` loads versioned `ora.security-profile.v1` documents from `/etc/ora/security-profiles`. Profiles describe expected behavior for rumahl apps and system services; they never contain or execute enforcement actions.
 
 Rules cover processes, executable path prefixes and hashes, inbound/outbound network behavior, sensitive filesystem reads/writes/execution, shells, interpreters, execution from `/tmp`, and child-process depth. Each behavior is classified as `expected`, `allowed`, `unusual`, or `forbidden`. Learning observations remain `observed` and validation rejects any learned profile that attempts to mark behavior trusted.
 

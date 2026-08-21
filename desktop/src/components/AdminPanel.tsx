@@ -59,7 +59,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
 type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'network' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
-  { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+  { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle rumahl-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
   { id: 'tasks', label: 'Aufgaben', icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
   { id: 'control-mode', label: 'Betriebsmodus', icon: Robot, description: 'Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln' },
   { id: 'system', label: 'System', icon: Cpu, description: 'CPU, RAM, Speicher, Uptime und System-Auslastung überwachen' },
@@ -82,7 +82,7 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'analytics', label: 'Analytics', icon: ChartLine, description: 'Dashboard-Statistiken, Entity-Nutzung und System-Gesundheit überwachen' },
   { id: 'backups', label: 'Backups', icon: Archive, description: 'Dashboard-Konfiguration sichern und wiederherstellen' },
   { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und Verbindungsdetails anzeigen' },
-  { id: 'cloud-settings', label: 'IORA Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
+  { id: 'cloud-settings', label: 'rumahl Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
   { id: 'logs', label: 'Logs', icon: ListBullets, description: 'System- und Home Assistant Logs in Echtzeit einsehen' },
   { id: 'logbook', label: 'Logbuch', icon: BookOpen, description: 'Home Assistant Logbuch — chronologischer Verlauf aller Zustandsänderungen und Ereignisse' },
   { id: 'calendars', label: 'Kalender', icon: CalendarBlank, description: 'Home Assistant Kalender-Entitäten und anstehende Termine anzeigen' },
@@ -107,7 +107,7 @@ function CloudSettingsTab({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const stored = window.localStorage.getItem('ioraCloudSettings')
+    const stored = window.localStorage.getItem('rumahlCloudSettings')
     if (stored) {
       try {
         setSettings(JSON.parse(stored))
@@ -122,14 +122,14 @@ function CloudSettingsTab({ token }: { token: string }) {
     setSaving(true)
     setError(null)
     try {
-      await adminFetch('/api/admin/iora-cloud/config', token, {
+      await adminFetch('/api/admin/rumahl-cloud/config', token, {
         method: 'PUT',
         body: JSON.stringify(settings),
       })
-      toast.success('IORA Cloud Einstellungen gespeichert')
+      toast.success('rumahl Cloud Einstellungen gespeichert')
     } catch {
-      window.localStorage.setItem('ioraCloudSettings', JSON.stringify(settings))
-      toast.success('IORA Cloud Einstellungen lokal gespeichert')
+      window.localStorage.setItem('rumahlCloudSettings', JSON.stringify(settings))
+      toast.success('rumahl Cloud Einstellungen lokal gespeichert')
     } finally {
       setSaving(false)
     }
@@ -141,7 +141,7 @@ function CloudSettingsTab({ token }: { token: string }) {
         <div className="flex items-center gap-3 mb-4">
           <CloudArrowUp size={18} className="text-foreground" />
           <div>
-            <p className="text-sm font-semibold text-foreground">IORA Cloud Connector</p>
+            <p className="text-sm font-semibold text-foreground">rumahl Cloud Connector</p>
             <p className="text-xs text-foreground/60">Konfiguriere private und öffentliche Ports für den Cloud Connector.</p>
           </div>
         </div>
@@ -352,7 +352,7 @@ export function AdminPanel() {
           <div className="flex items-center gap-3 mb-4">
             <ShieldCheck size={24} weight="fill" className="text-accent" />
             <div>
-              <p className="text-sm font-semibold text-foreground">IORA Control Center</p>
+              <p className="text-sm font-semibold text-foreground">rumahl Control Center</p>
               <p className="text-xs text-foreground/50">Alle Admin-Funktionen auf einen Blick.</p>
             </div>
           </div>
@@ -2523,7 +2523,7 @@ function BleTab({ token }: { token: string }) {
 
 function HomekitTab({ token }: { token: string }) {
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
-  const [config, setConfig] = useState({ enabled: false, bridge_name: 'MDT Dashboard Bridge', bridge_port: 21063 })
+  const [config, setConfig] = useState({ enabled: false, bridge_name: 'rumahl Dashboard Bridge', bridge_port: 21063 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -2537,7 +2537,7 @@ function HomekitTab({ token }: { token: string }) {
         const c = s.config as Record<string, unknown>
         setConfig({
           enabled: (c.enabled as boolean) ?? false,
-          bridge_name: (c.bridge_name as string) ?? 'MDT Dashboard Bridge',
+          bridge_name: (c.bridge_name as string) ?? 'rumahl Dashboard Bridge',
           bridge_port: Number(c.bridge_port ?? c.port) || 21063,
         })
       }
@@ -2853,7 +2853,7 @@ function NetworkTab({ token }: { token: string }) {
 
 // ── Logs Tab ──────────────────────────────────────────────────
 
-interface IoraLogEntry {
+interface rumahlLogEntry {
   id: number
   timestamp: string
   level: string
@@ -2863,7 +2863,7 @@ interface IoraLogEntry {
 }
 
 function LogsTab({ token }: { token: string }) {
-  const [logs, setLogs] = useState<IoraLogEntry[]>([])
+  const [logs, setLogs] = useState<rumahlLogEntry[]>([])
   const [haLogs, setHaLogs] = useState<Array<{ line: string; severity: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -2871,20 +2871,20 @@ function LogsTab({ token }: { token: string }) {
   const [search, setSearch] = useState('')
   const [targetFilter, setTargetFilter] = useState('')
   const [liveMode, setLiveMode] = useState(false)
-  const [activeView, setActiveView] = useState<'iora' | 'ha'>('iora')
+  const [activeView, setActiveView] = useState<'rumahl' | 'ha'>('rumahl')
   const logContainerRef = { current: null as HTMLDivElement | null }
 
   const load = useCallback(async () => {
     setError('')
     try {
-      const [ioraData, haData] = await Promise.all([
+      const [rumahlData, haData] = await Promise.all([
         adminFetch('/api/admin/logs?limit=500' +
           (filter !== 'all' ? `&level=${filter}` : '') +
           (targetFilter ? `&target=${encodeURIComponent(targetFilter)}` : '') +
           (search ? `&search=${encodeURIComponent(search)}` : ''), token),
         adminFetch('/api/admin/ha/logs', token).catch(() => ({ log: [] })),
       ])
-      setLogs((ioraData.entries ?? []) as IoraLogEntry[])
+      setLogs((rumahlData.entries ?? []) as rumahlLogEntry[])
       setHaLogs(haData.log ?? [])
     } catch (e) { setError((e as Error).message) }
     setLoading(false)
@@ -2893,11 +2893,11 @@ function LogsTab({ token }: { token: string }) {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (!liveMode || activeView !== 'iora') return
+    if (!liveMode || activeView !== 'rumahl') return
     const es = new EventSource(`${getApiBase()}/api/admin/logs/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
     es.addEventListener('log', (e) => {
       try {
-        const entry = JSON.parse((e as MessageEvent).data) as IoraLogEntry
+        const entry = JSON.parse((e as MessageEvent).data) as rumahlLogEntry
         setLogs(prev => {
           const next = [entry, ...prev]
           return next.length > 1000 ? next.slice(0, 1000) : next
@@ -2942,8 +2942,8 @@ function LogsTab({ token }: { token: string }) {
         <div className="flex justify-between items-center flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <div className="flex rounded-lg bg-foreground/5 p-0.5">
-              <button onClick={() => setActiveView('iora')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'iora' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
-                IORA System
+              <button onClick={() => setActiveView('rumahl')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'rumahl' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
+                rumahl System
               </button>
               <button onClick={() => setActiveView('ha')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'ha' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
                 Home Assistant
@@ -2951,7 +2951,7 @@ function LogsTab({ token }: { token: string }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {activeView === 'iora' && (
+            {activeView === 'rumahl' && (
               <>
                 <button onClick={() => setLiveMode(!liveMode)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
@@ -2974,7 +2974,7 @@ function LogsTab({ token }: { token: string }) {
         </div>
       </AdminCard>
 
-      {activeView === 'iora' && (
+      {activeView === 'rumahl' && (
         <>
           <AdminCard>
             <div className="space-y-2">
@@ -4414,7 +4414,7 @@ function RealtimeTab({ token }: { token: string }) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Heartbeat size={16} weight="fill" className="text-accent" />
-                <span className="text-sm font-semibold text-foreground">IORA Metrics Dashboard</span>
+                <span className="text-sm font-semibold text-foreground">rumahl Metrics Dashboard</span>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setMetricsLive(!metricsLive)}

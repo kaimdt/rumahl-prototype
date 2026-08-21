@@ -32,7 +32,7 @@ export interface AppChromeProps {
 }
 
 /**
- * AppChrome — the fixed overlay layer of ORA OS (navigation menu, control
+ * AppChrome — the fixed overlay layer of rumahl OS (navigation menu, control
  * center, dock, status bar, window overlay, palette, assistant). Kept out of
  * DashboardContent so the page body stays focused on rendering the page.
  */
@@ -49,7 +49,7 @@ export function AppChrome({
   renderOsAppContent,
 }: AppChromeProps) {
   const { isPhone } = useDeviceCapabilities()
-  const [kioskMode, setKioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
+  const [kioskMode, setKioskMode] = useLocalStorage<boolean>('rumahl-kiosk-mode', false)
   const { verifyPin } = useAppSettings()
   const { t } = useTranslation()
   const [exitPrompt, setExitPrompt] = useState(false)
@@ -83,7 +83,7 @@ export function AppChrome({
       <OsSessionLock />
       {exitPrompt && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4 backdrop-blur-md" onClick={() => setExitPrompt(false)}>
-          <div className="ora-card w-full max-w-xs rounded-2xl p-5 text-foreground" onClick={(e) => e.stopPropagation()}>
+          <div className="rumahl-card w-full max-w-xs rounded-2xl p-5 text-foreground" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold">{t('os.kiosk.exit')}</p>
               <button type="button" onClick={() => setExitPrompt(false)} className="rounded-lg p-1.5 text-foreground/50 hover:bg-foreground/10 hover:text-foreground"><X size={16} /></button>

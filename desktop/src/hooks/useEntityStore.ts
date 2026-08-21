@@ -72,7 +72,7 @@ async function fetchEntities() {
     console.error('Failed to fetch entities:', error)
     if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
       const { toast } = await import('sonner')
-      toast.error('Keine Verbindung zum IORA Home Assistant möglich (ERR_CONNECTION_REFUSED). Bitte überprüfe ob der Server läuft.')
+      toast.error('Keine Verbindung zum rumahl Home Assistant möglich (ERR_CONNECTION_REFUSED). Bitte überprüfe ob der Server läuft.')
     }
     globalLoading = false
     notify()

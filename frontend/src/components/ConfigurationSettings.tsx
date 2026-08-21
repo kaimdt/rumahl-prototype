@@ -305,7 +305,7 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
   const [uploading, setUploading] = useState(false)
   const [filePickerOpen, setFilePickerOpen] = useState(false)
 
-  /** Pick an image from the real IORA Files explorer and use it as the background. */
+  /** Pick an image from the real rumahl Files explorer and use it as the background. */
   const handleFilePick = (files: Array<{ id: string; name: string; mimeType: string; size: number; path?: string }>) => {
     setFilePickerOpen(false)
     const file = files[0]

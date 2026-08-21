@@ -17,10 +17,10 @@ import {
 import { isAppOpenExternal } from '@/lib/appOpenPrefs'
 
 /**
- * AppRuntimeView – ORA Desktop App Runner.
+ * AppRuntimeView – rumahl Desktop App Runner.
  *
  * Embeds an installed app's web UI on its OWN origin
- * (`https://<app-id>.apps.ora.local/`) served by the App Embedding
+ * (`https://<app-id>.apps.rumahl.local/`) served by the App Embedding
  * Gateway. The runner only ever deals with:
  *
  *   appId · display mode · public runtime URL · permissions · lifecycle state
@@ -188,10 +188,10 @@ export function AppRuntimeView({ appId, name }: { appId: string; name?: string }
     setBusy(true)
     try {
       await startAppAndWatch(appId)
-      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
       await load()
     } catch (e) {
-      window.dispatchEvent(new CustomEvent('iora:toast', {
+      window.dispatchEvent(new CustomEvent('rumahl:toast', {
         detail: { message: t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }) },
       }))
     } finally {
@@ -204,7 +204,7 @@ export function AppRuntimeView({ appId, name }: { appId: string; name?: string }
     const handler = (event: MessageEvent) => {
       const data = event.data
       if (!data || typeof data !== 'object') return
-      if (data.source && data.source !== 'ora-app') return
+      if (data.source && data.source !== 'rumahl-app') return
       const expectedOrigins = [frameOrigin.current, window.location.origin].filter(Boolean)
       if (expectedOrigins.length > 0 && !expectedOrigins.includes(event.origin)) return
       if (data.appId && data.appId !== appId) return
@@ -284,7 +284,7 @@ export function AppRuntimeView({ appId, name }: { appId: string; name?: string }
   })()
 
   // External display mode: manifest `external` OR the per-app user override
-  // "App außerhalb von ORA OS aufrufen" — open outside the runner.
+  // "App außerhalb von rumahl OS aufrufen" — open outside the runner.
   const external = (mode === 'external' || isAppOpenExternal(appId)) && info?.state === APP_LIFECYCLE.RUNNING
 
   return (

@@ -43,14 +43,14 @@ function AppIcon({ app, compact = false }: { app: OsAppDefinition; compact?: boo
   const size = compact ? 16 : 38
   return (
     <span
-      className={`ora-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'} ${
+      className={`rumahl-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'} ${
         app.iconUrl ? 'border-0 bg-transparent shadow-none' : 'border border-white/15 shadow-lg'
       }`}
       style={app.iconUrl
         ? { boxShadow: 'none' }
         : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
-      {!app.iconUrl && <span className="ora-app-icon-highlight absolute inset-0" />}
+      {!app.iconUrl && <span className="rumahl-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
         <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-1" />
       ) : Icon ? (
@@ -207,7 +207,7 @@ export function LauncherAppGrid({
   const isManagedApp = (app: OsAppDefinition) => typeof app.runtimeStatus === 'string'
   const isAppRunning = (app: OsAppDefinition) => app.runtimeStatus === 'running' || app.runtimeStatus === 'starting'
 
-  const toast = (message: string) => window.dispatchEvent(new CustomEvent('iora:toast', { detail: { message } }))
+  const toast = (message: string) => window.dispatchEvent(new CustomEvent('rumahl:toast', { detail: { message } }))
 
   /** Start / stop / restart an installed app via the supervisor. */
   const runAppAction = async (action: 'start' | 'stop' | 'restart', app: OsAppDefinition) => {
@@ -227,7 +227,7 @@ export function LauncherAppGrid({
         const key = action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
         toast(t(key, { name: getAppName(app) }))
       }
-      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
     } catch (e) {
       toast(t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }))
     } finally {
@@ -253,7 +253,7 @@ export function LauncherAppGrid({
         throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
       }
       toast(t('os.quickActions.uninstalled', { name: getAppName(app) }))
-      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
     } catch (e) {
       toast(t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }))
     } finally {
@@ -300,7 +300,7 @@ export function LauncherAppGrid({
                 progress={job.progress}
                 size="compact"
               />
-              <span className="ora-adaptive-text-soft mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{job.appName || job.appId}</span>
+              <span className="rumahl-adaptive-text-soft mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{job.appName || job.appId}</span>
               <span className="mt-0.5 text-[10px] text-foreground/40">
                 {Math.round(job.progress)}% · {t('os.launcher.installing')}
               </span>
@@ -321,7 +321,7 @@ export function LauncherAppGrid({
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.025, 0.2), duration: 0.24 }} whileTap={editMode ? undefined : { scale: 0.96 }}
             >
               <AppIcon app={item.app} />
-              <span className="ora-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{getAppName(item.app)}</span>
+              <span className="rumahl-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{getAppName(item.app)}</span>
             </motion.button>
           ) : (
             <button
@@ -335,13 +335,13 @@ export function LauncherAppGrid({
               onClick={() => { if (!dragJustHappenedRef.current) setOpenFolderId(item.folder.id) }}
               className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring ${editMode ? 'cursor-grab ring-1 ring-accent/25 active:cursor-grabbing' : ''} ${draggedFolderId === item.folder.id ? 'opacity-40' : ''}`}
             >
-              <span className="ora-folder-tile grid h-20 w-20 grid-cols-2 gap-1 overflow-hidden rounded-[1.7rem] p-2">
+              <span className="rumahl-folder-tile grid h-20 w-20 grid-cols-2 gap-1 overflow-hidden rounded-[1.7rem] p-2">
                 {item.folder.appIds.slice(0, 4).map((id) => {
                   const app = apps.find((candidate) => candidate.id === id)
                   return app ? <AppIcon key={id} app={app} compact /> : null
                 })}
               </span>
-              <span className="ora-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{item.folder.name}</span>
+              <span className="rumahl-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{item.folder.name}</span>
             </button>
           ))}
         </motion.div>

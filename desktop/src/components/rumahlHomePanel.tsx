@@ -1,8 +1,8 @@
 import React from "react";
-import { useIoraHome } from "../hooks/useIoraHome";
+import { userumahlHome } from "../hooks/userumahlHome";
 
-export function IoraHomePanel() {
-  const { status, loading, refresh } = useIoraHome();
+export function rumahlHomePanel() {
+  const { status, loading, refresh } = userumahlHome();
 
   const dot = (online: boolean) => ({
     width: "10px",
@@ -23,8 +23,8 @@ export function IoraHomePanel() {
             {loading
               ? "Verbinde…"
               : status?.online
-              ? "IORA Home erreichbar"
-              : "IORA Home nicht erreichbar"}
+              ? "rumahl Home erreichbar"
+              : "rumahl Home nicht erreichbar"}
           </span>
         </div>
         {status && (

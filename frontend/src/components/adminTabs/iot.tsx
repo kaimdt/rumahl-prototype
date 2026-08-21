@@ -412,18 +412,18 @@ export function MatterTab({ token }: { token: string }) {
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-[10px] text-foreground/50 block mb-0.5">Commission Port</label>
-              <input value={config.commission_port} onChange={e => setConfig(c => ({ ...c, commission_port: parseInt(e.target.value) || 5540 }))} type="number" className="ora-field-sm w-full text-xs" />
+              <input value={config.commission_port} onChange={e => setConfig(c => ({ ...c, commission_port: parseInt(e.target.value) || 5540 }))} type="number" className="rumahl-field-sm w-full text-xs" />
             </div>
             <div>
               <label className="text-[10px] text-foreground/50 block mb-0.5">Discriminator</label>
-              <input value={config.discriminator} onChange={e => setConfig(c => ({ ...c, discriminator: parseInt(e.target.value) || 3840 }))} type="number" className="ora-field-sm w-full text-xs" />
+              <input value={config.discriminator} onChange={e => setConfig(c => ({ ...c, discriminator: parseInt(e.target.value) || 3840 }))} type="number" className="rumahl-field-sm w-full text-xs" />
             </div>
             <div>
               <label className="text-[10px] text-foreground/50 block mb-0.5">Passcode</label>
-              <input value={config.passcode} onChange={e => setConfig(c => ({ ...c, passcode: parseInt(e.target.value) || 20202021 }))} type="number" className="ora-field-sm w-full text-xs" />
+              <input value={config.passcode} onChange={e => setConfig(c => ({ ...c, passcode: parseInt(e.target.value) || 20202021 }))} type="number" className="rumahl-field-sm w-full text-xs" />
             </div>
           </div>
-          <button onClick={handleSaveConfig} disabled={saving} className="ora-ghost-button-sm w-full">
+          <button onClick={handleSaveConfig} disabled={saving} className="rumahl-ghost-button-sm w-full">
             {saving ? 'Speichern...' : 'Speichern'}
           </button>
         </div>
@@ -541,7 +541,7 @@ export function ZigbeeTab({ token }: { token: string }) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[10px] text-foreground/50 block mb-0.5">Modus</label>
-              <select value={config.mode} onChange={e => setConfig(c => ({ ...c, mode: e.target.value }))} className="ora-field-sm w-full text-xs">
+              <select value={config.mode} onChange={e => setConfig(c => ({ ...c, mode: e.target.value }))} className="rumahl-field-sm w-full text-xs">
                 <option value="auto">Auto-Erkennung</option>
                 <option value="zigbee2mqtt">Zigbee2MQTT</option>
                 <option value="zha">ZHA</option>
@@ -549,10 +549,10 @@ export function ZigbeeTab({ token }: { token: string }) {
             </div>
             <div>
               <label className="text-[10px] text-foreground/50 block mb-0.5">Z2M Topic</label>
-              <input value={config.z2m_topic} onChange={e => setConfig(c => ({ ...c, z2m_topic: e.target.value }))} className="ora-field-sm w-full text-xs" />
+              <input value={config.z2m_topic} onChange={e => setConfig(c => ({ ...c, z2m_topic: e.target.value }))} className="rumahl-field-sm w-full text-xs" />
             </div>
           </div>
-          <button onClick={handleSave} disabled={saving} className="ora-ghost-button-sm w-full">
+          <button onClick={handleSave} disabled={saving} className="rumahl-ghost-button-sm w-full">
             {saving ? 'Speichern...' : 'Speichern'}
           </button>
         </div>
@@ -665,9 +665,9 @@ export function ZwaveTab({ token }: { token: string }) {
           </label>
           <div>
             <label className="text-[10px] text-foreground/50 block mb-0.5">Z-Wave JS WebSocket URL (optional)</label>
-            <input value={config.zwave_js_url} onChange={e => setConfig(c => ({ ...c, zwave_js_url: e.target.value }))} placeholder="ws://iora.local:3000" className="ora-field-sm w-full text-xs" />
+            <input value={config.zwave_js_url} onChange={e => setConfig(c => ({ ...c, zwave_js_url: e.target.value }))} placeholder="ws://rumahl.local:3000" className="rumahl-field-sm w-full text-xs" />
           </div>
-          <button onClick={handleSave} disabled={saving} className="ora-ghost-button-sm w-full">
+          <button onClick={handleSave} disabled={saving} className="rumahl-ghost-button-sm w-full">
             {saving ? 'Speichern...' : 'Speichern'}
           </button>
         </div>
@@ -785,7 +785,7 @@ export function BleTab({ token }: { token: string }) {
             <input type="checkbox" checked={config.enabled} onChange={e => setConfig(c => ({ ...c, enabled: e.target.checked }))} className="rounded accent-[var(--accent)]" />
             Bluetooth aktiviert
           </label>
-          <button onClick={handleSave} disabled={saving} className="ora-ghost-button-sm w-full">
+          <button onClick={handleSave} disabled={saving} className="rumahl-ghost-button-sm w-full">
             {saving ? 'Speichern...' : 'Speichern'}
           </button>
         </div>
@@ -799,7 +799,7 @@ export function BleTab({ token }: { token: string }) {
 
 export function HomekitTab({ token }: { token: string }) {
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
-  const [config, setConfig] = useState({ enabled: false, bridge_name: 'MDT Dashboard Bridge', bridge_port: 21063 })
+  const [config, setConfig] = useState({ enabled: false, bridge_name: 'rumahl Dashboard Bridge', bridge_port: 21063 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -818,7 +818,7 @@ export function HomekitTab({ token }: { token: string }) {
             : 21063
         setConfig({
           enabled: typeof c.enabled === 'boolean' ? c.enabled : false,
-          bridge_name: typeof c.bridge_name === 'string' ? c.bridge_name : 'MDT Dashboard Bridge',
+          bridge_name: typeof c.bridge_name === 'string' ? c.bridge_name : 'rumahl Dashboard Bridge',
           bridge_port,
         })
       }
@@ -897,14 +897,14 @@ export function HomekitTab({ token }: { token: string }) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[10px] text-foreground/50 block mb-0.5">Bridge Name</label>
-              <input value={config.bridge_name} onChange={e => setConfig(c => ({ ...c, bridge_name: e.target.value }))} className="ora-field-sm w-full text-xs" />
+              <input value={config.bridge_name} onChange={e => setConfig(c => ({ ...c, bridge_name: e.target.value }))} className="rumahl-field-sm w-full text-xs" />
             </div>
             <div>
               <label className="text-[10px] text-foreground/50 block mb-0.5">Port</label>
-              <input value={config.bridge_port} onChange={e => setConfig(c => ({ ...c, bridge_port: parseInt(e.target.value) || 21063 }))} type="number" className="ora-field-sm w-full text-xs" />
+              <input value={config.bridge_port} onChange={e => setConfig(c => ({ ...c, bridge_port: parseInt(e.target.value) || 21063 }))} type="number" className="rumahl-field-sm w-full text-xs" />
             </div>
           </div>
-          <button onClick={handleSave} disabled={saving} className="ora-ghost-button-sm w-full">
+          <button onClick={handleSave} disabled={saving} className="rumahl-ghost-button-sm w-full">
             {saving ? 'Speichern...' : 'Speichern'}
           </button>
         </div>

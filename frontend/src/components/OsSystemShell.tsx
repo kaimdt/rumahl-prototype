@@ -47,7 +47,7 @@ interface SystemStats {
   os_version: string
 }
 
-const RECENT_APPS_KEY = 'iora-os-recent-apps'
+const RECENT_APPS_KEY = 'rumahl-os-recent-apps'
 const MAX_RECENT_APPS = 6
 
 function readRecentApps(): string[] {
@@ -152,7 +152,7 @@ export function OsSystemShell() {
     setRecentIds((current) => {
       const next = [currentPageId, ...current.filter((id) => id !== currentPageId)].slice(0, MAX_RECENT_APPS)
       localStorage.setItem(RECENT_APPS_KEY, JSON.stringify(next))
-      window.dispatchEvent(new Event('iora:recents-changed'))
+      window.dispatchEvent(new Event('rumahl:recents-changed'))
       return next
     })
   }, [currentPageId])
@@ -197,7 +197,7 @@ export function OsSystemShell() {
       // listens for the toggle event (⌘K stays as a direct alias there).
       if (comboMatches(getCombo('spotlight'), event)) {
         event.preventDefault()
-        window.dispatchEvent(new Event('iora:spotlight-toggle'))
+        window.dispatchEvent(new Event('rumahl:spotlight-toggle'))
         return
       }
       // Clipboard panel
@@ -220,7 +220,7 @@ export function OsSystemShell() {
       // Lock session
       if (comboMatches(getCombo('lock'), event)) {
         event.preventDefault()
-        window.dispatchEvent(new Event('iora:lock-session'))
+        window.dispatchEvent(new Event('rumahl:lock-session'))
         return
       }
       // Sleep mode
@@ -273,7 +273,7 @@ export function OsSystemShell() {
       const response = await authFetch(`/api/os/control/os/${powerConfirmation}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delay_seconds: 5, reason: 'Requested from ORA OS system shell' }),
+        body: JSON.stringify({ delay_seconds: 5, reason: 'Requested from rumahl OS system shell' }),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       setPowerConfirmation(null)
@@ -316,21 +316,21 @@ export function OsSystemShell() {
             className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3"
             style={{ height: 'var(--topbar-height, 2rem)' }}
           >
-        <div className="ora-topbar-mix pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium">
+        <div className="rumahl-topbar-mix pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium">
           {immersivePageId ? (
             <>
-              <button type="button" onClick={() => { setImmersive(null); setCurrentPageId('launcher') }} className="ora-topbar-action flex h-7 w-7 items-center justify-center" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
-              <button type="button" onClick={() => { closeWindow(immersivePageId); setImmersive(null); setCurrentPageId('launcher') }} className="ora-topbar-action flex h-7 w-7 items-center justify-center hover:!bg-red-500/15 hover:!text-red-400" title={t('os.window.close')}><X size={15} weight="bold" /></button>
+              <button type="button" onClick={() => { setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
+              <button type="button" onClick={() => { closeWindow(immersivePageId); setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center hover:!bg-red-500/15 hover:!text-red-400" title={t('os.window.close')}><X size={15} weight="bold" /></button>
             </>
           ) : (
-            <span className="hidden font-semibold tracking-[0.1em] sm:inline">ORA OS</span>
+            <span className="hidden font-semibold tracking-[0.1em] sm:inline">rumahl OS</span>
           )}
         </div>
-        <div className="ora-topbar-actions ora-topbar-mix pointer-events-auto flex shrink-0 items-center gap-0.5">
+        <div className="rumahl-topbar-actions rumahl-topbar-mix pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button
             type="button"
             onClick={() => { setShowClipboard((value) => !value); setOpen(false); setShowJobCenter(false) }}
-            className={`ora-topbar-action flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${showClipboard ? 'is-active' : ''}`}
+            className={`rumahl-topbar-action flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${showClipboard ? 'is-active' : ''}`}
             aria-label={t('clipboard.title')}
             aria-expanded={showClipboard}
             title={t('clipboard.shortcutHint')}
@@ -340,7 +340,7 @@ export function OsSystemShell() {
           <button
             type="button"
             onClick={() => { setShowJobCenter((value) => !value); setOpen(false); setShowClipboard(false) }}
-            className={`ora-topbar-action relative flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${showJobCenter ? 'is-active' : ''}`}
+            className={`rumahl-topbar-action relative flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${showJobCenter ? 'is-active' : ''}`}
             aria-label={t('notifications.title')}
             aria-expanded={showJobCenter}
             title={t('notifications.title')}
@@ -355,7 +355,7 @@ export function OsSystemShell() {
           <button
             type="button"
             onClick={() => { setOpen((value) => !value); setShowJobCenter(false); setShowClipboard(false) }}
-            className={`ora-topbar-action flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${open ? 'is-active' : ''}`}
+            className={`rumahl-topbar-action flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${open ? 'is-active' : ''}`}
             aria-label={t('os.shell.openQuickSettings')}
             aria-expanded={open}
             title={t('os.shell.openQuickSettings')}
@@ -365,7 +365,7 @@ export function OsSystemShell() {
           <button
             type="button"
             onClick={() => setShowClock((value) => !value)}
-            className="ora-topbar-action flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums focus-ring"
+            className="rumahl-topbar-action flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums focus-ring"
             aria-expanded={showClock}
             title={t('os.shell.showDate')}
           >
@@ -429,7 +429,7 @@ export function OsSystemShell() {
                   <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-foreground/10 text-foreground/70"><Gear size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.apps.settings.name')}</span>
                 </button>
-                <button type="button" onClick={() => { window.dispatchEvent(new Event('iora:lock-session')); setOpen(false) }} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
+                <button type="button" onClick={() => { window.dispatchEvent(new Event('rumahl:lock-session')); setOpen(false) }} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
                   <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-foreground/10 text-foreground/70"><LockKey size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.shell.lock')}</span>
                 </button>

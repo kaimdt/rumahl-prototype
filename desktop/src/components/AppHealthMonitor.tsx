@@ -93,7 +93,7 @@ export function AppHealthMonitor({ src, appName, timeoutMs = 15000, onRetry, chi
             </button>
             {retryCount.current >= 3 && (
               <p className="text-[10px] text-foreground/30">
-                IORA hat das Problem erkannt. Die App wird beim nächsten Seitenbesuch neu initialisiert.
+                rumahl hat das Problem erkannt. Die App wird beim nächsten Seitenbesuch neu initialisiert.
               </p>
             )}
           </motion.div>

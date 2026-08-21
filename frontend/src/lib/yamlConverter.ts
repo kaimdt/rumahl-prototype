@@ -1,5 +1,5 @@
 /**
- * YAML Converter – Bidirectional JSON ↔ YAML for IORA Pages & Widgets.
+ * YAML Converter – Bidirectional JSON ↔ YAML for rumahl Pages & Widgets.
  *
  * Converts the internal DashboardPage/DashboardWidget JSON format to
  * human-readable YAML and back. Used for:

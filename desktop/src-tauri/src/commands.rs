@@ -190,7 +190,7 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<ConnectionResult, 
     }
 }
 
-/// Return this client's identity information (for multi-client routing in iora-assist).
+/// Return this client's identity information (for multi-client routing in rumahl-assist).
 #[tauri::command]
 pub async fn get_client_info(state: State<'_, AppState>) -> Result<ClientInfo, String> {
     let cfg = state.config.lock().await.clone();

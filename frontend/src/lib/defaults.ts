@@ -40,7 +40,7 @@ export interface CardStylePreset {
 
 export const CARD_STYLE_PRESETS: CardStylePreset[] = [
 	// ─── Glass & Frosted ───────────────────────────────────
-	{ id: 'default',    label: 'Standard',      description: 'Classic IORA glass-morphism' },
+	{ id: 'default',    label: 'Standard',      description: 'Classic rumahl glass-morphism' },
 	{ id: 'frosted',    label: 'Frosted',       description: 'Heavy blur, milky white' },
 	{ id: 'crystal',    label: 'Crystal',       description: 'Ultra-clear, sharp glass edges' },
 	{ id: 'dark-glass', label: 'Dark Glass',    description: 'Deep tinted glass overlay' },

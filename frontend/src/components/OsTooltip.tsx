@@ -58,7 +58,7 @@ export function OsTooltipProvider() {
   const left = Math.min(tip.x + 14, window.innerWidth - 220)
   const top = Math.min(tip.y + 18, window.innerHeight - 46)
   return (
-    <div className="ora-tooltip" style={{ left, top }} role="tooltip">
+    <div className="rumahl-tooltip" style={{ left, top }} role="tooltip">
       {tip.text}
     </div>
   )

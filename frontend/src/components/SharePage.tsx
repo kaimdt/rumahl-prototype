@@ -39,7 +39,7 @@ export function SharePage() {
   const browserShare = useCallback(async () => {
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'ORA Share', text: 'Dateien & Links teilen', url: shareUrl })
+        await navigator.share({ title: 'rumahl Share', text: 'Dateien & Links teilen', url: shareUrl })
         toast.success('Geteilt!')
       } catch { /* user cancelled */ }
     } else {
@@ -56,7 +56,7 @@ export function SharePage() {
             <ShareNetwork size={26} weight="duotone" className="text-accent" />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-foreground">ORA Share</h1>
+            <h1 className="text-xl font-bold text-foreground">rumahl Share</h1>
             <p className="text-sm text-foreground/50 mt-1">
               Dateien & Links zwischen Geräten teilen — direkt im lokalen Netzwerk oder weltweit über Cloud Connect
             </p>
@@ -118,7 +118,7 @@ export function SharePage() {
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">Cloud Connect</h2>
                   <p className="text-xs text-foreground/50 mt-1">
-                    Dein IORA Home weltweit erreichbar machen — sicher über den Cloud Connect Proxy
+                    Dein rumahl Home weltweit erreichbar machen — sicher über den Cloud Connect Proxy
                   </p>
                 </div>
               </div>

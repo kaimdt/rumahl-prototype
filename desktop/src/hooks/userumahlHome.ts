@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { tauriApi, type IoraHomeStatus } from "../lib/tauri";
+import { tauriApi, type rumahlHomeStatus } from "../lib/tauri";
 
 const POLL_INTERVAL_MS = 30_000;
 
-export function useIoraHome() {
-  const [status, setStatus] = useState<IoraHomeStatus | null>(null);
+export function userumahlHome() {
+  const [status, setStatus] = useState<rumahlHomeStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const s = await tauriApi.getIoraHomeStatus();
+      const s = await tauriApi.getrumahlHomeStatus();
       setStatus(s);
     } catch {
       setStatus(null);

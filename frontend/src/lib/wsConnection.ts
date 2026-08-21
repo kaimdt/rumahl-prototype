@@ -65,7 +65,7 @@ function connectWebSocket() {
     // Vite dev server — connect to backend on port 3001
     wsUrl = `ws://${window.location.hostname}:3001/ws`
   } else {
-    // Production / IORA OS / VM — connect to same origin
+    // Production / rumahl OS / VM — connect to same origin
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     wsUrl = `${protocol}//${window.location.host}/ws`
   }

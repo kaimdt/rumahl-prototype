@@ -1,8 +1,8 @@
 /**
- * ORA AI Integration for Plugins
+ * rumahl AI Integration for Plugins
  *
  * This module provides APIs for plugins and apps to:
- * 1. Call ORA AI with custom prompts
+ * 1. Call rumahl AI with custom prompts
  * 2. Register new AI tools/capabilities
  * 3. Subscribe to AI events and responses
  */
@@ -63,7 +63,7 @@ export class PluginAIClient {
   }
 
   /**
-   * Call ORA AI with a custom prompt
+   * Call rumahl AI with a custom prompt
    */
   async chat(options: AICallOptions): Promise<AIResponse> {
     const response = await fetch(`${assistBase()}/api/assist/chat`, {
@@ -147,7 +147,7 @@ export class PluginAIClient {
   }
 
   /**
-   * Register a new tool that ORA AI can use
+   * Register a new tool that rumahl AI can use
    */
   async registerTool(tool: AITool): Promise<void> {
     this.registeredTools.set(tool.name, tool)
@@ -199,7 +199,7 @@ export class PluginAIClient {
   }
 
   /**
-   * Search the internet using ORA AI's search capability
+   * Search the internet using rumahl AI's search capability
    */
   async searchInternet(query: string, maxResults: number = 5): Promise<any> {
     const response = await fetch(`${assistBase()}/api/assist/tools/search`, {
@@ -326,12 +326,12 @@ export function createPluginAIClient(pluginId: string): PluginAIClient {
  *   },
  * })
  *
- * // Now ORA AI can call this tool when users ask about weather
+ * // Now rumahl AI can call this tool when users ask about weather
  * ```
  */
 
 /**
- * Example: Asking ORA AI from a plugin
+ * Example: Asking rumahl AI from a plugin
  *
  * ```typescript
  * const ai = createPluginAIClient('my-plugin')

@@ -3,7 +3,7 @@
  * current primary accent color, using the classic sepia+hue-rotate technique.
  */
 
-const STORAGE_KEY = 'iora-accent-icons'
+const STORAGE_KEY = 'rumahl-accent-icons'
 
 let styleEl: HTMLStyleElement | null = null
 
@@ -14,27 +14,27 @@ let styleEl: HTMLStyleElement | null = null
  * Both raster images and vector glyphs (Phosphor etc.) are tinted so every
  * app icon follows the accent color, with or without an image.
  */
-const FILTER_RULE = `[data-accent-icons="true"] .ora-app-icon img,
-[data-accent-icons="true"] .ora-dock-item img,
-[data-accent-icons="true"] .ora-folder-icon img,
-[data-accent-icons="true"] .ora-file-tile img,
-[data-accent-icons="true"] .ora-file-row img,
-[data-accent-icons="true"] .ora-file-table-row img,
-[data-accent-icons="true"] .ora-sidebar-item img,
-[data-accent-icons="true"] .ora-app-icon svg,
-[data-accent-icons="true"] .ora-dock-item svg,
-[data-accent-icons="true"] .ora-folder-icon svg,
-[data-accent-icons="true"] .ora-file-tile svg,
-[data-accent-icons="true"] .ora-file-row svg,
-[data-accent-icons="true"] .ora-file-table-row svg,
-[data-accent-icons="true"] .ora-sidebar-item svg {
+const FILTER_RULE = `[data-accent-icons="true"] .rumahl-app-icon img,
+[data-accent-icons="true"] .rumahl-dock-item img,
+[data-accent-icons="true"] .rumahl-folder-icon img,
+[data-accent-icons="true"] .rumahl-file-tile img,
+[data-accent-icons="true"] .rumahl-file-row img,
+[data-accent-icons="true"] .rumahl-file-table-row img,
+[data-accent-icons="true"] .rumahl-sidebar-item img,
+[data-accent-icons="true"] .rumahl-app-icon svg,
+[data-accent-icons="true"] .rumahl-dock-item svg,
+[data-accent-icons="true"] .rumahl-folder-icon svg,
+[data-accent-icons="true"] .rumahl-file-tile svg,
+[data-accent-icons="true"] .rumahl-file-row svg,
+[data-accent-icons="true"] .rumahl-file-table-row svg,
+[data-accent-icons="true"] .rumahl-sidebar-item svg {
   filter: sepia(1) hue-rotate(var(--accent-hue-rot, 30deg)) saturate(2.2) brightness(0.92) !important;
 }`
 
 function ensureStyle() {
   if (styleEl || typeof document === 'undefined') return
   styleEl = document.createElement('style')
-  styleEl.id = 'ora-accent-icon-filter'
+  styleEl.id = 'rumahl-accent-icon-filter'
   styleEl.textContent = FILTER_RULE
   document.head.appendChild(styleEl)
 }

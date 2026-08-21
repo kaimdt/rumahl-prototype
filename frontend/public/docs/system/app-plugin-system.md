@@ -1,4 +1,4 @@
-# IORA App & Plugin System – Vollständige Referenz
+# rumahl App & Plugin System – Vollständige Referenz
 
 > Stand: v2.3.0 | Gültig für Entwickler, Administratoren und KI-Agenten
 
@@ -8,7 +8,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         IORA HOME (iora-home)                       │
+│                         rumahl HOME (rumahl-home)                       │
 │  Port 3001/8126    ·    Haupt-API    ·    Axum (Rust)              │
 │                                                                     │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
@@ -42,7 +42,7 @@
 | **Sprache** | Beliebig (JS, Python, Rust, Go, …) | JavaScript/TypeScript oder Python |
 | **Ressourcen** | Eigener Container (beliebig) | Max 128 MB RAM, kein Netzwerk (standard) |
 | **UI** | Vollständige Web-App (Iframe) | Kein eigenes UI (nur Datenausgabe) |
-| **API-Zugriff** | Vollständige IORA API | Eingeschränkte IORA API |
+| **API-Zugriff** | Vollständige rumahl API | Eingeschränkte rumahl API |
 | **Datenbank** | PostgreSQL (Proxy) oder SQLite | Kein DB-Zugriff |
 | **Use Case** | Dashboard-Erweiterungen, APIs | Automationen, Datenverarbeitung |
 
@@ -119,7 +119,7 @@
         "name": "github_webhook",
         "description": "Empfängt GitHub-Push-Events",
         "method": "POST",
-        "target_url": "http://iora.local:3000/webhook"
+        "target_url": "http://rumahl.local:3000/webhook"
       }
     ]
   },
@@ -300,8 +300,8 @@ GET    /api/apps/{app_id}/database/backups      → Backups auflisten
 
 **SDK-Beispiel (JavaScript):**
 ```javascript
-const IoraClient = require('iora-sdk');
-const client = new IoraClient('http://iora.local:3001', 'api-key');
+const rumahlClient = require('rumahl-sdk');
+const client = new rumahlClient('http://rumahl.local:3001', 'api-key');
 
 // Datenbank provisionieren
 await client.appDatabase.provision({
@@ -325,15 +325,15 @@ const result = await client.appDatabase.execute(
 ### 4.2 Option B: PostgreSQL (via Proxy)
 
 > 🔒 **Sicherheitskritisch**: Apps erhalten NIEMALS direkten Datenbankzugriff.  
-> Der gesamte PostgreSQL-Verkehr läuft durch einen IORA-Proxy, der:
+> Der gesamte PostgreSQL-Verkehr läuft durch einen rumahl-Proxy, der:
 > - Queries validiert (kein `DROP TABLE`, `ALTER SYSTEM`, etc.)
 > - Ressourcen-Limits durchsetzt
 > - Zugriff auf den eigenen Schema-Namespace beschränkt
 
 **Ablauf:**
 1. App beantragt PostgreSQL-Zugriff im Manifest (`database.backend: "postgres"`)
-2. IORA erstellt einen **dedizierten DB-User** mit `GRANT USAGE ON SCHEMA app_{id}`
-3. IORA konfiguriert einen **Proxy-Endpunkt** (z.B. `iora.local:5433?user=app_{id}&db=iora_apps`)
+2. rumahl erstellt einen **dedizierten DB-User** mit `GRANT USAGE ON SCHEMA app_{id}`
+3. rumahl konfiguriert einen **Proxy-Endpunkt** (z.B. `rumahl.local:5433?user=app_{id}&db=rumahl_apps`)
 4. Die App verbindet sich NUR zum Proxy, nicht direkt zur PostgreSQL
 
 ```json
@@ -455,7 +455,7 @@ Externe Dienste können via Webhooks Daten an Apps senden.
       {
         "name": "github_push",
         "method": "POST",
-        "target_url": "http://iora.local:3000/webhook/github"
+        "target_url": "http://rumahl.local:3000/webhook/github"
       }
     ]
   }
@@ -568,7 +568,7 @@ Code ausführen → Ergebnis zurückgeben → Sandbox stoppen
 │  ❌ Kein Netzwerk (außer allow_network=true)      │
 │  ❌ Kein Dateisystem (außer allow_fs=true)        │
 │  ✅ Nur Ausgabe via stdout (JSON)                 │
-│  ✅ Input via IORA_PLUGIN_INPUT (Env)             │
+│  ✅ Input via RUMAHL_PLUGIN_INPUT (Env)             │
 │  ✅ Zeitlimit (Default 5000ms)                    │
 │  ✅ Speicherlimit (Default 128MB)                 │
 └──────────────────────────────────────────────────┘
@@ -707,16 +707,16 @@ GET  /api/apps/{app_id}/logs/stream    → SSE-Live-Stream
 
 ## 12.5 Iframe-Kommunikation (postMessage)
 
-Apps, die in einem Iframe laufen, können über `postMessage` bidirektional mit IORA kommunizieren.
+Apps, die in einem Iframe laufen, können über `postMessage` bidirektional mit rumahl kommunizieren.
 
-### Von der App → IORA (SDK)
+### Von der App → rumahl (SDK)
 
-Das IORA Iframe SDK (`iora-sdk/iframe.ts`) stellt Methoden bereit:
+Das rumahl Iframe SDK (`rumahl-sdk/iframe.ts`) stellt Methoden bereit:
 
 ```javascript
-import { createIoraIframe } from 'iora-sdk';
+import { createrumahlIframe } from 'rumahl-sdk';
 
-const iframe = createIoraIframe('meine-app');
+const iframe = createrumahlIframe('meine-app');
 
 // Auf Verbindung warten
 await iframe.ready();
@@ -759,7 +759,7 @@ const unsubscribe = iframe.on('entity.updated', (event) => {
 });
 ```
 
-### Von IORA → App (Status-Events)
+### Von rumahl → App (Status-Events)
 
 Der App-Proxy-Status-Placeholder sendet Status-Updates:
 ```javascript
@@ -792,7 +792,7 @@ window.parent.postMessage({
 | `storage.get` | `[token, key]` | Daten abrufen |
 | `storage.delete` | `[token, key]` | Daten löschen |
 
-> **Sicherheit:** Die iframe-Sandbox erlaubt `allow-scripts` und `allow-same-origin`. Das IORA-Frontend validiert die Herkunft der Nachrichten.
+> **Sicherheit:** Die iframe-Sandbox erlaubt `allow-scripts` und `allow-same-origin`. Das rumahl-Frontend validiert die Herkunft der Nachrichten.
 
 ### Fehlerbehandlung bei Iframes
 
@@ -800,7 +800,7 @@ Wenn ein Iframe nicht geladen werden kann (App-Container nicht erreichbar):
 1. Das IFrameWidget zeigt eine **Fehler-Overlay** mit:
    - Warnsymbol und 
 
-Wenn eine App `custom_pages` im Manifest definiert und gestartet wird, erscheinen diese Seiten automatisch in der IORA-Navigation.
+Wenn eine App `custom_pages` im Manifest definiert und gestartet wird, erscheinen diese Seiten automatisch in der rumahl-Navigation.
 
 **Im Manifest:**
 ```json
@@ -819,7 +819,7 @@ Wenn eine App `custom_pages` im Manifest definiert und gestartet wird, erscheine
 ```
 
 **Automatisch generierte Seite:**
-Wenn die App gestartet wird, erzeugt IORA automatisch eine Dashboard-Seite mit einem Iframe-Widget, das auf `/api/apps/{app_id}/proxy/{url}` zeigt.
+Wenn die App gestartet wird, erzeugt rumahl automatisch eine Dashboard-Seite mit einem Iframe-Widget, das auf `/api/apps/{app_id}/proxy/{url}` zeigt.
 
 ### 13.2 App-Proxy
 
@@ -869,18 +869,18 @@ GET /api/apps/{app_id}/proxy/{path}
 
 ### Installation
 ```bash
-npm install iora-sdk
+npm install rumahl-sdk
 # oder
-yarn add iora-sdk
+yarn add rumahl-sdk
 ```
 
 ### Initialisierung
 ```javascript
-const IoraClient = require('iora-sdk');
-// oder: import IoraClient from 'iora-sdk';
+const rumahlClient = require('rumahl-sdk');
+// oder: import rumahlClient from 'rumahl-sdk';
 
-const client = new IoraClient(
-  'http://iora.local:3001',  // IORA Backend URL
+const client = new rumahlClient(
+  'http://rumahl.local:3001',  // rumahl Backend URL
   'mein-api-key'            // Optional: API-Key
 );
 client.setAppId('meine-app');
@@ -1101,7 +1101,7 @@ GET    /api/core/sandbox/status
    ▼
 3. LocalAppStore: ZIP entpacken
    │  ├─ manifest.json parsen
-   │  ├─ Dateien in /var/lib/iora/local-apps/{id}/ extrahieren
+   │  ├─ Dateien in /var/lib/ora/local-apps/{id}/ extrahieren
    │  └─ custom_pages + docker_config aus manifest.extra extrahieren
    │
    ▼
@@ -1144,7 +1144,7 @@ GET    /api/core/sandbox/status
 ### Iframe-Seite zeigt nichts
 1. Ist die App gestartet? (Status muss "running" sein)
 2. Ist die URL im `custom_pages`-Eintrag korrekt?
-3. **Lokaler Modus (kein Docker):** Wenn Docker nicht verfügbar ist (z.B. auf einem Mac-Dev-System), wird der App-Proxy durch eine **Statusseite** ersetzt, die den aktuellen App-Status anzeigt (Läuft/Gestoppt) und eine postMessage-Verbindung zur IORA-Oberfläche herstellt. Die App-Inhalte können nicht geladen werden – das ist erwartetes Verhalten ohne Docker. Die Statusseite zeigt:
+3. **Lokaler Modus (kein Docker):** Wenn Docker nicht verfügbar ist (z.B. auf einem Mac-Dev-System), wird der App-Proxy durch eine **Statusseite** ersetzt, die den aktuellen App-Status anzeigt (Läuft/Gestoppt) und eine postMessage-Verbindung zur rumahl-Oberfläche herstellt. Die App-Inhalte können nicht geladen werden – das ist erwartetes Verhalten ohne Docker. Die Statusseite zeigt:
    - Aktuelle App-Status (Läuft/Gestoppt)
    - Erklärtext, warum der Inhalt nicht geladen wird
    - Button zur App-Detail-Seite (öffnet App-Dialog via postMessage)

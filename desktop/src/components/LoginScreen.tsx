@@ -28,7 +28,7 @@ export function LoginScreen({ onLogin, onSkipToSettings, error, loading }: Props
         {/* Logo */}
         <div className="flex items-baseline gap-2 justify-center">
           <span className="text-[28px] font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-            IORA
+            rumahl
           </span>
           <span className="text-sm text-muted-foreground font-medium tracking-widest uppercase">
             Desktop

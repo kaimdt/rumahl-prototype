@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "IORA",
+    "name": "rumahl",
     "tagline": "Smart Home Dashboard"
   },
   "common": {
@@ -74,7 +74,7 @@
     "learnMore": "Learn more",
     "seeAll": "See all",
     "viewDetails": "View details",
-    "poweredBy": "Powered by IORA OS",
+    "poweredBy": "Powered by rumahl OS",
     "version": "Version"
   },
   "navigation": {
@@ -99,8 +99,8 @@
     "notifications": "Notifications"
   },
   "os": {
-    "title": "ORA Home",
-    "eyebrow": "ORA OS",
+    "title": "rumahl Home",
+    "eyebrow": "rumahl OS",
     "greeting": "Welcome, {{name}}",
     "defaultUser": "Home",
     "subtitle": "Your apps, devices, and system tools in one place.",
@@ -112,15 +112,15 @@
     "customApp": "Custom",
     "noApps": "No matching apps found.",
     "launcher": {
-      "label": "ORA OS homescreen",
-      "nativeHome": "Native to ORA OS",
-      "openHome": "ORA Home",
+      "label": "rumahl OS homescreen",
+      "nativeHome": "Native to rumahl OS",
+      "openHome": "rumahl Home",
       "openApp": "Open app",
       "open": "Open",
       "closeApp": "Close app",
       "customize": "Customize launcher",
       "choose": "Choose launcher",
-      "defaultName": "ORA Homescreen",
+      "defaultName": "rumahl Homescreen",
       "deckName": "Intelligent Deck",
       "canvasName": "Living Canvas",
       "intelligent": "Intelligent access",
@@ -135,7 +135,7 @@
       "deleteFolder": "Delete folder",
       "removeFromFolder": "Remove {{app}} from folder",
       "widgets": "Widgets",
-      "homeWidget": "ORA Home",
+      "homeWidget": "rumahl Home",
       "clockWidget": "Clock and date",
       "storeLaunchers": "From the App Store",
       "storeWidgets": "Installed widgets",
@@ -145,12 +145,12 @@
       "offline": "Offline – stored locally",
       "widgetReady": "This widget is installed and ready to use.",
       "install": "Install custom launcher",
-      "installHint": "Launchers and widgets from the ORA App Store appear here automatically. Manual launchers can still be imported as manifests.",
+      "installHint": "Launchers and widgets from the rumahl App Store appear here automatically. Manual launchers can still be imported as manifests.",
       "invalidManifest": "The launcher manifest is invalid.",
-      "backendStatus": "ORA Backend",
+      "backendStatus": "rumahl Backend",
       "homeAssistantStatus": "Home Assistant",
       "installingApp": "Installing…",
-      "discoverApps": "Discover apps for your IORA OS",
+      "discoverApps": "Discover apps for your rumahl OS",
       "discoverAppsHint": "Install an app in seconds — it runs as its own container on your server.",
       "widgetsEditHint": "Editing widgets — click X to remove",
       "moreInstalls": "more installs",
@@ -161,10 +161,10 @@
       "cpu": "CPU",
       "appStarting": "Starting the app…",
       "appStopping": "Stopping the app…",
-      "appStopped": "This app is stopped. Start it to use it inside ORA OS.",
+      "appStopped": "This app is stopped. Start it to use it inside rumahl OS.",
       "appFailed": "The app failed to start. Check its logs or try again.",
       "appUnhealthy": "The app is running but unhealthy. Check its health status.",
-      "appNotFound": "This app is not installed on this ORA OS.",
+      "appNotFound": "This app is not installed on this rumahl OS.",
       "appStart": "Start app",
       "appNoResponse": "The app is not responding",
       "appNoResponseHint": "The container is running, but its web UI is unreachable. Check the status or try again.",
@@ -172,7 +172,7 @@
       "appCheckStatus": "Check status",
       "appShowLogs": "Show logs",
       "appLogsEmpty": "No logs available.",
-      "appExternalHint": "This app is configured to open outside the ORA desktop.",
+      "appExternalHint": "This app is configured to open outside the rumahl desktop.",
       "appExternalOpen": "Open app externally"
     },
     "shell": {
@@ -194,15 +194,15 @@
       "uptimeHours": "{{hours}}h",
       "reboot": "Restart",
       "shutdown": "Shut down",
-      "confirmReboot": "Restart ORA OS in five seconds?",
-      "confirmShutdown": "Shut down ORA OS in five seconds?",
+      "confirmReboot": "Restart rumahl OS in five seconds?",
+      "confirmShutdown": "Shut down rumahl OS in five seconds?",
       "noSystemData": "System data unavailable",
       "logout": "Log out",
       "guest": "Guest",
       "nowPlaying": "Now playing",
       "downloads": "Downloads"
     },
-        "kiosk": {
+    "kiosk": {
       "exit": "Exit kiosk mode",
       "wrongPin": "Wrong PIN"
     },
@@ -217,7 +217,7 @@
       "usePassword": "Unlock with password"
     },
     "permissions": {
-      "title": "ORA OS permissions",
+      "title": "rumahl OS permissions",
       "adminFullAccess": "Administrators always have full access",
       "items": {
         "os.files.read": "View files",
@@ -239,10 +239,21 @@
       "protection": "Protection status",
       "active": "Active",
       "degraded": "Degraded",
-      "health": { "healthy": "Healthy", "degraded": "Degraded", "compromised": "Compromised" },
+      "health": {
+        "healthy": "Healthy",
+        "degraded": "Degraded",
+        "compromised": "Compromised"
+      },
       "compromisedTitle": "Security protection is compromised",
       "compromisedDescription": "Critical protection controls are ineffective. Review the reported causes immediately.",
-      "reasons": { "audit_chain_invalid": "Audit chain invalid", "helper_unavailable": "Enforcement helper unavailable", "firewall_ineffective": "Firewall ineffective", "scanner_unavailable": "Scanner unavailable", "integrity_stale": "Integrity monitor stale", "definitions_outdated": "Malware definitions outdated" },
+      "reasons": {
+        "audit_chain_invalid": "Audit chain invalid",
+        "helper_unavailable": "Enforcement helper unavailable",
+        "firewall_ineffective": "Firewall ineffective",
+        "scanner_unavailable": "Scanner unavailable",
+        "integrity_stale": "Integrity monitor stale",
+        "definitions_outdated": "Malware definitions outdated"
+      },
       "policies": "Active policies",
       "quarantine": "Quarantine items",
       "scanners": "Scanner providers",
@@ -251,7 +262,10 @@
       "responsePolicies": "Response policies"
     },
     "apps": {
-      "security": { "name": "Security Center", "description": "Firewall, malware and integrity protection" },
+      "security": {
+        "name": "Security Center",
+        "description": "Firewall, malware and integrity protection"
+      },
       "home": {
         "name": "Home",
         "description": "Smart home dashboard and automations"
@@ -262,7 +276,7 @@
       },
       "settings": {
         "name": "Settings",
-        "description": "Personalize ORA OS"
+        "description": "Personalize rumahl OS"
       },
       "automations": {
         "name": "Automations",
@@ -302,7 +316,7 @@
       },
       "updates": {
         "name": "Updates",
-        "description": "Keep ORA OS secure and current"
+        "description": "Keep rumahl OS secure and current"
       },
       "backups": {
         "name": "Backups",
@@ -310,14 +324,14 @@
       },
       "appStore": {
         "name": "App Store",
-        "description": "Discover, install, and manage ORA apps"
+        "description": "Discover, install, and manage rumahl apps"
       },
       "images": {
         "name": "Images",
-        "description": "All pictures from your IORA cloud",
+        "description": "All pictures from your rumahl cloud",
         "count": "images",
         "empty": "No images yet",
-        "emptyHint": "Store pictures in IORA Files — they appear here automatically.",
+        "emptyHint": "Store pictures in rumahl Files — they appear here automatically.",
         "sortNewest": "Newest first",
         "sortName": "By name",
         "allPhotos": "All photos",
@@ -364,7 +378,7 @@
       "folderFailed": "The folder could not be created.",
       "folderName": "New folder name",
       "fromCloud": "Browse locally",
-      "fromCloudHint": "Navigate your personal ORA Cloud",
+      "fromCloudHint": "Navigate your personal rumahl Cloud",
       "fromDevice": "Browse device",
       "fromDeviceHint": "Select files using the system file picker",
       "kioskUnavailable": "Unavailable on kiosk devices",
@@ -373,7 +387,7 @@
       "moveFailed": "The file could not be moved.",
       "moveHere": "Move here",
       "moveTo": "Move to…",
-      "myCloud": "My ORA Cloud",
+      "myCloud": "My rumahl Cloud",
       "networkChangeFailed": "The network configuration could not be applied.",
       "newFolder": "New folder",
       "noAddress": "No hardware address",
@@ -399,7 +413,7 @@
     },
     "filePicker": {
       "openTitle": "Open file with app",
-      "saveTitle": "Save to ORA Cloud",
+      "saveTitle": "Save to rumahl Cloud",
       "requestedBy": "Requested by {{app}}",
       "loadFailed": "Personal storage could not be loaded.",
       "openFailed": "The selected file could not be opened.",
@@ -422,7 +436,7 @@
       "critical": "Critical",
       "install": "Install",
       "confirmUpdate": "Install system update?",
-      "confirmUpdateHint": "ORA OS may restart services or the device during installation.",
+      "confirmUpdateHint": "rumahl OS may restart services or the device during installation.",
       "updateFailed": "The update could not be started.",
       "createBackup": "Create complete backup",
       "noBackups": "No backups available.",
@@ -454,7 +468,7 @@
       "size": "Size",
       "open": "Open",
       "select": "Select",
-      "serviceRestart": "The Files service is not responding correctly ({{detail}}). Please restart the Files service (iora-files).",
+      "serviceRestart": "The Files service is not responding correctly ({{detail}}). Please restart the Files service (rumahl-files).",
       "newFile": "New file",
       "fileName": "File name",
       "folders": "Folders",
@@ -627,7 +641,7 @@
     "profileDesc": "Manage name and credentials",
     "securityDesc": "PIN protection and device lock",
     "deviceLockDesc": "Locks settings on this device – PIN to unlock",
-    "aiDisableDesc": "Disables ORA AI, Pi.dev Agent and all AI features",
+    "aiDisableDesc": "Disables rumahl AI, Pi.dev Agent and all AI features",
     "glassEffectsDesc": "Transparency, blur and card radius",
     "frostedGlassDesc": "Frosted glass look for cards and menus",
     "about": "About",
@@ -641,7 +655,6 @@
     "uptime": "Uptime",
     "backendVersion": "Backend version",
     "user": "User",
-    "theme": "Theme",
     "entities": "Entities",
     "glassEnable": "Enable glass effect",
     "glassBlur": "Blur",
@@ -686,11 +699,11 @@
     "accentIconsDesc": "Recolors app icons and folders with the current primary color (sepia + hue rotation).",
     "apps": "Apps",
     "tabAppsDesc": "Installed apps, permissions & embedding",
-    "appsDesc": "Manage your installed apps: start and stop them, control their permissions and decide whether they run inside the ORA desktop or open directly via their port.",
+    "appsDesc": "Manage your installed apps: start and stop them, control their permissions and decide whether they run inside the rumahl desktop or open directly via their port.",
     "appsEmpty": "No installable apps found. Install an app from the App Store first.",
     "appExternalBadge": "external",
-    "appExternalToggle": "Open app outside ORA OS",
-    "appExternalToggleDesc": "Opens the app directly via its port in your browser instead of embedding it inside the ORA desktop.",
+    "appExternalToggle": "Open app outside rumahl OS",
+    "appExternalToggleDesc": "Opens the app directly via its port in your browser instead of embedding it inside the rumahl desktop.",
     "appExternalOverride": "user override: opens directly via port",
     "appEmbedMode": "Display mode",
     "appPermissions": "Permissions",
@@ -720,14 +733,14 @@
     "mediaUserId": "User ID",
     "mediaToken": "Token",
     "remoteAccess": "Remote access",
-    "remoteAccessDesc": "Tailscale / WireGuard status for accessing ORA from outside",
+    "remoteAccessDesc": "Tailscale / WireGuard status for accessing rumahl from outside",
     "remoteOnline": "Online",
     "remoteOffline": "Offline",
     "remoteNotInstalled": "Not installed",
     "remoteHostname": "Hostname",
     "remoteConfigured": "Configured",
     "remoteNotConfigured": "Not configured",
-    "remoteTailscaleHint": "Install Tailscale on the host to access ORA from anywhere (tailscale.com).",
+    "remoteTailscaleHint": "Install Tailscale on the host to access rumahl from anywhere (tailscale.com).",
     "remoteWireguardHint": "No WireGuard config found in /etc/wireguard.",
     "remoteExternalUrl": "External base URL (domain / TLS)",
     "remoteExternalUrlHint": "Used for external share links — e.g. https://ora.meinedomain.de. Requires a reverse proxy (nginx) with your domain + TLS.",
@@ -746,7 +759,7 @@
     "authenticating": "Authenticating...",
     "noMediaPlayers": "No media players found",
     "maintenanceMode": "Maintenance Mode",
-    "maintenanceMessage": "IORA is in maintenance mode. Please wait.",
+    "maintenanceMessage": "rumahl is in maintenance mode. Please wait.",
     "pageNotFound": "Page not found",
     "pageNotFoundDesc": "The page does not exist.",
     "greeting_hello": "Hello",
@@ -884,25 +897,7 @@
     "appearanceStandardsDesc": "Set global accent, glass and time-of-day defaults for all users",
     "services": "Services",
     "system": "System",
-    "systemInfo": {
-      "unavailable": "No system information available.",
-      "hostname": "Hostname",
-      "os": "Operating System",
-      "kernel": "Kernel",
-      "uptime": "Uptime",
-      "cores": "Cores",
-      "usage": "Usage",
-      "memory": "Memory",
-      "total": "Total",
-      "used": "Used",
-      "available": "Available",
-      "disks": "Disks ({{count}})",
-      "usedSuffix": "{{value}} used",
-      "freeOf": "{{value}} free of {{total}}",
-      "network": "Network ({{count}})",
-      "ipAddresses": "IP addresses:",
-      "refresh": "Refresh"
-    },
+    "systemInfo": "System Info",
     "users": "Users",
     "network": "Network",
     "logs": "Logs",
@@ -919,7 +914,7 @@
       "filterPlaceholder": "Filter logs...",
       "noLines": "No log entries.",
       "kind": {
-        "self": "IORA Home",
+        "self": "rumahl Home",
         "service": "Services (systemd)",
         "app": "Apps",
         "plugin": "Plugins",
@@ -967,7 +962,6 @@
     "notifications": "Notifications",
     "tasks": "Tasks",
     "controlMode": "Control Mode",
-    "systemInfo": "System Info",
     "infrastructure": "Infrastructure",
     "apiKeys": "API Keys",
     "webhooks": "Webhooks",
@@ -1017,7 +1011,7 @@
     "pluginsDesc": "Manage installed plugins — widgets, automations, themes and more",
     "themesDesc": "Manage installed themes — install, activate/deactivate and delete custom color schemes",
     "devModeDesc": "Enable debug features — extended logs, render counters, raw JSON responses",
-    "docsDesc": "IORA OS user manual, admin reference and API documentation",
+    "docsDesc": "rumahl OS user manual, admin reference and API documentation",
     "protocolsDesc": "Combined live overview of all IoT protocols",
     "haToolsDesc": "Render Home Assistant templates, fire events and browse registries",
     "globalAlertDesc": "Set or remove system-wide banner alert",
@@ -1025,7 +1019,7 @@
     "tasksDesc": "Monitor background tasks and queues",
     "controlModeDesc": "Switch between autonomous, manual and supervised mode",
     "systemDesc": "Monitor CPU, RAM, storage, uptime and system load",
-    "systemInfoDesc": "Detailed system information from IORA OS"
+    "systemInfoDesc": "Detailed system information from rumahl OS"
   },
   "themes": {
     "title": "Themes",
@@ -1041,7 +1035,7 @@
     "uninstallSuccess": "Theme uninstalled",
     "setDefault": "Set as Default",
     "uploadDesc": "Upload a theme ZIP file",
-    "marketplaceDesc": "Browse and install themes from the IORA Store",
+    "marketplaceDesc": "Browse and install themes from the rumahl Store",
     "defaultTheme": "Default Theme",
     "defaultThemeDesc": "Set the default theme for all users",
     "clonePrompt": "Name for the cloned theme",
@@ -1093,18 +1087,18 @@
     "systemApp": "System App",
     "systemAppDesc": "Automatically activated with Developer Mode.",
     "storeComingSoon": "Full App Store coming soon",
-    "storeComingSoonDesc": "Integration with appstore.kaimdt.com — thousands of apps, widgets & plugins.",
+    "storeComingSoonDesc": "Integration with appstore.rumahl.com — thousands of apps, widgets & plugins.",
     "featured": "Featured",
     "popular": "Popular",
     "installedManagement": {
       "eyebrow": "Application management",
       "title": "Installed Apps",
-      "description": "Manage runtime, health, updates and settings for applications stored locally on this ORA OS.",
+      "description": "Manage runtime, health, updates and settings for applications stored locally on this rumahl OS.",
       "updates": "Updates",
       "needsAttention": "Needs attention",
       "filterLabel": "Filter installed apps",
       "emptyTitle": "No apps installed",
-      "emptyDescription": "Install an app from the Store or upload an ORA app package.",
+      "emptyDescription": "Install an app from the Store or upload an rumahl app package.",
       "actionFailed": "Action failed: {{detail}}",
       "uninstallConfirm": "Uninstall {{name}}? App data may be removed.",
       "forceUninstallConfirm": "Force-uninstall system app {{name}} on this development image?",
@@ -1134,7 +1128,7 @@
       "installingDescription": "This app is being installed — it will appear as installed automatically once the process finishes."
     },
     "appStore": {
-      "title": "Discover more for your ORA OS",
+      "title": "Discover more for your rumahl OS",
       "subtitle": "Apps, widgets, and automations designed for a private, connected home.",
       "search": "Search apps, widgets, and plugins...",
       "forYou": "For you",
@@ -1149,11 +1143,11 @@
       "browseAll": "Browse all apps",
       "showAll": "Show all",
       "comingTitle": "The complete App Store is coming soon",
-      "comingDescription": "Direct access to apps, widgets, and plugins from the ORA catalog.",
+      "comingDescription": "Direct access to apps, widgets, and plugins from the rumahl catalog.",
       "comingSoon": "Coming soon",
       "catalog": {
-        "nextcloud": "Your own cloud: files, calendar, contacts & more — fully self-hosted in a Docker container on your IORA OS.",
-        "ora-astro-forge": "3D idle game: mine asteroids, grow your mining fleet, conquer new planets, and prestige through wormholes. Progress is saved — production continues even while you are offline.",
+        "nextcloud": "Your own cloud: files, calendar, contacts & more — fully self-hosted in a Docker container on your rumahl OS.",
+        "rumahl-astro-forge": "3D idle game: mine asteroids, grow your mining fleet, conquer new planets, and prestige through wormholes. Progress is saved — production continues even while you are offline.",
         "jellyfin": "Stream your own films, series, music, and photos from a private media server.",
         "vaultwarden": "A lightweight, private password manager compatible with Bitwarden clients.",
         "uptime-kuma": "Monitor websites and services with a beautiful self-hosted status dashboard.",
@@ -1166,13 +1160,13 @@
       "installed": "Installed",
       "topCharts": "Top charts",
       "moreFrom": "More from",
-      "bannerTag": "Recommended by ORA",
+      "bannerTag": "Recommended by rumahl",
       "prevBanner": "Previous banner",
       "nextBanner": "Next banner",
       "banner": "Banner {{n}}",
       "emptyTitle": "No apps found in the store",
       "emptyDescription": "Search for apps, widgets or plugins – or install them by uploading a ZIP.",
-      "essentials": "IORA Essentials",
+      "essentials": "rumahl Essentials",
       "back": "Back to store",
       "similarApps": "Similar apps",
       "version": "Version",
@@ -1181,7 +1175,7 @@
       "openApp": "Open",
       "systemApp": "System app",
       "preinstalled": "Preinstalled",
-      "essentialsHint": "This app is part of IORA OS and comes preinstalled — open it right from the launcher or via \"Open\" here.",
+      "essentialsHint": "This app is part of rumahl OS and comes preinstalled — open it right from the launcher or via \"Open\" here.",
       "installing": "Installing {{name}}…",
       "installStarted": "Installation of {{name}} started",
       "installFailed": "Installation failed: {{detail}}",
@@ -1303,7 +1297,7 @@
     "pinFor": "PIN for",
     "orUsePin": "or login with PIN",
     "passwordMinLength": "Password must be at least 8 characters",
-    "welcomeToIora": "Welcome to IORA",
+    "welcomeTorumahl": "Welcome to rumahl",
     "loginSubtitle": "Sign in to access your dashboard",
     "registerSubtitle": "Create a new account to get started",
     "pinSubtitle": "Quick login with your PIN",
@@ -1331,7 +1325,7 @@
     "optional": "optional",
     "confirmPassword": "Confirm password",
     "rememberMeHint": "Session stays active after closing the browser",
-    "pageFooter": "IORA — Interface for Optimized Residential Autonomy",
+    "pageFooter": "rumahl — Interface for Optimized Residential Autonomy",
     "guestSuccess": "Signed in as guest",
     "guestFailed": "Guest sign-in failed",
     "or": "or",
@@ -1371,7 +1365,7 @@
     "justNow": "just now"
   },
   "ai": {
-    "title": "ORA Assistant",
+    "title": "rumahl Assistant",
     "search": "Search",
     "weather": "Weather",
     "news": "News",
@@ -1391,14 +1385,14 @@
     "instructionsSaved": "AI instructions saved",
     "instructionsReset": "AI instructions reset",
     "noAnswer": "No response received.",
-    "instantResult": "ORA found the answer:\n\n{{text}}",
+    "instantResult": "rumahl found the answer:\n\n{{text}}",
     "instantFailed": "Search failed.",
-    "searching": "ORA is searching",
+    "searching": "rumahl is searching",
     "keepSpeaking": "you can keep speaking",
-    "unavailableTitle": "IORA Assist is not available",
-    "unavailableHint": "No AI provider configured or reachable. Open the Admin console → IORA Assist to configure a provider (Ollama, OpenAI, Anthropic, …).",
+    "unavailableTitle": "rumahl Assist is not available",
+    "unavailableHint": "No AI provider configured or reachable. Open the Admin console → rumahl Assist to configure a provider (Ollama, OpenAI, Anthropic, …).",
     "openAdmin": "Open configuration",
-    "degradedTitle": "IORA Assist is running in degraded mode",
+    "degradedTitle": "rumahl Assist is running in degraded mode",
     "agent": "Agent",
     "agents": {
       "general": "General",
@@ -1428,8 +1422,8 @@
     "ttsDisable": "Disable voice output",
     "close": "Close",
     "sendFailed": "Failed to send message",
-    "sendFailedUnavailable": "IORA Assist is not available — please configure a provider.",
-    "messageToOra": "Message to ORA…",
+    "sendFailedUnavailable": "rumahl Assist is not available — please configure a provider.",
+    "messageToOra": "Message to rumahl…",
     "taskPaused": "Task paused ✓",
     "taskDeleted": "Task deleted ✓",
     "taskUpdated": "Task updated ✓",
@@ -1451,7 +1445,7 @@
     "extRun": "Run",
     "extError": "Error",
     "extResult": "Result",
-    "extHint": "These tools run directly inside iora-assist — no LLM call needed.",
+    "extHint": "These tools run directly inside rumahl-assist — no LLM call needed.",
     "attach": "Attach",
     "attachmentDisabled": "File upload is not yet supported by the current provider.",
     "providerOffline": "AI provider offline",
@@ -1501,7 +1495,7 @@
     "filterOthers": "Other devices",
     "ownStream": "Own stream",
     "noStreamsHint": "Start a stream, or tune in as soon as a device goes live.",
-    "device": "IORA device",
+    "device": "rumahl device",
     "unknownDevice": "Unknown device"
   },
   "cmd": {
@@ -1522,11 +1516,11 @@
     "offline": "Offline",
     "searching": "Searching…"
   },
-      "notifications": {
-      "title": "Notifications",
-      "subtitle": "System notifications and background jobs"
-    },
-    "jobs": {
+  "notifications": {
+    "title": "Notifications",
+    "subtitle": "System notifications and background jobs"
+  },
+  "jobs": {
     "title": "Job Center",
     "subtitle": "Background jobs",
     "activeCount_one": "{{count}} active job",
@@ -1725,7 +1719,7 @@
   },
   "haOnboarding": {
     "title": "Connect Home Assistant",
-    "description": "ORA can find Home Assistant on your network, verify access, and activate the live entity and automation connection automatically.",
+    "description": "rumahl can find Home Assistant on your network, verify access, and activate the live entity and automation connection automatically.",
     "urlPlaceholder": "Home Assistant URL or host",
     "discover": "Find automatically",
     "discovering": "Searching…",
@@ -1734,14 +1728,14 @@
     "unreachable": "Not reachable",
     "token": "Long-lived access token",
     "tokenPlaceholder": "Paste the token from your Home Assistant profile",
-    "tokenHelp": "In Home Assistant, open your profile and create a Long-Lived Access Token. ORA validates it before saving.",
+    "tokenHelp": "In Home Assistant, open your profile and create a Long-Lived Access Token. rumahl validates it before saving.",
     "connect": "Connect and configure",
     "connecting": "Connecting…",
     "connected": "Home Assistant connected",
     "connectFailed": "Home Assistant could not be connected",
     "ready": "Your home is ready",
     "home": "Home Assistant",
-    "integrationsReady": "{{count}} Home Assistant components are ready for ORA Home and Automation Studio."
+    "integrationsReady": "{{count}} Home Assistant components are ready for rumahl Home and Automation Studio."
   },
   "storageApp": {
     "title": "Storage",

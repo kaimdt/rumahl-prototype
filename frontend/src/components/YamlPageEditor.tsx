@@ -1,5 +1,5 @@
 /**
- * YAML Page Editor – Write IORA pages as YAML configuration.
+ * YAML Page Editor – Write rumahl pages as YAML configuration.
  *
  * Generates the same page structure as the drag-and-drop Page Designer
  * but in a text-based YAML format. Live preview available.

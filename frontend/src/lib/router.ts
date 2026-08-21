@@ -1,5 +1,5 @@
 /**
- * router — a small declarative router for ORA OS (React-Router-style, but
+ * router — a small declarative router for rumahl OS (React-Router-style, but
  * in-house). One route table is the single source of truth for path ↔ pageId
  * mapping with `:param` support. Used by PageNavigationContext to match URLs.
  */

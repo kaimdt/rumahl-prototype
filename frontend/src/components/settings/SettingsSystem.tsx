@@ -585,7 +585,7 @@ export function FamilyProfilesSection() {
             if (!draft) return null
             const isChild = draft.profileType === 'child'
             return (
-              <div key={entry.id} className="ora-card p-4">
+              <div key={entry.id} className="rumahl-card p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground/90">
@@ -647,7 +647,7 @@ export function FamilyProfilesSection() {
                     type="button"
                     disabled={saving === entry.id}
                     onClick={() => void saveUser(entry)}
-                    className="ora-primary-button"
+                    className="rumahl-primary-button"
                   >
                     {saving === entry.id ? t('common.saving') : t('common.save')}
                   </button>
@@ -697,7 +697,7 @@ export function KeyboardShortcutsSection() {
           const isCustom = customized.has(shortcut.id)
           const isRecording = recording === shortcut.id
           return (
-            <div key={shortcut.id} className="flex items-center justify-between gap-3 ora-card px-4 py-3">
+            <div key={shortcut.id} className="flex items-center justify-between gap-3 rumahl-card px-4 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground/90">{t(shortcut.labelKey)}</p>
                 <p className="text-[11px] text-foreground/45">{t(shortcut.descKey)}</p>
@@ -752,7 +752,7 @@ export function DefaultAppsSection() {
           const options = appsForCategory(category)
           const current = getDefaultAppForType(category.key)
           return (
-            <div key={category.key} className="flex items-center justify-between gap-3 ora-card px-4 py-3">
+            <div key={category.key} className="flex items-center justify-between gap-3 rumahl-card px-4 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground/85">{t(category.labelKey)}</p>
                 <p className="text-[11px] text-foreground/40">
@@ -838,25 +838,25 @@ export function MediaHubConfigSection() {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="ora-card p-4">
+          <div className="rumahl-card p-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/55">Jellyfin</p>
             <div className="space-y-2">
-              <input value={form.jellyfin_url} onChange={(event) => set('jellyfin_url', event.target.value)} className="ora-field" placeholder={t('settings.mediaUrlPlaceholder')} />
-              <input value={form.jellyfin_api_key} onChange={(event) => set('jellyfin_api_key', event.target.value)} className="ora-field" placeholder={t('settings.mediaApiKey')} type="password" autoComplete="off" />
-              <input value={form.jellyfin_user_id} onChange={(event) => set('jellyfin_user_id', event.target.value)} className="ora-field" placeholder={t('settings.mediaUserId')} />
+              <input value={form.jellyfin_url} onChange={(event) => set('jellyfin_url', event.target.value)} className="rumahl-field" placeholder={t('settings.mediaUrlPlaceholder')} />
+              <input value={form.jellyfin_api_key} onChange={(event) => set('jellyfin_api_key', event.target.value)} className="rumahl-field" placeholder={t('settings.mediaApiKey')} type="password" autoComplete="off" />
+              <input value={form.jellyfin_user_id} onChange={(event) => set('jellyfin_user_id', event.target.value)} className="rumahl-field" placeholder={t('settings.mediaUserId')} />
             </div>
           </div>
-          <div className="ora-card p-4">
+          <div className="rumahl-card p-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/55">Plex</p>
             <div className="space-y-2">
-              <input value={form.plex_url} onChange={(event) => set('plex_url', event.target.value)} className="ora-field" placeholder={t('settings.mediaUrlPlaceholder')} />
-              <input value={form.plex_token} onChange={(event) => set('plex_token', event.target.value)} className="ora-field" placeholder={t('settings.mediaToken')} type="password" autoComplete="off" />
+              <input value={form.plex_url} onChange={(event) => set('plex_url', event.target.value)} className="rumahl-field" placeholder={t('settings.mediaUrlPlaceholder')} />
+              <input value={form.plex_token} onChange={(event) => set('plex_token', event.target.value)} className="rumahl-field" placeholder={t('settings.mediaToken')} type="password" autoComplete="off" />
             </div>
           </div>
         </div>
 
         <div className="flex justify-end">
-          <button type="button" disabled={saving || loading} onClick={() => void save()} className="ora-primary-button">
+          <button type="button" disabled={saving || loading} onClick={() => void save()} className="rumahl-primary-button">
             {saving ? t('common.saving') : t('common.save')}
           </button>
         </div>
@@ -919,10 +919,10 @@ export function RemoteAccessSection() {
     <SettingsSection icon={Globe} title={t('settings.remoteAccess')} description={t('settings.remoteAccessDesc')}>
       <div className="space-y-3 px-5 pb-5">
         {/* External base URL (domain / TLS) */}
-        <div className="ora-card p-4">
+        <div className="rumahl-card p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground/90">{t('settings.remoteExternalUrl')}</p>
-            <button type="button" disabled={savingUrl} onClick={() => void saveExternalUrl()} className="ora-primary-button">
+            <button type="button" disabled={savingUrl} onClick={() => void saveExternalUrl()} className="rumahl-primary-button">
               {savingUrl ? t('common.saving') : t('common.save')}
             </button>
           </div>
@@ -936,7 +936,7 @@ export function RemoteAccessSection() {
         </div>
 
         {/* Tailscale */}
-        <div className="ora-card p-4">
+        <div className="rumahl-card p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground/90">Tailscale</p>
             {status?.tailscale.installed ? (
@@ -957,7 +957,7 @@ export function RemoteAccessSection() {
         </div>
 
         {/* WireGuard */}
-        <div className="ora-card p-4">
+        <div className="rumahl-card p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground/90">WireGuard</p>
             {status?.wireguard.installed ? (

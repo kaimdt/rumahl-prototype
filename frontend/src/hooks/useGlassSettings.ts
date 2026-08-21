@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS: GlassSettings = {
 
 /** Glass surface variables whose fill alpha is scaled by the transparency
  *  setting. Each is a plain `oklch(L C H / A)` custom property. */
-const SURFACE_VARIABLES = ['--ora-glass-bg', '--ora-glass-hover', '--glass-bg', '--glass-bg-end']
+const SURFACE_VARIABLES = ['--rumahl-glass-bg', '--rumahl-glass-hover', '--glass-bg', '--glass-bg-end']
 
 /**
  * Scales the alpha channel of a glass surface variable by a multiplier.
@@ -66,7 +66,7 @@ export function useGlassSettings() {
     // `data-theme` attribute / custom-theme vars are applied by ThemeProvider
     // effects in the same commit, which run AFTER this component's effects).
     // Reading computed styles earlier would pin the previous theme's colors
-    // as inline overrides — e.g. a light `--ora-glass-bg` stuck in a dark
+    // as inline overrides — e.g. a light `--rumahl-glass-bg` stuck in a dark
     // theme after the auto day→night switch (L 0.96 glass on a dark UI).
     const raf = requestAnimationFrame(() => applyGlassSettings(settings))
     return () => cancelAnimationFrame(raf)
@@ -81,8 +81,8 @@ export function useGlassSettings() {
         setSettings({ ...DEFAULT_SETTINGS, ...stored })
       }
     }
-    window.addEventListener('iora:settings-synced', onSynced)
-    return () => window.removeEventListener('iora:settings-synced', onSynced)
+    window.addEventListener('rumahl:settings-synced', onSynced)
+    return () => window.removeEventListener('rumahl:settings-synced', onSynced)
   }, [])
 
   const setBlurIntensity = useCallback((value: number) => {

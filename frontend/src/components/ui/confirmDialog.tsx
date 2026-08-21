@@ -1,5 +1,5 @@
 /**
- * Promise-based ORA confirm dialog — replaces `window.confirm`, which renders
+ * Promise-based rumahl confirm dialog — replaces `window.confirm`, which renders
  * an ugly browser dialog. Usage from anywhere (no hook needed):
  *
  *   if (!(await confirmDialog({ title, message, confirmLabel, danger }))) return
@@ -29,7 +29,7 @@ function emit() {
   listeners.forEach((listener) => listener())
 }
 
-/** Show the ORA confirm dialog; resolves `true` on confirm, `false` on cancel. */
+/** Show the rumahl confirm dialog; resolves `true` on confirm, `false` on cancel. */
 export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   pendingOptions = options
   emit()

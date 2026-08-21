@@ -4,7 +4,7 @@ import { ArrowClockwise, FilmStrip, PlayCircle, Television } from '@phosphor-ico
 import { authFetch } from '@/lib/authHelpers'
 
 /**
- * ORA media widget — continue watching from Jellyfin (Package 6, Media Hub).
+ * rumahl media widget — continue watching from Jellyfin (Package 6, Media Hub).
  * Shows the user's resume items and the detected media servers.
  */
 

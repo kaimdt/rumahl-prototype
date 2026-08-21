@@ -53,7 +53,7 @@ pub struct HighlightRegion {
 
 /// Get the ORA AI assist URL from environment or use default
 fn get_assist_url() -> String {
-    std::env::var("IORA_ASSIST_URL").unwrap_or_else(|_| "http://localhost:8092".to_string())
+    std::env::var("rumahl_ASSIST_URL").unwrap_or_else(|_| "http://localhost:8092".to_string())
 }
 
 /// Send a chat message to ORA AI
@@ -147,15 +147,15 @@ pub async fn ora_show_overlay(app: AppHandle, state: State<'_, AppState>) -> Res
         return Err("ORA AI is disabled (Privacy Mode active)".to_string());
     }
 
-    if let Some(window) = app.get_webview_window("ora-overlay") {
+    if let Some(window) = app.get_webview_window("rumahl-overlay") {
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
     } else {
         // Create overlay window if it doesn't exist
         let window = tauri::WebviewWindowBuilder::new(
             &app,
-            "ora-overlay",
-            tauri::WebviewUrl::App("/ora-overlay".into()),
+            "rumahl-overlay",
+            tauri::WebviewUrl::App("/rumahl-overlay".into()),
         )
         .title("ORA AI")
         .inner_size(400.0, 600.0)
@@ -221,7 +221,7 @@ pub async fn ora_capture_video(state: State<'_, AppState>) -> Result<serde_json:
 /// Hide the AI overlay window
 #[tauri::command]
 pub async fn ora_hide_overlay(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("ora-overlay") {
+    if let Some(window) = app.get_webview_window("rumahl-overlay") {
         window.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -235,7 +235,7 @@ pub async fn ora_toggle_overlay(app: AppHandle, state: State<'_, AppState>) -> R
         return Err("ORA AI is disabled (Privacy Mode active)".to_string());
     }
 
-    if let Some(window) = app.get_webview_window("ora-overlay") {
+    if let Some(window) = app.get_webview_window("rumahl-overlay") {
         if window.is_visible().map_err(|e| e.to_string())? {
             window.hide().map_err(|e| e.to_string())?;
         } else {
@@ -309,7 +309,7 @@ pub async fn ora_highlight_screen(
         );
     }
 
-    app.emit("ora-highlights", ()).map_err(|e| e.to_string())?;
+    app.emit("rumahl-highlights", ()).map_err(|e| e.to_string())?;
 
     Ok(())
 }

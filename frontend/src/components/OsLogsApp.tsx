@@ -84,7 +84,7 @@ export function OsLogsApp() {
   const active = sources.find((source) => source.id === activeSource)
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
       <OsAppNavbar
         pageId="os-logs"
         title={t('os.apps.logs.name')}
@@ -97,7 +97,7 @@ export function OsLogsApp() {
               <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
               {t('logsApp.autoRefresh')}
             </label>
-            <button type="button" onClick={() => { void loadSources(); if (activeSource) void loadLines(activeSource) }} disabled={loading} className="ora-icon-button" title={t('logsApp.refresh')}>
+            <button type="button" onClick={() => { void loadSources(); if (activeSource) void loadLines(activeSource) }} disabled={loading} className="rumahl-icon-button" title={t('logsApp.refresh')}>
               <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
             </button>
           </>

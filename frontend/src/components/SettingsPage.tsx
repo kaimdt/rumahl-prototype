@@ -88,7 +88,7 @@ function ThemeSettingsPanelWrapper() {
   )
   if (!hasContent) return null
   return (
-    <div className="p-4 rounded-2xl ora-card border-foreground/10">
+    <div className="p-4 rounded-2xl rumahl-card border-foreground/10">
       <ThemeSettingsPanel />
     </div>
   )
@@ -355,9 +355,9 @@ export function SettingsPage(props: SettingsPageProps) {
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
   // Per-user auto-lock timeout (minutes, 0 = disabled).
-  const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('iora-auto-lock-minutes', 15)
-  const [kioskMode, setKioskMode] = useLocalStorage<boolean>('iora-kiosk-mode', false)
-  // Deep links via URL sub-path (/settings/apps/ora-browser): the Settings
+  const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('rumahl-auto-lock-minutes', 15)
+  const [kioskMode, setKioskMode] = useLocalStorage<boolean>('rumahl-kiosk-mode', false)
+  // Deep links via URL sub-path (/settings/apps/rumahl-browser): the Settings
   // app is path-driven so every tab (and the per-app detail view) has its
   // own URL that survives reloads, back/forward and sharing.
   const { currentSubPath, navigateToPage } = usePageNavigation()
@@ -394,12 +394,12 @@ export function SettingsPage(props: SettingsPageProps) {
       const response = await authFetch(`/api/os/control/os/${powerAction}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delay_seconds: 5, reason: 'Requested from IORA OS settings' }),
+        body: JSON.stringify({ delay_seconds: 5, reason: 'Requested from rumahl OS settings' }),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       setPowerAction(null)
     } catch (e) {
-      window.dispatchEvent(new CustomEvent('iora:toast', { detail: { message: e instanceof Error ? e.message : String(e) } }))
+      window.dispatchEvent(new CustomEvent('rumahl:toast', { detail: { message: e instanceof Error ? e.message : String(e) } }))
     } finally {
       setPowerPending(false)
     }
@@ -408,9 +408,9 @@ export function SettingsPage(props: SettingsPageProps) {
   const { stats, haInfo, osInfo, loading: statsLoading, refresh: refreshStats } = useSystemStats(settingsTab === 'system')
 
   return (
-    <section className="ora-settings-app">
-      <header className="ora-settings-navbar">
-        <div className="flex items-center gap-3.5"><span className="ora-app-mark ora-app-mark-settings"><GearSix size={26} weight="duotone" /></span><div><h1 className="text-[1.35rem] font-semibold leading-tight tracking-tight text-foreground">{t('navigation.settings')}</h1><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
+    <section className="rumahl-settings-app">
+      <header className="rumahl-settings-navbar">
+        <div className="flex items-center gap-3.5"><span className="rumahl-app-mark rumahl-app-mark-settings"><GearSix size={26} weight="duotone" /></span><div><h1 className="text-[1.35rem] font-semibold leading-tight tracking-tight text-foreground">{t('navigation.settings')}</h1><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
         <div className="flex items-center gap-2">
           <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium text-foreground/60 sm:flex"><User size={12} />{userName}</span>
           <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium capitalize text-foreground/60 md:flex"><Palette size={12} />{theme}</span>
@@ -418,8 +418,8 @@ export function SettingsPage(props: SettingsPageProps) {
         </div>
       </header>
 
-      <Tabs value={settingsTab} onValueChange={(v) => changeTab(v as typeof settingsTab)} className="ora-settings-layout">
-        <TabsList className="ora-settings-sidebar">
+      <Tabs value={settingsTab} onValueChange={(v) => changeTab(v as typeof settingsTab)} className="rumahl-settings-layout">
+        <TabsList className="rumahl-settings-sidebar">
           <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <User size={15} weight="fill" />
@@ -486,22 +486,22 @@ export function SettingsPage(props: SettingsPageProps) {
 
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="ora-field-label">Benutzername</label>
+                <label className="rumahl-field-label">Benutzername</label>
                 <input
                   type="text"
                   value={profileUsername}
                   onChange={(e) => setProfileUsername(e.target.value)}
-                  className="ora-field"
+                  className="rumahl-field"
                   disabled={isSavingProfile}
                 />
               </div>
               <div>
-                <label className="ora-field-label">Anzeigename</label>
+                <label className="rumahl-field-label">Anzeigename</label>
                 <input
                   type="text"
                   value={profileDisplayName}
                   onChange={(e) => setProfileDisplayName(e.target.value)}
-                  className="ora-field"
+                  className="rumahl-field"
                   disabled={isSavingProfile}
                 />
               </div>
@@ -519,7 +519,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <SettingsSection icon={Shield} title={t("settings.security")} description={t("settings.securityDesc")}>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="ora-field-label">
+                <label className="rumahl-field-label">
                   Neue PIN (4–8 Ziffern)
                 </label>
                 <input
@@ -527,12 +527,12 @@ export function SettingsPage(props: SettingsPageProps) {
                   inputMode="numeric"
                   value={pinCode}
                   onChange={(e) => setPinCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  className="ora-field"
+                  className="rumahl-field"
                   placeholder="••••"
                 />
               </div>
               <div>
-                <label className="ora-field-label">
+                <label className="rumahl-field-label">
                   PIN bestätigen
                 </label>
                 <input
@@ -540,7 +540,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   inputMode="numeric"
                   value={pinConfirm}
                   onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  className="ora-field"
+                  className="rumahl-field"
                   placeholder="••••"
                 />
               </div>
@@ -553,7 +553,7 @@ export function SettingsPage(props: SettingsPageProps) {
             )}
             <button
               onClick={savePin}
-              className="ora-secondary-button w-full"
+              className="rumahl-secondary-button w-full"
             >
               PIN speichern
             </button>
@@ -600,7 +600,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
           {/* AI Instructions */}
           {props.aiEnabled && (
-            <SettingsSection icon={Sparkle} title="AI-Persönlichkeit" description="Passe an, wie ORA AI antworten soll" accentIcon>
+            <SettingsSection icon={Sparkle} title="AI-Persönlichkeit" description="Passe an, wie rumahl AI antworten soll" accentIcon>
               <AiInstructionsSettings />
             </SettingsSection>
           )}
@@ -1210,8 +1210,8 @@ export function SettingsPage(props: SettingsPageProps) {
               </SettingsSection>
             )}
 
-            {/* IORA Docs Link */}
-            <SettingsSection icon={Info} title="IORA Dokumentation" description="Anleitungen, Referenzen & Systemübersicht">
+            {/* rumahl Docs Link */}
+            <SettingsSection icon={Info} title="rumahl Dokumentation" description="Anleitungen, Referenzen & Systemübersicht">
               <button
                 onClick={() => {
                   window.history.pushState({}, '', '/docs')
@@ -1224,7 +1224,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground">Dokumentation öffnen</p>
-                  <p className="text-[10px] text-foreground/40 mt-0.5">IORA Core · IORA Home · IORA Assist</p>
+                  <p className="text-[10px] text-foreground/40 mt-0.5">rumahl Core · rumahl Home · rumahl Assist</p>
                 </div>
                 <ArrowSquareOut size={16} className="text-foreground/25 group-hover:text-accent/60 transition-colors shrink-0" />
               </button>

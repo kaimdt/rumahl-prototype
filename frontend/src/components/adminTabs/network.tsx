@@ -158,7 +158,7 @@ export function UsersTab({ token }: { token: string }) {
                     type="text"
                     value={editForm.display_name}
                     onChange={e => setEditForm({ ...editForm, display_name: e.target.value })}
-                    className="ora-field-sm w-full text-xs"
+                    className="rumahl-field-sm w-full text-xs"
                   />
                 </div>
                 <div>
@@ -168,7 +168,7 @@ export function UsersTab({ token }: { token: string }) {
                     value={editForm.new_password}
                     onChange={e => setEditForm({ ...editForm, new_password: e.target.value })}
                     placeholder="Leer = nicht ändern"
-                    className="ora-field-sm w-full text-xs"
+                    className="rumahl-field-sm w-full text-xs"
                   />
                 </div>
                 <div>
@@ -176,7 +176,7 @@ export function UsersTab({ token }: { token: string }) {
                   <select
                     value={editForm.role}
                     onChange={e => setEditForm({ ...editForm, role: e.target.value })}
-                    className="ora-field-sm w-full text-xs"
+                    className="rumahl-field-sm w-full text-xs"
                   >
                     <option value="viewer">Betrachter</option>
                     <option value="user">Benutzer</option>
@@ -188,7 +188,7 @@ export function UsersTab({ token }: { token: string }) {
               </div>
               <OsPermissionEditor userId={u.id} isAdmin={u.is_admin} />
               <div className="flex justify-end gap-2">
-                <button onClick={() => setEditingUser(null)} className="ora-secondary-button-sm">Abbrechen</button>
+                <button onClick={() => setEditingUser(null)} className="rumahl-secondary-button-sm">Abbrechen</button>
                 <button onClick={() => handleEdit(u.id)} disabled={actionLoading === u.id} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-white shadow-sm shadow-accent/25 hover:bg-accent/85 transition-all disabled:opacity-50 flex items-center gap-1.5">
                   {actionLoading === u.id && <InlineSpinner size={12} />} Speichern
                 </button>
@@ -201,7 +201,7 @@ export function UsersTab({ token }: { token: string }) {
             <div className="mt-3 pt-3 border-t border-red-500/20 flex items-center justify-between">
               <span className="text-xs text-red-400">Benutzer wirklich löschen?</span>
               <div className="flex gap-2">
-                <button onClick={() => setConfirmDelete(null)} className="ora-secondary-button-sm">Nein</button>
+                <button onClick={() => setConfirmDelete(null)} className="rumahl-secondary-button-sm">Nein</button>
                 <button onClick={() => handleDelete(u.id)} disabled={actionLoading === u.id} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500 text-white shadow-sm shadow-red-500/25 hover:bg-red-600 transition-all disabled:opacity-50 flex items-center gap-1.5">
                   {actionLoading === u.id && <InlineSpinner size={12} />} Ja, löschen
                 </button>
@@ -284,7 +284,7 @@ export function NetworkTab({ token }: { token: string }) {
 
 // ── Logs Tab ──────────────────────────────────────────────────
 
-export interface IoraLogEntry {
+export interface rumahlLogEntry {
   id: number
   timestamp: string
   level: string
@@ -442,10 +442,10 @@ export function DevicesTab({ token }: { token: string }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// IORA BACKEND-SERVICE TABS
+// rumahl BACKEND-SERVICE TABS
 // ════════════════════════════════════════════════════════════════════════
 //
-// Each of the iora-* microservices exposes its own HTTP API. These tabs
+// Each of the rumahl-* microservices exposes its own HTTP API. These tabs
 // expose the most important admin-facing surface of every service the
 // control center previously had no UI for. All requests go through
 // nginx (`/api/<service>/*`) so the same JWT works everywhere.
@@ -716,7 +716,7 @@ export function PresenceTab({ token }: { token: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// SystemLogsTab — IORA Control Center central event log.
+// SystemLogsTab — rumahl Control Center central event log.
 //
 // All errors / warnings / infos from anywhere in the stack (backend
 // tracing layer, background tasks, frontend window errors, SDK clients)

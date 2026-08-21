@@ -7,19 +7,19 @@ fn main() {
     // Read environment variables and set them as compile-time constants
     // These will be baked into the binary at compile time
 
-    let iora_home_url =
-        std::env::var("IORA_HOME_URL").unwrap_or_else(|_| "http://localhost:3001".to_string());
-    println!("cargo:rustc-env=IORA_HOME_URL_DEFAULT={}", iora_home_url);
+    let rumahl_home_url =
+        std::env::var("rumahl_HOME_URL").unwrap_or_else(|_| "http://localhost:3001".to_string());
+    println!("cargo:rustc-env=rumahl_HOME_URL_DEFAULT={}", rumahl_home_url);
 
     let lm_studio_url =
         std::env::var("LM_STUDIO_URL").unwrap_or_else(|_| "http://localhost:1234".to_string());
     println!("cargo:rustc-env=LM_STUDIO_URL_DEFAULT={}", lm_studio_url);
 
-    let iora_backend_url =
-        std::env::var("IORA_BACKEND_URL").unwrap_or_else(|_| "http://localhost:8092".to_string());
+    let rumahl_backend_url =
+        std::env::var("rumahl_BACKEND_URL").unwrap_or_else(|_| "http://localhost:8092".to_string());
     println!(
-        "cargo:rustc-env=IORA_BACKEND_URL_DEFAULT={}",
-        iora_backend_url
+        "cargo:rustc-env=rumahl_BACKEND_URL_DEFAULT={}",
+        rumahl_backend_url
     );
 
     let proxy_port = std::env::var("PROXY_PORT").unwrap_or_else(|_| "11435".to_string());

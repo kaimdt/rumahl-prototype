@@ -1,14 +1,14 @@
-# ORA Home OS Roadmap
+# rumahl Home OS Roadmap
 
 **Status:** Draft v1 — live document, updated as packages ship
-**Owner:** ORA OS Team
+**Owner:** rumahl OS Team
 **Last updated:** 2026-02-11
 
 ---
 
 ## 1. Vision
 
-ORA OS is evolving from a home-automation dashboard + Docker frontend into a
+rumahl OS is evolving from a home-automation dashboard + Docker frontend into a
 **true Home Operating System**. The goal is a platform — not a container list:
 
 - Apps are **first-class citizens** with an OS-provided API (`ora.*` SDK),
@@ -19,24 +19,24 @@ ORA OS is evolving from a home-automation dashboard + Docker frontend into a
 - Devices (NAS, gaming PC, laptops, TVs, printers) are first-class citizens.
 - Users get real profiles: personal desktops, apps, files, permissions,
   guest mode, family areas.
-- Third parties can build apps **without knowing how ORA implements storage,
+- Third parties can build apps **without knowing how rumahl implements storage,
   users, notifications or windows internally**.
 
-### Core principle: ORA Core vs. ORA Apps
+### Core principle: rumahl Core vs. rumahl Apps
 
 ```
-ORA Apps          ← installable, permissioned, replaceable
+rumahl Apps          ← installable, permissioned, replaceable
 ─────────────────────────────────────────────
 Window Manager / Desktop  (shell UX, session)
 Files / Notifications / Jobs / Users          ← OS services & SDK
 Permissions                                    ← trust boundary
-ORA Runtime (plugin sandbox, app lifecycle)   ← iora-shared, plugin.rs
+rumahl Runtime (plugin sandbox, app lifecycle)   ← rumahl-shared, plugin.rs
 System Services (control, network, backup…)   ← microservices
 Kernel / Linux
 ```
 
 Everything above the *Permissions* line is app territory. Everything below is
-ORA Core and must be kept stable, tested and documented.
+rumahl Core and must be kept stable, tested and documented.
 
 ---
 
@@ -53,7 +53,7 @@ ORA Core and must be kept stable, tested and documented.
 | Notification center | ✅ exists | `NotificationCenter.tsx`, `NotificationContext` |
 | Files app + universal file picker | ✅ exists | `OsFileExplorer`, `OsAppFilePickerDialog` |
 | Move/copy dialogs, drag & drop in Files | ✅ exists | `OsFileMoveCopyDialog`, `OsFileExplorer` |
-| Share sheet (iora-share) | ✅ exists | `NativeShare.tsx`, `SharePage.tsx` |
+| Share sheet (rumahl-share) | ✅ exists | `NativeShare.tsx`, `SharePage.tsx` |
 | Themes, splash, session lock, screensaver | ✅ exists | `ThemeContext`, `OsSessionLock`, `Screensaver` |
 | Widget registry (dashboard widgets) | ✅ exists | `lib/widgetRegistry.ts`, `components/widgets/*` |
 | Admin panel (ai/core/network/os/services/tools/… ) | ✅ exists | `AdminPanel*`, `adminTabs/*` |
@@ -68,23 +68,23 @@ ORA Core and must be kept stable, tested and documented.
 | **Drag & drop between apps** | ❌ missing (within Files only) | — |
 | **Control Center (unified quick settings)** | ⚠️ partial (quick-settings popover) | `OsSystemShell` |
 
-### 2.2 Backend (Rust workspace, `iora-os/backend`)
+### 2.2 Backend (Rust workspace, `rumahl-os/backend`)
 
 | Area | Status | Location |
 |---|---|---|
-| App manifest, plugins, capabilities | ✅ exists | `iora-shared`: `app_manifest.rs`, `plugin.rs`, `app_capabilities.rs` |
+| App manifest, plugins, capabilities | ✅ exists | `rumahl-shared`: `app_manifest.rs`, `plugin.rs`, `app_capabilities.rs` |
 | Inter-app RPC (exposed services) | ✅ exists | `app_capabilities.rs` |
 | App storage (files + KV), app SQLite DB | ✅ exists | `app_storage.rs`, `app_database.rs` |
 | App scheduler (cron), webhooks, messaging (pub/sub/direct) | ✅ exists | `app_scheduler.rs`, `app_webhooks.rs`, `app_messaging.rs` |
 | Permission system (~80 perms) | ✅ exists | `permissions.rs` (incl. Camera, Mic, Location, Media, Network, Files, Users, Docker, Secrets, Queue/Jobs) |
-| OS control (stats, services, logs, power) | ✅ exists | `iora-control` → `/api/os/control/*` |
-| Network device discovery/scan | ✅ exists | `iora-network-monitor` → `/api/network/*` |
-| Cloud relay (Nabu-Casa-style tunnel) | ✅ exists | `iora-connector` |
-| Backups | ✅ exists | `iora-backup` → `/api/os/backups/*` |
-| Secrets service | ✅ exists | `iora-secrets` (UI/vault UX missing) |
+| OS control (stats, services, logs, power) | ✅ exists | `rumahl-control` → `/api/os/control/*` |
+| Network device discovery/scan | ✅ exists | `rumahl-network-monitor` → `/api/network/*` |
+| Cloud relay (Nabu-Casa-style tunnel) | ✅ exists | `rumahl-connector` |
+| Backups | ✅ exists | `rumahl-backup` → `/api/os/backups/*` |
+| Secrets service | ✅ exists | `rumahl-secrets` (UI/vault UX missing) |
 | System event log (dedup, occurrences) | ✅ exists | migration `031_system_events` |
 | Refresh tokens, user OS permissions | ✅ exists | migrations `032`, `033` |
-| App store (PostgreSQL) | ✅ exists | `iora-appstore`, `schema.sql` |
+| App store (PostgreSQL) | ✅ exists | `rumahl-appstore`, `schema.sql` |
 | **System-wide job bus (progress, cancel, resume)** | ❌ missing | — |
 | **Devices service (WOL/SNMP/MQTT/agents)** | ❌ missing | — |
 | **Automation flow editor (visual)** | ❌ missing (scheduler + widgets only) | — |
@@ -112,7 +112,7 @@ hooks, share sheet, file picker, deep-link handling.
 | Quick actions / command palette | ⚠️ ⌘K actions | System actions as **installable app-provided commands** |
 | System job manager | ❌ | Jobs bus (progress/cancel/pause), UI panel, survives app switches |
 | Clipboard manager | ❌ | History, cross-device clipboard |
-| Share sheet | ✅ iora-share | Broader targets: mail, links, SMB, devices, apps |
+| Share sheet | ✅ rumahl-share | Broader targets: mail, links, SMB, devices, apps |
 | Drag & drop between apps | ⚠️ within Files | Cross-app payload protocol (file refs → apps) |
 | Default apps / MIME | ❌ | File-type → app routing table |
 | Deep links | ❌ | `/app/<id>/<path>` resolution + app-internal navigation |
@@ -122,7 +122,7 @@ hooks, share sheet, file picker, deep-link handling.
 | Virtual desktops / workspaces | ❌ | Deferred (nice-to-have) |
 | Session restore | ❌ | Persist windows/tabs/positions per user |
 | User profiles (personal desktop, guest, family) | ⚠️ user switching + perms | Profiles, guest mode, family shared areas, per-user app sets |
-| ORA app framework / SDK | ✅ strong core | `ora.*` API surface, jobs, secrets, users, devices, events |
+| rumahl app framework / SDK | ✅ strong core | `ora.*` API surface, jobs, secrets, users, devices, events |
 | Permissions (Android/iOS-style) | ✅ ~80 perms + editor | **Runtime request dialogs**, background-use grants, per-user grants |
 | Devices as first-class citizens | ⚠️ network discovery only | Devices app: WOL, SNMP, MQTT, HA, Tailscale, agents |
 | Home dashboard | ✅ widgets | Widget registration API for apps, sections (storage/media/energy) |
@@ -153,9 +153,9 @@ value is purely UX.
 > The desktop-grade fundamentals every other feature builds on.
 
 1. **Global Spotlight search (Ctrl+Space)** ✅
-   - Search sources: apps (existing ⌘K), files (iora-files), devices
-     (iora-network-monitor), settings (settings registry), containers
-     (iora-supervisor), people/contacts, commands (app-provided).
+   - Search sources: apps (existing ⌘K), files (rumahl-files), devices
+     (rumahl-network-monitor), settings (settings registry), containers
+     (rumahl-supervisor), people/contacts, commands (app-provided).
    - Fuse.js-style fuzzy matching; grouped results; keyboard navigation.
    - `SpotlightSearch.tsx` reusing the ⌘K overlay pattern; keep ⌘K as alias.
    - **Shipped:** `CommandPalette` extended — Ctrl+Space + Ctrl+K, debounced
@@ -169,7 +169,7 @@ value is purely UX.
    - Frontend: `JobCenterPanel.tsx` (shell icon with active-job badge),
      job cards with progress bars, survives app switches (state in backend).
    - App SDK hook: `ora.jobs.create(...)` (permission: `AppQueueManage`).
-   - **Shipped:** migration `039_system_jobs`, `iora-shared::system_jobs`
+   - **Shipped:** migration `039_system_jobs`, `rumahl-shared::system_jobs`
      types, `job_handler.rs` + `/api/jobs/*` routes, `JobCenterPanel` with
      pause/resume/cancel/delete/cleanup + app-store install jobs,
      `ora.jobs` in the JS SDK. Follow-up: wire real sources (backups,
@@ -178,7 +178,7 @@ value is purely UX.
    - Backend: clipboard store + `/api/clipboard/*` (history, sync channel via
      `app_messaging`).
    - Frontend: history popover (Ctrl+Shift+V), device sync toggle.
-   - **Shipped:** migration `040_clipboard`, `iora-shared::clipboard` types,
+   - **Shipped:** migration `040_clipboard`, `rumahl-shared::clipboard` types,
      `clipboard_handler.rs` + `/api/clipboard/*` routes (add with dedup, list
      per user, pin, delete, clear), `ClipboardManager.tsx` with system-wide
      copy/cut capture (passwords + > 64 KiB skipped), search, pin, click-to-
@@ -188,7 +188,7 @@ value is purely UX.
 4. **Session restore** ✅
    - Persist windows (pageId, layout, position, size, z) + open tabs per user
      to backend (per-user table) and localStorage fallback; restore on login.
-   - **Shipped:** migration `041_session_windows`, `iora-shared::session`
+   - **Shipped:** migration `041_session_windows`, `rumahl-shared::session`
      types, `session_handler.rs` + `/api/session/windows` GET/PUT/DELETE
      (per-user, transactional replace), `OsWindowContext` saves debounced
      (+ pagehide flush) and restores on boot; localStorage offline fallback.
@@ -211,7 +211,7 @@ value is purely UX.
      (Spotlight folder results deep-link into it; `OsFileExplorer` reads the
      sub-path on mount).
    - **Drag & drop ✅:** `lib/fileDrop.ts` protocol
-     (`application/x-iora-file` carrying the file id); Files tags drags;
+     (`application/x-rumahl-file` carrying the file id); Files tags drags;
      **Bilder** accepts drops and copies into the current folder (cross-app
      demo). Follow-up: more drop targets (Mail, Backup, Docker upload).
 7. **Global keyboard shortcut registry** ✅
@@ -221,7 +221,7 @@ value is purely UX.
      + recorder (`comboFromEvent`) and `formatCombo` (⌘/Ctrl-aware);
      Settings → System → **Keyboard shortcuts** UI (re-record + reset);
      the OS shell and command palette now consume registry combos
-     (Mod+Space opens Spotlight via `iora:spotlight-toggle`).
+     (Mod+Space opens Spotlight via `ora:spotlight-toggle`).
 
 **Dependencies:** none (uses existing window context, notification center).
 **Exit criteria:** Spotlight searches files+devices+containers; a download or
@@ -236,7 +236,7 @@ backup runs as a visible, resumable job; windows survive logout/login.
 - Profile model: personal desktop, app set, files (home dir per user), HA
   dashboards per user, shared family areas.
   - **Shipped (child profiles):** migration `043_user_profiles`
-    (`profile_type` + JSONB `restrictions` on `users`), `iora-shared::user_profiles`
+    (`profile_type` + JSONB `restrictions` on `users`), `rumahl-shared::user_profiles`
     types, `user_profiles_handler.rs` (`GET /api/admin/users` with profile
     fields, `PUT /api/admin/users/:id/profile`), profile fields attached to
     `/api/auth/verify`; `lib/userRestrictions.ts` filters dock, launcher and
@@ -256,7 +256,7 @@ backup runs as a visible, resumable job; windows survive logout/login.
   are browsable. Follow-up: shared family pages/dashboard.
 - Permission grants per user (migration 033 extension) + **runtime request
   dialogs** ("App X wants access to files" → allow/deny, like Android/iOS). ✅
-  - **Shipped:** migration `042_permission_requests`, `iora-shared::permission_requests`
+  - **Shipped:** migration `042_permission_requests`, `rumahl-shared::permission_requests`
     types, `permission_requests_handler.rs` (catalog / request with idempotency
     + already-granted 409 / list / respond → upserts grant into
     `user_os_permissions`), `PermissionRequestDialog.tsx` (polls pending,
@@ -289,7 +289,7 @@ backup runs as a visible, resumable job; windows survive logout/login.
     on_system_event` in their manifest.
 - Docs + examples for third-party apps. ✅
   - **Shipped:** full `ora.*` module reference + runnable example +
-    `on_system_event` hook docs in `docs/sdks/iora-sdk.md`; the energy
+    `on_system_event` hook docs in `docs/sdks/rumahl-sdk.md`; the energy
     optimizer plugin now exercises `ora.permissions.request`, `ora.jobs`,
     app secrets and `ora.system.reportEvent`; the weather runtime example
     uses jobs/permissions/system; all example-app manifests declare the
@@ -302,7 +302,7 @@ backup runs as a visible, resumable job; windows survive logout/login.
 - **Devices app:** registry for gaming PC, MacBook, NAS, TV, printer, …
   backends: WOL, SSH, SNMP, MQTT, Home Assistant, Tailscale, local agents
   (desktop agent for Win/macOS/Linux later).
-  - **Shipped:** migration `044_device_registry`, `iora-shared::devices`
+  - **Shipped:** migration `044_device_registry`, `rumahl-shared::devices`
     types, `device_handler.rs` (`/api/devices` CRUD + `/wake` sending a WOL
     magic packet to 255.255.255.255:9 with MAC validation), `OsDevicesApp`
     (`/devices`): curated devices with add/edit/remove + Wake buttons, plus
@@ -316,15 +316,15 @@ backup runs as a visible, resumable job; windows survive logout/login.
 - **Home Dashboard v2:** sections (time/weather/calendar/presence, storage,
   server state, downloads, smart home, music, recent files, cameras, energy)
   with **app-registered widgets** (`RegisterWidget` permission already exists).
-  - **Shipped (presence + system sections):** `ora_presence` widget
+  - **Shipped (presence + system sections):** `rumahl_presence` widget
     aggregates Home Assistant `person`/`device_tracker` entities ("X of Y
-    home") on the home row; four ORA-native dashboard widgets —
-    `ora_storage` (quota), `ora_system` (CPU/RAM/uptime), `ora_jobs`
-    (active jobs), `ora_recent_files` — added to the widget registry, the
+    home") on the home row; four rumahl-native dashboard widgets —
+    `rumahl_storage` (quota), `rumahl_system` (CPU/RAM/uptime), `rumahl_jobs`
+    (active jobs), `rumahl_recent_files` — added to the widget registry, the
     widget palette and the default home layout under a "System" section.
-    **ORA Home stays dependent on Home Assistant:** the smart-home widgets
+    **rumahl Home stays dependent on Home Assistant:** the smart-home widgets
     (weather, scenes, calendar, entities) remain the core; the system
-    widgets are purely additive ORA data.
+    widgets are purely additive rumahl data.
 
 ### Package 4 — Automation Engine ✅ implemented (Codex)
 
@@ -343,7 +343,7 @@ backup runs as a visible, resumable job; windows survive logout/login.
 > **Status:** in progress — Storage ✅ (Codex), Containers ✅; Network/System
 > apps exist; Logs/Services/Updates apps still open.
 
-> Turn ORA OS into a complete, safety-first NAS operating system while moving
+> Turn rumahl OS into a complete, safety-first NAS operating system while moving
 > the existing administration surfaces into standalone system apps.
 
 1. **Storage inventory and health**
@@ -356,7 +356,7 @@ backup runs as a visible, resumable job; windows survive logout/login.
      assemble, start, stop, expand, replace failed disks and monitor rebuilds.
    - RAID creation and recovery use the system-wide Job Manager so long-running
      initialization, reshape, scrub and rebuild operations remain visible.
-   - Degraded arrays stay accessible when safe; ORA explains the failure,
+   - Degraded arrays stay accessible when safe; rumahl explains the failure,
      identifies a suitable replacement and guides the repair workflow.
 3. **Pools, filesystems and data integrity**
    - Storage pools and volumes on ext4, XFS and Btrfs; optional ZFS integration
@@ -375,14 +375,14 @@ backup runs as a visible, resumable job; windows survive logout/login.
 5. **Backup, snapshots and replication**
    - Snapshot policies are not treated as backups: the UI distinguishes local
      rollback, external backup and off-device replication.
-   - Backup targets include USB disks, another ORA/NAS system and permissioned
+   - Backup targets include USB disks, another rumahl/NAS system and permissioned
      remote targets; restore workflows verify data before replacing live data.
 6. **Native system apps** ✅
    - System Monitor ✅ (`os-system`), Storage ✅ (`os-storage`, Codex),
      Containers ✅ (`os-containers`), Network ✅ (`os-network`), Backup/Updates
      ✅ (`os-maintenance`), Logs ✅ (`os-logs` — user-level source viewer via
      `GET /api/os/logs/*`, `os.system.read`), Services ✅ (`os-services` —
-     systemd list + start/stop/restart via iora-control, new `os.services`
+     systemd list + start/stop/restart via rumahl-control, new `os.services`
      permission). The Admin Center keeps an administrative view of the same
      APIs instead of separate implementations.
 
@@ -390,7 +390,7 @@ backup runs as a visible, resumable job; windows survive logout/login.
 source disks, affected arrays/volumes, data-loss impact and generated command
 plan before execution. They require an explicit typed confirmation and fresh
 admin authorization; they cannot be initiated autonomously by AI, apps or
-background automations. ORA never formats a mounted disk, never silently
+background automations. rumahl never formats a mounted disk, never silently
 reuses a disk with signatures and never marks a rebuild complete before the
 kernel reports a healthy array.
 
@@ -398,7 +398,7 @@ kernel reports a healthy array.
 permission model for shares. Basic local RAID management can ship before
 Package 1, but multi-user NAS sharing cannot.
 
-**Exit criteria:** ORA can create and monitor a RAID1 array, detect and report a
+**Exit criteria:** rumahl can create and monitor a RAID1 array, detect and report a
 degraded member, guide a disk replacement and rebuild, schedule a scrub,
 create an authenticated SMB share, and restore a verified backup without
 requiring SSH or direct configuration-file edits.
@@ -412,13 +412,13 @@ requiring SSH or direct configuration-file edits.
   Recipes, Shopping List, Documents, Password Manager, Home Assistant,
   Camera Viewer, Downloads, Torrent Client, Printer Manager, Scanner,
   Family Dashboard, Shared Calendar, Shared Storage.
-  - **Reference app ✅ (`apps/examples/apps/ora-notes`):** installable Notes
+  - **Reference app ✅ (`apps/examples/apps/rumahl-notes`):** installable Notes
     app (own Docker container + web UI) demonstrating the App Framework:
     notes persisted via App Storage KV (`/api/apps/:id/storage/kv/notes`),
     custom launcher page, supervisor health check, app token auth. This is
     the template for further lifestyle apps.
 - **Per-user Downloads folder ✅** — `GET /api/files/system-folder`
-  (iora-files) finds or creates the personal Downloads/Documents/Photos/
+  (rumahl-files) finds or creates the personal Downloads/Documents/Photos/
   Videos folders per user (legacy localized names are reused via aliases);
   the Files sidebar shows them with i18n labels and guarantees their
   existence on app open. This folder is the anchor for the download manager.
@@ -431,7 +431,7 @@ requiring SSH or direct configuration-file edits.
 - **Media Hub ✅** — `GET /api/media/hub` probes Jellyfin (8096) and Plex
   (32400) or configured URLs; `GET /api/media/continue-watching` returns
   Jellyfin resume items (API key + user id config, stored redacted in
-  `media.servers`); the `ora_media` Home widget shows continue-watching with
+  `media.servers`); the `rumahl_media` Home widget shows continue-watching with
   progress bars + detected server chips; Settings → System → **Media Hub**
   configures the connections.
   - **Polish ✅:** **Plex continue-watching** via `/library/onDeck`
@@ -451,7 +451,7 @@ requiring SSH or direct configuration-file edits.
     (`/etc/wireguard` interfaces); Settings → System → **Remote access**
     shows the tunnel state.
   - **Shipped (external links ✅):** public `GET /share/{token}` route in
-    iora-home (maps to iora-files, no auth — token is the credential);
+    rumahl-home (maps to rumahl-files, no auth — token is the credential);
     the Files selection bar offers **"Create external link"** — builds a
     72 h share and copies a URL that prefers the tailnet IP when Tailscale
     is online, then the local host. **External base URL (domain/TLS)** is
@@ -466,7 +466,7 @@ requiring SSH or direct configuration-file edits.
 > AI system ops still open.
 
 - Unified Control Center: Wi-Fi, Bluetooth, VPN, dark mode, audio, displays,
-  focus, home + server load, downloads, playing media, notifications, ORA
+  focus, home + server load, downloads, playing media, notifications, rumahl
   Assistant.
   - **Shipped (basics):** the shell quick-settings popover now shows
     **now playing** (Home Assistant media players with play/pause), **active
@@ -474,7 +474,7 @@ requiring SSH or direct configuration-file edits.
     existing server load (CPU/RAM/uptime), sleep/lock and power actions.
 
 - Unified Control Center: Wi-Fi, Bluetooth, VPN, dark mode, audio, displays,
-  focus, home + server load, downloads, playing media, notifications, ORA
+  focus, home + server load, downloads, playing media, notifications, rumahl
   Assistant.
 - AI ops ("why is my NAS slow?" → CPU/disks/network/logs analysis;
   "install Immich with 500 GB" → storage+container+proxy+permissions).
@@ -505,7 +505,7 @@ requiring SSH or direct configuration-file edits.
 ### Deferred backlog
 
 - Virtual desktops / workspaces (after snap layouts prove out).
-- ORA agent binaries for Win/macOS/Linux (blocked on Package 7 protocol).
+- rumahl agent binaries for Win/macOS/Linux (blocked on Package 7 protocol).
 
 ---
 
@@ -518,17 +518,17 @@ requiring SSH or direct configuration-file edits.
 3. **Permissions are the trust boundary.** New OS capabilities ship with a
    permission (see `permissions.rs`), runtime request dialogs in Package 1.
 4. **Migrations are append-only.** New schema via new numbered files in
-   `iora-home/migrations/` (current: `033`).
+   `rumahl-home/migrations/` (current: `033`).
 5. **i18n**: every new UI string ships with `en.json` + `de.json`.
 6. **No emojis in UI**; Phosphor/Lucide icons only.
-7. **Maintain the 12k-line guard:** `iora-home/src/main.rs` is never read or
+7. **Maintain the 12k-line guard:** `rumahl-home/src/main.rs` is never read or
    rewritten wholesale — routes are added via targeted edits.
 
 ---
 
 ## 6. How to contribute / track
 
-- Kanban tasks for ORA use `--workspace worktree:wt/<task-name>`, branches
+- Kanban tasks for rumahl use `--workspace worktree:wt/<task-name>`, branches
   `feat/<task-name>`, push + PR on completion.
 - Each package gets a dedicated branch and its own docs page once shipped.
 - Update this roadmap (and `docs/docs-config.json` + `frontend/public/docs/`)

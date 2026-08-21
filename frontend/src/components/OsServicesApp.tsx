@@ -83,7 +83,7 @@ export function OsServicesApp() {
   const failedCount = services.filter((service) => service.active === 'failed').length
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
       <OsAppNavbar
         pageId="os-services"
         title={t('os.apps.services.name')}
@@ -91,13 +91,13 @@ export function OsServicesApp() {
         icon={<GearSix size={24} weight="duotone" />}
         accent="oklch(0.65 0.15 220)"
         search={
-          <label className="ora-toolbar-search">
+          <label className="rumahl-toolbar-search">
             <MagnifyingGlass size={17} />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('servicesApp.search')} />
           </label>
         }
         trailing={
-          <button type="button" onClick={() => void load()} disabled={loading} className="ora-icon-button" title={t('servicesApp.refresh')}>
+          <button type="button" onClick={() => void load()} disabled={loading} className="rumahl-icon-button" title={t('servicesApp.refresh')}>
             <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
           </button>
         }
@@ -127,7 +127,7 @@ export function OsServicesApp() {
         {filtered.map((service) => {
           const running = isRunning(service)
           return (
-            <article key={service.name} className={`ora-card rounded-2xl p-4 ${running ? 'border-emerald-400/10' : ''}`}>
+            <article key={service.name} className={`rumahl-card rounded-2xl p-4 ${running ? 'border-emerald-400/10' : ''}`}>
               <div className="flex flex-wrap items-center gap-3">
                 <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusBadge(service)}`}>
                   {t(`servicesApp.state.${service.active}`)}
@@ -138,16 +138,16 @@ export function OsServicesApp() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {!running && service.active !== 'failed' && (
-                    <button type="button" disabled={working === service.name} onClick={() => void runAction(service, 'start')} className="ora-primary-button !py-2">
+                    <button type="button" disabled={working === service.name} onClick={() => void runAction(service, 'start')} className="rumahl-primary-button !py-2">
                       <Play size={14} />{t('servicesApp.start')}
                     </button>
                   )}
                   {running && (
-                    <button type="button" disabled={working === service.name} onClick={() => void runAction(service, 'stop')} className="ora-secondary-button !py-2">
+                    <button type="button" disabled={working === service.name} onClick={() => void runAction(service, 'stop')} className="rumahl-secondary-button !py-2">
                       <Square size={13} />{t('servicesApp.stop')}
                     </button>
                   )}
-                  <button type="button" disabled={working === service.name} onClick={() => void runAction(service, 'restart')} className="ora-secondary-button !py-2">
+                  <button type="button" disabled={working === service.name} onClick={() => void runAction(service, 'restart')} className="rumahl-secondary-button !py-2">
                     <ArrowClockwise size={14} />{t('servicesApp.restart')}
                   </button>
                   {working === service.name && <CircleNotch size={14} className="animate-spin text-foreground/40" />}
@@ -164,5 +164,5 @@ export function OsServicesApp() {
 }
 
 function Summary({ icon: Icon, label, value, warning = false }: { icon: typeof Power; label: string; value: string; warning?: boolean }) {
-  return <div className="ora-card rounded-2xl p-4"><Icon size={20} className={warning ? 'text-red-400' : 'text-accent'} /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="rumahl-card rounded-2xl p-4"><Icon size={20} className={warning ? 'text-red-400' : 'text-accent'} /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }

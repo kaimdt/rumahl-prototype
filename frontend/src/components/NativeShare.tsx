@@ -329,7 +329,7 @@ export function NativeShare() {
                   <button
                     onClick={() => {
                       if (navigator.share) {
-                        navigator.share({ title: 'ORA Share', text: 'Dateien teilen', url: shareUrl! }).catch(() => {})
+                        navigator.share({ title: 'rumahl Share', text: 'Dateien teilen', url: shareUrl! }).catch(() => {})
                       } else {
                         copyShareUrl()
                       }
@@ -433,7 +433,7 @@ export function NativeShare() {
                 <div className="text-[10px] text-foreground/35 leading-relaxed">
                   <p className="font-medium mb-1">So funktioniert's:</p>
                   <ol className="list-decimal pl-3 space-y-0.5">
-                    <li>Auf dem anderen Gerät ORA Share öffnen und Dateien auswählen</li>
+                    <li>Auf dem anderen Gerät rumahl Share öffnen und Dateien auswählen</li>
                     <li>Dort auf "Teilen starten" klicken</li>
                     <li>Den angezeigten Link oder Token hier eingeben</li>
                     <li>Dateien werden direkt über das lokale Netzwerk übertragen</li>

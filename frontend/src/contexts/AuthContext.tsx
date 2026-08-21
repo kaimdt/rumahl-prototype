@@ -72,13 +72,13 @@ function readPersistedToken(): string | null {
 
 function writePersistedToken(token: string | null, refreshToken?: string) {
   if (!token) {
-    deleteCookie('iora_token')
+    deleteCookie('rumahl_token')
     clearAuthSession()
     return
   }
   if (refreshToken) persistAuthSession(token, refreshToken)
   // Keep the legacy cookie in sync for embedded clients.
-  setCookie('iora_token', token, 30)
+  setCookie('rumahl_token', token, 30)
 }
 
 const apiBase = () => getBackendUrl() || ''
@@ -99,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         // Refresh before the first protected request. This also restores a
-        // session after iora-home restarts with a newly loaded JWT secret.
+        // session after rumahl-home restarts with a newly loaded JWT secret.
         const restoredToken = sessionRestoreAttempted.current ? null : await refreshAccessToken()
         sessionRestoreAttempted.current = true
         const activeToken = restoredToken || token
@@ -160,8 +160,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const refreshed = (event as CustomEvent<{ token?: unknown }>).detail?.token
       if (typeof refreshed === 'string') setToken(refreshed)
     }
-    window.addEventListener('iora:auth-token-refreshed', onTokenRefreshed)
-    return () => window.removeEventListener('iora:auth-token-refreshed', onTokenRefreshed)
+    window.addEventListener('rumahl:auth-token-refreshed', onTokenRefreshed)
+    return () => window.removeEventListener('rumahl:auth-token-refreshed', onTokenRefreshed)
   }, [])
 
   // Keep the one-hour access JWT fresh while the dashboard stays open. The
@@ -309,7 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ preference_key: 'iora-os-session-locked', preference_value: false }),
+        body: JSON.stringify({ preference_key: 'rumahl-os-session-locked', preference_value: false }),
       }).catch(() => {})
     }
     writePersistedToken(null)
@@ -318,8 +318,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('ha-username')
     // Reset the OS session lock so a fresh login never opens straight into
     // the lock screen (the lock must not survive a logout/login cycle).
-    localStorage.removeItem('iora-os-session-locked')
-    localStorage.removeItem('iora-os-last-activity')
+    localStorage.removeItem('rumahl-os-session-locked')
+    localStorage.removeItem('rumahl-os-last-activity')
     // Drop the authenticated WS session so the server clears identity
     wsReconnect()
   }, [user])
@@ -336,8 +336,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout()
       }
     }
-    window.addEventListener('iora:auth-unauthorized', onUnauthorized)
-    return () => window.removeEventListener('iora:auth-unauthorized', onUnauthorized)
+    window.addEventListener('rumahl:auth-unauthorized', onUnauthorized)
+    return () => window.removeEventListener('rumahl:auth-unauthorized', onUnauthorized)
   }, [user, logout])
 
   const contextValue = useMemo(() => ({

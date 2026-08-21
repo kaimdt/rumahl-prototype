@@ -64,7 +64,7 @@ export function SetupWizardOverlay({ children }: { children: React.ReactNode }) 
             <Wrench size={32} className="text-accent" weight="fill" />
           </div>
 
-          <h1 className="text-xl font-semibold text-center mb-2">IORA OS Ersteinrichtung</h1>
+          <h1 className="text-xl font-semibold text-center mb-2">rumahl OS Ersteinrichtung</h1>
           <p className="text-sm text-foreground/60 text-center mb-6">
             Das System wurde gestartet, aber die Ersteinrichtung wurde noch nicht abgeschlossen.
             Bitte öffne den Setup-Assistenten, um die Konfiguration abzuschließen.
@@ -135,7 +135,7 @@ export function SetupWizardOverlay({ children }: { children: React.ReactNode }) 
           )}
 
           <p className="text-[10px] text-foreground/30 text-center mt-6">
-            IORA OS v{typeof APP_VERSION !== 'undefined' ? APP_VERSION : '?'}
+            rumahl OS v{typeof APP_VERSION !== 'undefined' ? APP_VERSION : '?'}
           </p>
         </div>
       </div>

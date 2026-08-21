@@ -73,14 +73,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       .then(({ listen }) => {
         const promise = listen<NetworkProfile>('network-profile-changed', (event) => {
           const profile = event.payload
-          if (profile?.iora_home_url) {
+          if (profile?.rumahl_home_url) {
             console.log(
               '[ConnectionContext] Network profile changed:',
               profile.name,
               '→',
-              profile.iora_home_url
+              profile.rumahl_home_url
             )
-            setApiBase(profile.iora_home_url)
+            setApiBase(profile.rumahl_home_url)
             // Re-check connection against the new URL
             checkBackend()
           }

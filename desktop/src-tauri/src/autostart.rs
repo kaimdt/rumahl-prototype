@@ -44,7 +44,7 @@ pub async fn set_autostart(state: State<'_, AppState>, enabled: bool) -> Result<
         std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
     let exe_path_str = exe_path.to_string_lossy().to_string();
 
-    configure_autostart("IORA Desktop", &exe_path_str, enabled)
+    configure_autostart("rumahl Desktop", &exe_path_str, enabled)
         .map_err(|e| format!("Failed to configure autostart: {}", e))?;
 
     cfg.autostart_enabled = enabled;
@@ -60,7 +60,7 @@ pub async fn get_autostart_status() -> Result<bool, String> {
         std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
     let exe_path_str = exe_path.to_string_lossy().to_string();
 
-    is_autostart_enabled("IORA Desktop", &exe_path_str)
+    is_autostart_enabled("rumahl Desktop", &exe_path_str)
         .map_err(|e| format!("Failed to check autostart status: {}", e))
 }
 

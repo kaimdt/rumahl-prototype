@@ -336,7 +336,7 @@ export function StreamSender() {
             <div>
               <h1 className="text-xl font-bold text-foreground">Streaming</h1>
               <p className="text-sm text-foreground/50 mt-1">
-                Kamera, Mikrofon oder Bildschirm live über IORA streamen
+                Kamera, Mikrofon oder Bildschirm live über rumahl streamen
               </p>
             </div>
           </div>

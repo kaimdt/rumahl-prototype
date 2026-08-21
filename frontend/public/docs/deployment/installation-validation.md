@@ -1,19 +1,19 @@
-# IORA Installation Validation Guide
+# rumahl Installation Validation Guide
 
-This document ensures both IORA installation methods work securely and that IORA functions properly with minimal services.
+This document ensures both rumahl installation methods work securely and that rumahl functions properly with minimal services.
 
 ## Installation Methods
 
-IORA supports two primary installation methods:
+rumahl supports two primary installation methods:
 
-1. **IORA OS** - Custom Linux operating system (**RECOMMENDED** for production)
+1. **rumahl OS** - Custom Linux operating system (**RECOMMENDED** for production)
 2. **Docker Compose** - Containerized deployment on any Docker-compatible system
 
 ### Key Differences
 
-| Feature | IORA OS | Docker Compose |
+| Feature | rumahl OS | Docker Compose |
 |---------|---------|----------------|
-| **iora-supervisor** | ✅ Included (automatic container management) | ❌ Not available (manual management) |
+| **rumahl-supervisor** | ✅ Included (automatic container management) | ❌ Not available (manual management) |
 | **AppArmor profiles** | ✅ Built-in security | ⚠️ Requires manual setup |
 | **RAUC updates** | ✅ Atomic updates with rollback | ❌ Manual updates |
 | **System integration** | ✅ Optimized OS | ⚠️ Depends on host OS |
@@ -21,42 +21,42 @@ IORA supports two primary installation methods:
 | **Ease of updates** | ✅ One-click updates | ⚠️ Manual docker compose pull |
 | **Resource usage** | ✅ Minimal OS footprint | ⚠️ Depends on host OS |
 
-**Recommendation**: Use **IORA OS** for production deployments. Use Docker Compose for development or testing.
+**Recommendation**: Use **rumahl OS** for production deployments. Use Docker Compose for development or testing.
 
 ## Minimal Service Requirements
 
 ### Critical Services (REQUIRED)
 
-These services are essential for basic IORA functionality:
+These services are essential for basic rumahl functionality:
 
 | Service | Port | Purpose | Can be Disabled? |
 |---------|------|---------|------------------|
-| `postgres` | 5432 | Database for all IORA data | ❌ No |
-| `iora-core` | 8090 | Central orchestrator and API | ❌ No |
-| `iora-secrets` | 8093 | Encrypted secrets storage | ❌ No |
-| `iora-home` | 8080 | Smart home server and UI | ❌ No |
+| `postgres` | 5432 | Database for all rumahl data | ❌ No |
+| `rumahl-core` | 8090 | Central orchestrator and API | ❌ No |
+| `rumahl-secrets` | 8093 | Encrypted secrets storage | ❌ No |
+| `rumahl-home` | 8080 | Smart home server and UI | ❌ No |
 
-**Minimum viable configuration**: 4 services (postgres + iora-core + iora-secrets + iora-home)
+**Minimum viable configuration**: 4 services (postgres + rumahl-core + rumahl-secrets + rumahl-home)
 
 ### Optional Services
 
 These services provide additional functionality but are not required for basic operation:
 
-| Service | Port | Purpose | Can be Disabled? | IORA OS Only? |
+| Service | Port | Purpose | Can be Disabled? | rumahl OS Only? |
 |---------|------|---------|------------------|---------------|
-| `iora-supervisor` | 8097 | Docker container orchestration | ✅ Yes | ✅ **Yes** (requires privileged Docker access) |
-| `iora-security` | 8095 | Security monitoring and threat detection | ✅ Yes (reduces security features) | ❌ No |
-| `iora-watchdog` | 8094 | Health monitoring and alerting | ✅ Yes (reduces monitoring) | ❌ No |
-| `iora-gateway` | 8096 | External integrations (email, webhooks) | ✅ Yes (disables external notifications) | ❌ No |
-| `iora-control` | 8091 | Admin panel for system management | ✅ Yes (use iora-home for basic admin) | ❌ No |
-| `iora-assist` | 8092 | AI assistant | ✅ Yes (disables AI features) | ❌ No |
-| `iora-appstore` | 8098 | App marketplace and management | ✅ Yes (limited without supervisor) | ❌ No |
+| `rumahl-supervisor` | 8097 | Docker container orchestration | ✅ Yes | ✅ **Yes** (requires privileged Docker access) |
+| `rumahl-security` | 8095 | Security monitoring and threat detection | ✅ Yes (reduces security features) | ❌ No |
+| `rumahl-watchdog` | 8094 | Health monitoring and alerting | ✅ Yes (reduces monitoring) | ❌ No |
+| `rumahl-gateway` | 8096 | External integrations (email, webhooks) | ✅ Yes (disables external notifications) | ❌ No |
+| `rumahl-control` | 8091 | Admin panel for system management | ✅ Yes (use rumahl-home for basic admin) | ❌ No |
+| `rumahl-assist` | 8092 | AI assistant | ✅ Yes (disables AI features) | ❌ No |
+| `rumahl-appstore` | 8098 | App marketplace and management | ✅ Yes (limited without supervisor) | ❌ No |
 
-**Important**: `iora-supervisor` is **ONLY** available on IORA OS as it requires privileged access to the Docker socket. On Docker Compose installations, containers must be managed manually via `docker compose` commands.
+**Important**: `rumahl-supervisor` is **ONLY** available on rumahl OS as it requires privileged access to the Docker socket. On Docker Compose installations, containers must be managed manually via `docker compose` commands.
 
 ## Installation Method 1: Docker Compose
 
-**Note**: This method does NOT include `iora-supervisor`. Container management must be done manually using `docker compose` commands. For automatic container management, use **IORA OS**.
+**Note**: This method does NOT include `rumahl-supervisor`. Container management must be done manually using `docker compose` commands. For automatic container management, use **rumahl OS**.
 
 ### Full Stack Installation
 
@@ -70,8 +70,8 @@ These services provide additional functionality but are not required for basic o
 
 1. **Clone repository**
    ```bash
-   git clone https://github.com/your-org/iora.git
-   cd iora
+   git clone https://github.com/your-org/ora.git
+   cd ora
    ```
 
 2. **Configure environment**
@@ -105,14 +105,14 @@ These services provide additional functionality but are not required for basic o
    ./scripts/healthcheck.sh
    ```
 
-5. **Access IORA**
-   - IORA Home: http://iora.local:8080
-   - IORA Control: http://iora.local:8091
+5. **Access rumahl**
+   - rumahl Home: http://rumahl.local:8080
+   - rumahl Control: http://rumahl.local:8091
 
 **Expected behavior:**
 - ✅ All containers start without errors
 - ✅ Health checks pass within 30 seconds
-- ✅ IORA Home UI accessible on port 8080
+- ✅ rumahl Home UI accessible on port 8080
 - ✅ Can register new user and log in
 - ✅ Home Assistant entities visible (if configured)
 
@@ -126,9 +126,9 @@ docker compose -f docker-compose.minimal.yml up -d
 
 This starts only critical services:
 - postgres
-- iora-core
-- iora-secrets
-- iora-home
+- rumahl-core
+- rumahl-secrets
+- rumahl-home
 
 **Resource usage (minimal):**
 - RAM: ~500MB
@@ -137,7 +137,7 @@ This starts only critical services:
 
 **Limitations:**
 - No supervisor (manual Docker management required via `docker compose` commands)
-- No automatic app installation (iora-appstore has limited functionality without supervisor)
+- No automatic app installation (rumahl-appstore has limited functionality without supervisor)
 - No security monitoring
 - No health monitoring
 - No external integrations
@@ -149,7 +149,7 @@ This starts only critical services:
 - Restart: `docker compose -f docker-compose.minimal.yml restart`
 - View logs: `docker compose -f docker-compose.minimal.yml logs`
 
-## Installation Method 2: IORA OS
+## Installation Method 2: rumahl OS
 
 ### Prerequisites
 
@@ -160,14 +160,14 @@ This starts only critical services:
 
 ### Installation Steps
 
-1. **Download IORA OS image**
+1. **Download rumahl OS image**
    ```bash
-   wget https://releases.iora.io/iora-os-latest.img.xz
+   wget https://releases.ora.io/rumahl-os-latest.img.xz
    ```
 
 2. **Flash to USB/SD card**
    ```bash
-   xzcat iora-os-latest.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+   xzcat rumahl-os-latest.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
    sync
    ```
 
@@ -183,39 +183,39 @@ This starts only critical services:
    - Set root password
 
 5. **First boot**
-   - System boots into IORA OS
+   - System boots into rumahl OS
    - Docker starts automatically
-   - **iora-supervisor launches all services automatically**
+   - **rumahl-supervisor launches all services automatically**
    - Wait 2-3 minutes for all containers to start
 
 6. **Verify installation**
    ```bash
-   ssh root@iora-os-device
-   /usr/bin/iora-healthcheck
+   ssh root@rumahl-os-device
+   /usr/bin/rumahl-healthcheck
    ```
 
-7. **Access IORA**
-   - IORA Home: http://[device-ip]:8080
-   - IORA Control: http://[device-ip]:8091
-   - **IORA Supervisor**: http://[device-ip]:8097
+7. **Access rumahl**
+   - rumahl Home: http://[device-ip]:8080
+   - rumahl Control: http://[device-ip]:8091
+   - **rumahl Supervisor**: http://[device-ip]:8097
 
 **Expected behavior:**
 - ✅ System boots within 30 seconds
 - ✅ Docker starts automatically
-- ✅ **iora-supervisor starts and manages all containers**
+- ✅ **rumahl-supervisor starts and manages all containers**
 - ✅ All containers launch within 2 minutes
 - ✅ Health checks pass
-- ✅ IORA Home accessible via network
+- ✅ rumahl Home accessible via network
 - ✅ Can register and login
 - ✅ **Apps can be installed via App Store**
 
-### IORA OS Minimal Mode
+### rumahl OS Minimal Mode
 
-IORA OS can be configured to run only critical services to reduce resource usage:
+rumahl OS can be configured to run only critical services to reduce resource usage:
 
 1. **Edit supervisor configuration**
    ```bash
-   nano /etc/iora/supervisor.conf
+   nano /etc/ora/supervisor.conf
    ```
 
 2. **Disable optional services**
@@ -231,7 +231,7 @@ IORA OS can be configured to run only critical services to reduce resource usage
 
 3. **Restart supervisor**
    ```bash
-   systemctl restart iora-supervisor
+   systemctl restart rumahl-supervisor
    ```
 
 ## Validation Checklist
@@ -249,28 +249,28 @@ IORA OS can be configured to run only critical services to reduce resource usage
 
 #### Critical Services
 - [ ] PostgreSQL running and healthy
-- [ ] iora-core running and responding on port 8090
-- [ ] iora-secrets running and responding on port 8093
-- [ ] iora-home running and responding on port 8080
-- [ ] Can access IORA Home UI
+- [ ] rumahl-core running and responding on port 8090
+- [ ] rumahl-secrets running and responding on port 8093
+- [ ] rumahl-home running and responding on port 8080
+- [ ] Can access rumahl Home UI
 - [ ] Can register new user
 - [ ] Can log in with credentials
 - [ ] Database tables created successfully
 
 #### Optional Services (if enabled)
-- [ ] iora-supervisor accessible on port 8097
-- [ ] iora-security accessible on port 8095
-- [ ] iora-watchdog accessible on port 8094
-- [ ] iora-gateway accessible on port 8096
-- [ ] iora-control accessible on port 8091
-- [ ] iora-assist accessible on port 8092
-- [ ] iora-appstore accessible on port 8098
+- [ ] rumahl-supervisor accessible on port 8097
+- [ ] rumahl-security accessible on port 8095
+- [ ] rumahl-watchdog accessible on port 8094
+- [ ] rumahl-gateway accessible on port 8096
+- [ ] rumahl-control accessible on port 8091
+- [ ] rumahl-assist accessible on port 8092
+- [ ] rumahl-appstore accessible on port 8098
 
 #### Security Validation
 - [ ] Default passwords changed
 - [ ] JWT secret is unique (not default)
 - [ ] Secrets master key is unique (not default)
-- [ ] AppArmor profiles loaded (IORA OS only)
+- [ ] AppArmor profiles loaded (rumahl OS only)
 - [ ] Containers running as non-root user
 - [ ] Database credentials secure
 
@@ -321,7 +321,7 @@ docker compose up -d
 docker compose logs postgres
 
 # Verify databases
-docker compose exec postgres psql -U iora -l
+docker compose exec postgres psql -U ora -l
 ```
 
 **Problem: Port conflicts**
@@ -335,7 +335,7 @@ nano .env
 # Modify HOME_PORT, CORE_PORT, etc.
 ```
 
-### IORA OS Installation Issues
+### rumahl OS Installation Issues
 
 **Problem: Installer doesn't boot**
 - Verify image was written correctly
@@ -355,13 +355,13 @@ nano .env
 systemctl status docker
 
 # Check supervisor status
-systemctl status iora-supervisor
+systemctl status rumahl-supervisor
 
 # View supervisor logs
-journalctl -u iora-supervisor -f
+journalctl -u rumahl-supervisor -f
 
 # Manually start services
-docker compose -f /etc/iora/docker-compose.yml up -d
+docker compose -f /etc/ora/docker-compose.yml up -d
 ```
 
 ## Performance Benchmarks
@@ -397,7 +397,7 @@ docker compose -f /etc/iora/docker-compose.yml up -d
    # Docker Compose: edit .env
    nano .env
 
-   # IORA OS: change root password
+   # rumahl OS: change root password
    passwd
    ```
 
@@ -411,7 +411,7 @@ docker compose -f /etc/iora/docker-compose.yml up -d
 3. **Restrict network access**
    ```bash
    # Firewall rules
-   ufw allow 8080/tcp  # IORA Home
+   ufw allow 8080/tcp  # rumahl Home
    ufw enable
    ```
 
@@ -421,7 +421,7 @@ docker compose -f /etc/iora/docker-compose.yml up -d
    docker compose pull
    docker compose up -d
 
-   # IORA OS
+   # rumahl OS
    rauc install /path/to/update.raucb
    reboot
    ```
@@ -431,7 +431,7 @@ docker compose -f /etc/iora/docker-compose.yml up -d
    # Docker Compose
    docker compose logs -f
 
-   # IORA OS
+   # rumahl OS
    journalctl -f
    ```
 
@@ -443,15 +443,15 @@ If you encounter issues not covered in this guide:
 2. Run health check: `./scripts/healthcheck.sh`
 3. Verify environment variables in `.env`
 4. Consult [ARCHITECTURE.md](ARCHITECTURE.md) for system details
-5. Check [DOCKER_AND_IORA_OS.md](DOCKER_AND_IORA_OS.md) for detailed setup
+5. Check [DOCKER_AND_RUMAHL_OS.md](DOCKER_AND_RUMAHL_OS.md) for detailed setup
 
 ## Conclusion
 
 Both installation methods are designed to work reliably with minimal configuration. The minimal service configuration (4 services) provides a fully functional smart home system with reduced resource requirements, while the full configuration adds monitoring, security features, and AI capabilities.
 
 **Key takeaways:**
-- ✅ IORA works with just 4 critical services
-- ✅ Both Docker Compose and IORA OS methods are validated
+- ✅ rumahl works with just 4 critical services
+- ✅ Both Docker Compose and rumahl OS methods are validated
 - ✅ Automated health checks ensure system integrity
 - ✅ Security best practices are documented
 - ✅ Clear troubleshooting steps provided

@@ -1,7 +1,7 @@
 /**
- * Centralized API base URL for IORA Desktop.
+ * Centralized API base URL for rumahl Desktop.
  *
- * In the Tauri desktop app the user can configure a remote IORA Home URL
+ * In the Tauri desktop app the user can configure a remote rumahl Home URL
  * (e.g. https://home.example.com) which is persisted in the Tauri config
  * and mirrored to localStorage for quick synchronous reads.
  *
@@ -9,7 +9,7 @@
  * instead of reading VITE_BACKEND_URL directly.
  */
 
-const STORAGE_KEY = 'iora-home-url'
+const STORAGE_KEY = 'rumahl-home-url'
 const DEV_DEFAULT_API_BASE = import.meta.env.DEV ? 'http://localhost:3001' : ''
 
 /** Internal mutable state – only mutated through setApiBase / initApiBase */
@@ -33,7 +33,7 @@ export function setApiBase(url: string) {
     localStorage.removeItem(STORAGE_KEY)
   }
   // Dispatch a custom event so the WebSocket layer can reconnect
-  window.dispatchEvent(new CustomEvent('iora-api-base-changed', { detail: _apiBase }))
+  window.dispatchEvent(new CustomEvent('rumahl-api-base-changed', { detail: _apiBase }))
 }
 
 /**
@@ -43,9 +43,9 @@ export function setApiBase(url: string) {
 export async function initApiBase(): Promise<string> {
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const config = await invoke<{ iora_home_url: string }>('get_config')
-    if (config?.iora_home_url) {
-      setApiBase(config.iora_home_url)
+    const config = await invoke<{ rumahl_home_url: string }>('get_config')
+    if (config?.rumahl_home_url) {
+      setApiBase(config.rumahl_home_url)
     }
   } catch {
     // Not in Tauri context – keep current value

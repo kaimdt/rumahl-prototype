@@ -1,6 +1,6 @@
 {
-  "name": "ORA OS",
-  "short_name": "ORA OS",
+  "name": "rumahl OS",
+  "short_name": "rumahl OS",
   "description": "Privates, vernetztes Smart-Home-Betriebssystem",
   "id": "/",
   "start_url": "/",
@@ -13,13 +13,13 @@
   "categories": ["lifestyle", "utilities", "productivity"],
   "icons": [
     {
-      "src": "/iora-icon.svg",
+      "src": "/rumahl-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/iora-icon.svg",
+      "src": "/rumahl-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
@@ -27,12 +27,12 @@
   ],
   "shortcuts": [
     {
-      "name": "ORA OS Homescreen",
-      "short_name": "ORA OS",
+      "name": "rumahl OS Homescreen",
+      "short_name": "rumahl OS",
       "url": "/"
     },
     {
-      "name": "ORA Home",
+      "name": "rumahl Home",
       "short_name": "Home",
       "url": "/home"
     },

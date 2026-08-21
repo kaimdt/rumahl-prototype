@@ -121,12 +121,12 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
   return (
     <>
       <div
-        className="ora-os-window"
+        className="rumahl-os-window"
         style={{ zIndex: window.z, left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}
         onPointerDown={() => focusWindow(window.pageId)}
       >
         <div
-          className={`ora-os-window-bar ${window.layout === 'window' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+          className={`rumahl-os-window-bar ${window.layout === 'window' ? 'cursor-grab active:cursor-grabbing' : ''}`}
           onPointerDown={onTitlePointerDown}
           onPointerMove={onTitlePointerMove}
           onPointerUp={onTitlePointerUp}
@@ -138,13 +138,13 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
           </span>
           <div className="flex shrink-0 items-center gap-0.5">
             {isFloating && (
-              <button type="button" className="ora-window-action" onPointerDown={(e) => e.stopPropagation()} onClick={() => minimizeWindow(window.pageId)} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}>
+              <button type="button" className="rumahl-window-action" onPointerDown={(e) => e.stopPropagation()} onClick={() => minimizeWindow(window.pageId)} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}>
                 <Minus size={14} />
               </button>
             )}
             <button
               type="button"
-              className="ora-window-action"
+              className="rumahl-window-action"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => (window.layout === 'maximized' ? snapWindow(window.pageId, 'window') : toggleMaximize(window.pageId))}
               aria-label={t('os.window.maximize')}
@@ -152,7 +152,7 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
             >
               <SquaresFour size={13} />
             </button>
-            <button type="button" className="ora-window-action hover:!bg-red-500/20 hover:!text-red-400" onPointerDown={(e) => e.stopPropagation()} onClick={() => closeWindow(window.pageId)} aria-label={t('os.window.close')} title={t('os.window.close')}>
+            <button type="button" className="rumahl-window-action hover:!bg-red-500/20 hover:!text-red-400" onPointerDown={(e) => e.stopPropagation()} onClick={() => closeWindow(window.pageId)} aria-label={t('os.window.close')} title={t('os.window.close')}>
               <X size={14} />
             </button>
           </div>

@@ -128,11 +128,11 @@ const ConfigurationContext = createContext<ConfigurationContextType | undefined>
 
 // Resolve the backend URL on every call, not once at module load. The
 // GlobalConfigProvider patches the value asynchronously, and in the
-// production IORA OS bundle the frontend is served from the same origin
+// production rumahl OS bundle the frontend is served from the same origin
 // as the backend — so an empty string (= relative URL) is the correct
 // default for every device the dashboard is opened from.
 const apiBase = () => getBackendUrl() || ''
-const BACKGROUND_CACHE_KEY = 'iora-active-background'
+const BACKGROUND_CACHE_KEY = 'rumahl-active-background'
 
 function readCachedBackground(): BackgroundConfig | null {
   try {

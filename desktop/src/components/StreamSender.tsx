@@ -516,7 +516,7 @@ export function StreamSender() {
               <Broadcast size={22} weight="duotone" className="text-accent" />
               Stream Sender
             </h3>
-            <p className="text-xs text-foreground/40 mt-1">Kamera & Mikrofon direkt über IORA streamen</p>
+            <p className="text-xs text-foreground/40 mt-1">Kamera & Mikrofon direkt über rumahl streamen</p>
           </div>
           <Tip content="Standalone Sender-Seite öffnen (z.B. für OBS)">
             <button

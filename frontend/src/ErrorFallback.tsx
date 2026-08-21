@@ -2,7 +2,7 @@ import { Button } from "./components/ui/button";
 import { Wrench, ArrowClockwise, House } from "@phosphor-icons/react";
 
 /**
- * IORA OS – Global Error Boundary Fallback
+ * rumahl OS – Global Error Boundary Fallback
  *
  * Zeigt einen sauberen Fehlerbildschirm an, wenn eine React-Komponente
  * unerwartet crasht. Enthält Infos für den Admin und Optionen zum
@@ -108,7 +108,7 @@ export const ErrorFallback = ({
 
           {/* Footer */}
           <p className="text-[10px] text-foreground/20 text-center mt-6">
-            IORA OS – Falls der Fehler wiederholt auftritt, prüfe die Logs im
+            rumahl OS – Falls der Fehler wiederholt auftritt, prüfe die Logs im
             Control Center
           </p>
         </div>

@@ -25,7 +25,7 @@ interface FolderEntry {
 }
 
 /**
- * OsImagesApp – a real photo-gallery app over IORA Files: folder navigation,
+ * OsImagesApp – a real photo-gallery app over rumahl Files: folder navigation,
  * an image grid, a lightbox with arrow-key navigation and zoom, plus "Open
  * with Bilder" for every image/* file type in the explorer.
  */
@@ -37,8 +37,8 @@ for (const ext of IMAGE_EXTENSIONS) {
     appName: 'Bilder',
     appIcon: '/icons/Images.png',
     open: (file) => {
-      window.dispatchEvent(new CustomEvent('iora:open-image', { detail: file }))
-      const navEvent = new CustomEvent('iora:navigate', { detail: { pageId: 'os-images' } })
+      window.dispatchEvent(new CustomEvent('rumahl:open-image', { detail: file }))
+      const navEvent = new CustomEvent('rumahl:navigate', { detail: { pageId: 'os-images' } })
       window.dispatchEvent(navEvent)
     },
   })
@@ -139,8 +139,8 @@ export function OsImagesApp() {
         })
       }
     }
-    window.addEventListener('iora:open-image', handler as EventListener)
-    return () => window.removeEventListener('iora:open-image', handler as EventListener)
+    window.addEventListener('rumahl:open-image', handler as EventListener)
+    return () => window.removeEventListener('rumahl:open-image', handler as EventListener)
   }, [])
 
   const sortedImages = useMemo(() => {
@@ -199,7 +199,7 @@ export function OsImagesApp() {
 
   return (
     <section
-      className="ora-app-frame mx-auto max-w-7xl overflow-hidden"
+      className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden"
       onDragOver={(event) => {
         if (readFileDragData(event.dataTransfer)) {
           event.preventDefault()
@@ -221,7 +221,7 @@ export function OsImagesApp() {
               <button
                 type="button"
                 onClick={() => setSortNewest((v) => !v)}
-                className="ora-secondary-button"
+                className="rumahl-secondary-button"
               >
                 {sortNewest ? t('os.apps.images.sortNewest') : t('os.apps.images.sortName')}
               </button>
@@ -232,7 +232,7 @@ export function OsImagesApp() {
       />
 
       {/* Breadcrumb navigation */}
-      <nav className="ora-breadcrumb" aria-label={t('os.apps.images.allPhotos')}>
+      <nav className="rumahl-breadcrumb" aria-label={t('os.apps.images.allPhotos')}>
         <button type="button" onClick={() => goToPathIndex(-1)} className={currentFolder.id === null ? 'text-accent' : ''}>
           <ImagesIcon size={16} weight="fill" />
           {t('os.apps.images.allPhotos')}

@@ -7,8 +7,8 @@ import { useClock } from '@/hooks/useClock'
 import { useLocalStorage, storage } from '@/lib/storage'
 import { DUR_SLOW, EASE_SOFT } from '@/lib/motion'
 
-const LOCKED_KEY = 'iora-os-session-locked'
-const LAST_ACTIVITY_KEY = 'iora-os-last-activity'
+const LOCKED_KEY = 'rumahl-os-session-locked'
+const LAST_ACTIVITY_KEY = 'rumahl-os-last-activity'
 
 export function OsSessionLock() {
   const { t, i18n } = useTranslation()
@@ -21,7 +21,7 @@ export function OsSessionLock() {
   const activityWriteRef = useRef(0)
   const now = useClock()
   // Per-user auto-lock timeout in minutes (0 = disabled).
-  const [autoLockMinutes] = useLocalStorage<number>('iora-auto-lock-minutes', 15)
+  const [autoLockMinutes] = useLocalStorage<number>('rumahl-auto-lock-minutes', 15)
   const autoLockMs = autoLockMinutes * 60 * 1000
 
   const lock = useCallback(() => {
@@ -33,8 +33,8 @@ export function OsSessionLock() {
 
   useEffect(() => {
     const handleLock = () => lock()
-    window.addEventListener('iora:lock-session', handleLock)
-    return () => window.removeEventListener('iora:lock-session', handleLock)
+    window.addEventListener('rumahl:lock-session', handleLock)
+    return () => window.removeEventListener('rumahl:lock-session', handleLock)
   }, [lock])
 
   useEffect(() => {
@@ -119,7 +119,7 @@ export function OsSessionLock() {
         <h1 className="text-xl font-semibold text-foreground">{user.displayName || user.username}</h1>
         <p className="mt-1 text-sm text-foreground/45">{t('os.lock.sessionLocked')}</p>
 
-        <label className="ora-auth-input mt-6 min-h-12">
+        <label className="rumahl-auth-input mt-6 min-h-12">
           {mode === 'pin' ? <Fingerprint size={20} /> : <Password size={20} />}
           <span className="sr-only">{mode === 'pin' ? t('os.lock.pin') : t('os.lock.password')}</span>
           <input

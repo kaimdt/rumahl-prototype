@@ -46,17 +46,17 @@ import { STORE_CATALOG } from '@/lib/storeCatalog'
 type BuiltInLauncher = 'default' | 'deck' | 'canvas'
 
 interface LauncherManifest {
-  type: 'iora-launcher'
+  type: 'rumahl-launcher'
   id: string
   name: string
   base: BuiltInLauncher
   accent?: string
 }
 
-const LAUNCHER_KEY = 'iora-os-launcher'
-const CUSTOM_LAUNCHERS_KEY = 'iora-os-custom-launchers'
-const LAUNCHER_WIDGETS_KEY = 'iora-os-launcher-widgets'
-const LAUNCHER_FOLDERS_KEY = 'iora-os-launcher-folders'
+const LAUNCHER_KEY = 'rumahl-os-launcher'
+const CUSTOM_LAUNCHERS_KEY = 'rumahl-os-custom-launchers'
+const LAUNCHER_WIDGETS_KEY = 'rumahl-os-launcher-widgets'
+const LAUNCHER_FOLDERS_KEY = 'rumahl-os-launcher-folders'
 
 
 function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'normal' | 'large' }) {
@@ -64,14 +64,14 @@ function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'norma
   const iconSize = size === 'large' ? 38 : 27
   return (
     <span
-      className={`ora-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${size === 'large' ? 'h-20 w-20 rounded-[1.7rem]' : 'h-14 w-14 rounded-2xl'} ${
+      className={`rumahl-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${size === 'large' ? 'h-20 w-20 rounded-[1.7rem]' : 'h-14 w-14 rounded-2xl'} ${
         app.iconUrl ? 'border-0 bg-transparent shadow-none' : 'border border-white/15 shadow-lg'
       }`}
       style={app.iconUrl
         ? { boxShadow: 'none' }
         : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
     >
-      {!app.iconUrl && <span className="ora-app-icon-highlight absolute inset-0" />}
+      {!app.iconUrl && <span className="rumahl-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
         <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-1" />
       ) : Icon ? (
@@ -133,13 +133,13 @@ export function OsHomeScreen() {
   // large lock-screen style clock (MacBook-like). Only on the first mount of
   // a session so returning to the launcher doesn't re-flash the greeting.
   const [greetingVisible, setGreetingVisible] = useState(
-    () => typeof window !== 'undefined' && window.sessionStorage.getItem('iora-launcher-greeted') !== 'true',
+    () => typeof window !== 'undefined' && window.sessionStorage.getItem('rumahl-launcher-greeted') !== 'true',
   )
   useEffect(() => {
     if (!greetingVisible) return
     const timer = window.setTimeout(() => {
       setGreetingVisible(false)
-      window.sessionStorage.setItem('iora-launcher-greeted', 'true')
+      window.sessionStorage.setItem('rumahl-launcher-greeted', 'true')
     }, 2500)
     return () => window.clearTimeout(timer)
   }, [greetingVisible])
@@ -179,10 +179,10 @@ export function OsHomeScreen() {
     return apps.filter((app) => (app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName).toLocaleLowerCase().includes(normalized))
   }, [apps, query, t])
 
-  const homeApp = apps.find((app) => app.id === 'iora-home')
+  const homeApp = apps.find((app) => app.id === 'rumahl-home')
   const [launcherLayout, setLauncherLayout] = useState<Array<{ id: string; kind: string }> | null>(() => {
     try {
-      const parsed = JSON.parse(localStorage.getItem('iora-launcher-layout') || 'null')
+      const parsed = JSON.parse(localStorage.getItem('rumahl-launcher-layout') || 'null')
       return Array.isArray(parsed) ? parsed : null
     } catch { return null }
   })
@@ -207,7 +207,7 @@ export function OsHomeScreen() {
   const persistLauncherLayout = (ordered: ReturnType<typeof buildLauncherItems>) => {
     const layout = ordered.map((item) => ({ id: item.type === 'app' ? item.app.id : item.folder.id, kind: item.type }))
     setLauncherLayout(layout)
-    try { localStorage.setItem('iora-launcher-layout', JSON.stringify(layout)) } catch { /* ignore */ }
+    try { localStorage.setItem('rumahl-launcher-layout', JSON.stringify(layout)) } catch { /* ignore */ }
   }
 
   const handleReorder = (fromId: string, toId: string) => {
@@ -244,12 +244,12 @@ export function OsHomeScreen() {
       }
     }
     const refresh = () => { void loadSettingsFromBackend() }
-    window.addEventListener('iora:settings-synced', applySyncedSettings)
+    window.addEventListener('rumahl:settings-synced', applySyncedSettings)
     window.addEventListener('focus', refresh)
     const timer = window.setInterval(refresh, 30_000)
     refresh()
     return () => {
-      window.removeEventListener('iora:settings-synced', applySyncedSettings)
+      window.removeEventListener('rumahl:settings-synced', applySyncedSettings)
       window.removeEventListener('focus', refresh)
       window.clearInterval(timer)
     }
@@ -310,12 +310,12 @@ export function OsHomeScreen() {
   const installLauncher = async (file: File) => {
     try {
       const manifest = JSON.parse(await file.text()) as LauncherManifest
-      if (manifest.type !== 'iora-launcher' || !manifest.id || !manifest.name || !['default', 'deck', 'canvas'].includes(manifest.base)) throw new Error('invalid')
+      if (manifest.type !== 'rumahl-launcher' || !manifest.id || !manifest.name || !['default', 'deck', 'canvas'].includes(manifest.base)) throw new Error('invalid')
       const next = [...customLaunchers.filter((item) => item.id !== manifest.id), manifest]
       setCustomLaunchers(next)
       selectLauncher(manifest.id)
     } catch {
-      window.dispatchEvent(new CustomEvent('iora:toast', { detail: { message: t('os.launcher.invalidManifest') } }))
+      window.dispatchEvent(new CustomEvent('rumahl:toast', { detail: { message: t('os.launcher.invalidManifest') } }))
     }
   }
 
@@ -339,7 +339,7 @@ export function OsHomeScreen() {
   }
 
   const openApp = (app: OsAppDefinition) => {
-    // Per-app user preference: "App außerhalb von ORA OS aufrufen" opens
+    // Per-app user preference: "App außerhalb von rumahl OS aufrufen" opens
     // the web UI directly via its port in a new browser tab.
     if (app.openUrl && app.kind === 'installed' && isAppOpenExternal(app.pageId)) {
       if (app.runtimeStatus === 'running') {
@@ -408,7 +408,7 @@ export function OsHomeScreen() {
     >
       {layout === 'default' && (
         <div className="mx-auto mt-5 max-w-6xl px-1">
-          <div className="ora-home-hero mb-6 text-center">
+          <div className="rumahl-home-hero mb-6 text-center">
             <AnimatePresence mode="wait" initial={false}>
               {greetingVisible ? (
                 <motion.div key="greeting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.45 }}>
@@ -470,7 +470,7 @@ export function OsHomeScreen() {
               </div>
             </div>
           )}
-          <label className="ora-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd className="hidden sm:inline">⌘K</kbd></label>
+          <label className="rumahl-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd className="hidden sm:inline">⌘K</kbd></label>
           {appGrid}
         </div>
       )}
@@ -581,7 +581,7 @@ export function OsHomeScreen() {
               role="menu"
               aria-label={t('os.desktopMenu.settings')}
             >
-              <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/35">ORA OS</div>
+              <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/35">rumahl OS</div>
               <div className="mx-1.5 my-1 h-px bg-foreground/8" />
               <button type="button" role="menuitem" onClick={() => { setCurrentPageId('settings'); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
                 <Gear size={16} className="text-foreground/55" />
@@ -597,7 +597,7 @@ export function OsHomeScreen() {
                 {t('os.desktopMenu.appStore')}
               </button>
               <div className="mx-1.5 my-1 h-px bg-foreground/8" />
-              <button type="button" role="menuitem" onClick={() => { window.dispatchEvent(new Event('iora:lock-session')); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+              <button type="button" role="menuitem" onClick={() => { window.dispatchEvent(new Event('rumahl:lock-session')); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
                 <LockKey size={16} className="text-foreground/55" />
                 {t('os.desktopMenu.lock')}
               </button>
@@ -621,7 +621,7 @@ export function OsHomeScreen() {
       {/* Install progress removed: installing apps now appear directly in
           the installed-apps list (Admin → Apps) instead of a floating bar. */}
 
-      <AnimatePresence>{settingsOpen && <><motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSettingsOpen(false)} className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm" aria-label={t('common.close')} /><motion.aside initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} className="glass-card fixed inset-y-0 right-0 z-[81] w-[min(26rem,100vw)] overflow-y-auto border-l border-white/10 p-5 pt-[max(1.25rem,env(safe-area-inset-top))]"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.18em] text-accent">ORA OS</p><h2 className="mt-1 text-xl font-semibold">{t('os.launcher.customize')}</h2></div><button type="button" onClick={() => setSettingsOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-foreground/10" aria-label={t('common.close')}><X size={20} /></button></div><p className="mt-6 text-xs font-semibold uppercase tracking-wider text-foreground/45">{t('os.launcher.choose')}</p><div className="mt-3 space-y-2">{([{ id: 'default', name: t('os.launcher.defaultName'), base: 'default' }, { id: 'deck', name: t('os.launcher.deckName'), base: 'deck' }, { id: 'canvas', name: t('os.launcher.canvasName'), base: 'canvas' }] as Array<{ id: string; name: string; base: BuiltInLauncher }>).concat(customLaunchers).map((item) => <button key={item.id} type="button" onClick={() => selectLauncher(item.id)} className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border p-3 text-left ${launcherId === item.id ? 'border-accent/50 bg-accent/10' : 'border-foreground/10 bg-foreground/5'}`}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground/8">{item.base === 'default' ? <SquaresFour size={18} /> : item.base === 'deck' ? <ArrowRight size={18} /> : <House size={18} />}</span><span className="flex-1 text-sm font-semibold">{item.name}</span>{launcherId === item.id && <Check size={18} className="text-accent" />}</button>)}</div><input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void installLauncher(file) }} /><button type="button" onClick={() => fileInput.current?.click()} className="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-foreground/20 text-sm text-foreground/65 hover:bg-foreground/5"><UploadSimple size={18} />{t('os.launcher.install')}</button><div className="mt-4 rounded-2xl bg-foreground/5 p-4 text-xs leading-relaxed text-foreground/45"><Plus size={17} className="mb-2 text-accent" />{t('os.launcher.installHint')}</div></motion.aside></>}</AnimatePresence>
+      <AnimatePresence>{settingsOpen && <><motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSettingsOpen(false)} className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm" aria-label={t('common.close')} /><motion.aside initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} className="glass-card fixed inset-y-0 right-0 z-[81] w-[min(26rem,100vw)] overflow-y-auto border-l border-white/10 p-5 pt-[max(1.25rem,env(safe-area-inset-top))]"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.18em] text-accent">rumahl OS</p><h2 className="mt-1 text-xl font-semibold">{t('os.launcher.customize')}</h2></div><button type="button" onClick={() => setSettingsOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-foreground/10" aria-label={t('common.close')}><X size={20} /></button></div><p className="mt-6 text-xs font-semibold uppercase tracking-wider text-foreground/45">{t('os.launcher.choose')}</p><div className="mt-3 space-y-2">{([{ id: 'default', name: t('os.launcher.defaultName'), base: 'default' }, { id: 'deck', name: t('os.launcher.deckName'), base: 'deck' }, { id: 'canvas', name: t('os.launcher.canvasName'), base: 'canvas' }] as Array<{ id: string; name: string; base: BuiltInLauncher }>).concat(customLaunchers).map((item) => <button key={item.id} type="button" onClick={() => selectLauncher(item.id)} className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border p-3 text-left ${launcherId === item.id ? 'border-accent/50 bg-accent/10' : 'border-foreground/10 bg-foreground/5'}`}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground/8">{item.base === 'default' ? <SquaresFour size={18} /> : item.base === 'deck' ? <ArrowRight size={18} /> : <House size={18} />}</span><span className="flex-1 text-sm font-semibold">{item.name}</span>{launcherId === item.id && <Check size={18} className="text-accent" />}</button>)}</div><input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void installLauncher(file) }} /><button type="button" onClick={() => fileInput.current?.click()} className="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-foreground/20 text-sm text-foreground/65 hover:bg-foreground/5"><UploadSimple size={18} />{t('os.launcher.install')}</button><div className="mt-4 rounded-2xl bg-foreground/5 p-4 text-xs leading-relaxed text-foreground/45"><Plus size={17} className="mb-2 text-accent" />{t('os.launcher.installHint')}</div></motion.aside></>}</AnimatePresence>
     </section>
   )
 }

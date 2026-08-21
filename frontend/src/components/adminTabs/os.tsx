@@ -5,7 +5,7 @@ import { confirmDialog } from '@/components/ui/confirmDialog'
 import { getDevBridgeUrl, getBackendUrl } from '@/lib/config'
 import { AdminCard, ErrorMessage, LoadingSpinner, adminFetch, ccBtnDanger, ccBtnIcon, ccBtnPrimary, ccBtnSecondary, ccInput, ccLabel, formatUptime } from '../AdminPanel'
 import { ServiceJsonBlock } from '../AdminPanel'
-export const OS_BASE = '/api/admin/iora-control'
+export const OS_BASE = '/api/admin/rumahl-control'
 import { devBridgeFetch } from './ai'
 import { authFetch } from '@/lib/authHelpers'
 export function DevBridgeTab({ token: _token }: { token: string }) {
@@ -44,9 +44,9 @@ export function DevBridgeTab({ token: _token }: { token: string }) {
 
   // ─── Auto-Login via gespeichertem Session-Token ─────────────
   useEffect(() => {
-    const stored = localStorage.getItem('iora-dev-session-token') || sessionStorage.getItem('iora-dev-session-token')
+    const stored = localStorage.getItem('rumahl-dev-session-token') || sessionStorage.getItem('rumahl-dev-session-token')
     // Fallback: statischer Dev-Token
-    const staticToken = localStorage.getItem('iora-dev-token')
+    const staticToken = localStorage.getItem('rumahl-dev-token')
     if (stored) {
       setDevToken(stored)
     } else if (staticToken) {
@@ -71,7 +71,7 @@ export function DevBridgeTab({ token: _token }: { token: string }) {
       }
       const data = await res.json()
       setDevToken(data.token)
-      localStorage.setItem('iora-dev-session-token', data.token)
+      localStorage.setItem('rumahl-dev-session-token', data.token)
       toast.success('Dev Bridge Login erfolgreich')
       setLoginUser('')
       setLoginPass('')
@@ -83,8 +83,8 @@ export function DevBridgeTab({ token: _token }: { token: string }) {
 
   const handleLogout = () => {
     setDevToken(null)
-    localStorage.removeItem('iora-dev-session-token')
-    sessionStorage.removeItem('iora-dev-session-token')
+    localStorage.removeItem('rumahl-dev-session-token')
+    sessionStorage.removeItem('rumahl-dev-session-token')
   }
 
   // ─── Subtabs ─────────────────────────────────────────────────
@@ -135,7 +135,7 @@ export function DevBridgeTab({ token: _token }: { token: string }) {
         {!devToken && bridgeStatus === 'online' && (
           <div className="mt-4 p-4 rounded-xl bg-foreground/3 border border-foreground/5">
             <p className="text-xs font-semibold text-foreground/80 mb-3">
-              Anmeldung an der Dev Bridge erforderlich — verwende deine IORA-Dashboard-Zugangsdaten:
+              Anmeldung an der Dev Bridge erforderlich — verwende deine rumahl-Dashboard-Zugangsdaten:
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <input type="text" value={loginUser} onChange={e => setLoginUser(e.target.value)}
@@ -687,7 +687,7 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
   const [selfUpdateSource, setSelfUpdateSource] = useState<'http' | 'ssh' | 'ftp'>('http')
   const [suUrl, setSuUrl] = useState('')
   const [suHost, setSuHost] = useState('')
-  const [suPath, setSuPath] = useState('/usr/bin/iora-dev-bridge')
+  const [suPath, setSuPath] = useState('/usr/bin/rumahl-dev-bridge')
   const [suUser, setSuUser] = useState('root')
   const [suPort, setSuPort] = useState('22')
   const [suKeyPath, setSuKeyPath] = useState('/root/.ssh/id_rsa')
@@ -737,7 +737,7 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
 
         const res = await fetch(`${getDevBridgeUrl()}/dev/replace-binary`, {
           method: 'POST',
-          headers: devToken ? { 'x-iora-dev-token': devToken } : {},
+          headers: devToken ? { 'x-rumahl-dev-token': devToken } : {},
           body: formData,
         })
 
@@ -786,7 +786,7 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-iora-dev-token': devToken,
+          'x-rumahl-dev-token': devToken,
         },
         body: JSON.stringify(body),
       })
@@ -842,17 +842,17 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
             <div className="grid gap-1.5">
               <label className={ccLabel}>Target-Pfad</label>
               <input type="text" value={target} onChange={e => setTarget(e.target.value)}
-                placeholder="/usr/bin/iora-home" className={ccInput()} />
+                placeholder="/usr/bin/rumahl-home" className={ccInput()} />
             </div>
             <div className="grid gap-1.5">
               <label className={ccLabel}>Systemd-Unit (optional)</label>
               <input type="text" value={unit} onChange={e => setUnit(e.target.value)}
-                placeholder="iora-home.service" className={ccInput()} />
+                placeholder="rumahl-home.service" className={ccInput()} />
             </div>
             <div className="grid gap-1.5">
               <label className={ccLabel}>Component (für Build)</label>
               <input type="text" value={component} onChange={e => setComponent(e.target.value)}
-                placeholder="iora-home" className={ccInput()} />
+                placeholder="rumahl-home" className={ccInput()} />
             </div>
           </div>
 
@@ -878,7 +878,7 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
             <div>
               <p className="text-xs font-semibold text-amber-200 mb-1">⚠️  Achtung</p>
               <p className="text-[10px] text-amber-200/70">
-                Dies ersetzt <code className="font-mono">/usr/bin/iora-dev-bridge</code> auf dem Gerät und
+                Dies ersetzt <code className="font-mono">/usr/bin/rumahl-dev-bridge</code> auf dem Gerät und
                 startet den Dienst neu. Die aktuelle Verbindung wird dabei getrennt.
                 Der Dev Bridge muss dann von der CLI/IDE neu verbunden werden.
               </p>
@@ -908,7 +908,7 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
               <div className="grid gap-1.5 sm:col-span-2">
                 <label className={ccLabel}>Download-URL</label>
                 <input type="url" value={suUrl} onChange={e => setSuUrl(e.target.value)}
-                  placeholder="https://build-server.local/iora-dev-bridge-latest" className={ccInput()} />
+                  placeholder="https://build-server.local/rumahl-dev-bridge-latest" className={ccInput()} />
               </div>
               <label className="flex items-center gap-2 text-xs text-foreground/70 cursor-pointer">
                 <input type="checkbox" checked={suInsecure} onChange={e => setSuInsecure(e.target.checked)}
@@ -929,7 +929,7 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
               <div className="grid gap-1.5">
                 <label className={ccLabel}>Remote-Pfad</label>
                 <input type="text" value={suPath} onChange={e => setSuPath(e.target.value)}
-                  placeholder="/usr/bin/iora-dev-bridge" className={ccInput()} />
+                  placeholder="/usr/bin/rumahl-dev-bridge" className={ccInput()} />
               </div>
               <div className="grid gap-1.5">
                 <label className={ccLabel}>SSH-Benutzer</label>
@@ -955,7 +955,7 @@ export function DevBridgeBuild({ devToken }: { devToken: string | null }) {
               <div className="grid gap-1.5 sm:col-span-2">
                 <label className={ccLabel}>FTP-URL</label>
                 <input type="url" value={suUrl} onChange={e => setSuUrl(e.target.value)}
-                  placeholder="ftp://build-server.local/iora-dev-bridge-latest" className={ccInput()} />
+                  placeholder="ftp://build-server.local/rumahl-dev-bridge-latest" className={ccInput()} />
               </div>
               <div className="grid gap-1.5">
                 <label className={ccLabel}>FTP-Benutzer</label>
@@ -1047,7 +1047,7 @@ export function DevBridgeJournal({ devToken }: { devToken: string | null }) {
         {/* Filter */}
         <div className="flex items-center gap-2 flex-wrap">
           <select value={priority} onChange={e => { setPriority(e.target.value); loadLogs(tail, e.target.value) }}
-            className="ora-secondary-button-sm">
+            className="rumahl-secondary-button-sm">
             <option value="emerg">emerg</option>
             <option value="alert">alert</option>
             <option value="crit">crit</option>
@@ -1058,7 +1058,7 @@ export function DevBridgeJournal({ devToken }: { devToken: string | null }) {
             <option value="debug">debug</option>
           </select>
           <select value={tail} onChange={e => { setTail(Number(e.target.value)); loadLogs(Number(e.target.value), priority) }}
-            className="ora-secondary-button-sm">
+            className="rumahl-secondary-button-sm">
             <option value={50}>50 Zeilen</option>
             <option value={200}>200 Zeilen</option>
             <option value={500}>500 Zeilen</option>
@@ -1157,13 +1157,13 @@ export function DevBridgeCompose({ devToken }: { devToken: string | null }) {
     <AdminCard title="Docker Compose Services" icon={Cube}>
       <div className="space-y-4">
         <p className="text-xs text-foreground/60">
-          Steuere Docker-Compose-Services im IORA-Compose-Verzeichnis ({' '}
-          <code className="font-mono">{'/mnt/data/iora'}</code> ).
+          Steuere Docker-Compose-Services im rumahl-Compose-Verzeichnis ({' '}
+          <code className="font-mono">{'/mnt/data/rumahl'}</code> ).
         </p>
 
         <div className="flex gap-2">
           <input type="text" value={svcName} onChange={e => setSvcName(e.target.value)}
-            placeholder="Service-Name (z.B. iora-home)" className={ccInput('flex-1')}
+            placeholder="Service-Name (z.B. rumahl-home)" className={ccInput('flex-1')}
             onKeyDown={e => e.key === 'Enter' && handleReload()} />
           <button onClick={handleReload} disabled={loading || !svcName} className={ccBtnSecondary()}>
             <ArrowClockwise size={14} className={loading ? 'animate-spin' : ''} />
@@ -1206,7 +1206,7 @@ export function DevBridgeCompose({ devToken }: { devToken: string | null }) {
 }
 
 
-// ─── Secrets (iora-secrets) ─────────────────────────────────────────────
+// ─── Secrets (rumahl-secrets) ─────────────────────────────────────────────
 
 
 
@@ -1317,7 +1317,7 @@ export function OsSshTab({ token }: { token: string }) {
             className="sm:col-span-2 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
         </div>
         <button onClick={addUser} disabled={busy || !newUser.trim() || !pubKey.trim()}
-          className="ora-ghost-button-sm mt-2">Hinzufuegen</button>
+          className="rumahl-ghost-button-sm mt-2">Hinzufuegen</button>
       </AdminCard>
 
       <AdminCard title="Bestehende SSH-Benutzer" icon={Users}>
@@ -1419,7 +1419,7 @@ export function OsNetworkConfigTab({ token }: { token: string }) {
           : (parsed.find((iface) => iface.ipv4 && iface.ipv4 !== '-')?.ipv4 || '').split('/')[0]
         setCurrentIp(primary)
 
-        // Try to load current config via iora-control
+        // Try to load current config via rumahl-control
         try {
           const netRes = await adminFetch(OS_BASE + '/os/network', token)
           const content: string = netRes?.netctl?.content || netRes?.content || ''
@@ -1619,7 +1619,7 @@ export function OsNetworkConfigTab({ token }: { token: string }) {
                 <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Gateway (Standardroute)</label>
                 <input value={gateway4} onChange={e => setGateway4(e.target.value)}
                   placeholder="z.B. 192.168.1.1"
-                  className="ora-field-sm w-full text-xs font-mono" />
+                  className="rumahl-field-sm w-full text-xs font-mono" />
               </div>
             </div>
           </div>
@@ -1647,7 +1647,7 @@ export function OsNetworkConfigTab({ token }: { token: string }) {
                 <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Gateway IPv6</label>
                 <input value={gateway6} onChange={e => setGateway6(e.target.value)}
                   placeholder="z.B. 2001:db8::1"
-                  className="ora-field-sm w-full text-xs font-mono" />
+                  className="rumahl-field-sm w-full text-xs font-mono" />
               </div>
             </div>
           </div>
@@ -1702,7 +1702,7 @@ export function OsNetworkConfigTab({ token }: { token: string }) {
           {showConfirm ? (
             <>
               <div className="flex-1 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-foreground/70">
-                <span className="inline-flex items-center gap-1.5"><Warning size={14} className="text-amber-400" /> Die Konfiguration wird sofort übernommen. Bei Fehlern setzt iora-netctl automatisch zurück.</span>
+                <span className="inline-flex items-center gap-1.5"><Warning size={14} className="text-amber-400" /> Die Konfiguration wird sofort übernommen. Bei Fehlern setzt rumahl-netctl automatisch zurück.</span>
               </div>
               <button onClick={() => setShowConfirm(false)} className="px-4 py-2.5 rounded-xl border border-foreground/10 text-xs text-foreground/50 hover:bg-foreground/5 transition-colors shrink-0">
                 Abbrechen
@@ -1821,7 +1821,7 @@ export function OsProcessesTab({ token }: { token: string }) {
     <div className="space-y-3">
       <AdminCard title="Top-Prozesse (CPU)" icon={Pulse}>
         <div className="flex items-center gap-3 mb-3">
-          <button onClick={load} className="ora-ghost-button-sm">Aktualisieren</button>
+          <button onClick={load} className="rumahl-ghost-button-sm">Aktualisieren</button>
           <label className="text-xs text-foreground/70 flex items-center gap-1.5">
             <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
             Auto-Refresh (3s)
@@ -1887,7 +1887,7 @@ export function OsPowerTab({ token }: { token: string }) {
   }
 
   const power = async (action: 'reboot' | 'shutdown') => {
-    const label = action === 'reboot' ? 'IORA OS jetzt neu starten' : 'IORA OS jetzt herunterfahren'
+    const label = action === 'reboot' ? 'rumahl OS jetzt neu starten' : 'rumahl OS jetzt herunterfahren'
     if (!(await confirmDialog({ title: label, message: label + '? (Verzoegerung: ' + delay + 's)', confirmLabel: 'Ausführen', danger: true }))) return
     setBusy(true)
     try {
@@ -1906,17 +1906,17 @@ export function OsPowerTab({ token }: { token: string }) {
       <AdminCard title="Hostname" icon={Gear}>
         <p className="text-xs text-foreground/60 mb-2">Aktueller Hostname: <code className="text-accent">{current || '-'}</code></p>
         <div className="flex gap-2">
-          <input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="iora-os"
+          <input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="rumahl-os"
             className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
           <button onClick={saveHostname} disabled={busy || !hostname.trim() || hostname === current}
-            className="ora-ghost-button-sm">Speichern</button>
+            className="rumahl-ghost-button-sm">Speichern</button>
         </div>
         <p className="text-[10px] text-foreground/50 mt-2">Erfordert Root-Rechte auf dem Host (hostnamectl/hostname). Persistiert in <code>/etc/hostname</code>.</p>
       </AdminCard>
 
       <AdminCard title="System neu starten / herunterfahren" icon={Power}>
         <p className="text-xs text-amber-300 mb-3 flex items-center gap-1.5">
-          <Warning size={14} /> Diese Aktionen beenden alle laufenden Container und Dienste auf dem IORA-OS-Host.
+          <Warning size={14} /> Diese Aktionen beenden alle laufenden Container und Dienste auf dem rumahl-OS-Host.
         </p>
         <label className="text-xs text-foreground/70 flex items-center gap-2 mb-3">
           Verzoegerung:

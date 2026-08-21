@@ -128,7 +128,7 @@ export function LoginPinSection() {
             inputMode="numeric"
             value={loginPin}
             onChange={(e) => setLoginPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            className="ora-field"
+            className="rumahl-field"
             placeholder="••••"
           />
         </div>
@@ -141,7 +141,7 @@ export function LoginPinSection() {
             inputMode="numeric"
             value={loginPinConfirm}
             onChange={(e) => setLoginPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            className="ora-field"
+            className="rumahl-field"
             placeholder="••••"
           />
         </div>
@@ -149,7 +149,7 @@ export function LoginPinSection() {
       <button
         onClick={saveLoginPin}
         disabled={saving}
-        className="ora-secondary-button w-full"
+        className="rumahl-secondary-button w-full"
       >
         {saving ? 'Wird gespeichert...' : 'Login-PIN speichern'}
       </button>
@@ -231,7 +231,7 @@ export function TwoFactorPasskeySection() {
             type="button"
             onClick={openSetupModal}
             disabled={saving}
-            className="ora-primary-button w-full"
+            className="rumahl-primary-button w-full"
           >
             {passkeyRegistered ? 'Passkey / 2FA neu einrichten' : 'Passkey / 2FA einrichten'}
           </button>
@@ -245,7 +245,7 @@ export function TwoFactorPasskeySection() {
                 toast.success('Passkey entfernt')
               }}
               disabled={saving}
-              className="ora-secondary-button w-full"
+              className="rumahl-secondary-button w-full"
             >
               Passkey entfernen
             </button>
@@ -264,7 +264,7 @@ export function TwoFactorPasskeySection() {
       </SettingsSection>
 
       <Dialog open={showSecurityModal} onOpenChange={(open) => { if (!open) setShowSecurityModal(false) }}>
-        <DialogContent className="sm:max-w-[560px] ora-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-hidden">
+        <DialogContent className="sm:max-w-[560px] rumahl-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10">
             <DialogTitle>Passkey & 2FA Einrichtung</DialogTitle>
             <DialogDescription>
@@ -273,7 +273,7 @@ export function TwoFactorPasskeySection() {
           </DialogHeader>
 
           <div className="px-6 pb-6 space-y-5">
-            <div className="ora-card p-4">
+            <div className="rumahl-card p-4">
               <p className="text-sm font-semibold text-foreground">Geheimer Schlüssel</p>
               <p className="mt-2 text-sm text-foreground/70">Kopiere diesen Key in deine Authenticator-App oder dein Backup.</p>
               <div className="mt-4 rounded-3xl bg-foreground/5 p-3 font-mono text-xs text-foreground/80 break-words">{setupSecret}</div>
@@ -287,7 +287,7 @@ export function TwoFactorPasskeySection() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
-              <div className="ora-card p-4 text-sm text-foreground/70">
+              <div className="rumahl-card p-4 text-sm text-foreground/70">
                 <p className="font-semibold text-foreground">QR-Code</p>
                 <div className="mt-4 flex min-h-[200px] items-center justify-center rounded-3xl border border-dashed border-foreground/20 bg-background/80 text-xs text-foreground/50">
                   QR-Code Platzhalter für Authenticator-App
@@ -295,7 +295,7 @@ export function TwoFactorPasskeySection() {
                 <p className="mt-4 break-all text-[11px] text-foreground/60">URI: {formatOtpAuthUri(setupSecret)}</p>
               </div>
 
-              <div className="ora-card p-4">
+              <div className="rumahl-card p-4">
                 <p className="font-semibold text-foreground">Verifikation</p>
                 <p className="mt-2 text-sm text-foreground/70">Gib den aktuellen, zeitbasierten Code aus deiner App ein.</p>
                 <input
@@ -304,7 +304,7 @@ export function TwoFactorPasskeySection() {
                   value={otpCode}
                   onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="123456"
-                  className="mt-4 ora-field"
+                  className="mt-4 rumahl-field"
                 />
                 <button
                   type="button"

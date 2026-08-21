@@ -1,5 +1,5 @@
-const CACHE_VERSION = 'iora-shell-v2'
-const APP_SHELL = ['/', '/home', '/settings', '/manifest.webmanifest', '/iora-icon.svg']
+const CACHE_VERSION = 'rumahl-shell-v2'
+const APP_SHELL = ['/', '/home', '/settings', '/manifest.webmanifest', '/rumahl-icon.svg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

@@ -75,7 +75,7 @@ export function ORAOverlay() {
 
   const handleClose = async () => {
     try {
-      await invoke('ora_hide_overlay')
+      await invoke('rumahl_hide_overlay')
     } catch (e) {
       console.error('Failed to close overlay:', e)
     }
@@ -96,7 +96,7 @@ export function ORAOverlay() {
     setError(null)
 
     try {
-      const response = await invoke<AIChatResponse>('ora_send_chat', {
+      const response = await invoke<AIChatResponse>('rumahl_send_chat', {
         message: text,
         context: null,
       })
@@ -179,7 +179,7 @@ export function ORAOverlay() {
   const handleSearchInternet = async (query: string) => {
     try {
       setState('thinking')
-      await invoke('ora_search_internet', {
+      await invoke('rumahl_search_internet', {
         query,
         maxResults: 5,
       })
@@ -198,7 +198,7 @@ export function ORAOverlay() {
   const handleCaptureScreenshot = async () => {
     try {
       setState('thinking')
-      const result = await invoke<{ image_base64: string; timestamp: string }>('ora_capture_screenshot')
+      const result = await invoke<{ image_base64: string; timestamp: string }>('rumahl_capture_screenshot')
       setScreenshotData(result.image_base64)
 
       // Add system message about screenshot
@@ -223,7 +223,7 @@ export function ORAOverlay() {
   const handleCaptureVideo = async () => {
     try {
       setState('thinking')
-      const result = await invoke<{ video_base64: string; timestamp: string }>('ora_capture_video')
+      const result = await invoke<{ video_base64: string; timestamp: string }>('rumahl_capture_video')
       
       const videoMessage: AIChatMessage = {
         role: 'system',
@@ -234,7 +234,7 @@ export function ORAOverlay() {
       
       // Auto-send video for analysis using the API endpoint added previously
       setState('thinking')
-      const assistUrl = localStorage.getItem('iora-assist-url') || 'http://localhost:8092'
+      const assistUrl = localStorage.getItem('rumahl-assist-url') || 'http://localhost:8092'
       fetch(`${assistUrl}/api/assist/video/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -393,7 +393,7 @@ export function ORAOverlay() {
           {messages.length === 0 && (
             <div className="text-center py-8 text-white/50 text-sm">
               <Sparkle size={32} weight="duotone" className="mx-auto mb-3 opacity-30" />
-              <p>Sage "ORA" oder "IORA" um zu beginnen</p>
+              <p>Sage "ORA" oder "rumahl" um zu beginnen</p>
               <p className="text-xs mt-1">Oder tippe deine Nachricht unten ein</p>
             </div>
           )}

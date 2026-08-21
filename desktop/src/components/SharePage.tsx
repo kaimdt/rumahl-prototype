@@ -56,7 +56,7 @@ export function SharePage() {
   const browserShare = useCallback(async () => {
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'IORA Share', text: 'Teile diesen Link mit User Cloud Connect', url: shareUrl })
+        await navigator.share({ title: 'rumahl Share', text: 'Teile diesen Link mit User Cloud Connect', url: shareUrl })
       } catch (error) {
         toast.error('Teilen fehlgeschlagen')
       }
@@ -161,7 +161,7 @@ export function SharePage() {
               <div>
                 <p className="text-sm font-semibold text-foreground">User Cloud Connect</p>
                 <p className="mt-1 text-sm text-foreground/70">
-                  Public Proxy für externen Zugriff auf IORA Home und Share-Funktionen.
+                  Public Proxy für externen Zugriff auf rumahl Home und Share-Funktionen.
                 </p>
               </div>
             </div>
@@ -170,7 +170,7 @@ export function SharePage() {
                 Benutzerkonto Cloud Connect muss aktiv sein, damit dieser Link von außen erreichbar wird.
               </div>
               <div className="rounded-2xl bg-background/90 p-4 border border-foreground/10">
-                Der Link leitet über den User Cloud Connect Proxy, damit dein IORA Home von außen ohne lokale IP erreichbar ist.
+                Der Link leitet über den User Cloud Connect Proxy, damit dein rumahl Home von außen ohne lokale IP erreichbar ist.
               </div>
               <div className="rounded-2xl bg-background/90 p-4 border border-foreground/10">
                 Admin Control Center ist über User Cloud Connect nicht erreichbar. Die Cloud-Verbindung wird im lokalen Admin Center eingerichtet und nur autorisierten Benutzern gewährt.

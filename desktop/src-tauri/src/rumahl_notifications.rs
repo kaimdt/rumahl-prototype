@@ -1,6 +1,6 @@
-//! IORA Desktop Notification Listener
+//! rumahl Desktop Notification Listener
 //!
-//! Connects to the iora-home WebSocket and listens for `desktop_notification` events.
+//! Connects to the rumahl-home WebSocket and listens for `desktop_notification` events.
 //! Forwards them to the frontend via Tauri events, and emits a native OS notification.
 
 use futures_util::StreamExt;
@@ -10,7 +10,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IoraNotification {
+pub struct rumahlNotification {
     pub id: String,
     pub title: String,
     pub message: String,
@@ -20,13 +20,13 @@ pub struct IoraNotification {
     pub auto_dismiss_secs: u64,
 }
 
-/// Spawn a background task that keeps a WebSocket connection to iora-home open
+/// Spawn a background task that keeps a WebSocket connection to rumahl-home open
 /// and forwards `desktop_notification` events to the Tauri frontend.
 ///
 /// The task reconnects automatically with exponential back-off (max 60 s).
 pub fn start_notification_listener(
     app: AppHandle,
-    iora_home_url: String,
+    rumahl_home_url: String,
     _auth_token: String,
     client_id: String,
 ) {
@@ -34,13 +34,13 @@ pub fn start_notification_listener(
         let mut backoff_secs: u64 = 2;
 
         loop {
-            let ws_url = build_ws_url(&iora_home_url);
+            let ws_url = build_ws_url(&rumahl_home_url);
             match tokio_tungstenite::connect_async(&ws_url).await {
                 Ok((mut stream, _)) => {
-                    info!("[notif] WebSocket connected to iora-home for notifications");
+                    info!("[notif] WebSocket connected to rumahl-home for notifications");
                     backoff_secs = 2; // reset on success
 
-                    // Send registration message so iora-home knows which desktop client this is.
+                    // Send registration message so rumahl-home knows which desktop client this is.
                     let reg = serde_json::json!({
                         "type": "desktop_register",
                         "client_id": client_id,
@@ -103,7 +103,7 @@ fn handle_message(app: &AppHandle, text: &str, client_id: &str) {
         return;
     };
 
-    let notification = IoraNotification {
+    let notification = rumahlNotification {
         id: n
             .get("id")
             .and_then(|v| v.as_str())
@@ -112,7 +112,7 @@ fn handle_message(app: &AppHandle, text: &str, client_id: &str) {
         title: n
             .get("title")
             .and_then(|v| v.as_str())
-            .unwrap_or("IORA")
+            .unwrap_or("rumahl")
             .to_string(),
         message: n
             .get("message")
@@ -146,7 +146,7 @@ fn handle_message(app: &AppHandle, text: &str, client_id: &str) {
     );
 
     // Emit to the Tauri frontend (settings window / any open window).
-    let _ = app.emit("iora-notification", &notification);
+    let _ = app.emit("rumahl-notification", &notification);
 }
 
 /// Convert an http(s) URL to a ws(s) URL and append the WS endpoint.

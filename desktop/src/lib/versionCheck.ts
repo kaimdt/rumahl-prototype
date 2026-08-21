@@ -1,11 +1,11 @@
 /**
- * IORA Home version check and cache invalidation.
+ * rumahl Home version check and cache invalidation.
  *
- * The desktop client caches configuration and layout data from the IORA Home
+ * The desktop client caches configuration and layout data from the rumahl Home
  * server in localStorage. To detect when the server has been updated, the
  * client polls the /api/version endpoint (which is explicitly never cached).
  * When the reported version differs from the stored one every locally cached
- * IORA Home file is cleared so fresh data is fetched on the next page load.
+ * rumahl Home file is cleared so fresh data is fetched on the next page load.
  *
  * API requests (entity states, service calls, …) must never be cached –
  * call them with { cache: 'no-store' } and rely on this module only for
@@ -17,29 +17,29 @@ import { getApiBase } from '@/lib/apiBase'
 /** Default interval between version polls (5 minutes). */
 export const VERSION_POLL_INTERVAL_MS = 5 * 60 * 1000
 
-const STORED_VERSION_KEY = 'iora-home-server-version'
+const STORED_VERSION_KEY = 'rumahl-home-server-version'
 
-/** Cache keys that belong to IORA Home static/configuration data. */
-const IORA_CACHE_PREFIXES = [
-  'iora-pages',
-  'iora-widgets',
-  'iora-layout',
-  'iora-theme',
-  'iora-settings',
-  'iora-config',
-  'iora-background',
+/** Cache keys that belong to rumahl Home static/configuration data. */
+const rumahl_CACHE_PREFIXES = [
+  'rumahl-pages',
+  'rumahl-widgets',
+  'rumahl-layout',
+  'rumahl-theme',
+  'rumahl-settings',
+  'rumahl-config',
+  'rumahl-background',
   'dashboard-',
   'page-config-',
   'widget-config-',
   'ha-dashboard-',
-  'iora-accent',
-  'iora-glass',
-  'iora-night',
+  'rumahl-accent',
+  'rumahl-glass',
+  'rumahl-night',
   'dynamic-overview',
 ]
 
 /**
- * Fetch the current version from the iora-home backend.
+ * Fetch the current version from the rumahl-home backend.
  * The response is explicitly never cached (Cache-Control: no-store is set
  * server-side, and we pass cache: 'no-store' client-side as well).
  */
@@ -57,22 +57,22 @@ async function fetchRemoteVersion(baseUrl: string): Promise<string | null> {
 }
 
 /**
- * Clear all localStorage keys that belong to cached IORA Home files.
+ * Clear all localStorage keys that belong to cached rumahl Home files.
  * API responses (entity states, etc.) are never cached, so only
  * static configuration data is purged here.
  */
-function clearIoraCache(): void {
+function clearrumahlCache(): void {
   const keys = Object.keys(localStorage)
   let cleared = 0
   for (const key of keys) {
-    const isIoraCache = IORA_CACHE_PREFIXES.some(prefix => key.startsWith(prefix))
-    if (isIoraCache) {
+    const isrumahlCache = rumahl_CACHE_PREFIXES.some(prefix => key.startsWith(prefix))
+    if (isrumahlCache) {
       localStorage.removeItem(key)
       cleared++
     }
   }
   if (cleared > 0) {
-    console.info(`[versionCheck] Cache invalidated – cleared ${cleared} IORA Home cached entries`)
+    console.info(`[versionCheck] Cache invalidated – cleared ${cleared} rumahl Home cached entries`)
   }
 }
 
@@ -94,7 +94,7 @@ export async function checkAndInvalidateCache(): Promise<string | null> {
     console.info(
       `[versionCheck] Version changed: ${storedVersion ?? 'none'} → ${remoteVersion}. Clearing cache.`
     )
-    clearIoraCache()
+    clearrumahlCache()
     localStorage.setItem(STORED_VERSION_KEY, remoteVersion)
   }
 

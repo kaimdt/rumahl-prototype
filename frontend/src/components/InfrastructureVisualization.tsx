@@ -20,25 +20,25 @@ interface ServiceConnection {
 }
 
 const SERVICES: ServiceNode[] = [
-  { id: 'iora-home', name: 'IORA Home', status: 'unknown', type: 'core', port: 3000, description: 'Main Dashboard' },
-  { id: 'iora-core', name: 'IORA Core', status: 'unknown', type: 'core', port: 8080, description: 'Core Services' },
-  { id: 'iora-assist', name: 'ORA AI', status: 'unknown', type: 'assist', port: 8092, description: 'AI Assistant' },
-  { id: 'iora-api', name: 'IORA API', status: 'unknown', type: 'core', port: 8084, description: 'API Gateway' },
-  { id: 'iora-connector', name: 'Connector', status: 'unknown', type: 'core', port: 8081, description: 'External Integrations' },
-  { id: 'iora-appstore', name: 'App Store', status: 'unknown', type: 'core', port: 8082, description: 'App Management' },
+  { id: 'rumahl-home', name: 'rumahl Home', status: 'unknown', type: 'core', port: 3000, description: 'Main Dashboard' },
+  { id: 'rumahl-core', name: 'rumahl Core', status: 'unknown', type: 'core', port: 8080, description: 'Core Services' },
+  { id: 'rumahl-assist', name: 'rumahl AI', status: 'unknown', type: 'assist', port: 8092, description: 'AI Assistant' },
+  { id: 'rumahl-api', name: 'rumahl API', status: 'unknown', type: 'core', port: 8084, description: 'API Gateway' },
+  { id: 'rumahl-connector', name: 'Connector', status: 'unknown', type: 'core', port: 8081, description: 'External Integrations' },
+  { id: 'rumahl-appstore', name: 'App Store', status: 'unknown', type: 'core', port: 8082, description: 'App Management' },
   { id: 'homeassistant', name: 'Home Assistant', status: 'unknown', type: 'external', port: 8123, description: 'Smart Home Hub' },
   { id: 'postgres', name: 'PostgreSQL', status: 'unknown', type: 'core', description: 'Database' },
 ]
 
 const CONNECTIONS: ServiceConnection[] = [
-  { from: 'iora-home', to: 'iora-core', type: 'http', active: false },
-  { from: 'iora-home', to: 'iora-assist', type: 'http', active: false },
-  { from: 'iora-home', to: 'iora-api', type: 'websocket', active: false },
-  { from: 'iora-core', to: 'postgres', type: 'http', active: false },
-  { from: 'iora-assist', to: 'postgres', type: 'http', active: false },
-  { from: 'iora-api', to: 'iora-connector', type: 'http', active: false },
-  { from: 'iora-connector', to: 'homeassistant', type: 'websocket', active: false },
-  { from: 'iora-appstore', to: 'postgres', type: 'http', active: false },
+  { from: 'rumahl-home', to: 'rumahl-core', type: 'http', active: false },
+  { from: 'rumahl-home', to: 'rumahl-assist', type: 'http', active: false },
+  { from: 'rumahl-home', to: 'rumahl-api', type: 'websocket', active: false },
+  { from: 'rumahl-core', to: 'postgres', type: 'http', active: false },
+  { from: 'rumahl-assist', to: 'postgres', type: 'http', active: false },
+  { from: 'rumahl-api', to: 'rumahl-connector', type: 'http', active: false },
+  { from: 'rumahl-connector', to: 'homeassistant', type: 'websocket', active: false },
+  { from: 'rumahl-appstore', to: 'postgres', type: 'http', active: false },
 ]
 
 export function InfrastructureVisualization({ token }: { token: string }) {
@@ -183,7 +183,7 @@ export function InfrastructureVisualization({ token }: { token: string }) {
       {/* Controls */}
       <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5 border border-foreground/10">
         <div>
-          <h3 className="text-sm font-semibold text-foreground mb-1">IORA Infrastructure</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-1">rumahl Infrastructure</h3>
           <p className="text-xs text-foreground/60">
             Live visualization of all services and connections
           </p>

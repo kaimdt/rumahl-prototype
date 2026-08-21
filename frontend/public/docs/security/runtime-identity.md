@@ -6,7 +6,7 @@ Resolution produces an immutable snapshot keyed by runtime event ID and containi
 
 Identity types are `app`, `container`, `system_service`, `host_process`, and `unknown`. Resolution state is `resolved`, `unknown`, or `conflicting`; confidence is `high`, `medium`, `low`, or `unknown`. UID/GID is recorded as evidence but can never independently create high-confidence attribution.
 
-Evidence is obtained read-only from runtime cgroups, container IDs, the ORA Supervisor app metadata API, systemd unit names embedded in cgroups, executable paths and hashes, namespace context, and UID/GID. The resolver does not call Docker. Full ORA container registry agreement yields high confidence, while an unmatched container is only a low-confidence `container`. Contradictory high/medium quality subjects produce `conflicting`, never a guess.
+Evidence is obtained read-only from runtime cgroups, container IDs, the rumahl Supervisor app metadata API, systemd unit names embedded in cgroups, executable paths and hashes, namespace context, and UID/GID. The resolver does not call Docker. Full rumahl container registry agreement yields high confidence, while an unmatched container is only a low-confidence `container`. Contradictory high/medium quality subjects produce `conflicting`, never a guess.
 
 The container cache is bounded to 4,096 entries and refreshed every 30 seconds. Evidence older than 60 seconds is stale and cannot resolve an app. Cache replacement invalidates removed or recreated containers. Identity snapshots are bounded to 16,384 entries with FIFO eviction and metrics.
 

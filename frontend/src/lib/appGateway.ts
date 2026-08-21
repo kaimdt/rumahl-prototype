@@ -1,23 +1,23 @@
 /**
  * App Embedding Gateway — frontend helpers.
  *
- * Installed ORA apps run on their own origin:
+ * Installed rumahl apps run on their own origin:
  *
- *   https://<app-id>.apps.ora.local/
+ *   https://<app-id>.apps.rumahl.local/
  *
- * The ORA desktop (`https://ora.local`) embeds that origin in the App
+ * The rumahl desktop (`https://rumahl.local`) embeds that origin in the App
  * Runner iframe. This module knows how to build the public runtime URL,
  * maps manifest `display` permissions to the iframe `allow` attribute,
  * defines the sandbox policy and exposes the lifecycle states the runner
  * renders.
  *
- * The gateway itself (backend, iora-home) does the header rewriting
+ * The gateway itself (backend, rumahl-home) does the header rewriting
  * (X-Frame-Options, CSP frame-ancestors), redirect rewriting, WebSocket
  * tunneling and runtime-target resolution — the frontend never sees
  * internal ports or addresses.
  */
 
-export const APPS_HOST_SUFFIX: string = import.meta.env.VITE_APPS_HOST_SUFFIX || '.apps.ora.local'
+export const APPS_HOST_SUFFIX: string = import.meta.env.VITE_APPS_HOST_SUFFIX || '.apps.rumahl.local'
 
 export function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase()
@@ -63,10 +63,10 @@ export interface AppRuntimeInfo {
   startable: boolean
 }
 
-/** Strip the configured suffix (`.apps.ora.local`) from a host to get the
+/** Strip the configured suffix (`.apps.rumahl.local`) from a host to get the
  * desktop host. The apps root label (`apps`) is dropped as well — the
  * desktop is the parent of the apps subdomain, never an app origin itself:
- * `nextcloud.apps.ora.local` → `ora.local`. Returns the input unchanged
+ * `nextcloud.apps.rumahl.local` → `rumahl.local`. Returns the input unchanged
  * when it does not match the suffix. */
 export function desktopHostOf(host: string): string {
   const base = APPS_HOST_SUFFIX.trim().replace(/^\./, '').replace(/\.$/, '')
@@ -130,7 +130,7 @@ export function iframeAllowFor(display?: AppDisplayConfig | null): string {
 }
 
 /**
- * Sandbox policy (defined ORA app policy, never a blanket of all flags).
+ * Sandbox policy (defined rumahl app policy, never a blanket of all flags).
  * The default is NO sandbox attribute — a separate origin already isolates
  * the app from the desktop, and sandboxing can break legitimate apps
  * (top-level redirects, same-origin cookies, modals). Apps that opt into

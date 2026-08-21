@@ -183,7 +183,7 @@ function DashboardContent() {
             <div className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
-                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
+                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">rumahl</h1>
                 <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
                   {currentPageId === 'settings' ? 'Core' : currentPageId === 'admin' ? 'Core' : currentPageId === 'docs' ? 'Docs' : currentPageId === 'streaming' ? 'Stream' : 'Home'}
                 </span>

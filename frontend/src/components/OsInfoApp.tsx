@@ -87,7 +87,7 @@ export function OsInfoApp() {
   ]
 
   return (
-    <section className="ora-app-frame mx-auto max-w-4xl overflow-hidden">
+    <section className="rumahl-app-frame mx-auto max-w-4xl overflow-hidden">
       <OsAppNavbar
         pageId="os-info"
         title={t('settings.about')}

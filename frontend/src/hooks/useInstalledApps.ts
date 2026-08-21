@@ -144,7 +144,7 @@ export function appOpenUrl(app: SupervisorApp): string | undefined {
   const port = firstExternalPort(app.ports) ?? catalogPort
   if (!port) return undefined
   // Use the hostname that served the dashboard. A fixed loopback address only
-  // works on the IORA host itself and makes Docker apps unreachable from every
+  // works on the rumahl host itself and makes Docker apps unreachable from every
   // phone, tablet, or remote browser.
   const configuredBase = getBackendUrl() || window.location.origin
   try {
@@ -200,7 +200,7 @@ async function pollNow(): Promise<void> {
     if (appsRes.ok) {
       const data = await appsRes.json() as { apps?: SupervisorApp[] }
       // Dedupe by id: the supervisor reports one entry per container, so a
-      // leftover container of a re-installed app (same `iora.app.id` label)
+      // leftover container of a re-installed app (same `rumahl.app.id` label)
       // would otherwise render duplicate launcher tiles. The first (and
       // preferably running) entry wins.
       const seen = new Map<string, SupervisorApp>()
@@ -218,7 +218,7 @@ async function pollNow(): Promise<void> {
       sharedState.apps = nextApps
       installedAppIds.clear()
       nextApps.forEach((app) => installedAppIds.add(app.id))
-      window.dispatchEvent(new Event('iora:installed-apps-updated'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-updated'))
     }
     if (jobsRes.ok) {
       const data = await jobsRes.json() as { jobs?: InstallJobPayload[] }
@@ -237,7 +237,7 @@ function ensureSharedPolling(): void {
   if (sharedPollTimer !== null) return
   void pollNow()
   sharedPollTimer = window.setInterval(() => { void pollNow() }, 5000)
-  window.addEventListener('iora:installed-apps-refresh', pollNow)
+  window.addEventListener('rumahl:installed-apps-refresh', pollNow)
 }
 
 function releaseSharedPolling(): void {
@@ -246,7 +246,7 @@ function releaseSharedPolling(): void {
     window.clearInterval(sharedPollTimer)
     sharedPollTimer = null
   }
-  window.removeEventListener('iora:installed-apps-refresh', pollNow)
+  window.removeEventListener('rumahl:installed-apps-refresh', pollNow)
 }
 
 export function useInstalledApps() {

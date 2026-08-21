@@ -37,7 +37,7 @@ export function useAppSettings() {
   const [showUnlockDialog, setShowUnlockDialog] = useState(false)
   const [aiEnabled, setAiEnabled] = useLocalStorage('ha-ai-enabled', true)
 
-  // Whether IORA Home has Home Assistant configured and enabled.
+  // Whether rumahl Home has Home Assistant configured and enabled.
   const [haConfigured, setHaConfigured] = useState<boolean | null>(null)
   const [haEnabled, setHaEnabled] = useState<boolean>(true)
   useEffect(() => {

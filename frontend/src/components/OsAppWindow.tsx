@@ -23,7 +23,7 @@ export function OsAppWindow({
   const { t } = useTranslation()
 
   return (
-    <div className={`ora-app-frame flex flex-col ${noClip ? 'ora-app-frame-no-clip' : ''}`}>
+    <div className={`rumahl-app-frame flex flex-col ${noClip ? 'rumahl-app-frame-no-clip' : ''}`}>
       <div className="flex min-h-12 shrink-0 items-center gap-3 border-b border-foreground/8 px-4 sm:px-5">
         {icon && <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white shadow-md" style={{ background: 'linear-gradient(145deg, oklch(0.62 0.14 265), oklch(0.45 0.12 280))' }}>{icon}</span>}
         <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.16em] text-foreground/50">{title}</span>

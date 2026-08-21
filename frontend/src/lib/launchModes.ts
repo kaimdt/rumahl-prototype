@@ -8,7 +8,7 @@ import type { OsLaunchMode } from '@/contexts/OsWindowContext'
  * per page so the app keeps launching the same way until changed.
  */
 
-const LAUNCH_MODE_KEY = 'iora-os-launch-mode'
+const LAUNCH_MODE_KEY = 'rumahl-os-launch-mode'
 
 const VALID_MODES: OsLaunchMode[] = ['fullscreen', 'immersive', 'window', 'split-left', 'split-right']
 

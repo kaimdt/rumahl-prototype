@@ -1,7 +1,7 @@
 /**
- * IORA Central Configuration Module
+ * rumahl Central Configuration Module
  *
- * In IORA OS there are NO .env files. All configuration lives in the
+ * In rumahl OS there are NO .env files. All configuration lives in the
  * Global Config system (settings table in the database, accessible via
  * GET/PUT /api/admin/settings).
  *
@@ -15,11 +15,11 @@
  */
 
 // ── Bootstrap: Vite env vars are ONLY for local development ──────────
-// In production (IORA OS), the frontend is served from the same origin
+// In production (rumahl OS), the frontend is served from the same origin
 // as the backend, so relative URLs work and these will be empty strings.
 
 const DEV_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ''
-const DEV_ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || ''
+const DEV_ASSIST_URL = import.meta.env.VITE_rumahl_ASSIST_URL || ''
 
 let _backendUrl = DEV_BACKEND_URL
 let _assistUrl = DEV_ASSIST_URL
@@ -50,7 +50,7 @@ function browserSafeBaseUrl(url: string): string {
 export function getBackendUrl(): string {
   let url = _backendUrl;
   // Development fallback: Only when running on the Vite dev server (port 5173)
-  // do we default to localhost:3001. In production / IORA OS / remote dev VM
+  // do we default to localhost:3001. In production / rumahl OS / remote dev VM
   // access, use relative URLs (same origin) so API calls reach the same host.
   if (typeof window !== 'undefined'
       && isLoopbackHost(window.location.hostname)
@@ -77,7 +77,7 @@ export function getBackendUrl(): string {
 /** Returns the current assist/AI URL. Safe to call from anywhere. */
 export function getAssistUrl(): string {
   // In production/desktop: assist URL may not be set separately.
-  // Fall back to backend URL, which iora-home proxies to iora-assist.
+  // Fall back to backend URL, which rumahl-home proxies to rumahl-assist.
   let url = _assistUrl;
   if (!url) {
     url = _backendUrl;
@@ -121,7 +121,7 @@ export function setAssistUrl(url: string): void {
 
 /**
  * Returns the Dev Bridge URL.
- * In production (IORA OS), the dev bridge runs on port 8101 of the same host.
+ * In production (rumahl OS), the dev bridge runs on port 8101 of the same host.
  * In local development, it can be overridden via VITE_DEV_BRIDGE_URL.
  */
 export function getDevBridgeUrl(): string {

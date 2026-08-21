@@ -3,7 +3,7 @@ import { authFetch } from '@/lib/authHelpers'
 export type LauncherBase = 'default' | 'deck' | 'canvas'
 
 export interface StoreLauncherPackage {
-  type: 'iora-launcher'
+  type: 'rumahl-launcher'
   id: string
   name: string
   base: LauncherBase
@@ -28,7 +28,7 @@ interface InstalledPackage {
   enabled?: boolean
   manifest?: {
     launcher?: { id?: string; name?: string; base?: LauncherBase; accent?: string }
-    iora_launcher?: { id?: string; name?: string; base?: LauncherBase; accent?: string }
+    rumahl_launcher?: { id?: string; name?: string; base?: LauncherBase; accent?: string }
     widgets?: Array<{ id?: string; name?: string; description?: string; component_url?: string }>
   }
 }
@@ -51,10 +51,10 @@ export async function loadLauncherPackages(): Promise<{
 
   for (const app of payload.apps || []) {
     if (app.enabled === false || !app.manifest) continue
-    const definition = app.manifest.launcher || app.manifest.iora_launcher
+    const definition = app.manifest.launcher || app.manifest.rumahl_launcher
     if (definition && ['default', 'deck', 'canvas'].includes(definition.base || '')) {
       launchers.push({
-        type: 'iora-launcher',
+        type: 'rumahl-launcher',
         id: definition.id || `store-${app.id}`,
         name: definition.name || app.name,
         base: definition.base as LauncherBase,

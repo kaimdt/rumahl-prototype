@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { OsWindowActions } from '@/components/OsWindowActions'
 
 /**
- * OsAppNavbar — the unified title bar for every ORA OS app.
+ * OsAppNavbar — the unified title bar for every rumahl OS app.
  *
  * Mirrors the Files explorer navbar (the reference design): a gradient app
  * mark, the app name + description, an optional toolbar row, an optional
@@ -29,7 +29,7 @@ export function OsAppNavbar({
   accent?: string
   /** Toolbar controls rendered in the second navbar column. */
   leading?: ReactNode
-  /** Search field rendered in the third column (use .ora-toolbar-search). */
+  /** Search field rendered in the third column (use .rumahl-toolbar-search). */
   search?: ReactNode
   /** Extra controls rendered before the window actions. */
   trailing?: ReactNode
@@ -41,9 +41,9 @@ export function OsAppNavbar({
     : undefined
 
   return (
-    <header className="ora-app-navbar">
+    <header className="rumahl-app-navbar">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="ora-app-mark" style={markStyle}>
+        <span className="rumahl-app-mark" style={markStyle}>
           {iconUrl ? (
             <img src={iconUrl} alt="" width={28} height={28} className="object-contain" draggable={false} />
           ) : (

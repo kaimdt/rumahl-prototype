@@ -5,7 +5,7 @@ import { useEntityStore } from '@/hooks/useEntityStore'
 import { toBackendImageUrl } from '@/lib/imageUrl'
 
 /**
- * ORA presence widget — who is home (Home Dashboard v2, Package 3).
+ * rumahl presence widget — who is home (Home Dashboard v2, Package 3).
  *
  * Aggregates Home Assistant `person` / `device_tracker` entities into a
  * single "Presence" dashboard card. HA remains the source of truth for

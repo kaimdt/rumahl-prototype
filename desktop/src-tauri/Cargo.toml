@@ -1,15 +1,15 @@
 [package]
-name = "iora-desktop"
+name = "rumahl-desktop"
 version = "0.1.0"
 edition = "2021"
-description = "IORA Desktop – background client connecting IORA to LM Studio"
+description = "rumahl Desktop – background client connecting rumahl to LM Studio"
 
 [package.metadata.bundle]
-identifier = "de.iora.desktop"
+identifier = "de.rumahl.desktop"
 icon = ["icons/icon.png", "icons/icon.ico"]
 
 [lib]
-name = "iora_desktop_lib"
+name = "rumahl_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

@@ -8,10 +8,10 @@ import { toast } from 'sonner'
 
 type TestState = 'idle' | 'testing' | 'success' | 'error'
 
-const STORAGE_KEY_HOST = 'iora-connector-host'
-const STORAGE_KEY_PRIVATE_PORT = 'iora-connector-private-port'
-const STORAGE_KEY_PUBLIC_PROXY_PORT = 'iora-connector-public-port'
-const STORAGE_KEY_USE_TLS = 'iora-connector-use-tls'
+const STORAGE_KEY_HOST = 'rumahl-connector-host'
+const STORAGE_KEY_PRIVATE_PORT = 'rumahl-connector-private-port'
+const STORAGE_KEY_PUBLIC_PROXY_PORT = 'rumahl-connector-public-port'
+const STORAGE_KEY_USE_TLS = 'rumahl-connector-use-tls'
 
 const inputClass = "w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
 
@@ -94,13 +94,13 @@ export function ConnectionSettings() {
 
       try {
         const config = await tauriApi.getConfig()
-        await tauriApi.saveConfig({ ...config, iora_home_url: normalizedUrl })
+        await tauriApi.saveConfig({ ...config, rumahl_home_url: normalizedUrl })
       } catch {
         // Nicht in Tauri-Kontetxt – lokale Speicherung reicht
       }
 
       setSaved(true)
-      toast.success('IORA Cloud Connector gespeichert')
+      toast.success('rumahl Cloud Connector gespeichert')
       setTimeout(() => setSaved(false), 2000)
     } catch {
       toast.error('Fehler beim Speichern der Einstellungen')
@@ -119,8 +119,8 @@ export function ConnectionSettings() {
             <Globe size={20} weight="duotone" className="text-accent" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-foreground/90">IORA Cloud Connector</h2>
-            <p className="text-xs text-foreground/50">Trage hier die IP und Ports deines IORA Connectors ein. Das ist die zentrale Konfiguration für Cloud- und VPN-Zugriff.</p>
+            <h2 className="text-base font-semibold text-foreground/90">rumahl Cloud Connector</h2>
+            <p className="text-xs text-foreground/50">Trage hier die IP und Ports deines rumahl Connectors ein. Das ist die zentrale Konfiguration für Cloud- und VPN-Zugriff.</p>
           </div>
         </div>
 
@@ -176,7 +176,7 @@ export function ConnectionSettings() {
           <div className="rounded-3xl border border-foreground/10 bg-foreground/5 p-4 text-sm text-foreground/70">
             <p className="font-semibold text-foreground">Wichtig</p>
             <p className="mt-2">Der Connector hört auf alle IP-Adressen, die ihm zugewiesen sind. Der private API-Port sollte nur über VPN/Tailscale erreichbar sein, der öffentliche Proxy-Port nur verschlüsselte Verbindungen zulassen.</p>
-            <p className="mt-2">Diese Seite ist die zentrale Stelle, um den IORA Cloud Connector einzurichten und anzupassen.</p>
+            <p className="mt-2">Diese Seite ist die zentrale Stelle, um den rumahl Cloud Connector einzurichten und anzupassen.</p>
           </div>
 
           <div className="grid gap-2">

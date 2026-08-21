@@ -112,7 +112,7 @@ export function ScreensaverScheduleEditor({
                 type="time"
                 value={sched.startTime}
                 onChange={(e) => updateSchedule(sched.id, { startTime: e.target.value })}
-                className="ora-field"
+                className="rumahl-field"
               />
             </div>
             <div className="space-y-1.5">
@@ -123,7 +123,7 @@ export function ScreensaverScheduleEditor({
                 type="time"
                 value={sched.endTime}
                 onChange={(e) => updateSchedule(sched.id, { endTime: e.target.value })}
-                className="ora-field"
+                className="rumahl-field"
               />
             </div>
           </div>

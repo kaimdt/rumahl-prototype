@@ -1,7 +1,7 @@
-//! Network detection & profile switching for IORA Desktop.
+//! Network detection & profile switching for rumahl Desktop.
 //!
 //! Detects the current network type (Ethernet, WiFi, Mobile, VPN, Unknown)
-//! and the local IP so the app can auto-select the correct IORA Home URL
+//! and the local IP so the app can auto-select the correct rumahl Home URL
 //! for each network environment.
 //!
 //! Cross-platform: works on Windows, Linux, and macOS.

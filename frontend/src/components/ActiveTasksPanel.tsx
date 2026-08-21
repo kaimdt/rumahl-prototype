@@ -1,4 +1,4 @@
-// ActiveTasksPanel – Dashboard panel for managing IORA active tasks
+// ActiveTasksPanel – Dashboard panel for managing rumahl active tasks
 // Shows all user/AI-created tasks with full pause/resume/delete/edit capabilities.
 
 import { useState, useEffect, useCallback } from 'react'
@@ -445,7 +445,7 @@ export function ActiveTasksPanel({ isVisible = true }: ActiveTasksPanelProps) {
               ) : (
                 <>
                   <p className="text-xs">Noch keine Aufgaben.</p>
-                  <p className="text-xs mt-1 opacity-70">Frage ORA: „Wecke mich unter der Woche um 6:30 Uhr"</p>
+                  <p className="text-xs mt-1 opacity-70">Frage rumahl: „Wecke mich unter der Woche um 6:30 Uhr"</p>
                 </>
               )}
             </motion.div>

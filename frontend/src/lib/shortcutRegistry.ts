@@ -32,7 +32,7 @@ export const SHORTCUTS: ShortcutDefinition[] = [
   { id: 'sleep', labelKey: 'shortcuts.sleep.label', descKey: 'shortcuts.sleep.desc', defaultCombo: 'Mod+Shift+S' },
 ]
 
-const STORAGE_KEY = 'iora-keyboard-shortcuts'
+const STORAGE_KEY = 'rumahl-keyboard-shortcuts'
 
 function readOverrides(): Record<string, string> {
   try {

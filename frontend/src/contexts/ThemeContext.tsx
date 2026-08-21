@@ -445,7 +445,7 @@ export interface TimeThemeConfig {
   nightStart: number
 }
 
-const TIME_THEME_KEY = 'iora-time-theme-boundaries'
+const TIME_THEME_KEY = 'rumahl-time-theme-boundaries'
 const DEFAULT_TIME_THEME: TimeThemeConfig = { dayStart: 6, eveningStart: 18, nightStart:21 }
 
 export function readTimeThemeConfig(): TimeThemeConfig {
@@ -492,13 +492,13 @@ function getDesignModeFromTime(modes: ThemeDesignMode[]): string | null {
 }
 
 const DEFAULT_BUILTIN_THEMES: ThemeDefinition[] = [
-  { id: 'auto', name: 'Automatisch', version: '1.0.0', developer: 'IORA', description: 'Wechselt nach Tageszeit', icon: 'ArrowsClockwise', system: true, order: 0, css_variables: {} },
-  { id: 'light', name: 'Hell', version: '1.0.0', developer: 'IORA', description: 'Maximale Helligkeit', icon: 'Sun', system: true, order: 5, css_variables: {} },
-  { id: 'day', name: 'Tag', version: '1.0.0', developer: 'IORA', description: 'Helles Design', icon: 'CloudSun', system: true, order: 10, css_variables: {} },
-  { id: 'day-classic', name: 'Klassisch', version: '1.0.0', developer: 'IORA', description: 'Dunkler Hintergrund', icon: 'Monitor', system: true, order: 20, css_variables: {} },
-  { id: 'evening', name: 'Abend', version: '1.0.0', developer: 'IORA', description: 'Warme Töne', icon: 'SunDim', system: true, order: 30, css_variables: {} },
-  { id: 'night', name: 'Nacht', version: '1.0.0', developer: 'IORA', description: 'Dunkles Design', icon: 'MoonStars', system: true, order: 40, css_variables: {} },
-  { id: 'sleep', name: 'Schlaf', version: '1.0.0', developer: 'IORA', description: 'OLED Schwarz', icon: 'Moon', system: true, order: 50, css_variables: {} },
+  { id: 'auto', name: 'Automatisch', version: '1.0.0', developer: 'rumahl', description: 'Wechselt nach Tageszeit', icon: 'ArrowsClockwise', system: true, order: 0, css_variables: {} },
+  { id: 'light', name: 'Hell', version: '1.0.0', developer: 'rumahl', description: 'Maximale Helligkeit', icon: 'Sun', system: true, order: 5, css_variables: {} },
+  { id: 'day', name: 'Tag', version: '1.0.0', developer: 'rumahl', description: 'Helles Design', icon: 'CloudSun', system: true, order: 10, css_variables: {} },
+  { id: 'day-classic', name: 'Klassisch', version: '1.0.0', developer: 'rumahl', description: 'Dunkler Hintergrund', icon: 'Monitor', system: true, order: 20, css_variables: {} },
+  { id: 'evening', name: 'Abend', version: '1.0.0', developer: 'rumahl', description: 'Warme Töne', icon: 'SunDim', system: true, order: 30, css_variables: {} },
+  { id: 'night', name: 'Nacht', version: '1.0.0', developer: 'rumahl', description: 'Dunkles Design', icon: 'MoonStars', system: true, order: 40, css_variables: {} },
+  { id: 'sleep', name: 'Schlaf', version: '1.0.0', developer: 'rumahl', description: 'OLED Schwarz', icon: 'Moon', system: true, order: 50, css_variables: {} },
 ]
 
 function getThemePreview(themeId: string): string {
@@ -517,11 +517,11 @@ function getThemePreview(themeId: string): string {
 // ─── Font & Style injection helpers ─────────────────────────────────
 
 /** IDs used for injected elements so we can clean them up on theme switch */
-const FONT_CONTAINER_ID = 'iora-theme-fonts'
-const STYLE_CONTAINER_ID = 'iora-theme-css'
-const ICON_FONT_ID = 'iora-theme-icon-font'
-const JS_CONTAINER_ID = 'iora-theme-js'
-const CSS_FILES_PREFIX = 'iora-theme-css-file-'
+const FONT_CONTAINER_ID = 'rumahl-theme-fonts'
+const STYLE_CONTAINER_ID = 'rumahl-theme-css'
+const ICON_FONT_ID = 'rumahl-theme-icon-font'
+const JS_CONTAINER_ID = 'rumahl-theme-js'
+const CSS_FILES_PREFIX = 'rumahl-theme-css-file-'
 
 /** Inject <link> tags for custom fonts into <head> */
 function injectFonts(fonts: ThemeFont[]) {
@@ -644,7 +644,7 @@ function injectJsFiles(urls: string[]) {
   }
 
   urls.forEach((url, index) => {
-    const scriptId = `iora-theme-js-${index}`
+    const scriptId = `rumahl-theme-js-${index}`
     // Remove previous script with same ID
     const existing = document.getElementById(scriptId)
     if (existing) existing.remove()
@@ -672,8 +672,8 @@ function injectIconFont(config: ThemeIconConfig) {
   }
 
   // Store icon map on document for runtime use
-  ;(window as any).__iora_icon_map = config.icon_map
-  ;(window as any).__iora_icon_prefix = config.class_prefix
+  ;(window as any).__rumahl_icon_map = config.icon_map
+  ;(window as any).__rumahl_icon_prefix = config.class_prefix
 }
 
 /** Remove all injected theme styles/fonts/scripts */
@@ -696,7 +696,7 @@ function clearThemeInjections() {
   // Remove all JS scripts
   const jsContainer = document.getElementById(JS_CONTAINER_ID)
   if (jsContainer) jsContainer.remove()
-  document.querySelectorAll(`script[id^="iora-theme-js-"]`).forEach(el => el.remove())
+  document.querySelectorAll(`script[id^="rumahl-theme-js-"]`).forEach(el => el.remove())
 
   // Reset body font
   document.body.style.fontFamily = ''
@@ -706,13 +706,13 @@ function clearThemeInjections() {
   document.documentElement.style.removeProperty('--font-mono')
 
   // Clear icon map
-  delete (window as any).__iora_icon_map
-  delete (window as any).__iora_icon_prefix
+  delete (window as any).__rumahl_icon_map
+  delete (window as any).__rumahl_icon_prefix
 }
 
 // ─── FOUC Protection - sessionStorage CSS cache ───────────────────
 
-const THEME_CSS_CACHE_KEY = 'iora-theme-css-cache'
+const THEME_CSS_CACHE_KEY = 'rumahl-theme-css-cache'
 function cacheThemeCss(id: string, vars: Record<string, string>) {
   try { sessionStorage.setItem(THEME_CSS_CACHE_KEY, JSON.stringify({ id, vars })) } catch {}
 }
@@ -777,7 +777,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     // Restore a manually selected design mode across reloads (the modes are
     // per-theme; a mode the active theme does not provide is reset below).
     try {
-      const raw = localStorage.getItem('iora-active-design-mode')
+      const raw = localStorage.getItem('rumahl-active-design-mode')
       if (raw) {
         const parsed = JSON.parse(raw) as { mode?: string }
         if (parsed && typeof parsed.mode === 'string') return parsed.mode
@@ -843,7 +843,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }))
         const autoThemeDef: ThemeDefinition = {
           id: 'auto', name: 'Automatisch', version: '1.0.0',
-          developer: 'IORA', description: 'Wechselt nach Tageszeit',
+          developer: 'rumahl', description: 'Wechselt nach Tageszeit',
           icon: 'ArrowsClockwise', system: true, order: 0, css_variables: {},
         }
         setAvailableThemes([autoThemeDef, ...builtin, ...(data.installed || [])])
@@ -1037,8 +1037,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       } else {
         const iconLink = document.getElementById(ICON_FONT_ID)
         if (iconLink) iconLink.remove()
-        delete (window as any).__iora_icon_map
-        delete (window as any).__iora_icon_prefix
+        delete (window as any).__rumahl_icon_map
+        delete (window as any).__rumahl_icon_prefix
       }
 
       injectedThemeRef.current = themeResponse.theme_id
@@ -1194,7 +1194,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const mode = modes.find((m) => m.id === activeDesignMode)
     if (!mode) {
       setActiveDesignModeState('default')
-      try { localStorage.removeItem('iora-active-design-mode') } catch {}
+      try { localStorage.removeItem('rumahl-active-design-mode') } catch {}
       return
     }
     Object.keys(prevModeVarsRef.current).forEach((key) => {
@@ -1210,7 +1210,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const setActiveDesignMode = useCallback((modeId: string) => {
     setActiveDesignModeState(modeId)
     try {
-      localStorage.setItem('iora-active-design-mode', JSON.stringify({ mode: modeId }))
+      localStorage.setItem('rumahl-active-design-mode', JSON.stringify({ mode: modeId }))
     } catch {}
     // Clean up previous mode variables
     Object.keys(prevModeVarsRef.current).forEach(key => {
@@ -1280,7 +1280,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Inject custom CSS keyframes from theme animation config
   useEffect(() => {
-    const KEYFRAME_STYLE_ID = 'iora-theme-keyframes'
+    const KEYFRAME_STYLE_ID = 'rumahl-theme-keyframes'
     let styleEl = document.getElementById(KEYFRAME_STYLE_ID)
     
     if (capabilities?.animation?.keyframes && Object.keys(capabilities.animation.keyframes).length > 0) {

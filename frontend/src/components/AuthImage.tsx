@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { authFetch, resolveIoraUrl } from '@/lib/authHelpers'
+import { authFetch, resolverumahlUrl } from '@/lib/authHelpers'
 
 /**
  * AuthImage – loads an authenticated image URL via fetch (Authorization
@@ -25,7 +25,7 @@ export function AuthImage({
     let cancelled = false
     let url: string | null = null
     setObjectUrl(null)
-    authFetch(resolveIoraUrl(src))
+    authFetch(resolverumahlUrl(src))
       .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((blob) => {
         if (cancelled) return

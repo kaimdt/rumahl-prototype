@@ -63,7 +63,7 @@ const OsWindowContext = createContext<OsWindowContextValue | null>(null)
 
 const DEFAULT_WINDOW_WIDTH = 880
 const DEFAULT_WINDOW_HEIGHT = 640
-const SESSION_STORAGE_KEY = 'iora-os-session-windows'
+const SESSION_STORAGE_KEY = 'rumahl-os-session-windows'
 const SAVE_DEBOUNCE_MS = 800
 
 /** Screen geometry (with a small inset so maximized/snapped windows keep a margin). */

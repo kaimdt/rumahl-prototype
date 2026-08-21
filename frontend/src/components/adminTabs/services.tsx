@@ -100,7 +100,7 @@ export function SecretsTab({ token }: { token: string }) {
         </div>
         <div className="mt-2">
           <button onClick={create} disabled={!name.trim() || !value}
-            className="ora-ghost-button-sm">
+            className="rumahl-ghost-button-sm">
             Speichern
           </button>
         </div>
@@ -151,7 +151,7 @@ export function SecretsTab({ token }: { token: string }) {
   )
 }
 
-// ─── Files (iora-files) ─────────────────────────────────────────────────
+// ─── Files (rumahl-files) ─────────────────────────────────────────────────
 export interface FileRow {
   id: string
   name: string
@@ -248,7 +248,7 @@ export function FilesTab({ token }: { token: string }) {
               <input value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="Neuer Ordner-Name…"
                 className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
               <button onClick={createFolder} disabled={!folderName.trim()}
-                className="ora-ghost-button-sm">Ordner anlegen</button>
+                className="rumahl-ghost-button-sm">Ordner anlegen</button>
             </div>
             {files.length === 0 ? (
               <p className="text-xs text-foreground/50">Keine Dateien.</p>
@@ -315,7 +315,7 @@ export function FilesTab({ token }: { token: string }) {
   )
 }
 
-// ─── Gateway (iora-gateway) ─────────────────────────────────────────────
+// ─── Gateway (rumahl-gateway) ─────────────────────────────────────────────
 
 export function GatewayTab({ token }: { token: string }) {
   const [view, setView] = useState<'email' | 'search' | 'http' | 'log' | 'ai-log'>('email')
@@ -387,7 +387,7 @@ export function GatewayTab({ token }: { token: string }) {
             <textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={4} placeholder="Inhalt…"
               className="w-full text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
             <button onClick={sendEmail} disabled={busy || !emailTo.trim() || !emailSubject.trim()}
-              className="ora-ghost-button-sm">{busy ? '…' : 'Senden'}</button>
+              className="rumahl-ghost-button-sm">{busy ? '…' : 'Senden'}</button>
           </div>
         )}
         {view === 'search' && (
@@ -395,7 +395,7 @@ export function GatewayTab({ token }: { token: string }) {
             <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} placeholder="Suchbegriff…"
               className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={search} disabled={busy || !searchQ.trim()}
-              className="ora-ghost-button-sm">{busy ? '…' : 'Suchen'}</button>
+              className="rumahl-ghost-button-sm">{busy ? '…' : 'Suchen'}</button>
           </div>
         )}
         {view === 'http' && (
@@ -403,7 +403,7 @@ export function GatewayTab({ token }: { token: string }) {
             <input value={httpUrl} onChange={(e) => setHttpUrl(e.target.value)}
               className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={httpGet} disabled={busy || !httpUrl.trim()}
-              className="ora-ghost-button-sm">{busy ? '…' : 'GET'}</button>
+              className="rumahl-ghost-button-sm">{busy ? '…' : 'GET'}</button>
           </div>
         )}
         {view === 'log' && requestLog !== null && <ServiceJsonBlock data={requestLog} max="max-h-96" />}
@@ -416,7 +416,7 @@ export function GatewayTab({ token }: { token: string }) {
   )
 }
 
-// ─── Watchdog (iora-watchdog) ───────────────────────────────────────────
+// ─── Watchdog (rumahl-watchdog) ───────────────────────────────────────────
 export interface WatchdogService { name?: string; status?: string; last_heartbeat?: string; failure_count?: number }
 
 export function WatchdogTab({ token }: { token: string }) {
@@ -490,7 +490,7 @@ export function WatchdogTab({ token }: { token: string }) {
   )
 }
 
-// ─── Connector (iora-connector) ─────────────────────────────────────────
+// ─── Connector (rumahl-connector) ─────────────────────────────────────────
 export interface TunnelRow { id?: string; name?: string; status?: string; endpoint?: string; created_at?: string; last_seen?: string }
 export interface ExposedSvc { id?: string; name?: string; tunnel_id?: string; local_port?: number; public_url?: string }
 export interface PairingTok { id?: string; token?: string; expires_at?: string; created_at?: string }
@@ -614,7 +614,7 @@ export function ConnectorTab({ token }: { token: string }) {
   )
 }
 
-// ─── Domain Validator (iora-domain-validator) ───────────────────────────
+// ─── Domain Validator (rumahl-domain-validator) ───────────────────────────
 
 export function DomainValidatorTab({ token }: { token: string }) {
   const [appId, setAppId] = useState('')
@@ -666,7 +666,7 @@ export function DomainValidatorTab({ token }: { token: string }) {
             className="text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
         </div>
         <button onClick={validate} disabled={busy || !validateUrl.trim() || !validateApp.trim()}
-          className="ora-ghost-button-sm mt-2">{busy ? '…' : 'Validieren'}</button>
+          className="rumahl-ghost-button-sm mt-2">{busy ? '…' : 'Validieren'}</button>
         {validation !== null && <div className="mt-3"><ServiceJsonBlock data={validation} /></div>}
       </AdminCard>
 
@@ -675,7 +675,7 @@ export function DomainValidatorTab({ token }: { token: string }) {
           <input value={appId} onChange={(e) => setAppId(e.target.value)} placeholder="App-ID eingeben…"
             className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
           <button onClick={loadFor} disabled={busy || !appId.trim()}
-            className="ora-ghost-button-sm">{busy ? '…' : 'Laden'}</button>
+            className="rumahl-ghost-button-sm">{busy ? '…' : 'Laden'}</button>
         </div>
         {error && <p className="text-xs text-red-300 mb-2">{error}</p>}
         {policy !== null && (
@@ -695,7 +695,7 @@ export function DomainValidatorTab({ token }: { token: string }) {
   )
 }
 
-// ─── Resource Manager (iora-resource-manager) ───────────────────────────
+// ─── Resource Manager (rumahl-resource-manager) ───────────────────────────
 export interface ContainerRow { id?: string; name?: string; status?: string; cpu?: number; memory?: number; memory_limit?: number }
 
 export function ResourcesTab({ token }: { token: string }) {
@@ -734,7 +734,7 @@ export function ResourcesTab({ token }: { token: string }) {
         {error && <p className="text-xs text-red-300">{error}</p>}
         {system !== null && <ServiceJsonBlock data={system} max="max-h-40" />}
         <div className="mt-3 flex justify-end">
-          <button onClick={reallocate} className="ora-ghost-button-sm">Reallokation auslösen</button>
+          <button onClick={reallocate} className="rumahl-ghost-button-sm">Reallokation auslösen</button>
         </div>
       </AdminCard>
 
@@ -772,7 +772,7 @@ export function ResourcesTab({ token }: { token: string }) {
   )
 }
 
-// ─── API Bridge (iora-api: GraphQL / WebDAV / CalDAV / MQTT) ───────────
+// ─── API Bridge (rumahl-api: GraphQL / WebDAV / CalDAV / MQTT) ───────────
 
 export function ApiBridgeTab({ token }: { token: string }) {
   const [metrics, setMetrics] = useState<unknown>(null)
@@ -811,7 +811,7 @@ export function ApiBridgeTab({ token }: { token: string }) {
     <div className="space-y-3">
       <AdminCard title="Externe API-Schnittstellen" icon={Code}>
         <p className="text-xs text-foreground/60 mb-3">
-          iora-api bündelt alle stabilen externen Protokolle. Kopiere eine URL, um sie in einem Client (DAVx⁵, Thunderbird, GraphiQL, …) zu konfigurieren.
+          rumahl-api bündelt alle stabilen externen Protokolle. Kopiere eine URL, um sie in einem Client (DAVx⁵, Thunderbird, GraphiQL, …) zu konfigurieren.
         </p>
         <div className="space-y-1.5">
           {endpoints.map((e) => {
@@ -845,5 +845,5 @@ export function ApiBridgeTab({ token }: { token: string }) {
 }
 
 
-// ─── IORA OS (only meaningful on actual IORA OS device) ─────────────────────────
+// ─── rumahl OS (only meaningful on actual rumahl OS device) ─────────────────────────
 

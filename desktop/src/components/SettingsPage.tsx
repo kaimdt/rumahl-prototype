@@ -33,7 +33,7 @@ import type { ThemeMode } from '@/lib/types'
 import { NetworkSettings } from './NetworkSettings'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// IORA OS Control Center Design Primitives
+// rumahl OS Control Center Design Primitives
 // Theme-aware, consistent — mirrors AdminPanel cc-pattern.
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -116,7 +116,7 @@ function SettingsSidebar({
     <div className="flex flex-col w-[232px] shrink-0 border-r border-foreground/[0.06] bg-background/40 backdrop-blur-2xl pt-6 pb-4">
       {/* Header */}
       <div className="px-5 mb-6">
-        <p className="text-[10px] uppercase tracking-[0.22em] text-foreground/30 mb-1 font-medium">IORA Desktop</p>
+        <p className="text-[10px] uppercase tracking-[0.22em] text-foreground/30 mb-1 font-medium">rumahl Desktop</p>
         <h2 className="text-base font-semibold text-foreground/90 tracking-tight">Einstellungen</h2>
       </div>
 
@@ -145,7 +145,7 @@ function SettingsSidebar({
 
       {/* Bottom section */}
       <div className="px-3 space-y-2">
-        {/* Back to IORA Home */}
+        {/* Back to rumahl Home */}
         {showHome && (
           <motion.button
             type="button"
@@ -154,7 +154,7 @@ function SettingsSidebar({
             whileTap={{ scale: 0.97 }}
           >
             <House size={19} weight="duotone" />
-            <span>IORA Home</span>
+            <span>rumahl Home</span>
           </motion.button>
         )}
 
@@ -430,7 +430,7 @@ function AppearancePane({
           checked={true}
           onCheckedChange={() => toast('Die Titelleiste verwendet bereits Glas-Optik.')}
         />
-        <p className="text-[10px] text-foreground/25 mt-3">Diese Einstellung ist fixiert und Teil der IORA OS Designsprache.</p>
+        <p className="text-[10px] text-foreground/25 mt-3">Diese Einstellung ist fixiert und Teil der rumahl OS Designsprache.</p>
       </div>
 
       {/* Notifications */}
@@ -491,7 +491,7 @@ function AiPane({
         <div className="space-y-4">
           <div className="rounded-xl border border-accent/[0.12] bg-accent/[0.04] px-4 py-3">
             <p className="text-[12px] text-accent/80 leading-relaxed">
-              Wenn LM Studio auf diesem PC läuft, stellt IORA Desktop die Modelle automatisch dem gesamten IORA-Netzwerk bereit.
+              Wenn LM Studio auf diesem PC läuft, stellt rumahl Desktop die Modelle automatisch dem gesamten rumahl-Netzwerk bereit.
             </p>
           </div>
 
@@ -566,41 +566,41 @@ function AiPane({
         </div>
       </div>
 
-      {/* IORA Assist Backend */}
+      {/* rumahl Assist Backend */}
       <div className={ccCard()}>
-        <SectionHeader icon={Lightning} title="IORA Assist Backend" description="Verbindung zum zentralen Assist Server" />
+        <SectionHeader icon={Lightning} title="rumahl Assist Backend" description="Verbindung zum zentralen Assist Server" />
         <TextInput
-          label="IORA Assist URL"
-          value={tauriConfig.iora_backend_url}
-          onChange={(v) => updateConfig({ iora_backend_url: v })}
+          label="rumahl Assist URL"
+          value={tauriConfig.rumahl_backend_url}
+          onChange={(v) => updateConfig({ rumahl_backend_url: v })}
           placeholder="http://localhost:8092"
           type="url"
         />
       </div>
 
-      {/* ORA AI */}
+      {/* rumahl AI */}
       <div className={ccCard()}>
-        <SectionHeader icon={Sparkle} title="ORA AI Einstellungen" description="Privatsphäre und Systemsteuerung" />
+        <SectionHeader icon={Sparkle} title="rumahl AI Einstellungen" description="Privatsphäre und Systemsteuerung" />
         <div className="space-y-2.5">
           <ToggleRow
             label="Privatsphäre-Modus"
-            description="Deaktiviert ORA AI vollständig für diesen Client"
-            checked={tauriConfig.ora_privacy_mode}
-            onCheckedChange={(value) => updateConfig({ ora_privacy_mode: value })}
+            description="Deaktiviert rumahl AI vollständig für diesen Client"
+            checked={tauriConfig.rumahl_privacy_mode}
+            onCheckedChange={(value) => updateConfig({ rumahl_privacy_mode: value })}
           />
           <ToggleRow
             label="Systemsteuerung erlauben"
             description="Erlaubt der AI, dein System zu steuern (Tastatur, Maus, Programme)"
-            checked={tauriConfig.ora_allow_control}
-            onCheckedChange={(value) => updateConfig({ ora_allow_control: value })}
-            disabled={tauriConfig.ora_privacy_mode}
+            checked={tauriConfig.rumahl_allow_control}
+            onCheckedChange={(value) => updateConfig({ rumahl_allow_control: value })}
+            disabled={tauriConfig.rumahl_privacy_mode}
           />
           <ToggleRow
             label="Autopilot Modus"
             description="Erlaubt der AI selbstständige Systemsteuerungen ohne Bestätigung"
-            checked={tauriConfig.ora_autopilot}
-            onCheckedChange={(value) => updateConfig({ ora_autopilot: value })}
-            disabled={tauriConfig.ora_privacy_mode}
+            checked={tauriConfig.rumahl_autopilot}
+            onCheckedChange={(value) => updateConfig({ rumahl_autopilot: value })}
+            disabled={tauriConfig.rumahl_privacy_mode}
           />
         </div>
       </div>
@@ -732,11 +732,11 @@ function NetworkPane({
 
       {/* Remote Home */}
       <div className={ccCard()}>
-        <SectionHeader icon={Globe} title="Remote Home URL" description="Ziele auf die entfernte IORA Home-Instanz" />
+        <SectionHeader icon={Globe} title="Remote Home URL" description="Ziele auf die entfernte rumahl Home-Instanz" />
         <TextInput
           label="Remote Home URL"
-          value={tauriConfig.iora_home_url}
-          onChange={(v) => updateConfig({ iora_home_url: v })}
+          value={tauriConfig.rumahl_home_url}
+          onChange={(v) => updateConfig({ rumahl_home_url: v })}
           placeholder="https://localhost:3001"
           type="url"
         />
@@ -796,7 +796,7 @@ function NetworkPane({
 
       {/* Network Profiles */}
       <div className={ccCard()}>
-        <SectionHeader icon={WifiHigh} title="Netzwerkprofile" description="Verschiedene IORA Home URLs verwalten" />
+        <SectionHeader icon={WifiHigh} title="Netzwerkprofile" description="Verschiedene rumahl Home URLs verwalten" />
         <NetworkSettings />
       </div>
     </motion.div>
@@ -826,14 +826,14 @@ function DevicePane({
 
       {/* Identity */}
       <div className={ccCard()}>
-        <SectionHeader icon={IdentificationCard} title="Geräte-Identität" description="Name und ID im IORA-Netzwerk" />
+        <SectionHeader icon={IdentificationCard} title="Geräte-Identität" description="Name und ID im rumahl-Netzwerk" />
         <div className="space-y-4">
           <TextInput
             label="Client-Name"
             value={tauriConfig.client_name}
             onChange={(v) => updateConfig({ client_name: v })}
             placeholder="z.B. Wohnzimmer-PC"
-            hint="Anzeigename in IORA Assist (bei mehreren Clients)"
+            hint="Anzeigename in rumahl Assist (bei mehreren Clients)"
           />
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-foreground/50 uppercase tracking-wider">Client-ID</label>
@@ -939,8 +939,8 @@ export function SettingsPage({ theme: _theme }: SettingsPageProps) {
       setSaving(true)
       await tauriApi.saveConfig(tauriConfig)
 
-      if (initialConfig && initialConfig.iora_home_url !== tauriConfig.iora_home_url) {
-        setApiBase(tauriConfig.iora_home_url)
+      if (initialConfig && initialConfig.rumahl_home_url !== tauriConfig.rumahl_home_url) {
+        setApiBase(tauriConfig.rumahl_home_url)
       }
       if (initialConfig && initialConfig.autostart_enabled !== tauriConfig.autostart_enabled) {
         await tauriApi.setAutostart(tauriConfig.autostart_enabled)

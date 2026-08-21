@@ -15,7 +15,7 @@ import { SetupWizardOverlay } from '@/components/SetupWizardOverlay'
 import { Toaster } from '@/components/ui/sonner'
 
 /**
- * AppProviders — the composable provider tree of the ORA OS foundation.
+ * AppProviders — the composable provider tree of the rumahl OS foundation.
  * Kept in one place so adding a new provider is a single, obvious change.
  */
 export function AppProviders({ children }: { children: ReactNode }) {

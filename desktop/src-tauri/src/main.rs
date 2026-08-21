@@ -7,7 +7,7 @@ mod commands;
 mod config;
 mod ha_commands;
 mod ha_integration;
-mod iora_notifications;
+mod rumahl_notifications;
 mod lm_studio;
 mod network_commands;
 mod network_detection;
@@ -33,7 +33,7 @@ fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "iora_desktop=info".parse().unwrap()),
+                .unwrap_or_else(|_| "rumahl_desktop=info".parse().unwrap()),
         )
         .init();
 
@@ -94,9 +94,9 @@ fn main() {
             let quit_item = MenuItem::with_id(app, "quit", "Beenden", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            let _tray = TrayIconBuilder::with_id("iora-tray")
+            let _tray = TrayIconBuilder::with_id("rumahl-tray")
                 .menu(&menu)
-                .tooltip("IORA Desktop – prüfe Verbindung…")
+                .tooltip("rumahl Desktop – prüfe Verbindung…")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("settings") {
@@ -175,12 +175,12 @@ fn main() {
                     let was_online = state.lm_online.swap(online, Ordering::Relaxed);
 
                     // Update tray tooltip on every poll (or on transition)
-                    if let Some(tray) = app_handle.tray_by_id("iora-tray") {
+                    if let Some(tray) = app_handle.tray_by_id("rumahl-tray") {
                         let tooltip = if online {
-                            format!("IORA Desktop [{}] – LM Studio verbunden", client_name)
+                            format!("rumahl Desktop [{}] – LM Studio verbunden", client_name)
                         } else {
                             format!(
-                                "IORA Desktop [{}] – LM Studio offline ({})",
+                                "rumahl Desktop [{}] – LM Studio offline ({})",
                                 client_name, url
                             )
                         };
@@ -211,7 +211,7 @@ fn main() {
                         let state = app_handle_ha.state::<AppState>();
                         let cfg = state.config.lock().await.clone();
                         (
-                            cfg.iora_home_url.clone(), // Use iora-home URL, not HA URL
+                            cfg.rumahl_home_url.clone(), // Use rumahl-home URL, not HA URL
                             cfg.ha_token.clone(),
                             cfg.client_name.clone(),
                             cfg.ha_update_interval_secs,
@@ -244,27 +244,27 @@ fn main() {
                 }
             });
 
-            // ── IORA Desktop Notification Listener ───────────────────────────
-            // Connect to iora-home WebSocket and listen for desktop_notification events.
+            // ── rumahl Desktop Notification Listener ───────────────────────────
+            // Connect to rumahl-home WebSocket and listen for desktop_notification events.
             let app_handle_notif = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 // Small startup delay so config is ready
                 tokio::time::sleep(Duration::from_secs(3)).await;
 
-                let (iora_home_url, auth_token, client_name) = {
+                let (rumahl_home_url, auth_token, client_name) = {
                     let state = app_handle_notif.state::<AppState>();
                     let cfg = state.config.lock().await.clone();
                     (
-                        cfg.iora_home_url.clone(),
+                        cfg.rumahl_home_url.clone(),
                         cfg.auth_token.clone(),
                         cfg.client_name.clone(),
                     )
                 };
-                if !iora_home_url.is_empty() {
+                if !rumahl_home_url.is_empty() {
                     // start_notification_listener runs its own reconnect loop indefinitely
-                    iora_notifications::start_notification_listener(
+                    rumahl_notifications::start_notification_listener(
                         app_handle_notif,
-                        iora_home_url,
+                        rumahl_home_url,
                         auth_token,
                         client_name,
                     );
@@ -308,7 +308,7 @@ fn main() {
             autostart::set_autostart,
             autostart::get_autostart_status,
             autostart::set_autostart_options,
-            // ORA AI commands
+            // rumahl AI commands
             ora_ai::ora_send_chat,
             ora_ai::ora_search_internet,
             ora_ai::ora_show_overlay,
@@ -333,5 +333,5 @@ fn main() {
             window_controls::trigger_windows_snap,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running IORA Desktop");
+        .expect("error while running rumahl Desktop");
 }

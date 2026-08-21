@@ -67,10 +67,10 @@ export function CommandPalette() {
       setSelected(0)
     }
     window.addEventListener('keydown', onKey)
-    window.addEventListener('iora:spotlight-toggle', onSpotlight)
+    window.addEventListener('rumahl:spotlight-toggle', onSpotlight)
     return () => {
       window.removeEventListener('keydown', onKey)
-      window.removeEventListener('iora:spotlight-toggle', onSpotlight)
+      window.removeEventListener('rumahl:spotlight-toggle', onSpotlight)
     }
   }, [])
 
@@ -177,7 +177,7 @@ export function CommandPalette() {
       label: t('cmd.lock'),
       icon: <LockKey size={16} />,
       group: t('cmd.actions'),
-      action: () => { window.dispatchEvent(new Event('iora:lock-session')); setOpen(false) },
+      action: () => { window.dispatchEvent(new Event('rumahl:lock-session')); setOpen(false) },
     })
     list.push({
       id: 'act-theme-night',

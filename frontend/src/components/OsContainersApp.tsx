@@ -121,7 +121,7 @@ export function OsContainersApp() {
   const runningCount = apps.filter((app) => app.status === 'running').length
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
       <OsAppNavbar
         pageId="os-containers"
         title={t('os.apps.containers.name')}
@@ -129,7 +129,7 @@ export function OsContainersApp() {
         icon={<Cube size={24} weight="duotone" />}
         accent="oklch(0.63 0.15 265)"
         trailing={
-          <button type="button" onClick={() => void load()} disabled={loading} className="ora-icon-button" title={t('containersApp.refresh')}>
+          <button type="button" onClick={() => void load()} disabled={loading} className="rumahl-icon-button" title={t('containersApp.refresh')}>
             <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
           </button>
         }
@@ -164,7 +164,7 @@ export function OsContainersApp() {
             .map((port) => typeof port === 'string' ? port : `${port.external}:${port.internal}/${port.protocol}`)
             .join(', ')
           return (
-            <article key={app.id} className={`ora-card rounded-3xl p-5 ${running ? 'border-emerald-400/15' : ''}`}>
+            <article key={app.id} className={`rumahl-card rounded-3xl p-5 ${running ? 'border-emerald-400/15' : ''}`}>
               <div className="flex items-start gap-3">
                 <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${running ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/7 text-foreground/45'}`}>
                   {app.icon ? <img src={app.icon} alt="" className="size-6 object-contain" /> : <Cube size={20} weight="duotone" />}
@@ -197,12 +197,12 @@ export function OsContainersApp() {
 
               <div className="mt-4 flex items-center gap-2">
                 {running ? (
-                  <button type="button" disabled={working === app.id} onClick={() => void runAction(app, 'stop')} className="ora-secondary-button !py-2"><Stop size={14} />{t('containersApp.stop')}</button>
+                  <button type="button" disabled={working === app.id} onClick={() => void runAction(app, 'stop')} className="rumahl-secondary-button !py-2"><Stop size={14} />{t('containersApp.stop')}</button>
                 ) : (
-                  <button type="button" disabled={working === app.id} onClick={() => void runAction(app, 'start')} className="ora-primary-button !py-2"><Play size={14} />{t('containersApp.start')}</button>
+                  <button type="button" disabled={working === app.id} onClick={() => void runAction(app, 'start')} className="rumahl-primary-button !py-2"><Play size={14} />{t('containersApp.start')}</button>
                 )}
                 {running && (
-                  <button type="button" disabled={working === app.id} onClick={() => void runAction(app, 'restart')} className="ora-secondary-button !py-2">
+                  <button type="button" disabled={working === app.id} onClick={() => void runAction(app, 'restart')} className="rumahl-secondary-button !py-2">
                     <ArrowClockwise size={14} />{t('containersApp.restart')}
                   </button>
                 )}
@@ -212,7 +212,7 @@ export function OsContainersApp() {
           )
         })}
         {!loading && filtered.length === 0 && (
-          <div className="ora-card col-span-full rounded-3xl p-8 text-center text-sm text-foreground/40">{t('containersApp.empty')}</div>
+          <div className="rumahl-card col-span-full rounded-3xl p-8 text-center text-sm text-foreground/40">{t('containersApp.empty')}</div>
         )}
       </div>
       </div>
@@ -221,5 +221,5 @@ export function OsContainersApp() {
 }
 
 function Summary({ icon: Icon, label, value }: { icon: typeof Cube; label: string; value: string }) {
-  return <div className="ora-card rounded-2xl p-4"><Icon size={20} className="text-accent" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="rumahl-card rounded-2xl p-4"><Icon size={20} className="text-accent" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }

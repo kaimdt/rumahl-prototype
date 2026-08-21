@@ -41,7 +41,7 @@ export function ThemeIframeProvider() {
     iframes.forEach((iframe) => {
       try {
         iframe.contentWindow?.postMessage({
-          type: 'iora:theme:update',
+          type: 'rumahl:theme:update',
           theme: themeInfo,
         }, '*')
       } catch (e) {
@@ -53,7 +53,7 @@ export function ThemeIframeProvider() {
   // Listen for theme requests from iframes
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'iora:theme:request') {
+      if (event.data?.type === 'rumahl:theme:request') {
         const iframe = Array.from(document.querySelectorAll('iframe')).find(
           (f) => f.contentWindow === event.source
         )
@@ -77,7 +77,7 @@ export function ThemeIframeProvider() {
           }
 
           event.source?.postMessage({
-            type: 'iora:theme:update',
+            type: 'rumahl:theme:update',
             theme: themeInfo,
           }, '*' as any)
         }

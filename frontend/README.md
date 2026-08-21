@@ -1,6 +1,6 @@
-# IORA Frontend
+# rumahl Frontend
 
-> React + TypeScript + Vite frontend for IORA smart home system
+> React + TypeScript + Vite frontend for rumahl smart home system
 
 ## Quick Start
 
@@ -46,15 +46,15 @@ Best for testing API integration:
 npm run dev
 
 # Terminal 2: Backend (from project root)
-cd iora-os/backend/services/iora-home
-IORA_FRONTEND_DEV_URL=http://localhost:5173 cargo run
+cd rumahl-os/backend/services/rumahl-home
+RUMAHL_FRONTEND_DEV_URL=http://localhost:5173 cargo run
 ```
 
 Access backend at: http://localhost:3001
 
 ### 3. All Services (Complete System)
 
-Start all IORA services together:
+Start all rumahl services together:
 
 ```bash
 # From project root
@@ -62,7 +62,7 @@ npm run dev:all
 
 # Or
 cd scripts/dev
-node iora-dev.mjs
+node rumahl-dev.mjs
 ```
 
 Interactive service manager with hot reload support.
@@ -74,8 +74,8 @@ Interactive service manager with hot reload support.
 Create `.env.local` (ignored by git):
 
 ```env
-# Backend URL for API proxy (default: http://iora.local:3001)
-VITE_IORA_BACKEND_URL=http://localhost:3001
+# Backend URL for API proxy (default: http://rumahl.local:3001)
+VITE_RUMAHL_BACKEND_URL=http://localhost:3001
 ```
 
 ### Backend Integration
@@ -84,13 +84,13 @@ To enable frontend dev mode in backend, set:
 
 ```bash
 # Linux/macOS
-export IORA_FRONTEND_DEV_URL=http://localhost:5173
+export RUMAHL_FRONTEND_DEV_URL=http://localhost:5173
 
 # Windows PowerShell
-$env:IORA_FRONTEND_DEV_URL="http://localhost:5173"
+$env:RUMAHL_FRONTEND_DEV_URL="http://localhost:5173"
 ```
 
-See [Frontend Hot Reload Documentation](../iora-os/docs/frontend-hot-reload.md) for details.
+See [Frontend Hot Reload Documentation](../rumahl-os/docs/frontend-hot-reload.md) for details.
 
 ## Scripts
 
@@ -165,7 +165,7 @@ During development, Vite proxies these endpoints to the backend:
 - `/health` → Health check
 - `/uploads/*` → File uploads
 
-**Backend target:** Configured via `VITE_IORA_BACKEND_URL` (default: `http://iora.local:3001`)
+**Backend target:** Configured via `VITE_RUMAHL_BACKEND_URL` (default: `http://rumahl.local:3001`)
 
 ## Hot Module Replacement (HMR)
 
@@ -205,8 +205,8 @@ dist/
 
 ### Serving Production Build
 
-The backend (iora-home) automatically serves from `dist/` when:
-- `IORA_FRONTEND_DEV_URL` is not set
+The backend (rumahl-home) automatically serves from `dist/` when:
+- `RUMAHL_FRONTEND_DEV_URL` is not set
 - `dist/index.html` exists
 
 ## Internationalization (i18n)
@@ -274,9 +274,9 @@ npm run build
 
 ## Related Documentation
 
-- [Frontend Hot Reload Guide](../iora-os/docs/frontend-hot-reload.md)
-- [IORA Dev Runner](../scripts/dev/README.md)
-- [Backend Development](../iora-os/backend/README.md)
+- [Frontend Hot Reload Guide](../rumahl-os/docs/frontend-hot-reload.md)
+- [rumahl Dev Runner](../scripts/dev/README.md)
+- [Backend Development](../rumahl-os/backend/README.md)
 
 ## Contributing
 
@@ -288,4 +288,4 @@ npm run build
 
 ## License
 
-MIT License — Part of IORA smart home system
+MIT License — Part of rumahl smart home system

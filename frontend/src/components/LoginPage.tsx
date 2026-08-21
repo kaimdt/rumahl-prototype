@@ -335,7 +335,7 @@ export function LoginPage() {
 
       {/* Brand watermark */}
       <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">
-        <p className="text-sm font-light tracking-[0.3em] uppercase text-white/25">ORA OS</p>
+        <p className="text-sm font-light tracking-[0.3em] uppercase text-white/25">rumahl OS</p>
       </div>
 
       {/* Auth card */}
@@ -355,7 +355,7 @@ export function LoginPage() {
                   <span className="text-lg font-bold text-accent">I</span>
                 </div>
                 <div>
-                  <span className="block text-xl font-semibold text-white">ORA OS</span>
+                  <span className="block text-xl font-semibold text-white">rumahl OS</span>
                   <span className="text-xs font-normal text-white/50">
                     {authMode === 'login'
                       ? t('auth.loginSubtitle')

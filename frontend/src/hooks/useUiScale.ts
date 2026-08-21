@@ -25,7 +25,7 @@ function autoScale(): number {
  * `auto` adapts to the monitor resolution and reacts to window resizes.
  */
 export function useUiScale() {
-  const [preset, setPreset] = useLocalStorage<UiScalePreset>('iora-ui-scale', 'auto')
+  const [preset, setPreset] = useLocalStorage<UiScalePreset>('rumahl-ui-scale', 'auto')
 
   const apply = useCallback((value: UiScalePreset) => {
     const scale = value === 'auto' ? autoScale() : PRESETS[value]

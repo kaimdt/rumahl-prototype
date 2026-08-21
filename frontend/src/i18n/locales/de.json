@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "IORA",
+    "name": "rumahl",
     "tagline": "Smart Home Dashboard"
   },
   "common": {
@@ -74,7 +74,7 @@
     "learnMore": "Mehr erfahren",
     "seeAll": "Alle anzeigen",
     "viewDetails": "Details anzeigen",
-    "poweredBy": "Powered by IORA OS",
+    "poweredBy": "Powered by rumahl OS",
     "version": "Version"
   },
   "navigation": {
@@ -99,8 +99,8 @@
     "notifications": "Benachrichtigungen"
   },
   "os": {
-    "title": "ORA Home",
-    "eyebrow": "ORA OS",
+    "title": "rumahl Home",
+    "eyebrow": "rumahl OS",
     "greeting": "Willkommen, {{name}}",
     "defaultUser": "Zuhause",
     "subtitle": "Deine Apps, Geräte und Systemwerkzeuge an einem Ort.",
@@ -112,15 +112,15 @@
     "customApp": "Eigene",
     "noApps": "Keine passenden Apps gefunden.",
     "launcher": {
-      "label": "ORA OS Homescreen",
-      "nativeHome": "Nativ in ORA OS",
-      "openHome": "ORA Home",
+      "label": "rumahl OS Homescreen",
+      "nativeHome": "Nativ in rumahl OS",
+      "openHome": "rumahl Home",
       "openApp": "App öffnen",
       "open": "Öffnen",
       "closeApp": "App schließen",
       "customize": "Launcher anpassen",
       "choose": "Launcher auswählen",
-      "defaultName": "ORA Homescreen",
+      "defaultName": "rumahl Homescreen",
       "deckName": "Intelligent Deck",
       "canvasName": "Living Canvas",
       "intelligent": "Intelligenter Zugriff",
@@ -135,7 +135,7 @@
       "deleteFolder": "Ordner löschen",
       "removeFromFolder": "{{app}} aus dem Ordner entfernen",
       "widgets": "Widgets",
-      "homeWidget": "ORA Home",
+      "homeWidget": "rumahl Home",
       "clockWidget": "Uhr und Datum",
       "storeLaunchers": "Aus dem App Store",
       "storeWidgets": "Installierte Widgets",
@@ -145,12 +145,12 @@
       "offline": "Offline – lokal gespeichert",
       "widgetReady": "Dieses Widget ist installiert und einsatzbereit.",
       "install": "Custom Launcher installieren",
-      "installHint": "Launcher und Widgets aus dem ORA App Store erscheinen hier automatisch. Manuelle Launcher können weiterhin als Manifest importiert werden.",
+      "installHint": "Launcher und Widgets aus dem rumahl App Store erscheinen hier automatisch. Manuelle Launcher können weiterhin als Manifest importiert werden.",
       "invalidManifest": "Das Launcher-Manifest ist ungültig.",
-      "backendStatus": "ORA Backend",
+      "backendStatus": "rumahl Backend",
       "homeAssistantStatus": "Home Assistant",
       "installingApp": "Wird installiert…",
-      "discoverApps": "Entdecke Apps für dein IORA OS",
+      "discoverApps": "Entdecke Apps für dein rumahl OS",
       "discoverAppsHint": "Installiere eine App in wenigen Sekunden — sie läuft als eigener Container auf deinem Server.",
       "widgetsEditHint": "Widgets bearbeiten — klicke auf X zum Entfernen",
       "moreInstalls": "weitere Installationen",
@@ -161,10 +161,10 @@
       "cpu": "CPU",
       "appStarting": "Die App wird gestartet…",
       "appStopping": "Die App wird gestoppt…",
-      "appStopped": "Diese App ist gestoppt. Starte sie, um sie in ORA OS zu nutzen.",
+      "appStopped": "Diese App ist gestoppt. Starte sie, um sie in rumahl OS zu nutzen.",
       "appFailed": "Die App konnte nicht gestartet werden. Prüfe die Logs oder versuche es erneut.",
       "appUnhealthy": "Die App läuft, ist aber nicht gesund. Prüfe ihren Status.",
-      "appNotFound": "Diese App ist auf diesem ORA OS nicht installiert.",
+      "appNotFound": "Diese App ist auf diesem rumahl OS nicht installiert.",
       "appStart": "App starten",
       "appNoResponse": "Die App antwortet nicht",
       "appNoResponseHint": "Der Container läuft, aber die Web-Oberfläche ist nicht erreichbar. Prüfe den Status oder versuche es erneut.",
@@ -172,7 +172,7 @@
       "appCheckStatus": "Status prüfen",
       "appShowLogs": "Logs anzeigen",
       "appLogsEmpty": "Keine Logs verfügbar.",
-      "appExternalHint": "Diese App ist dafür konfiguriert, außerhalb des ORA Desktops zu öffnen.",
+      "appExternalHint": "Diese App ist dafür konfiguriert, außerhalb des rumahl Desktops zu öffnen.",
       "appExternalOpen": "App extern öffnen"
     },
     "shell": {
@@ -194,15 +194,15 @@
       "uptimeHours": "{{hours}}Std",
       "reboot": "Neu starten",
       "shutdown": "Herunterfahren",
-      "confirmReboot": "ORA OS in fünf Sekunden neu starten?",
-      "confirmShutdown": "ORA OS in fünf Sekunden herunterfahren?",
+      "confirmReboot": "rumahl OS in fünf Sekunden neu starten?",
+      "confirmShutdown": "rumahl OS in fünf Sekunden herunterfahren?",
       "noSystemData": "Systemdaten nicht verfügbar",
       "logout": "Abmelden",
       "guest": "Gast",
       "nowPlaying": "Läuft gerade",
       "downloads": "Downloads"
     },
-        "kiosk": {
+    "kiosk": {
       "exit": "Kiosk-Modus verlassen",
       "wrongPin": "Falsche PIN"
     },
@@ -217,7 +217,7 @@
       "usePassword": "Mit Passwort entsperren"
     },
     "permissions": {
-      "title": "ORA-OS-Berechtigungen",
+      "title": "rumahl-OS-Berechtigungen",
       "adminFullAccess": "Administratoren haben immer Vollzugriff",
       "items": {
         "os.files.read": "Dateien anzeigen",
@@ -239,10 +239,21 @@
       "protection": "Schutzstatus",
       "active": "Aktiv",
       "degraded": "Eingeschränkt",
-      "health": { "healthy": "Geschützt", "degraded": "Eingeschränkt", "compromised": "Kompromittiert" },
+      "health": {
+        "healthy": "Geschützt",
+        "degraded": "Eingeschränkt",
+        "compromised": "Kompromittiert"
+      },
       "compromisedTitle": "Der Sicherheitsschutz ist kompromittiert",
       "compromisedDescription": "Kritische Schutzkontrollen sind unwirksam. Prüfe die gemeldeten Ursachen sofort.",
-      "reasons": { "audit_chain_invalid": "Audit-Kette ungültig", "helper_unavailable": "Enforcement-Helper nicht verfügbar", "firewall_ineffective": "Firewall unwirksam", "scanner_unavailable": "Scanner nicht verfügbar", "integrity_stale": "Integritätsmonitor veraltet", "definitions_outdated": "Malware-Definitionen veraltet" },
+      "reasons": {
+        "audit_chain_invalid": "Audit-Kette ungültig",
+        "helper_unavailable": "Enforcement-Helper nicht verfügbar",
+        "firewall_ineffective": "Firewall unwirksam",
+        "scanner_unavailable": "Scanner nicht verfügbar",
+        "integrity_stale": "Integritätsmonitor veraltet",
+        "definitions_outdated": "Malware-Definitionen veraltet"
+      },
       "policies": "Aktive Policies",
       "quarantine": "Quarantäne-Elemente",
       "scanners": "Scanner-Provider",
@@ -251,7 +262,10 @@
       "responsePolicies": "Reaktions-Policies"
     },
     "apps": {
-      "security": { "name": "Security Center", "description": "Firewall-, Malware- und Integritätsschutz" },
+      "security": {
+        "name": "Security Center",
+        "description": "Firewall-, Malware- und Integritätsschutz"
+      },
       "home": {
         "name": "Home",
         "description": "Smart-Home-Dashboard und Automationen"
@@ -262,7 +276,7 @@
       },
       "settings": {
         "name": "Einstellungen",
-        "description": "ORA OS personalisieren"
+        "description": "rumahl OS personalisieren"
       },
       "automations": {
         "name": "Automationen",
@@ -302,7 +316,7 @@
       },
       "updates": {
         "name": "Updates",
-        "description": "ORA OS sicher und aktuell halten"
+        "description": "rumahl OS sicher und aktuell halten"
       },
       "backups": {
         "name": "Backups",
@@ -310,14 +324,14 @@
       },
       "appStore": {
         "name": "App Store",
-        "description": "ORA Apps entdecken, installieren und verwalten"
+        "description": "rumahl Apps entdecken, installieren und verwalten"
       },
       "images": {
         "name": "Bilder",
-        "description": "Alle Bilder aus deiner IORA Cloud",
+        "description": "Alle Bilder aus deiner rumahl Cloud",
         "count": "Bilder",
         "empty": "Noch keine Bilder",
-        "emptyHint": "Lege Bilder in IORA Files ab — sie erscheinen hier automatisch.",
+        "emptyHint": "Lege Bilder in rumahl Files ab — sie erscheinen hier automatisch.",
         "sortNewest": "Neueste zuerst",
         "sortName": "Nach Name",
         "allPhotos": "Alle Fotos",
@@ -364,7 +378,7 @@
       "folderFailed": "Der Ordner konnte nicht erstellt werden.",
       "folderName": "Name des neuen Ordners",
       "fromCloud": "Lokal abrufen",
-      "fromCloudHint": "In deiner persönlichen ORA Cloud navigieren",
+      "fromCloudHint": "In deiner persönlichen rumahl Cloud navigieren",
       "fromDevice": "Vom Gerät abrufen",
       "fromDeviceHint": "Dateien über den System-Dateidialog auswählen",
       "kioskUnavailable": "Auf Kiosk-Geräten nicht verfügbar",
@@ -373,7 +387,7 @@
       "moveFailed": "Die Datei konnte nicht verschoben werden.",
       "moveHere": "Hierher verschieben",
       "moveTo": "Verschieben nach…",
-      "myCloud": "Meine ORA Cloud",
+      "myCloud": "Meine rumahl Cloud",
       "networkChangeFailed": "Die Netzwerkkonfiguration konnte nicht übernommen werden.",
       "newFolder": "Neuer Ordner",
       "noAddress": "Keine Hardwareadresse",
@@ -399,7 +413,7 @@
     },
     "filePicker": {
       "openTitle": "Datei mit App öffnen",
-      "saveTitle": "In ORA Cloud speichern",
+      "saveTitle": "In rumahl Cloud speichern",
       "requestedBy": "Angefordert von {{app}}",
       "loadFailed": "Der persönliche Speicher konnte nicht geladen werden.",
       "openFailed": "Die ausgewählte Datei konnte nicht geöffnet werden.",
@@ -422,7 +436,7 @@
       "critical": "Kritisch",
       "install": "Installieren",
       "confirmUpdate": "Systemupdate installieren?",
-      "confirmUpdateHint": "ORA OS kann während der Installation Dienste oder das Gerät neu starten.",
+      "confirmUpdateHint": "rumahl OS kann während der Installation Dienste oder das Gerät neu starten.",
       "updateFailed": "Das Update konnte nicht gestartet werden.",
       "createBackup": "Vollständiges Backup erstellen",
       "noBackups": "Keine Backups vorhanden.",
@@ -454,7 +468,7 @@
       "size": "Größe",
       "open": "Öffnen",
       "select": "Auswählen",
-      "serviceRestart": "Der Files-Dienst antwortet nicht korrekt ({{detail}}). Bitte starte den Files-Dienst neu (iora-files).",
+      "serviceRestart": "Der Files-Dienst antwortet nicht korrekt ({{detail}}). Bitte starte den Files-Dienst neu (rumahl-files).",
       "newFile": "Neue Datei",
       "fileName": "Dateiname",
       "folders": "Ordner",
@@ -563,7 +577,7 @@
     "account": "Konto",
     "security": "Sicherheit",
     "language": "Sprache",
-    "theme": "Theme",
+    "theme": "Design",
     "themeMode": "Design-Modus",
     "autoLock": "Automatisch sperren",
     "autoLockDesc": "Sitzung nach Inaktivität sperren",
@@ -627,7 +641,7 @@
     "profileDesc": "Name und Anmeldedaten verwalten",
     "securityDesc": "PIN-Schutz und Gerätesperre",
     "deviceLockDesc": "Sperrt Einstellungen auf diesem Gerät – PIN zum Entsperren",
-    "aiDisableDesc": "Schaltet ORA AI, Pi.dev Agent und alle KI-Funktionen aus",
+    "aiDisableDesc": "Schaltet rumahl AI, Pi.dev Agent und alle KI-Funktionen aus",
     "glassEffectsDesc": "Transparenz, Unschärfe und Kartenradius",
     "frostedGlassDesc": "Frosted-Glass-Optik für Karten und Menüs",
     "about": "Info",
@@ -641,7 +655,6 @@
     "uptime": "Betriebszeit",
     "backendVersion": "Backend-Version",
     "user": "Benutzer",
-    "theme": "Design",
     "entities": "Entitäten",
     "glassEnable": "Glaseffekt aktivieren",
     "glassBlur": "Unschärfe",
@@ -686,11 +699,11 @@
     "accentIconsDesc": "Färbt App-Icons und Ordner mit der aktuellen Primärfarbe ein (sepia + Hue-Rotation).",
     "apps": "Apps",
     "tabAppsDesc": "Installierte Apps, Berechtigungen & Einbettung",
-    "appsDesc": "Verwalte deine installierten Apps: starte und stoppe sie, kontrolliere ihre Berechtigungen und entscheide, ob sie im ORA Desktop laufen oder direkt über ihren Port geöffnet werden.",
+    "appsDesc": "Verwalte deine installierten Apps: starte und stoppe sie, kontrolliere ihre Berechtigungen und entscheide, ob sie im rumahl Desktop laufen oder direkt über ihren Port geöffnet werden.",
     "appsEmpty": "Keine installierbaren Apps gefunden. Installiere zuerst eine App aus dem App Store.",
     "appExternalBadge": "extern",
-    "appExternalToggle": "App außerhalb von ORA OS aufrufen",
-    "appExternalToggleDesc": "Öffnet die App direkt über ihren Port im Browser, statt sie innerhalb des ORA Desktops einzubetten.",
+    "appExternalToggle": "App außerhalb von rumahl OS aufrufen",
+    "appExternalToggleDesc": "Öffnet die App direkt über ihren Port im Browser, statt sie innerhalb des rumahl Desktops einzubetten.",
     "appExternalOverride": "Benutzer-Einstellung: öffnet direkt über den Port",
     "appEmbedMode": "Anzeigemodus",
     "appPermissions": "Berechtigungen",
@@ -727,7 +740,7 @@
     "remoteHostname": "Hostname",
     "remoteConfigured": "Konfiguriert",
     "remoteNotConfigured": "Nicht konfiguriert",
-    "remoteTailscaleHint": "Installiere Tailscale auf dem Host, um von überall auf ORA zuzugreifen (tailscale.com).",
+    "remoteTailscaleHint": "Installiere Tailscale auf dem Host, um von überall auf rumahl zuzugreifen (tailscale.com).",
     "remoteWireguardHint": "Keine WireGuard-Konfiguration in /etc/wireguard gefunden.",
     "remoteExternalUrl": "Externe Basis-URL (Domain / TLS)",
     "remoteExternalUrlHint": "Wird für externe Freigabe-Links genutzt — z. B. https://ora.meinedomain.de. Benötigt einen Reverse-Proxy (nginx) mit deiner Domain + TLS.",
@@ -746,7 +759,7 @@
     "authenticating": "Authentifizierung...",
     "noMediaPlayers": "Keine Medienplayer gefunden",
     "maintenanceMode": "Wartungsmodus",
-    "maintenanceMessage": "IORA befindet sich im Wartungsmodus. Bitte warten.",
+    "maintenanceMessage": "rumahl befindet sich im Wartungsmodus. Bitte warten.",
     "pageNotFound": "Seite nicht gefunden",
     "pageNotFoundDesc": "Diese Seite existiert nicht.",
     "maintenanceWait": "Bitte warten Sie, bis der Administrator den Wartungsmodus beendet.",
@@ -885,25 +898,7 @@
     "appearanceStandardsDesc": "Globale Standard-Akzent-, Glas- und Tageszeit-Einstellungen für alle Nutzer festlegen",
     "services": "Services",
     "system": "System",
-    "systemInfo": {
-      "unavailable": "Keine Systeminformationen verfügbar",
-      "hostname": "Hostname",
-      "os": "Betriebssystem",
-      "kernel": "Kernel",
-      "uptime": "Laufzeit",
-      "cores": "Kerne",
-      "usage": "Auslastung",
-      "memory": "Arbeitsspeicher",
-      "total": "Gesamt",
-      "used": "Belegt",
-      "available": "Verfügbar",
-      "disks": "Festplatten ({{count}})",
-      "usedSuffix": "{{value}} belegt",
-      "freeOf": "{{value}} frei von {{total}}",
-      "network": "Netzwerk ({{count}})",
-      "ipAddresses": "IP-Adressen:",
-      "refresh": "Aktualisieren"
-    },
+    "systemInfo": "System Info",
     "users": "Users",
     "network": "Network",
     "logs": "Logs",
@@ -920,7 +915,7 @@
       "filterPlaceholder": "Logs filtern...",
       "noLines": "Keine Log-Einträge.",
       "kind": {
-        "self": "IORA Home",
+        "self": "rumahl Home",
         "service": "Dienste (systemd)",
         "app": "Apps",
         "plugin": "Plugins",
@@ -968,7 +963,6 @@
     "notifications": "Notifications",
     "tasks": "Tasks",
     "controlMode": "Control Mode",
-    "systemInfo": "System Info",
     "infrastructure": "Infrastructure",
     "apiKeys": "API Keys",
     "webhooks": "Webhooks",
@@ -1018,7 +1012,7 @@
     "pluginsDesc": "Installierte Plugins verwalten — Widget-Plugins, Automationen, Themes und mehr",
     "themesDesc": "Installierte Themes verwalten — eigene Farbschemas installieren, aktivieren/deaktivieren und löschen",
     "devModeDesc": "Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten",
-    "docsDesc": "IORA OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation",
+    "docsDesc": "rumahl OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation",
     "protocolsDesc": "Kombinierte Live-Übersicht aller IoT-Protokolle",
     "haToolsDesc": "Home Assistant Templates rendern, Events feuern und Registries durchsuchen",
     "globalAlertDesc": "System-weiten Banner-Alarm setzen oder zurücknehmen",
@@ -1026,7 +1020,7 @@
     "tasksDesc": "Hintergrund-Aufgaben und Warteschlangen überwachen",
     "controlModeDesc": "Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln",
     "systemDesc": "CPU, RAM, Speicher, Uptime und System-Auslastung überwachen",
-    "systemInfoDesc": "Detaillierte Systeminformationen von IORA OS"
+    "systemInfoDesc": "Detaillierte Systeminformationen von rumahl OS"
   },
   "themes": {
     "title": "Themes",
@@ -1042,7 +1036,7 @@
     "uninstallSuccess": "Theme uninstalled",
     "setDefault": "Set as Default",
     "uploadDesc": "Upload a theme ZIP file",
-    "marketplaceDesc": "Browse and install themes from the IORA Store",
+    "marketplaceDesc": "Browse and install themes from the rumahl Store",
     "defaultTheme": "Default Theme",
     "defaultThemeDesc": "Set the default theme for all users",
     "clonePrompt": "Name for the cloned theme",
@@ -1094,18 +1088,18 @@
     "systemApp": "System App",
     "systemAppDesc": "Automatically activated with Developer Mode.",
     "storeComingSoon": "Full App Store coming soon",
-    "storeComingSoonDesc": "Integration with appstore.kaimdt.com — thousands of apps, widgets & plugins.",
+    "storeComingSoonDesc": "Integration with appstore.rumahl.com — thousands of apps, widgets & plugins.",
     "featured": "Featured",
     "popular": "Popular",
     "installedManagement": {
       "eyebrow": "Anwendungsverwaltung",
       "title": "Installierte Apps",
-      "description": "Verwalte Laufzeit, Zustand, Updates und Einstellungen der lokal auf diesem ORA OS gespeicherten Anwendungen.",
+      "description": "Verwalte Laufzeit, Zustand, Updates und Einstellungen der lokal auf diesem rumahl OS gespeicherten Anwendungen.",
       "updates": "Updates",
       "needsAttention": "Benötigt Aufmerksamkeit",
       "filterLabel": "Installierte Apps filtern",
       "emptyTitle": "Keine Apps installiert",
-      "emptyDescription": "Installiere eine App aus dem Store oder lade ein ORA-App-Paket hoch.",
+      "emptyDescription": "Installiere eine App aus dem Store oder lade ein rumahl-App-Paket hoch.",
       "actionFailed": "Aktion fehlgeschlagen: {{detail}}",
       "uninstallConfirm": "{{name}} deinstallieren? App-Daten können dabei entfernt werden.",
       "forceUninstallConfirm": "System-App {{name}} auf diesem Entwicklungs-Image wirklich erzwingen und deinstallieren?",
@@ -1135,7 +1129,7 @@
       "installingDescription": "Die App wird gerade installiert — sie erscheint automatisch als installiert, sobald der Vorgang abgeschlossen ist."
     },
     "appStore": {
-      "title": "Entdecke mehr für dein ORA OS",
+      "title": "Entdecke mehr für dein rumahl OS",
       "subtitle": "Apps, Widgets und Automationen für ein privates, vernetztes Zuhause.",
       "search": "Apps, Widgets und Plugins suchen...",
       "forYou": "Für dich",
@@ -1150,11 +1144,11 @@
       "browseAll": "Alle Apps entdecken",
       "showAll": "Alle anzeigen",
       "comingTitle": "Der vollständige App Store kommt bald",
-      "comingDescription": "Direkter Zugriff auf Apps, Widgets und Plugins aus dem ORA-Katalog.",
+      "comingDescription": "Direkter Zugriff auf Apps, Widgets und Plugins aus dem rumahl-Katalog.",
       "comingSoon": "Demnächst",
       "catalog": {
-        "nextcloud": "Deine eigene Cloud: Dateien, Kalender, Kontakte & mehr — vollständig selbst gehostet in einem Docker-Container auf deinem IORA OS.",
-        "ora-astro-forge": "3D-Idle-Game: Mine Asteroiden, baue deine Bohrflotte aus, erobere neue Planeten und prestigiere durch Wurmlöcher. Dein Fortschritt wird gespeichert — auch offline wird weiter gefördert.",
+        "nextcloud": "Deine eigene Cloud: Dateien, Kalender, Kontakte & mehr — vollständig selbst gehostet in einem Docker-Container auf deinem rumahl OS.",
+        "rumahl-astro-forge": "3D-Idle-Game: Mine Asteroiden, baue deine Bohrflotte aus, erobere neue Planeten und prestigiere durch Wurmlöcher. Dein Fortschritt wird gespeichert — auch offline wird weiter gefördert.",
         "jellyfin": "Streame eigene Filme, Serien, Musik und Fotos von einem privaten Medienserver.",
         "vaultwarden": "Ein schlanker, privater Passwortmanager, kompatibel mit Bitwarden-Clients.",
         "uptime-kuma": "Überwache Websites und Dienste über ein schönes selbst gehostetes Status-Dashboard.",
@@ -1167,13 +1161,13 @@
       "installed": "Installiert",
       "topCharts": "Top-Charts",
       "moreFrom": "Weitere von",
-      "bannerTag": "Von ORA empfohlen",
+      "bannerTag": "Von rumahl empfohlen",
       "prevBanner": "Vorheriges Banner",
       "nextBanner": "Nächstes Banner",
       "banner": "Banner {{n}}",
       "emptyTitle": "Keine Apps im Store gefunden",
       "emptyDescription": "Suche nach Apps, Widgets oder Plugins – oder installiere sie per ZIP hochladen.",
-      "essentials": "IORA Essentials",
+      "essentials": "rumahl Essentials",
       "back": "Zurück zum Store",
       "similarApps": "Ähnliche Apps",
       "version": "Version",
@@ -1182,7 +1176,7 @@
       "openApp": "Öffnen",
       "systemApp": "System-App",
       "preinstalled": "Vorinstalliert",
-      "essentialsHint": "Diese App ist Teil von IORA OS und bereits vorinstalliert — sie ist direkt aus dem Launcher oder hier über „Öffnen“ erreichbar.",
+      "essentialsHint": "Diese App ist Teil von rumahl OS und bereits vorinstalliert — sie ist direkt aus dem Launcher oder hier über „Öffnen“ erreichbar.",
       "installing": "Installiere {{name}}…",
       "installStarted": "Installation von {{name}} gestartet",
       "installFailed": "Installation fehlgeschlagen: {{detail}}",
@@ -1304,7 +1298,7 @@
     "pinFor": "PIN für",
     "orUsePin": "oder mit PIN anmelden",
     "passwordMinLength": "Passwort muss mindestens 8 Zeichen lang sein",
-    "welcomeToIora": "Willkommen bei IORA",
+    "welcomeTorumahl": "Willkommen bei rumahl",
     "loginSubtitle": "Melden Sie sich an, um auf Ihr Dashboard zuzugreifen",
     "registerSubtitle": "Erstellen Sie ein Konto, um loszulegen",
     "pinSubtitle": "Schnellanmeldung mit Ihrer PIN",
@@ -1332,7 +1326,7 @@
     "optional": "optional",
     "confirmPassword": "Passwort bestätigen",
     "rememberMeHint": "Sitzung bleibt nach Browserschließung aktiv",
-    "pageFooter": "IORA — Interface for Optimized Residential Autonomy",
+    "pageFooter": "rumahl — Interface for Optimized Residential Autonomy",
     "guestSuccess": "Als Gast angemeldet",
     "guestFailed": "Gast-Anmeldung fehlgeschlagen",
     "or": "oder",
@@ -1372,7 +1366,7 @@
     "justNow": "just now"
   },
   "ai": {
-    "title": "ORA Assistant",
+    "title": "rumahl Assistant",
     "search": "Suche",
     "weather": "Wetter",
     "news": "Nachrichten",
@@ -1392,14 +1386,14 @@
     "instructionsSaved": "AI-Anweisungen gespeichert",
     "instructionsReset": "AI-Anweisungen zurückgesetzt",
     "noAnswer": "Keine Antwort erhalten.",
-    "instantResult": "ORA hat die Antwort gefunden:\n\n{{text}}",
+    "instantResult": "rumahl hat die Antwort gefunden:\n\n{{text}}",
     "instantFailed": "Die Suche ist leider fehlgeschlagen.",
-    "searching": "ORA sucht",
+    "searching": "rumahl sucht",
     "keepSpeaking": "du kannst weiter sprechen",
-    "unavailableTitle": "IORA Assist ist nicht verfügbar",
-    "unavailableHint": "Kein KI-Provider konfiguriert oder erreichbar. Öffne die Admin-Konsole → IORA Assist, um einen Provider (Ollama, OpenAI, Anthropic …) einzurichten.",
+    "unavailableTitle": "rumahl Assist ist nicht verfügbar",
+    "unavailableHint": "Kein KI-Provider konfiguriert oder erreichbar. Öffne die Admin-Konsole → rumahl Assist, um einen Provider (Ollama, OpenAI, Anthropic …) einzurichten.",
     "openAdmin": "Zur Konfiguration",
-    "degradedTitle": "IORA Assist läuft eingeschränkt",
+    "degradedTitle": "rumahl Assist läuft eingeschränkt",
     "agent": "Agent",
     "agents": {
       "general": "Allgemein",
@@ -1433,8 +1427,8 @@
     "ttsDisable": "Sprachausgabe deaktivieren",
     "close": "Schließen",
     "sendFailed": "Nachricht konnte nicht gesendet werden",
-    "sendFailedUnavailable": "IORA Assist ist nicht verfügbar — bitte konfiguriere einen Provider.",
-    "messageToOra": "Nachricht an ORA…",
+    "sendFailedUnavailable": "rumahl Assist ist nicht verfügbar — bitte konfiguriere einen Provider.",
+    "messageToOra": "Nachricht an rumahl…",
     "taskPaused": "Aufgabe pausiert ✓",
     "taskDeleted": "Aufgabe gelöscht ✓",
     "taskUpdated": "Aufgabe aktualisiert ✓",
@@ -1456,7 +1450,7 @@
     "extRun": "Ausführen",
     "extError": "Fehler",
     "extResult": "Ergebnis",
-    "extHint": "Diese Tools werden direkt vom iora-assist Service ausgeführt — kein LLM-Aufruf nötig."
+    "extHint": "Diese Tools werden direkt vom rumahl-assist Service ausgeführt — kein LLM-Aufruf nötig."
   },
   "styles": {
     "card": {
@@ -1502,7 +1496,7 @@
     "filterOthers": "Andere Geräte",
     "ownStream": "Eigener Stream",
     "noStreamsHint": "Starte einen Stream oder schaue gleich los, sobald ein Gerät live geht.",
-    "device": "IORA Gerät",
+    "device": "rumahl Gerät",
     "unknownDevice": "Unbekanntes Gerät"
   },
   "cmd": {
@@ -1523,11 +1517,11 @@
     "offline": "Offline",
     "searching": "Suche…"
   },
-      "notifications": {
-      "title": "Benachrichtigungen",
-      "subtitle": "Systembenachrichtigungen und Hintergrund-Jobs"
-    },
-    "jobs": {
+  "notifications": {
+    "title": "Benachrichtigungen",
+    "subtitle": "Systembenachrichtigungen und Hintergrund-Jobs"
+  },
+  "jobs": {
     "title": "Job Center",
     "subtitle": "Hintergrund-Jobs",
     "activeCount_one": "{{count}} aktiver Job",
@@ -1726,7 +1720,7 @@
   },
   "haOnboarding": {
     "title": "Home Assistant verbinden",
-    "description": "ORA findet Home Assistant im Netzwerk, prüft den Zugriff und aktiviert die Live-Verbindung für Entitäten und Automationen automatisch.",
+    "description": "rumahl findet Home Assistant im Netzwerk, prüft den Zugriff und aktiviert die Live-Verbindung für Entitäten und Automationen automatisch.",
     "urlPlaceholder": "Home-Assistant-URL oder Host",
     "discover": "Automatisch finden",
     "discovering": "Suche läuft…",
@@ -1735,14 +1729,14 @@
     "unreachable": "Nicht erreichbar",
     "token": "Langzeit-Zugriffstoken",
     "tokenPlaceholder": "Token aus deinem Home-Assistant-Profil einfügen",
-    "tokenHelp": "Öffne dein Profil in Home Assistant und erstelle ein Langzeit-Zugriffstoken. ORA prüft es vor dem Speichern.",
+    "tokenHelp": "Öffne dein Profil in Home Assistant und erstelle ein Langzeit-Zugriffstoken. rumahl prüft es vor dem Speichern.",
     "connect": "Verbinden und einrichten",
     "connecting": "Verbindung wird hergestellt…",
     "connected": "Home Assistant verbunden",
     "connectFailed": "Home Assistant konnte nicht verbunden werden",
     "ready": "Dein Zuhause ist bereit",
     "home": "Home Assistant",
-    "integrationsReady": "{{count}} Home-Assistant-Komponenten sind für ORA Home und Automation Studio bereit."
+    "integrationsReady": "{{count}} Home-Assistant-Komponenten sind für rumahl Home und Automation Studio bereit."
   },
   "storageApp": {
     "title": "Speicher",

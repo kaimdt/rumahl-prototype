@@ -200,7 +200,7 @@ export function SystemControl({ isOpen, onClose }: Props) {
               <Clock size={11} /> Uptime: {uptimeStr}
               <span>·</span>
               <Heartbeat size={11} /> Rules: {rules.filter(r => r.enabled).length}/{rules.length} aktiv
-              <span className="ml-auto">IORA System Guard v1.0</span>
+              <span className="ml-auto">rumahl System Guard v1.0</span>
             </div>
           </motion.div>
         </motion.div>

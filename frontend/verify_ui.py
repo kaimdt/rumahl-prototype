@@ -1,7 +1,7 @@
 from playwright.sync_api import sync_playwright
 
 def run_cuj(page):
-    page.goto("http://iora.local:5173")
+    page.goto("http://rumahl.local:5173")
     page.wait_for_timeout(1000)
 
     page.screenshot(path="/home/jules/verification/screenshots/verification.png")

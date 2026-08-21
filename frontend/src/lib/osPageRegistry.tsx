@@ -23,7 +23,7 @@ const StreamSender = lazy(() => import('@/components/StreamSender').then((m) => 
 const AppStoreTab = lazy(() => import('@/components/AppStoreTab').then((m) => ({ default: m.AppStoreTab })))
 
 /**
- * osPageRegistry — the single source of truth for built-in ORA OS pages.
+ * osPageRegistry — the single source of truth for built-in rumahl OS pages.
  *
  * Adding a new built-in page means adding ONE entry here (id + render + an
  * optional fullscreen chrome wrapper) instead of touching the App.tsx switch,
@@ -88,10 +88,10 @@ export function renderBuiltinPageFullscreen(pageId: string, ctx: PageRenderConte
   switch (pageId) {
     case 'app-store':
       return (
-        <section className="ora-app-frame p-4 sm:p-6">
+        <section className="rumahl-app-frame p-4 sm:p-6">
           <header className="mb-6 flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">ORA OS</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">rumahl OS</p>
               <h1 className="mt-1 text-3xl font-semibold">{ctx.t('os.apps.appStore.name')}</h1>
               <p className="mt-1 text-sm text-foreground/45">{ctx.t('os.apps.appStore.description')}</p>
             </div>

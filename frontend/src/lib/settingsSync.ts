@@ -30,15 +30,15 @@ const SYNCED_KEYS = [
   'ha-font-size',
   'ha-widget-compact',
   'ha-global-card-style',
-  'iora-os-launcher',
-  'iora-os-custom-launchers',
-  'iora-os-launcher-widgets',
-  'iora-os-launcher-folders',
-  'iora-time-theme-boundaries',
-  'iora-ui-scale',
-  'iora-os-session-locked',
-  'iora-auto-lock-minutes',
-  'iora-kiosk-mode',
+  'rumahl-os-launcher',
+  'rumahl-os-custom-launchers',
+  'rumahl-os-launcher-widgets',
+  'rumahl-os-launcher-folders',
+  'rumahl-time-theme-boundaries',
+  'rumahl-ui-scale',
+  'rumahl-os-session-locked',
+  'rumahl-auto-lock-minutes',
+  'rumahl-kiosk-mode',
 ]
 
 let syncUserId: string | null = null
@@ -83,7 +83,7 @@ const GLOBAL_DEFAULT_MAP: Record<string, string> = {
   'defaults.glass': 'glass-settings',
   'defaults.theme': 'ha-selected-theme',
   'defaults.auto_theme': 'ha-auto-theme',
-  'defaults.time_boundaries': 'iora-time-theme-boundaries',
+  'defaults.time_boundaries': 'rumahl-time-theme-boundaries',
 }
 
 /** Apply admin global defaults for any appearance key the user hasn't set. */
@@ -144,7 +144,7 @@ export async function loadSettingsFromBackend() {
     // Fall back to admin global defaults for appearance keys the user hasn't set.
     await applyGlobalDefaults(userKeys)
 
-    window.dispatchEvent(new CustomEvent('iora:settings-synced'))
+    window.dispatchEvent(new CustomEvent('rumahl:settings-synced'))
   } catch (err) {
     console.warn('[SettingsSync] Failed to load settings from backend:', err)
   }

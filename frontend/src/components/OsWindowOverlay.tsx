@@ -41,10 +41,10 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
   }
 
   return (
-    <div className="ora-os-window-layer" aria-label="Open app windows">
+    <div className="rumahl-os-window-layer" aria-label="Open app windows">
       {/* Split view */}
       {hasSplit && (
-        <div className="ora-os-split">
+        <div className="rumahl-os-split">
           {(['split-left', 'split-right'] as const).map((side) => {
             const win = split.find((w) => w.layout === side)
             if (!win) return null
@@ -52,7 +52,7 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
               <AnimatePresence key={side} initial={false}>
                 <motion.div
                   key={win.pageId ?? side}
-                  className="ora-os-split-pane"
+                  className="rumahl-os-split-pane"
                   {...windowMotion}
                 >
                   <OsWindowFrame

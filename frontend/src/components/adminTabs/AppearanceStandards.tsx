@@ -78,7 +78,7 @@ export function AppearanceStandardsTab() {
     }
   }
 
-  const field = 'ora-field-sm'
+  const field = 'rumahl-field-sm'
 
   return (
     <div className="space-y-4">
@@ -160,7 +160,7 @@ export function AppearanceStandardsTab() {
             </div>
 
             <div className="flex justify-end">
-              <button type="button" disabled={saving} onClick={() => void save()} className="ora-primary-button-sm">
+              <button type="button" disabled={saving} onClick={() => void save()} className="rumahl-primary-button-sm">
                 {saving ? t('appearanceStandards.saving') : t('appearanceStandards.save')}
               </button>
             </div>

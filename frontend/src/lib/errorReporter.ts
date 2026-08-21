@@ -89,7 +89,7 @@ function postToBackend(
         ...(extra ?? {}),
       },
     }
-    // Use cookie-based auth (iora_token) — backend service_routes accepts it.
+    // Use cookie-based auth (rumahl_token) — backend service_routes accepts it.
     void fetch(`${getBackendUrl()}/api/system-events/client`, {
       method: 'POST',
       credentials: 'include',
