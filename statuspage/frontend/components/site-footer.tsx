@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Activity, Rss } from "lucide-react";
+import { Activity, History, Rss } from "lucide-react";
+import { TimezonePicker } from "./timezone-picker";
 
 export function SiteFooter() {
   return (
@@ -22,6 +23,13 @@ export function SiteFooter() {
         </div>
         <div className="flex items-center gap-4 text-[13px]">
           <Link
+            href="/past/"
+            className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <History className="h-3.5 w-3.5" />
+            Previous incidents
+          </Link>
+          <Link
             href="/history/"
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
@@ -34,6 +42,7 @@ export function SiteFooter() {
             <Rss className="h-3.5 w-3.5" />
             RSS
           </Link>
+          <TimezonePicker />
         </div>
       </div>
       <div className="border-t border-border/30">

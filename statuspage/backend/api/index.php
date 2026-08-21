@@ -465,6 +465,45 @@ function route_incidents(): never
         json_out($list[0]);
     }
 
+    // Calendar: list of all months that have incidents (for the
+    // previous-incidents month navigator).
+    if (isset($_GET['months'])) {
+        $rows = db_all(
+            "SELECT DATE_FORMAT(starts_at, '%Y-%m') AS month, COUNT(*) AS n
+               FROM incidents GROUP BY month ORDER BY month ASC"
+        );
+        json_out([
+            'months' => array_map(fn (array $r) => ['month' => $r['month'], 'count' => (int) $r['n']], $rows),
+        ]);
+    }
+
+    // One month: full incidents + per-day counts for the calendar preview.
+    $month = (string) ($_GET['month'] ?? '');
+    if ($month !== '') {
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            json_error('Invalid month');
+        }
+        $start = $month . '-01 00:00:00';
+        $end = gmdate('Y-m-d H:i:s', strtotime($start . ' +1 month'));
+        $incidents = incidents_full('starts_at >= ? AND starts_at < ?', [$start, $end], 500);
+        $dayRows = db_all(
+            "SELECT DATE_FORMAT(starts_at, '%Y-%m-%d') AS d, COUNT(*) AS n,
+                    SUM(type = 'maintenance') AS maintenance_count
+               FROM incidents
+              WHERE starts_at >= ? AND starts_at < ?
+              GROUP BY d",
+            [$start, $end]
+        );
+        $days = [];
+        foreach ($dayRows as $r) {
+            $days[$r['d']] = [
+                'count' => (int) $r['n'],
+                'maintenance' => (int) $r['maintenance_count'] > 0,
+            ];
+        }
+        json_out(['month' => $month, 'incidents' => $incidents, 'days' => $days]);
+    }
+
     $page = max(1, (int) ($_GET['page'] ?? 1));
     $perPage = max(1, min(100, (int) ($_GET['per_page'] ?? 25)));
     $offset = ($page - 1) * $perPage;

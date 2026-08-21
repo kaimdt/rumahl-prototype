@@ -500,6 +500,7 @@ export function ComponentsTab() {
                                 degraded: "bg-status-degraded",
                                 partial_outage: "bg-status-partial",
                                 major_outage: "bg-status-major",
+                                maintenance: "bg-info",
                               }[component.status]
                             : "bg-muted-foreground/30"
                         )}

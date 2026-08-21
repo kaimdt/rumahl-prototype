@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, History, Loader2 } from "lucide-react";
 import { publicApi } from "@/lib/api";
 import type { StatusResponse } from "@/lib/types";
-import { formatDate } from "@/lib/status-meta";
 import { StatusBanner } from "@/components/status-banner";
 import { ComponentList } from "@/components/component-list";
 import { IncidentList, MaintenanceList } from "@/components/incident-list";
@@ -68,7 +67,7 @@ export default function StatusPage() {
       <StatusBanner
         status={data.overall}
         pageName={data.page.name}
-        updatedAt={formatDate(data.page.updated_at)}
+        updatedAt={data.page.updated_at}
       />
 
       <div className="mx-auto max-w-5xl px-5 lg:px-8 pb-10 space-y-8">
@@ -92,10 +91,10 @@ export default function StatusPage() {
                 Past Incidents
               </h2>
               <Link
-                href="/incidents/"
+                href="/past/"
                 className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary hover:underline"
               >
-                View all <ArrowRight className="h-3.5 w-3.5" />
+                Previous incidents <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
             <IncidentList incidents={pastIncidents.slice(0, 5)} compact />
@@ -103,10 +102,17 @@ export default function StatusPage() {
         )}
 
         {data.active_incidents.length === 0 && pastIncidents.length === 0 && (
-          <div className="surface-card p-6 text-center">
+          <div className="surface-card p-8 text-center space-y-4">
             <p className="text-sm text-muted-foreground">
               No active incidents — all systems running normally.
             </p>
+            <Link
+              href="/past/"
+              className="inline-flex items-center gap-2 rounded-lg border border-border/50 px-4 py-2 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+            >
+              <History className="h-3.5 w-3.5" />
+              Previous incidents
+            </Link>
           </div>
         )}
       </div>

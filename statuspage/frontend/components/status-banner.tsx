@@ -1,8 +1,8 @@
 "use client";
 
-import { Activity, CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, TriangleAlert, Wrench, XCircle } from "lucide-react";
 import type { ComponentStatus } from "@/lib/types";
-import { STATUS_META } from "@/lib/status-meta";
+import { STATUS_META, formatDateTime } from "@/lib/status-meta";
 import { cn } from "@/lib/utils";
 
 const BANNER_ICON: Record<ComponentStatus, typeof CheckCircle2> = {
@@ -10,6 +10,7 @@ const BANNER_ICON: Record<ComponentStatus, typeof CheckCircle2> = {
   degraded: Activity,
   partial_outage: TriangleAlert,
   major_outage: XCircle,
+  maintenance: Wrench,
 };
 
 const BANNER_DESCRIPTION: Record<ComponentStatus, string> = {
@@ -17,6 +18,7 @@ const BANNER_DESCRIPTION: Record<ComponentStatus, string> = {
   degraded: "Some systems are experiencing degraded performance.",
   partial_outage: "Some systems are experiencing a partial outage.",
   major_outage: "A major outage is affecting multiple systems.",
+  maintenance: "Maintenance is in progress on some systems.",
 };
 
 export function StatusBanner({
@@ -77,7 +79,7 @@ export function StatusBanner({
           <span className="gradient-text">{BANNER_DESCRIPTION[status]}</span>
         </h1>
         <p className="text-sm text-muted-foreground">
-          Last updated: {updatedAt}
+          Last updated on {formatDateTime(updatedAt)}
         </p>
       </div>
     </section>

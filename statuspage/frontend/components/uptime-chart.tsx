@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { DowntimeResponse, UptimeDay } from "@/lib/types";
+import { formatTime } from "@/lib/status-meta";
 import { cn } from "@/lib/utils";
 
 function dayLabel(day: string): string {
@@ -26,9 +27,10 @@ function durationLabel(totalMin: number): string {
  * longest block sits at the bottom and the shortest at the top.
  */
 function daySegments(u: UptimeDay): { min: number; cls: string; label: string }[] {
-  if (u.total <= 0) return [];
-  const outage = u.outage_min ?? 0;
+  const outage = u.total > 0 ? (u.outage_min ?? 0) : 0;
   const maintenance = u.maintenance_min ?? 0;
+  // Without checks (maintenance paused them) the bar still shows the window.
+  if (u.total <= 0 && maintenance <= 0) return [];
   const online =
     u.online_min ?? Math.max(0, 1440 - outage - maintenance);
   return [
@@ -41,10 +43,7 @@ function daySegments(u: UptimeDay): { min: number; cls: string; label: string }[
 }
 
 function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTime(iso);
 }
 
 interface HoverState {

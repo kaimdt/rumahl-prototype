@@ -10,6 +10,7 @@ import {
   History,
   Minus,
   TriangleAlert,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import type {
@@ -34,6 +35,7 @@ const STATUS_BADGE_ICON: Record<ComponentStatus, typeof CheckCircle2> = {
   degraded: TriangleAlert,
   partial_outage: CircleAlert,
   major_outage: XCircle,
+  maintenance: Wrench,
 };
 
 function ComponentCard({ component }: { component: Component }) {
@@ -168,15 +170,48 @@ function ComponentCard({ component }: { component: Component }) {
 function worstStatus(components: Component[]): Component["status"] {
   const rank: Record<Component["status"], number> = {
     operational: 0,
-    degraded: 1,
-    partial_outage: 2,
-    major_outage: 3,
+    maintenance: 1,
+    degraded: 2,
+    partial_outage: 3,
+    major_outage: 4,
   };
   let worst: Component["status"] = "operational";
   for (const c of components) {
     if (c.enabled && rank[c.status] > rank[worst]) worst = c.status;
   }
   return worst;
+}
+
+/** Shared group/component status badge (round, colored). */
+function StatusBadge({ status, size = "md" }: { status: ComponentStatus | "disabled"; size?: "md" | "lg" }) {
+  if (status === "disabled") {
+    return (
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-full bg-muted/40 text-muted-foreground/50",
+          size === "lg" ? "h-7 w-7" : "h-6 w-6"
+        )}
+        title="No monitoring"
+      >
+        <Minus className={size === "lg" ? "h-4 w-4" : "h-3.5 w-3.5"} strokeWidth={2.2} />
+      </span>
+    );
+  }
+  const meta = STATUS_META[status];
+  const Icon = STATUS_BADGE_ICON[status];
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full",
+        meta.bg,
+        meta.text,
+        size === "lg" ? "h-7 w-7" : "h-6 w-6"
+      )}
+      title={meta.label}
+    >
+      <Icon className={size === "lg" ? "h-4 w-4" : "h-3.5 w-3.5"} strokeWidth={2.2} />
+    </span>
+  );
 }
 
 function GroupSection({ group }: { group: ComponentGroup }) {
@@ -190,16 +225,24 @@ function GroupSection({ group }: { group: ComponentGroup }) {
     if (group.auto_expand && hasIssues) setCollapsed(false);
   }, [group.auto_expand, hasIssues]);
 
-  const worst = worstStatus(group.components);
-  const dot = STATUS_META[worst].dot;
+  const enabled = group.components.filter((c) => c.enabled);
+  const disabled = enabled.length === 0;
+  const worst: ComponentStatus | "disabled" = disabled ? "disabled" : worstStatus(group.components);
+  const label =
+    worst === "disabled"
+      ? "No monitoring"
+      : worst === "maintenance"
+        ? "Maintenance"
+        : STATUS_META[worst].label;
   const count = group.components.filter((c) => c.enabled).length;
 
   return (
     <section className="surface-card overflow-hidden">
-      <div className="border-b border-border/30 bg-muted/20 px-3 sm:px-4 py-2">
+      {/* taller group header — overall group status front AND back */}
+      <div className="border-b border-border/30 bg-muted/20 px-3 sm:px-4 py-3.5">
         <button
           onClick={() => setCollapsed((c) => !c)}
-          className="flex w-full items-center gap-2 text-left group"
+          className="flex w-full items-center gap-3 text-left group"
           aria-expanded={!collapsed}
         >
           <span className="text-muted-foreground/50 transition-colors group-hover:text-foreground">
@@ -209,11 +252,31 @@ function GroupSection({ group }: { group: ComponentGroup }) {
               <ChevronDown className="h-4 w-4" strokeWidth={2.2} />
             )}
           </span>
-          <span className={cn("h-2 w-2 rounded-full", hasIssues ? dot : "bg-status-operational/70")} />
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          <StatusBadge status={worst} size="lg" />
+          <span
+            className={cn(
+              "text-[11px] font-bold uppercase tracking-[0.18em]",
+              worst === "disabled" ? "text-muted-foreground/50" : "text-muted-foreground"
+            )}
+          >
             {group.name}
           </span>
-          <span className="ml-auto text-[10.5px] text-muted-foreground/50 tabular-nums">
+          <span className="ml-auto hidden sm:inline-flex items-center gap-2">
+            <span
+              className={cn(
+                "text-[11px] font-bold uppercase tracking-wide",
+                worst === "disabled"
+                  ? "text-muted-foreground/50"
+                  : worst === "maintenance"
+                    ? "text-info"
+                    : STATUS_META[worst].text
+              )}
+            >
+              {label}
+            </span>
+            <StatusBadge status={worst} />
+          </span>
+          <span className="sm:hidden text-[10.5px] text-muted-foreground/50 tabular-nums">
             {count} {count === 1 ? "component" : "components"}
           </span>
         </button>

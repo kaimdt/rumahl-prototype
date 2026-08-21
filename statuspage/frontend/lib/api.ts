@@ -82,6 +82,14 @@ export const publicApi = {
       `/incidents?page=${page}&per_page=${perPage}`
     ),
   incident: (id: string) => request<Incident>(`/incidents?id=${encodeURIComponent(id)}`),
+  incidentMonths: () =>
+    request<{ months: { month: string; count: number }[] }>("/incidents?months=1"),
+  incidentsByMonth: (month: string) =>
+    request<{
+      month: string;
+      incidents: Incident[];
+      days: Record<string, { count: number; maintenance: boolean }>;
+    }>(`/incidents?month=${encodeURIComponent(month)}`),
   uptime: (componentId: string, days = 90) =>
     request<UptimeResponse>(
       `/uptime?component=${encodeURIComponent(componentId)}&days=${days}`

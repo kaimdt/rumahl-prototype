@@ -7,7 +7,8 @@ export type ComponentStatus =
   | "operational"
   | "degraded"
   | "partial_outage"
-  | "major_outage";
+  | "major_outage"
+  | "maintenance";
 
 export type CheckType = "http" | "tcp" | "ping" | "dns" | "ssl" | "smtp";
 

@@ -1,4 +1,5 @@
 import type { ComponentStatus, IncidentStatus } from "./types";
+import { getActiveTimezone } from "./timezone";
 
 export const STATUS_META: Record<
   ComponentStatus,
@@ -36,6 +37,14 @@ export const STATUS_META: Record<
     border: "border-status-major/30",
     dot: "bg-status-major",
   },
+  maintenance: {
+    label: "Maintenance",
+    color: "hsl(var(--info))",
+    text: "text-info",
+    bg: "bg-info/12",
+    border: "border-info/30",
+    dot: "bg-info",
+  },
 };
 
 export const INCIDENT_STATUS_LABEL: Record<IncidentStatus, string> = {
@@ -65,6 +74,7 @@ export const IMPACT_META: Record<string, { label: string; cls: string }> = {
   critical: { label: "Critical", cls: "text-status-major" },
 };
 
+/** Date+time in the visitor's timezone (locale-independent layout). */
 export function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString("en-GB", {
@@ -73,6 +83,41 @@ export function formatDate(iso: string): string {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      timeZone: getActiveTimezone(),
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** "Aug 21, 2026 at 7:52 PM CEST" — always in the visitor's timezone. */
+export function formatDateTime(iso: string): string {
+  try {
+    const tz = getActiveTimezone();
+    const s = new Date(iso).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZoneName: "short",
+      timeZone: tz,
+    });
+    // "Aug 21, 2026, 7:52 PM CEST" → "Aug 21, 2026 at 7:52 PM CEST"
+    return s.replace(/,\s+(\d{1,2}:\d{2})/, " at $1");
+  } catch {
+    return iso;
+  }
+}
+
+/** Short time "07:52" in the visitor's timezone. */
+export function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: getActiveTimezone(),
     });
   } catch {
     return iso;

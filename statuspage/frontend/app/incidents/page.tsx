@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Loader2, SearchX } from "lucide-react";
 import { publicApi } from "@/lib/api";
 import type { Incident } from "@/lib/types";
 import { IncidentList } from "@/components/incident-list";
-import { IncidentDetail } from "@/components/incident-detail";
+import { IncidentCard } from "@/components/incident-card";
 import { cn } from "@/lib/utils";
 
 const PER_PAGE = 15;
@@ -113,7 +113,7 @@ function IncidentsContent() {
             <ChevronLeft className="h-4 w-4" />
             All incidents
           </a>
-          <IncidentDetail incident={detail} />
+          <IncidentCard incident={detail} expanded />
         </div>
       ) : (
         <>
