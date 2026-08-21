@@ -40,8 +40,8 @@ nul
 /backend/target
 /desktop/src-tauri/target
 /backend/data
-/iora-os/buildroot-2024.02
-/iora-os/buildroot-2024.02.tar.gz
+/rumahl-os/buildroot-2024.02
+/rumahl-os/buildroot-2024.02.tar.gz
 /update-server-main
 
 # Database files
@@ -52,9 +52,9 @@ nul
 # Python cache
 __pycache__/
 /store/.next
-/iora-os/board
-/iora-os/.cache
-/.iora-dev
+/rumahl-os/board
+/rumahl-os/.cache
+/.rumahl-dev
 
 # LocalUp backups
 .localup/
@@ -64,6 +64,9 @@ __pycache__/
 *.flywheel-backup
 *.ratatui-backup
 /example-website
-/ora-website/.next
-/iora-os/backend/.cache
+/rumahl-website/.next
+/rumahl-os/backend/.cache
 /.pnpm-store
+/.iora-dev
+/ora-website/.next
+*.tsbuildinfo
