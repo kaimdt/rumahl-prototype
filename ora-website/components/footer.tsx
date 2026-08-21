@@ -22,7 +22,7 @@ const footerLinks = {
     { name: "Community", href: "/community" },
     { name: "Blog", href: "/blog" },
     { name: "Support", href: "/support" },
-    { name: "Status", href: "/status" },
+    { name: "Status", href: "https://status.rumahl.com" },
   ],
   Company: [
     { name: "About the name", href: "/about" },

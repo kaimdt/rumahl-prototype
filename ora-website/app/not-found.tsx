@@ -26,7 +26,7 @@ const quickLinks = [
     icon: Compass,
   },
   {
-    href: "/support",
+    href: "https://status.rumahl.com",
     label: "Support",
     hint: "Guides, FAQ and help",
     icon: LifeBuoy,
