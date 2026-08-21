@@ -48,6 +48,8 @@ function db(bool $ensureSchema = true): PDO
  *  v5  latency phases (dns/connect/tls/server) on check_results and a
  *      per-component latency threshold override on components
  *  v6  check_type extended: dns, ssl (certificate expiry), smtp
+ *  v7  component_status gains the 'maintenance' status (checks paused
+ *      while a maintenance window covers the component)
  */
 function schema_migrations(): array
 {
@@ -76,6 +78,9 @@ function schema_migrations(): array
         'v6' => [
             // modify: idempotent — runs only while an enum value is missing
             ['components', 'check_type', "ENUM('http','tcp','ping','dns','ssl','smtp') NOT NULL DEFAULT 'http'", 'modify'],
+        ],
+        'v7' => [
+            ['component_status', 'status', "ENUM('operational','degraded','partial_outage','major_outage','maintenance') NOT NULL DEFAULT 'operational'", 'modify'],
         ],
     ];
 }

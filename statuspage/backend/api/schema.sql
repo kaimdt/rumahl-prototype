@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS check_results (
 
 CREATE TABLE IF NOT EXISTS component_status (
   component_id CHAR(36) NOT NULL PRIMARY KEY,
-  status ENUM('operational','degraded','partial_outage','major_outage') NOT NULL DEFAULT 'operational',
+  status ENUM('operational','degraded','partial_outage','major_outage','maintenance') NOT NULL DEFAULT 'operational',
   changed_at DATETIME NOT NULL,
   CONSTRAINT fk_component_status FOREIGN KEY (component_id)
     REFERENCES components(id) ON DELETE CASCADE

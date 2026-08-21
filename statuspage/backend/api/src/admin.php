@@ -307,6 +307,19 @@ function admin_incidents_save(): never
                 $input['id'],
             ]
         );
+        // The affected components can be changed with EVERY update.
+        if (isset($input['component_ids']) && is_array($input['component_ids'])) {
+            db_exec('DELETE FROM incident_components WHERE incident_id = ?', [$input['id']]);
+            foreach ($input['component_ids'] as $componentId) {
+                $componentId = (string) $componentId;
+                if ($componentId !== '') {
+                    db_exec(
+                        'INSERT IGNORE INTO incident_components (incident_id, component_id) VALUES (?, ?)',
+                        [$input['id'], $componentId]
+                    );
+                }
+            }
+        }
         if (!empty($input['message'])) {
             add_incident_update($input['id'], $newStatus, (string) $input['message']);
         }

@@ -486,6 +486,12 @@ function apply_status(string $componentId, string $newStatus, bool $manual = fal
         return;
     }
 
+    // Maintenance transitions are planned and therefore silent — no alerts,
+    // no automatic incidents (the monitor pauses checks for these components).
+    if ($from === 'maintenance' || $newStatus === 'maintenance') {
+        return;
+    }
+
     // Automatic incidents on outages (and automatic resolution on recovery).
     sync_auto_incident($componentId, $component['name'] ?? 'Component', $from, $newStatus);
 
@@ -642,8 +648,38 @@ function run_monitor(): array
         "SELECT * FROM components WHERE enabled = 1 AND kind = 'auto' ORDER BY position ASC"
     );
 
+    // Components covered by an active maintenance window are NOT checked —
+    // their status is set to 'maintenance' (silently) and restored by the
+    // next normal check once the window ends.
+    $maintenanceIds = db_all(
+        "SELECT DISTINCT ic.component_id FROM incident_components ic
+          JOIN incidents i ON i.id = ic.incident_id
+         WHERE i.type = 'maintenance' AND i.status IN ('scheduled','in_progress')"
+    );
+    $skipIds = [];
+    foreach ($maintenanceIds as $m) {
+        $skipIds[$m['component_id']] = true;
+    }
+
     $results = [];
     foreach ($components as $component) {
+        if (isset($skipIds[$component['id']])) {
+            apply_status($component['id'], 'maintenance', manual: true);
+            $results[] = [
+                'component_id' => $component['id'],
+                'name' => $component['name'],
+                'check_type' => (string) ($component['check_type'] ?? 'http'),
+                'ok' => true,
+                'softfail' => false,
+                'latency_ms' => null,
+                'server_ms' => null,
+                'status_code' => null,
+                'error' => null,
+                'status' => 'maintenance',
+                'skipped' => true,
+            ];
+            continue;
+        }
         $result = run_check($component);
         record_check($component['id'], $result);
         $newStatus = derive_status($component['id'], (int) $settings['failure_window'], $component);

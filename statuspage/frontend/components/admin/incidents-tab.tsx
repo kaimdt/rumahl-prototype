@@ -47,6 +47,8 @@ export function IncidentsTab() {
   const [busy, setBusy] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const [updateStatus, setUpdateStatus] = useState<IncidentStatus>("monitoring");
+  // affected components of the expanded incident — editable with every update
+  const [updateComponents, setUpdateComponents] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -113,6 +115,7 @@ export function IncidentsTab() {
         impact: incident.impact,
         status: updateStatus,
         message: updateMessage.trim(),
+        component_ids: updateComponents,
       });
       setUpdateMessage("");
       await load();
@@ -130,6 +133,7 @@ export function IncidentsTab() {
         impact: incident.impact,
         status: "resolved",
         message: "Incident has been resolved.",
+        component_ids: updateComponents,
       });
       await load();
     } catch (e) {
@@ -320,6 +324,37 @@ export function IncidentsTab() {
                         Resolve
                       </Button>
                     )}
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                      Affected components (changed with this update)
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {components.length === 0 && (
+                        <span className="text-xs text-muted-foreground/60">No components yet.</span>
+                      )}
+                      {components.map((component) => (
+                        <button
+                          key={component.id}
+                          type="button"
+                          onClick={() =>
+                            setUpdateComponents((ids) =>
+                              ids.includes(component.id)
+                                ? ids.filter((c) => c !== component.id)
+                                : [...ids, component.id]
+                            )
+                          }
+                          className={cn(
+                            "rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors",
+                            updateComponents.includes(component.id)
+                              ? "border-primary/50 bg-primary/12 text-primary"
+                              : "border-border/50 text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {component.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <ul className="space-y-2">
                     {[...incident.updates].reverse().map((update) => (

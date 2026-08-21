@@ -196,23 +196,26 @@ function route_uptime(): never
             // without a single check total_count is 0 and the bar shows no data.
             $outageMin = $total > 0 ? max(0, $total - $ok) : null;
             $maintenanceMin = 0;
-            if ($outageMin !== null) {
-                foreach ($maintenanceWindows as $w) {
-                    $start = strtotime((string) $w['starts_at']);
-                    $end = $w['resolves_at'] !== null
-                        ? strtotime((string) $w['resolves_at'])
-                        : time();
-                    $overlap = max(0, min($end, $dayEnd) - max($start, $dayStart));
-                    if ($overlap > 0) {
-                        $maintenanceMin += (int) ceil($overlap / 60);
-                    }
+            foreach ($maintenanceWindows as $w) {
+                $start = strtotime((string) $w['starts_at']);
+                $end = $w['resolves_at'] !== null
+                    ? strtotime((string) $w['resolves_at'])
+                    : time();
+                $overlap = max(0, min($end, $dayEnd) - max($start, $dayStart));
+                if ($overlap > 0) {
+                    $maintenanceMin += (int) ceil($overlap / 60);
                 }
+            }
+            if ($outageMin !== null) {
                 // Maintenance cannot exceed the remaining minutes of the day.
                 $maintenanceMin = min($maintenanceMin, 1440 - $outageMin);
+                $onlineMin = max(0, 1440 - $outageMin - $maintenanceMin);
+            } else {
+                // No checks ran (maintenance paused them) — the bar still
+                // shows the maintenance window with the rest as online.
+                $maintenanceMin = min($maintenanceMin, 1440);
+                $onlineMin = $maintenanceMin > 0 ? 1440 - $maintenanceMin : null;
             }
-            $onlineMin = $outageMin !== null
-                ? max(0, 1440 - $outageMin - $maintenanceMin)
-                : null;
             $uptime[] = [
                 'day' => $day,
                 'ok' => $ok,

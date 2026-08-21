@@ -8,14 +8,22 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 
-const COMPONENT_STATUSES = ['operational', 'degraded', 'partial_outage', 'major_outage'];
+const COMPONENT_STATUSES = ['operational', 'degraded', 'partial_outage', 'major_outage', 'maintenance'];
 
-/** Worst of the given statuses (major_outage > partial_outage > degraded > operational). */
+/**
+ * Worst of the given statuses. 'maintenance' is planned and therefore does
+ * NOT count as an outage — it is ignored unless every component is in
+ * maintenance (then the overall status is 'maintenance').
+ */
 function worst_status(array $statuses): string
 {
     $rank = array_flip(COMPONENT_STATUSES);
+    $effective = array_values(array_filter($statuses, fn (string $s) => $s !== 'maintenance'));
+    if ($effective === []) {
+        return 'maintenance';
+    }
     $worst = 'operational';
-    foreach ($statuses as $status) {
+    foreach ($effective as $status) {
         if (isset($rank[$status]) && $rank[$status] > $rank[$worst]) {
             $worst = $status;
         }
