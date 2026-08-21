@@ -2,7 +2,7 @@
 Example: Motion-activated light automation
 """
 
-from iora_sdk import AutomationPlugin, PluginContext
+from rumahl_sdk import AutomationPlugin, PluginContext
 from typing import Dict, Any
 
 

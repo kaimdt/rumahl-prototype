@@ -1,10 +1,10 @@
-// Package iora provides permission types and utilities
-package iora
+// Package ora provides permission types and utilities
+package ora
 
-// Permission represents an IORA permission
+// Permission represents an rumahl permission
 type Permission string
 
-// All IORA permissions
+// All rumahl permissions
 const (
 	// Entity permissions
 	PermissionReadEntities    Permission = "ReadEntities"
@@ -61,7 +61,7 @@ const (
 	PermissionLocationAccess Permission = "LocationAccess"
 	PermissionAutomations    Permission = "Automations"
 
-	// File sharing permissions (iora-share)
+	// File sharing permissions (rumahl-share)
 	PermissionFileShareRead   Permission = "FileShareRead"
 	PermissionFileShareWrite  Permission = "FileShareWrite"
 	PermissionFileShareDelete Permission = "FileShareDelete"
@@ -149,7 +149,7 @@ func GetPermissionDescription(permission Permission) string {
 		PermissionNetworkLocalAccess: "Access local network devices",
 		PermissionSystemInfo:         "Read system information",
 		PermissionSystemControl:      "Control system settings",
-		PermissionSystemRestart:      "Restart IORA system",
+		PermissionSystemRestart:      "Restart rumahl system",
 		PermissionDatabaseRead:       "Read from database",
 		PermissionDatabaseWrite:      "Write to database",
 		PermissionDatabaseCreate:     "Create database tables",

@@ -1,5 +1,5 @@
-// Package iora provides runtime manager for IORA apps
-package iora
+// Package ora provides runtime manager for rumahl apps
+package ora
 
 import (
 	"context"
@@ -15,15 +15,15 @@ import (
 type RuntimeConfig struct {
 	AppID             string
 	HeartbeatInterval time.Duration
-	IoraEndpoint      string
+	rumahlEndpoint      string
 	AutoHeartbeat     bool
 	QueryTimeout      time.Duration
 }
 
-// QueryHandler is a function that handles queries from IORA
+// QueryHandler is a function that handles queries from rumahl
 type QueryHandler func(params map[string]interface{}) (interface{}, error)
 
-// RuntimeManager handles app lifecycle, communication with IORA, and permission management
+// RuntimeManager handles app lifecycle, communication with rumahl, and permission management
 type RuntimeManager struct {
 	config           RuntimeConfig
 	status           AppStatus
@@ -32,7 +32,7 @@ type RuntimeManager struct {
 	permissionMu     sync.RWMutex
 	queryHandlers    map[string]QueryHandler
 	queryMu          sync.RWMutex
-	messageQueue     chan IoraMessage
+	messageQueue     chan rumahlMessage
 	ctx              context.Context
 	cancel           context.CancelFunc
 }
@@ -46,7 +46,7 @@ func NewRuntimeManager(config RuntimeConfig) *RuntimeManager {
 		status:           AppStatusInitializing,
 		permissionTokens: make(map[string]*PermissionToken),
 		queryHandlers:    make(map[string]QueryHandler),
-		messageQueue:     make(chan IoraMessage, 100),
+		messageQueue:     make(chan rumahlMessage, 100),
 		ctx:              ctx,
 		cancel:           cancel,
 	}
@@ -54,18 +54,18 @@ func NewRuntimeManager(config RuntimeConfig) *RuntimeManager {
 
 // FromEnv creates a runtime manager from environment variables
 func RuntimeManagerFromEnv() (*RuntimeManager, error) {
-	appID := os.Getenv("IORA_APP_ID")
+	appID := os.Getenv("RUMAHL_APP_ID")
 	if appID == "" {
-		return nil, fmt.Errorf("IORA_APP_ID environment variable not set")
+		return nil, fmt.Errorf("RUMAHL_APP_ID environment variable not set")
 	}
 
-	ioraEndpoint := os.Getenv("IORA_ENDPOINT")
-	if ioraEndpoint == "" {
-		return nil, fmt.Errorf("IORA_ENDPOINT environment variable not set")
+	oraEndpoint := os.Getenv("RUMAHL_ENDPOINT")
+	if oraEndpoint == "" {
+		return nil, fmt.Errorf("RUMAHL_ENDPOINT environment variable not set")
 	}
 
 	heartbeatInterval := 5
-	if val := os.Getenv("IORA_HEARTBEAT_INTERVAL"); val != "" {
+	if val := os.Getenv("RUMAHL_HEARTBEAT_INTERVAL"); val != "" {
 		if parsed, err := strconv.Atoi(val); err == nil {
 			heartbeatInterval = parsed
 		}
@@ -74,7 +74,7 @@ func RuntimeManagerFromEnv() (*RuntimeManager, error) {
 	config := RuntimeConfig{
 		AppID:             appID,
 		HeartbeatInterval: time.Duration(heartbeatInterval) * time.Second,
-		IoraEndpoint:      ioraEndpoint,
+		rumahlEndpoint:      oraEndpoint,
 		AutoHeartbeat:     true,
 		QueryTimeout:      30 * time.Second,
 	}
@@ -127,7 +127,7 @@ func (rm *RuntimeManager) SetStatus(newStatus AppStatus, details string) error {
 	rm.status = newStatus
 	rm.statusMu.Unlock()
 
-	// Send status update to IORA
+	// Send status update to rumahl
 	msg := NewStatusUpdateMessage(rm.config.AppID, oldStatus, newStatus, details)
 	return rm.sendMessage(msg)
 }
@@ -139,11 +139,11 @@ func (rm *RuntimeManager) GetStatus() AppStatus {
 	return rm.status
 }
 
-// Log logs a message to IORA
+// Log logs a message to rumahl
 func (rm *RuntimeManager) Log(level LogLevel, message string, context map[string]interface{}) error {
 	msg := NewLogMessage(rm.config.AppID, level, message, context)
 
-	// Send to IORA
+	// Send to rumahl
 	if err := rm.sendMessage(msg); err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func (rm *RuntimeManager) Log(level LogLevel, message string, context map[string
 	return nil
 }
 
-// RequestPermission requests a permission from IORA
+// RequestPermission requests a permission from rumahl
 func (rm *RuntimeManager) RequestPermission(permission Permission, context string, duration int64) (*PermissionToken, error) {
 	permStr := permission_to_string(permission)
 
@@ -177,7 +177,7 @@ func (rm *RuntimeManager) RequestPermission(permission Permission, context strin
 	}
 	rm.permissionMu.RUnlock()
 
-	// Request new token from IORA
+	// Request new token from rumahl
 	msg := NewPermissionRequestMessage(rm.config.AppID, permStr, context, duration)
 	if err := rm.sendMessage(msg); err != nil {
 		return nil, err
@@ -202,8 +202,8 @@ func (rm *RuntimeManager) RegisterQueryHandler(command string, handler QueryHand
 	rm.queryMu.Unlock()
 }
 
-// sendMessage sends a message to IORA
-func (rm *RuntimeManager) sendMessage(msg IoraMessage) error {
+// sendMessage sends a message to rumahl
+func (rm *RuntimeManager) sendMessage(msg rumahlMessage) error {
 	select {
 	case rm.messageQueue <- msg:
 		return nil
@@ -239,7 +239,7 @@ func (rm *RuntimeManager) messageProcessor() {
 		select {
 		case msg := <-rm.messageQueue:
 			// In real implementation, send via WebSocket/HTTP
-			log.Printf("Sending to IORA (%s): %v", rm.config.IoraEndpoint, msg)
+			log.Printf("Sending to rumahl (%s): %v", rm.config.rumahlEndpoint, msg)
 		case <-rm.ctx.Done():
 			return
 		}

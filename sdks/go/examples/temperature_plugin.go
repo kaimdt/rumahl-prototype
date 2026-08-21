@@ -5,16 +5,16 @@ import (
 	"context"
 	"fmt"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 // TemperatureConverter converts temperature between Celsius and Fahrenheit
 type TemperatureConverter struct {
-	iora.DataProcessorPlugin
+	ora.DataProcessorPlugin
 }
 
 // Process implements data processing
-func (tc *TemperatureConverter) Process(ctx context.Context, pluginCtx *iora.PluginContext, data interface{}) (interface{}, error) {
+func (tc *TemperatureConverter) Process(ctx context.Context, pluginCtx *ora.PluginContext, data interface{}) (interface{}, error) {
 	mode := pluginCtx.Settings["mode"].(string)
 	value := data.(float64)
 
@@ -41,8 +41,8 @@ func main() {
 	plugin := &TemperatureConverter{}
 
 	// Create context
-	client := iora.NewClient("http://localhost:8080", "api-key")
-	pluginCtx := &iora.PluginContext{
+	client := ora.NewClient("http://localhost:8080", "api-key")
+	pluginCtx := &ora.PluginContext{
 		Client: client,
 		AppID:  "temperature-converter",
 		Settings: map[string]interface{}{

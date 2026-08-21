@@ -1,0 +1,43 @@
+#cloud-config
+# Cloud-Init config passed via QEMU fw_cfg (no ISO needed on aarch64!)
+ssh_pwauth: true
+disable_root: false
+network:
+  config: disabled
+
+hostname: rumahl-dev
+
+users:
+  - name: ora
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+
+chpasswd:
+  list: |
+    root:ora
+    ora:ora
+  expire: false
+
+packages:
+  - curl
+  - git
+  - build-essential
+  - pkg-config
+  - libssl-dev
+  - nodejs
+  - npm
+  - docker.io
+  - rsync
+  - python3
+  - python3-pip
+  - htop
+  - vim
+
+runcmd:
+  - usermod -aG docker ora
+  - systemctl enable docker --now
+  - su - ora -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+  - touch /etc/ora/ssh-ready
+
+final_message: "rumahl Dev VM ready. SSH: ssh -p 2222 root@localhost (pw: ora)"

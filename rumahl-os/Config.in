@@ -1,0 +1,7 @@
+# Buildroot external tree configuration entry point for rumahl OS.
+# Add custom package menus here when needed.
+
+menu "rumahl OS packages"
+source "$BR2_EXTERNAL_RUMAHL_PATH/package/rumahl-dev-toolchain/Config.in"
+source "$BR2_EXTERNAL_RUMAHL_PATH/package/rumahl-runtime-sensor-ebpf-loader/Config.in"
+endmenu

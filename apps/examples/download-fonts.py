@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Google Fonts Downloader für IORA Themes
+Google Fonts Downloader für rumahl Themes
 Lädt alle in den Theme-Manifesten referenzierten Google Fonts als woff2 herunter
 und speichert sie lokal im fonts/-Verzeichnis des jeweiligen Themes.
 Aktualisiert die Manifeste für offline-Nutzung.
@@ -65,7 +65,7 @@ def download_font(url: str, dest: Path) -> bool:
     """Download a font file to destination."""
     try:
         req = urllib.request.Request(url, headers={
-            'User-Agent': 'Mozilla/5.0 (compatible; IORA-Theme-Builder/1.0)'
+            'User-Agent': 'Mozilla/5.0 (compatible; rumahl-Theme-Builder/1.0)'
         })
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
@@ -112,7 +112,7 @@ def process_theme(theme_dir: Path, dry_run: bool = False) -> dict:
         dl_url = build_download_url(family, params)
         try:
             req = urllib.request.Request(dl_url, headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; IORA-Theme-Builder/1.0)'
+                'User-Agent': 'Mozilla/5.0 (compatible; rumahl-Theme-Builder/1.0)'
             })
             with urllib.request.urlopen(req, timeout=30) as resp:
                 css_text = resp.read().decode('utf-8')
@@ -190,7 +190,7 @@ def process_theme(theme_dir: Path, dry_run: bool = False) -> dict:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Google Fonts Downloader für IORA Themes")
+    parser = argparse.ArgumentParser(description="Google Fonts Downloader für rumahl Themes")
     parser.add_argument("--theme", help="Nur ein bestimmtes Theme verarbeiten")
     parser.add_argument("--all", action="store_true", help="Alle Themes verarbeiten")
     parser.add_argument("--dry-run", action="store_true", help="Nur anzeigen, nichts herunterladen")

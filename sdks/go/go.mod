@@ -1,4 +1,4 @@
-module github.com/iora/iora-sdk-go
+module github.com/ora/rumahl-sdk-go
 
 go 1.21
 

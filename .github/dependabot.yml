@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: "cargo"
-    directory: "/iora-os/backend"
+    directory: "/rumahl-os/backend"
     schedule:
       interval: "weekly"
       day: "monday"

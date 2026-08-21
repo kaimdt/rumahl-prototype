@@ -2,15 +2,15 @@
 
 ## Overview
 
-IORA implements strict access control for Developer Mode features based on installation source. This ensures that App Store apps cannot access dangerous development features while allowing manually uploaded apps and the special Developer App to utilize these capabilities.
+rumahl implements strict access control for Developer Mode features based on installation source. This ensures that App Store apps cannot access dangerous development features while allowing manually uploaded apps and the special Developer App to utilize these capabilities.
 
 ## Installation Sources
 
-IORA tracks three types of app installation sources:
+rumahl tracks three types of app installation sources:
 
 ### 1. App Store (`app_store`)
 
-- **Description**: Apps distributed through the official IORA App Store
+- **Description**: Apps distributed through the official rumahl App Store
 - **Developer Mode Access**: **FORBIDDEN** - Never allowed, regardless of manifest configuration or global Developer Mode setting
 - **Restrictions**:
   - Cannot access ANY Developer Mode APIs
@@ -23,14 +23,14 @@ IORA tracks three types of app installation sources:
 - **Description**: Apps uploaded directly by users (ZIP files, direct installations)
 - **Developer Mode Access**: **ALLOWED** - Can use Developer Mode features when enabled
 - **Requirements**:
-  - Developer Mode must be globally enabled in IORA Control Center
+  - Developer Mode must be globally enabled in rumahl Control Center
   - App manifest must set `developer_mode.allowed = true`
   - In production environments, requires `developer_mode.allow_in_production = true`
 - **Use Cases**: Personal development, testing, custom integrations
 
 ### 3. Developer App (`developer_app`)
 
-- **Description**: Special IORA system app for development tools
+- **Description**: Special rumahl system app for development tools
 - **Developer Mode Access**: **FULL ACCESS** - Complete access including exclusive features
 - **Special Privileges**:
   - Can use all Developer Mode permissions
@@ -111,8 +111,8 @@ Has exclusive permissions:
 
 ```json
 {
-  "id": "io.iora.developer-app",
-  "name": "IORA Developer",
+  "id": "io.rumahl.developer-app",
+  "name": "rumahl Developer",
   "type": "app",
   "permissions": [
     "DeveloperAccess",
@@ -133,7 +133,7 @@ Has exclusive permissions:
 
 When an app attempts to access a Developer Mode endpoint:
 
-1. **Global Check**: Is Developer Mode enabled in IORA Control Center?
+1. **Global Check**: Is Developer Mode enabled in rumahl Control Center?
    - If NO → `403 Forbidden: Developer Mode is not enabled`
 
 2. **Installation Source Check**: What is the app's installation source?
@@ -189,11 +189,11 @@ The Developer App automatically installs when:
 # When Developer Mode toggle is set to true:
 1. Check if Developer App exists
 2. If not found:
-   a. Pull iora-developer-app image
+   a. Pull rumahl-developer-app image
    b. Create container with installation_source=developer_app
    c. Set all required permissions
    d. Start container
-   e. Register in IORA system
+   e. Register in rumahl system
 ```
 
 ### Exclusive Hot Reload APIs
@@ -249,9 +249,9 @@ async fn developer_mode_endpoint(
 ```rust
 // In app installation code
 let mut labels = HashMap::new();
-labels.insert("iora.managed".to_string(), "true".to_string());
-labels.insert("iora.type".to_string(), "app".to_string());
-labels.insert("iora.app.id".to_string(), app.id.clone());
+labels.insert("ora.managed".to_string(), "true".to_string());
+labels.insert("ora.type".to_string(), "app".to_string());
+labels.insert("ora.app.id".to_string(), app.id.clone());
 
 // Set installation source based on origin
 let installation_source = match install_origin {
@@ -259,16 +259,16 @@ let installation_source = match install_origin {
     InstallOrigin::Manual => "manual_upload",
     InstallOrigin::DeveloperApp => "developer_app",
 };
-labels.insert("iora.app.installation_source".to_string(), installation_source.to_string());
+labels.insert("ora.app.installation_source".to_string(), installation_source.to_string());
 
 // Store developer mode config if present
 if let Some(dev_config) = &app.manifest.developer_mode {
     labels.insert(
-        "iora.app.developer_mode.allowed".to_string(),
+        "ora.app.developer_mode.allowed".to_string(),
         dev_config.allowed.to_string()
     );
     labels.insert(
-        "iora.app.developer_mode.allow_in_production".to_string(),
+        "ora.app.developer_mode.allow_in_production".to_string(),
         dev_config.allow_in_production.to_string()
     );
 }
@@ -293,8 +293,8 @@ if let Some(dev_config) = &app.manifest.developer_mode {
 
 ### Why Developer App Is Special
 
-1. **System Component**: Part of IORA's development infrastructure
-2. **Signed by IORA**: Cryptographically signed by IORA team
+1. **System Component**: Part of rumahl's development infrastructure
+2. **Signed by rumahl**: Cryptographically signed by rumahl team
 3. **Audited Code**: Open source and audited by community
 4. **Exclusive Features**: Needs capabilities no other app should have
 5. **Hidden APIs**: Some endpoints are intentionally undiscoverable
@@ -379,18 +379,18 @@ Checklist before submitting to App Store:
 4. **Testing**: Test your app with Developer Mode both ON and OFF
 5. **Store Submission**: Use CI/CD to ensure dev features are stripped before submission
 
-### For IORA Administrators
+### For rumahl Administrators
 
-1. **Production Safety**: Never enable Developer Mode in production IORA instances
+1. **Production Safety**: Never enable Developer Mode in production rumahl instances
 2. **Audit Manual Uploads**: Review manually uploaded apps before enabling Developer Mode
 3. **Monitor Access**: Log all Developer Mode API access for security audits
-4. **Update Developer App**: Keep the IORA Developer App updated
+4. **Update Developer App**: Keep the rumahl Developer App updated
 5. **Restrict Access**: Only give Developer Mode toggle access to trusted administrators
 
 ### For Power Users
 
 1. **Trust But Verify**: Only enable Developer Mode for apps you trust
-2. **Isolation**: Use a separate IORA instance for development
+2. **Isolation**: Use a separate rumahl instance for development
 3. **Regular Audits**: Review which apps have Developer Mode permissions
 4. **Environment Variables**: Use ENV=production for your main instance
 5. **Backups**: Always backup before enabling Developer Mode on important apps
@@ -399,5 +399,5 @@ Checklist before submitting to App Store:
 
 - [DEVELOPER_MODE.md](./DEVELOPER_MODE.md) - Developer Mode features and APIs
 - [SDK_SECURITY_MODEL.md](./SDK_SECURITY_MODEL.md) - Overall security architecture
-- [permissions.rs](../backend/iora-shared/src/permissions.rs) - Permission definitions
-- [app_manifest.rs](../backend/iora-shared/src/app_manifest.rs) - Manifest schema
+- [permissions.rs](../backend/rumahl-shared/src/permissions.rs) - Permission definitions
+- [app_manifest.rs](../backend/rumahl-shared/src/app_manifest.rs) - Manifest schema

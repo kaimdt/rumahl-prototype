@@ -2,7 +2,7 @@
 name = "ha-dashboard-backend"
 version = "2.0.0"
 edition = "2021"
-description = "IORA Backend – Interface for Optimized Residential Autonomy – Rust/Axum server for smart home dashboard"
+description = "rumahl Backend – Interface for Optimized Residential Autonomy – Rust/Axum server for smart home dashboard"
 
 [dependencies]
 # Web framework

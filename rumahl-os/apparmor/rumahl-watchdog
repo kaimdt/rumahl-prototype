@@ -1,0 +1,29 @@
+#include <tunables/global>
+
+/app/rumahl-watchdog {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # Binary execution
+  /app/rumahl-watchdog r,
+
+  # Network (for health checks)
+  network inet stream,
+  network inet6 stream,
+
+  # Temporary files
+  /tmp/** rw,
+
+  # Configuration
+  /etc/rumahl/** r,
+
+  # System info (read-only)
+  /proc/*/stat r,
+  /proc/meminfo r,
+  /proc/loadavg r,
+
+  # No privilege escalation
+  deny capability sys_admin,
+  deny capability sys_module,
+  deny capability sys_ptrace,
+}

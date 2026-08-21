@@ -1,0 +1,31 @@
+{
+  "id": "io.rumahl.streaming",
+  "name": "rumahl Streaming",
+  "version": "1.0.0",
+  "developer": "rumahl Project",
+  "description": "Streame Kamera, Mikrofon oder Bildschirm live über rumahl. WebRTC-basierte Übertragung mit niedriger Latenz — ideal für Überwachungskameras, Präsentationen oder Live-Demos.",
+  "type": "app",
+  "icon": "broadcast",
+  "permissions": [
+    "NetworkLocalAccess",
+    "MediaCapture",
+    "AppStorageWrite",
+    "SendNotifications"
+  ],
+  "custom_pages": [
+    {
+      "id": "streaming",
+      "title": "rumahl Streaming",
+      "icon": "Broadcast",
+      "url": "/streaming",
+      "show_in_nav": true,
+      "order": 510
+    }
+  ],
+  "store_metadata": {
+    "category": "Media",
+    "tags": ["streaming", "camera", "screen-share", "live", "webrtc"],
+    "homepage": "https://ora.home",
+    "license": "Apache-2.0"
+  }
+}

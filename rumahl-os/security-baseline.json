@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "phase": "security-foundation",
+  "privileged_enforcement_components": [
+    "rumahl-security-helper"
+  ],
+  "privileged_socket": "/run/ora/security-helper.sock",
+  "trusted_peer_user": "rumahl-security",
+  "runtime_sensor_contract": {
+    "may_observe": true,
+    "may_normalize_events": true,
+    "may_request_typed_security_actions": true,
+    "may_execute_host_actions": false,
+    "may_access_docker_socket": false,
+    "may_modify_firewall": false,
+    "may_write_quarantine": false
+  },
+  "runtime_policy_contract": {
+    "may_describe_expected_behavior": true,
+    "may_evaluate_runtime_behavior": true,
+    "may_record_observations": true,
+    "may_execute_host_actions": false,
+    "may_access_docker_socket": false,
+    "may_modify_firewall": false,
+    "may_write_quarantine": false
+  },
+  "incident_engine_contract": {
+    "may_correlate_detections": true,
+    "may_recommend_responses": true,
+    "may_execute_host_actions": false,
+    "may_modify_profiles": false,
+    "may_call_root_helper": false
+  },
+  "phase_2_component_prefixes": [
+    "rumahl-runtime-sensor",
+    "rumahl-runtime-identity",
+    "rumahl-runtime-policy",
+    "rumahl-incident-engine"
+  ],
+  "runtime_sensor_privileged_exception": {
+    "component": "rumahl-runtime-sensor-ebpf-loader",
+    "purpose": "load read-only CO-RE programs and forward ring-buffer records",
+    "allowed_capabilities": ["CAP_BPF", "CAP_PERFMON"],
+    "forbidden_capabilities": ["CAP_SYS_ADMIN", "CAP_NET_ADMIN", "CAP_KILL"]
+  },
+  "forbidden_phase_2_source_markers": [
+    "/var/run/docker.sock",
+    "/run/docker.sock",
+    "/usr/sbin/nft",
+    "/sbin/nft",
+    "/bin/systemctl",
+    "/bin/kill",
+    "Command::new(\"docker\")",
+    "Command::new(\"nft\")",
+    "Command::new(\"systemctl\")"
+  ]
+}

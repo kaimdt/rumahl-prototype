@@ -1,14 +1,14 @@
-# IORA SDK Security Model
+# rumahl SDK Security Model
 
 ## Overview
 
-This document describes the comprehensive security model for IORA Apps and Plugins, ensuring safe integration while preventing privilege escalation and unauthorized access.
+This document describes the comprehensive security model for rumahl Apps and Plugins, ensuring safe integration while preventing privilege escalation and unauthorized access.
 
 ## Token-Based Permission System
 
 ### Time-Limited Access Tokens
 
-Apps and Plugins **do not** have direct API keys. Instead, they must request time-limited tokens from IORA:
+Apps and Plugins **do not** have direct API keys. Instead, they must request time-limited tokens from rumahl:
 
 ```rust
 // Request token with specific permissions
@@ -25,11 +25,11 @@ let token = client.request_token(token_request).await?;
 ### Token Lifecycle
 
 1. **Request**: App/Plugin requests token with specific permissions
-2. **Validation**: IORA validates the request against manifest permissions
-3. **Grant**: IORA issues time-limited token (JWT) with claims
+2. **Validation**: rumahl validates the request against manifest permissions
+3. **Grant**: rumahl issues time-limited token (JWT) with claims
 4. **Usage**: App/Plugin uses token for API calls
 5. **Renewal**: Before expiration, App/Plugin can renew token
-6. **Revocation**: User or IORA can revoke tokens at any time
+6. **Revocation**: User or rumahl can revoke tokens at any time
 
 ### Token Structure (JWT)
 
@@ -63,7 +63,7 @@ let token = client.request_token(token_request).await?;
 
 1. **No Self-Escalation**: Apps/Plugins cannot create new tokens beyond their granted permissions
 2. **No Admin Creation**: Only system administrators can create admin users
-3. **No Token Forgery**: Tokens are cryptographically signed by IORA with rotating keys
+3. **No Token Forgery**: Tokens are cryptographically signed by rumahl with rotating keys
 4. **No Permission Bypass**: All API calls validate tokens against permission claims
 
 ### User Creation Permission
@@ -87,7 +87,7 @@ Permission::CreateUser => {
 
 ### App/Plugin Integrity Checks
 
-IORA actively monitors running Apps and Plugins for manipulation:
+rumahl actively monitors running Apps and Plugins for manipulation:
 
 ```rust
 // Integrity monitoring system
@@ -143,7 +143,7 @@ match integrity_monitor.check_app(app_id).await? {
 
 ### Developer Mode Exception
 
-When **Developer Mode** is enabled in IORA Control Center:
+When **Developer Mode** is enabled in rumahl Control Center:
 
 1. User must explicitly enable in Settings → Advanced → Developer Mode
 2. Warning displayed about security implications
@@ -165,9 +165,9 @@ When **Developer Mode** is enabled in IORA Control Center:
 }
 ```
 
-### IORA Inspection Layer
+### rumahl Inspection Layer
 
-IORA injects monitoring code into Apps/Plugins to intercept:
+rumahl injects monitoring code into Apps/Plugins to intercept:
 
 ```rust
 // Injected monitoring layer
@@ -324,7 +324,7 @@ services:
   app-with-host-access:
     security_opt:
       - no-new-privileges:true
-      - apparmor=iora-app-host-access
+      - apparmor=rumahl-app-host-access
     cap_drop:
       - ALL
     cap_add:
@@ -340,8 +340,8 @@ services:
 ### AppArmor Profile
 
 ```
-# /etc/apparmor.d/iora-app-host-access
-profile iora-app-host-access flags=(attach_disconnected,mediate_deleted) {
+# /etc/apparmor.d/rumahl-app-host-access
+profile rumahl-app-host-access flags=(attach_disconnected,mediate_deleted) {
   # Deny most operations by default
   deny /** w,
   deny /** x,
@@ -373,10 +373,10 @@ profile iora-app-host-access flags=(attach_disconnected,mediate_deleted) {
 
 ```rust
 // Rust SDK
-impl IoraClient {
+impl rumahlClient {
     pub async fn request_token(&self, permissions: Vec<Permission>) -> Result<AccessToken> {
         let request = TokenRequest {
-            app_id: env::var("IORA_APP_ID")?,
+            app_id: env::var("RUMAHL_APP_ID")?,
             permissions,
             duration_seconds: 3600,
         };
@@ -411,10 +411,10 @@ impl IoraClient {
 ### Python SDK
 
 ```python
-class IoraClient:
+class rumahlClient:
     async def request_token(self, permissions: List[Permission]) -> AccessToken:
         request = {
-            "app_id": os.getenv("IORA_APP_ID"),
+            "app_id": os.getenv("RUMAHL_APP_ID"),
             "permissions": [p.value for p in permissions],
             "duration_seconds": 3600
         }
@@ -456,7 +456,7 @@ let permissions = vec![
 ### 2. Handle Token Expiration Gracefully
 ```rust
 match client.files().list(None).await {
-    Err(IoraError::TokenExpired) => {
+    Err(rumahlError::TokenExpired) => {
         // Automatically renew
         client.renew_token().await?;
         // Retry operation
@@ -483,9 +483,9 @@ impl ApiClient {
         let mut retries = 0;
         loop {
             match operation().await {
-                Err(IoraError::RateLimitExceeded { retry_after }) => {
+                Err(rumahlError::RateLimitExceeded { retry_after }) => {
                     if retries >= 3 {
-                        return Err(IoraError::MaxRetriesExceeded);
+                        return Err(rumahlError::MaxRetriesExceeded);
                     }
                     sleep(Duration::seconds(retry_after)).await;
                     retries += 1;
@@ -499,7 +499,7 @@ impl ApiClient {
 
 ## Summary
 
-The IORA security model provides:
+The rumahl security model provides:
 
 ✅ **Token-based access** - No permanent API keys, time-limited tokens only
 ✅ **Permission isolation** - Apps cannot escalate privileges
@@ -511,4 +511,4 @@ The IORA security model provides:
 ✅ **Container isolation** - Docker + AppArmor for host access
 ✅ **Cryptographic verification** - Signed tokens, integrity checks
 
-This model ensures Apps and Plugins can integrate deeply with IORA while maintaining security boundaries and preventing malicious behavior.
+This model ensures Apps and Plugins can integrate deeply with rumahl while maintaining security boundaries and preventing malicious behavior.

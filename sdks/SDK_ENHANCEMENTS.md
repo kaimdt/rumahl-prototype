@@ -1,24 +1,24 @@
-# IORA SDK Enhancements
+# rumahl SDK Enhancements
 
 ## Overview
 
-The IORA SDK has been significantly enhanced to provide Apps and Plugins with comprehensive access to the IORA ecosystem while maintaining strict security controls. This document describes the new features, permission system, and API expansions.
+The rumahl SDK has been significantly enhanced to provide Apps and Plugins with comprehensive access to the rumahl ecosystem while maintaining strict security controls. This document describes the new features, permission system, and API expansions.
 
 ## Key Changes
 
 ### 1. App vs Plugin Permission Model
 
-IORA now distinguishes between **Apps** and **Plugins** with different permission levels:
+rumahl now distinguishes between **Apps** and **Plugins** with different permission levels:
 
 #### Apps (Full Functionality)
 - Run in Docker containers with full isolation
 - No limits on functionality and integration
-- Access to all IORA services and APIs
+- Access to all rumahl services and APIs
 - Can request sensitive permissions that require user consent
 
 #### Plugins (Limited Functionality)
 - Run in sandboxed environment for quick, on-demand tasks
-- Limited to basic IORA operations
+- Limited to basic rumahl operations
 - Cannot access sensitive system operations
 - Automatically approved permissions from manifest (no user consent required)
 
@@ -35,7 +35,7 @@ Permissions available to both Apps and Plugins. Auto-approved based on manifest 
 - `StorageRead/Write` - Read/write to app storage
 - `NetworkOutbound` - Make HTTP requests to external APIs
 - `SendNotifications` - Send notifications to users
-- `CallApi` - Call registered IORA APIs
+- `CallApi` - Call registered rumahl APIs
 
 **Use Cases:** Basic smart home control, data visualization, simple integrations
 
@@ -44,10 +44,10 @@ Permissions only available to Apps. Auto-approved based on manifest declaration.
 
 **Examples:**
 - `CreateEntities` / `DeleteEntities` - Manage entity lifecycle
-- `DatabaseRead/Write` - Access IORA database
+- `DatabaseRead/Write` - Access rumahl database
 - `RegisterApi` / `RegisterWidget` - Register custom APIs/widgets
 - `Automations` - Create and manage automations
-- `FileShareRead` - Read files from iora-share
+- `FileShareRead` - Read files from rumahl-share
 
 **Use Cases:** Complex integrations, dashboard widgets, automation builders
 
@@ -55,11 +55,11 @@ Permissions only available to Apps. Auto-approved based on manifest declaration.
 Permissions only available to Apps that require explicit user approval per installation.
 
 **Examples:**
-- `FileShareWrite/Delete/Manage` - Modify files in iora-share
+- `FileShareWrite/Delete/Manage` - Modify files in rumahl-share
 - `FileSystemRead/Write/Execute` - Access host filesystem
 - `SystemControl` / `SystemRestart` - Modify system settings
 - `CameraAccess` / `MicrophoneAccess` - Access hardware
-- `UserManagement` - Manage IORA users
+- `UserManagement` - Manage rumahl users
 - `SecuritySettings` - Modify security configuration
 - `ProcessControl` - Control system processes
 - `NetworkScan` / `NetworkInbound` - Advanced networking
@@ -69,13 +69,13 @@ Permissions only available to Apps that require explicit user approval per insta
 
 ### 3. New APIs Added
 
-#### iora-share / Files API
+#### rumahl-share / Files API
 
 Complete file sharing integration with security controls:
 
 ```rust
 // Rust example
-let client = IoraClient::new("http://localhost:8080")
+let client = rumahlClient::new("http://localhost:8080")
     .with_api_key("your-api-key");
 
 // List files
@@ -105,7 +105,7 @@ client.files().share(&file_id, vec!["app-id".to_string()], permissions).await?;
 
 ```python
 # Python example
-async with IoraClient("http://localhost:8080", api_key="your-api-key") as client:
+async with rumahlClient("http://localhost:8080", api_key="your-api-key") as client:
     # List files
     files = await client.list_files(path="/documents")
 
@@ -201,7 +201,7 @@ SDKs provide helper functions to check permissions:
 
 ```rust
 // Rust
-use iora_sdk::permissions::Permission;
+use rumahl_sdk::permissions::Permission;
 
 let perm = Permission::FileShareWrite;
 let risk_level = perm.risk_level(); // RiskLevel::Critical
@@ -212,7 +212,7 @@ let plugin_ok = perm.is_plugin_allowed(); // false
 
 ```python
 # Python
-from iora_sdk.permissions import (
+from rumahl_sdk.permissions import (
     Permission,
     get_permission_metadata,
     requires_user_consent,
@@ -248,7 +248,7 @@ Apps and Plugins must declare all required permissions in their manifest:
 ```
 
 **Important:**
-- IORA will prompt users for consent before installing apps that require Tier 3 permissions
+- rumahl will prompt users for consent before installing apps that require Tier 3 permissions
 - Plugins requesting App-only permissions will be rejected at install time
 - Permissions cannot be requested at runtime - all must be declared upfront
 
@@ -257,7 +257,7 @@ Apps and Plugins must declare all required permissions in their manifest:
 ### Permission Enforcement
 
 1. **Install Time:**
-   - IORA validates manifest permissions
+   - rumahl validates manifest permissions
    - Rejects plugins requesting app-only permissions
    - Prompts user for consent on Tier 3 permissions
 
@@ -302,12 +302,12 @@ Apps and Plugins must declare all required permissions in their manifest:
    ```toml
    # Rust Cargo.toml
    [dependencies]
-   iora-sdk = "0.2.0"  # Updated version
+   rumahl-sdk = "0.2.0"  # Updated version
    ```
 
    ```
    # Python requirements.txt
-   iora-sdk>=0.2.0
+   rumahl-sdk>=0.2.0
    ```
 
 2. **Review Permissions:**
@@ -347,7 +347,7 @@ The enhanced permission system and new APIs are available in:
 Complete example applications demonstrating new features:
 
 1. **File Manager App** (`examples/file_manager/`)
-   - Browse iora-share files
+   - Browse rumahl-share files
    - Upload/download files
    - Share files with other apps
    - Demonstrates Tier 3 permissions
@@ -374,16 +374,16 @@ Complete example applications demonstrating new features:
 
 Full API documentation available at:
 - Rust: `cargo doc --open`
-- Python: https://iora-sdk-python.readthedocs.io/
-- TypeScript: https://iora-sdk-ts.readthedocs.io/
-- Go: https://pkg.go.dev/github.com/iora/iora-sdk-go
+- Python: https://rumahl-sdk-python.readthedocs.io/
+- TypeScript: https://rumahl-sdk-ts.readthedocs.io/
+- Go: https://pkg.go.dev/github.com/ora/rumahl-sdk-go
 
 ## Support
 
 For questions or issues:
-- GitHub Issues: https://github.com/kaimdt/home-assistant-dashb/issues
-- Documentation: https://iora-docs.example.com/sdk
-- Community Forum: https://forum.iora.example.com/
+- GitHub Issues: https://github.com/rumahl/home-assistant-dashb/issues
+- Documentation: https://rumahl-docs.example.com/sdk
+- Community Forum: https://forum.ora.example.com/
 
 ## Changelog
 
@@ -391,7 +391,7 @@ For questions or issues:
 
 **New Features:**
 - Three-tier permission system (Plugin-allowed, App-only, App-only with consent)
-- Files API for iora-share integration
+- Files API for rumahl-share integration
 - Automations API for automation management
 - 12 new permissions for advanced system access
 - Permission metadata and helper functions

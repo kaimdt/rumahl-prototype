@@ -1,17 +1,17 @@
 """
 Example app demonstrating the enhanced runtime features
 
-This example shows how to use the new IORA SDK runtime manager:
+This example shows how to use the new rumahl SDK runtime manager:
 - Automatic heartbeat
 - Status reporting
 - Centralized logging
 - Dynamic permission requests
-- Bidirectional communication with IORA
+- Bidirectional communication with rumahl
 """
 
 import asyncio
 import logging
-from iora_sdk import (
+from rumahl_sdk import (
     RuntimeManager,
     AppStatus,
     LogLevel,
@@ -27,10 +27,10 @@ logging.basicConfig(
 async def main():
     """Main app function"""
     # Initialize runtime manager from environment variables
-    # IORA sets these when starting the app:
-    # - IORA_APP_ID
-    # - IORA_ENDPOINT
-    # - IORA_HEARTBEAT_INTERVAL
+    # rumahl sets these when starting the app:
+    # - RUMAHL_APP_ID
+    # - RUMAHL_ENDPOINT
+    # - RUMAHL_HEARTBEAT_INTERVAL
     runtime = RuntimeManager.from_env()
 
     # Start the runtime (begins heartbeat, message processing, etc.)

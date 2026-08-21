@@ -1,5 +1,5 @@
-use crate::error::{IoraError, Result};
-use crate::runtime::{AppStatus, IoraMessage, LogLevel, PermissionToken};
+use crate::error::{RumahlError, Result};
+use crate::runtime::{AppStatus, RumahlMessage, LogLevel, PermissionToken};
 use crate::permissions::Permission;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -17,8 +17,8 @@ pub struct RuntimeConfig {
     /// Heartbeat interval in seconds
     pub heartbeat_interval: u64,
 
-    /// IORA communication endpoint (Unix socket or WebSocket URL)
-    pub iora_endpoint: String,
+    /// rumahl communication endpoint (Unix socket or WebSocket URL)
+    pub rumahl_endpoint: String,
 
     /// Whether to enable automatic heartbeat
     pub auto_heartbeat: bool,
@@ -32,33 +32,33 @@ impl Default for RuntimeConfig {
         Self {
             app_id: String::new(),
             heartbeat_interval: 5,
-            iora_endpoint: String::new(),
+            rumahl_endpoint: String::new(),
             auto_heartbeat: true,
             query_timeout: 30,
         }
     }
 }
 
-/// Runtime manager handles app lifecycle, communication with IORA, and permission management
+/// Runtime manager handles app lifecycle, communication with rumahl, and permission management
 pub struct RuntimeManager {
     config: RuntimeConfig,
     status: Arc<RwLock<AppStatus>>,
     permission_tokens: Arc<RwLock<HashMap<String, PermissionToken>>>,
-    message_sender: mpsc::UnboundedSender<IoraMessage>,
-    message_receiver: Arc<Mutex<mpsc::UnboundedReceiver<IoraMessage>>>,
+    message_sender: mpsc::UnboundedSender<RumahlMessage>,
+    message_receiver: Arc<Mutex<mpsc::UnboundedReceiver<RumahlMessage>>>,
     query_handlers: Arc<RwLock<HashMap<String, Box<dyn Fn(Value) -> Result<Value> + Send + Sync>>>>,
 }
 
 impl RuntimeManager {
     /// Create a new runtime manager from environment
     pub async fn from_env() -> Result<Self> {
-        let app_id = std::env::var("IORA_APP_ID")
-            .map_err(|_| IoraError::Runtime("IORA_APP_ID not set".to_string()))?;
+        let app_id = std::env::var("RUMAHL_APP_ID")
+            .map_err(|_| RumahlError::Runtime("RUMAHL_APP_ID not set".to_string()))?;
 
-        let iora_endpoint = std::env::var("IORA_ENDPOINT")
-            .map_err(|_| IoraError::Runtime("IORA_ENDPOINT not set".to_string()))?;
+        let rumahl_endpoint = std::env::var("RUMAHL_ENDPOINT")
+            .map_err(|_| RumahlError::Runtime("RUMAHL_ENDPOINT not set".to_string()))?;
 
-        let heartbeat_interval = std::env::var("IORA_HEARTBEAT_INTERVAL")
+        let heartbeat_interval = std::env::var("RUMAHL_HEARTBEAT_INTERVAL")
             .unwrap_or_else(|_| "5".to_string())
             .parse()
             .unwrap_or(5);
@@ -66,7 +66,7 @@ impl RuntimeManager {
         let config = RuntimeConfig {
             app_id,
             heartbeat_interval,
-            iora_endpoint,
+            rumahl_endpoint,
             auto_heartbeat: true,
             query_timeout: 30,
         };
@@ -121,8 +121,8 @@ impl RuntimeManager {
             old
         };
 
-        // Send status update to IORA
-        let message = IoraMessage::StatusUpdate {
+        // Send status update to rumahl
+        let message = RumahlMessage::StatusUpdate {
             app_id: self.config.app_id.clone(),
             old_status,
             new_status,
@@ -139,9 +139,9 @@ impl RuntimeManager {
         *self.status.read().await
     }
 
-    /// Log a message to IORA
+    /// Log a message to rumahl
     pub async fn log(&self, level: LogLevel, message: impl Into<String>, context: Option<Value>) -> Result<()> {
-        let message = IoraMessage::Log {
+        let message = RumahlMessage::Log {
             app_id: self.config.app_id.clone(),
             level,
             message: message.into(),
@@ -152,7 +152,7 @@ impl RuntimeManager {
         self.send_message(message).await
     }
 
-    /// Request a permission from IORA
+    /// Request a permission from rumahl
     pub async fn request_permission(
         &self,
         permission: Permission,
@@ -170,8 +170,8 @@ impl RuntimeManager {
             }
         }
 
-        // Request new token from IORA
-        let message = IoraMessage::PermissionRequest {
+        // Request new token from rumahl
+        let message = RumahlMessage::PermissionRequest {
             app_id: self.config.app_id.clone(),
             permission: format!("{:?}", permission),
             context: context.into(),
@@ -182,7 +182,7 @@ impl RuntimeManager {
 
         // Wait for response (simplified - in real implementation would use async channel)
         // For now, return error indicating async operation
-        Err(IoraError::Runtime("Permission request pending".to_string()))
+        Err(RumahlError::Runtime("Permission request pending".to_string()))
     }
 
     /// Store a permission token
@@ -200,11 +200,11 @@ impl RuntimeManager {
         handlers.insert(command.into(), Box::new(handler));
     }
 
-    /// Send a message to IORA
-    async fn send_message(&self, message: IoraMessage) -> Result<()> {
+    /// Send a message to rumahl
+    async fn send_message(&self, message: RumahlMessage) -> Result<()> {
         self.message_sender
             .send(message)
-            .map_err(|e| IoraError::Runtime(format!("Failed to send message: {}", e)))
+            .map_err(|e| RumahlError::Runtime(format!("Failed to send message: {}", e)))
     }
 
     /// Start heartbeat task
@@ -220,7 +220,7 @@ impl RuntimeManager {
                 interval.tick().await;
 
                 let current_status = *status.read().await;
-                let message = IoraMessage::Heartbeat {
+                let message = RumahlMessage::Heartbeat {
                     app_id: app_id.clone(),
                     status: current_status,
                     timestamp: Self::current_timestamp(),
@@ -236,14 +236,14 @@ impl RuntimeManager {
     /// Start message processor task
     async fn start_message_processor(&self) {
         let receiver = self.message_receiver.clone();
-        let endpoint = self.config.iora_endpoint.clone();
+        let endpoint = self.config.rumahl_endpoint.clone();
 
         tokio::spawn(async move {
             let mut rx = receiver.lock().await;
             while let Some(message) = rx.recv().await {
-                // In real implementation, send message to IORA via WebSocket/Unix socket
+                // In real implementation, send message to rumahl via WebSocket/Unix socket
                 // For now, just log it
-                log::debug!("Sending to IORA ({}): {:?}", endpoint, message);
+                log::debug!("Sending to rumahl ({}): {:?}", endpoint, message);
             }
         });
     }
@@ -269,7 +269,7 @@ impl RuntimeManager {
                 };
 
                 for token in tokens_to_renew {
-                    let message = IoraMessage::PermissionRequest {
+                    let message = RumahlMessage::PermissionRequest {
                         app_id: app_id.clone(),
                         permission: token.permission.clone(),
                         context: "Auto-renewal".to_string(),
@@ -321,8 +321,8 @@ impl RuntimeManagerBuilder {
         self
     }
 
-    pub fn iora_endpoint(mut self, endpoint: impl Into<String>) -> Self {
-        self.config.iora_endpoint = endpoint.into();
+    pub fn rumahl_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.config.rumahl_endpoint = endpoint.into();
         self
     }
 

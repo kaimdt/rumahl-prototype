@@ -1,14 +1,14 @@
-# IORA SDK Runtime Architecture
+# rumahl SDK Runtime Architecture
 
 ## Overview
 
-The IORA SDK includes an enhanced runtime architecture that provides full monitoring, security, and control capabilities for all apps and plugins. This document describes the runtime features and how to use them.
+The rumahl SDK includes an enhanced runtime architecture that provides full monitoring, security, and control capabilities for all apps and plugins. This document describes the runtime features and how to use them.
 
 ## Key Features
 
 ### 1. Automatic Heartbeat System
-- Apps automatically report their status to IORA every few seconds (configurable, default 5s)
-- IORA monitors heartbeats and terminates unresponsive apps
+- Apps automatically report their status to rumahl every few seconds (configurable, default 5s)
+- rumahl monitors heartbeats and terminates unresponsive apps
 - Heartbeat includes current app status
 
 ### 2. Status Reporting
@@ -24,44 +24,44 @@ Apps can be in one of the following states:
 - **SHUTTING_DOWN** - App is terminating
 
 ### 3. Centralized Logging
-- All logs are sent to IORA automatically
+- All logs are sent to rumahl automatically
 - Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
 - Structured logging with context
 - Automatic error capture and reporting
 
 ### 4. Dynamic Permission System
 - Apps request permissions at runtime (not at initialization)
-- IORA issues temporary permission tokens with expiration
+- rumahl issues temporary permission tokens with expiration
 - SDK automatically renews tokens before expiration
 - Permission requests include context (what operation needs it)
 
 ### 5. No Hardcoded Credentials
-- SDK discovers IORA connection via environment variables set by IORA
-- Apps receive temporary credentials from IORA at startup
-- Apps cannot start without IORA runtime
+- SDK discovers rumahl connection via environment variables set by rumahl
+- Apps receive temporary credentials from rumahl at startup
+- Apps cannot start without rumahl runtime
 - Environment variables:
-  - `IORA_APP_ID` - App identifier
-  - `IORA_ENDPOINT` - IORA communication endpoint
-  - `IORA_HEARTBEAT_INTERVAL` - Heartbeat interval in seconds
+  - `RUMAHL_APP_ID` - App identifier
+  - `RUMAHL_ENDPOINT` - rumahl communication endpoint
+  - `RUMAHL_HEARTBEAT_INTERVAL` - Heartbeat interval in seconds
 
 ### 6. Bidirectional Communication
-- SDK exposes endpoints for IORA to query:
+- SDK exposes endpoints for rumahl to query:
   - Current status
   - Active tasks
   - Resource usage
   - Custom query handlers
-- Apps can register custom query handlers for IORA commands
+- Apps can register custom query handlers for rumahl commands
 
 ## Usage Examples
 
 ### Rust
 
 ```rust
-use iora_sdk::prelude::*;
+use rumahl_sdk::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize runtime from environment (set by IORA)
+    // Initialize runtime from environment (set by rumahl)
     let runtime = RuntimeManager::from_env().await?;
 
     // Start runtime (heartbeat, message processing, etc.)
@@ -101,10 +101,10 @@ async fn main() -> Result<()> {
 
 ```python
 import asyncio
-from iora_sdk import RuntimeManager, AppStatus, LogLevel, Permission
+from rumahl_sdk import RuntimeManager, AppStatus, LogLevel, Permission
 
 async def main():
-    # Initialize runtime from environment (set by IORA)
+    # Initialize runtime from environment (set by rumahl)
     runtime = RuntimeManager.from_env()
 
     # Start runtime (heartbeat, message processing, etc.)
@@ -143,10 +143,10 @@ if __name__ == "__main__":
 ### JavaScript/TypeScript
 
 ```typescript
-import { RuntimeManager, AppStatus, LogLevel, Permission } from '@iora/sdk';
+import { RuntimeManager, AppStatus, LogLevel, Permission } from '@rumahl/sdk';
 
 async function main() {
-  // Initialize runtime from environment (set by IORA)
+  // Initialize runtime from environment (set by rumahl)
   const runtime = await RuntimeManager.fromEnv();
 
   // Start runtime (heartbeat, message processing, etc.)
@@ -184,7 +184,7 @@ main();
 
 ## Custom Query Handlers
 
-Apps can register custom query handlers that IORA can call:
+Apps can register custom query handlers that rumahl can call:
 
 ### Rust
 
@@ -216,17 +216,17 @@ runtime.register_query_handler("get_stats", get_stats_handler)
 The SDK automatically manages permission tokens:
 
 1. **Request**: App requests permission with context
-2. **Grant**: IORA issues temporary token with expiration
+2. **Grant**: rumahl issues temporary token with expiration
 3. **Use**: App uses token for authorized operations
 4. **Renewal**: SDK automatically renews before expiration
-5. **Revocation**: IORA can revoke tokens at any time
+5. **Revocation**: rumahl can revoke tokens at any time
 
 ## Security Model
 
 ### App Isolation
 - Apps run in separate containers/processes
 - No direct inter-app communication
-- All communication via IORA
+- All communication via rumahl
 
 ### Credential Management
 - Credentials injected at runtime via environment
@@ -235,7 +235,7 @@ The SDK automatically manages permission tokens:
 
 ### SDK Verification
 - SDK includes cryptographic signature (future)
-- IORA validates SDK version
+- rumahl validates SDK version
 - Prevents modified SDKs
 
 ### Audit Trail
@@ -245,7 +245,7 @@ The SDK automatically manages permission tokens:
 
 ## Message Protocol
 
-Apps and IORA communicate using JSON messages:
+Apps and rumahl communicate using JSON messages:
 
 ### Heartbeat
 ```json
@@ -302,7 +302,7 @@ Apps and IORA communicate using JSON messages:
 }
 ```
 
-### Query from IORA
+### Query from rumahl
 ```json
 {
   "type": "query",
@@ -312,7 +312,7 @@ Apps and IORA communicate using JSON messages:
 }
 ```
 
-### Response to IORA
+### Response to rumahl
 ```json
 {
   "type": "response",
@@ -328,13 +328,13 @@ Apps and IORA communicate using JSON messages:
 
 ### Before (Old SDK)
 ```rust
-let client = IoraClient::new("http://localhost:8080")
+let client = rumahlClient::new("http://localhost:8080")
     .with_api_key("your-api-key");
 ```
 
 ### After (New SDK)
 ```rust
-// No URL or API key needed - IORA provides via environment
+// No URL or API key needed - rumahl provides via environment
 let runtime = RuntimeManager::from_env().await?;
 runtime.start().await?;
 
@@ -346,21 +346,21 @@ let client = runtime.client();
 
 1. **Always use RuntimeManager** for new apps
 2. **Update status** when app state changes
-3. **Log important events** to IORA
+3. **Log important events** to rumahl
 4. **Request permissions** with clear context
 5. **Register query handlers** for custom commands
-6. **Handle errors gracefully** and report to IORA
+6. **Handle errors gracefully** and report to rumahl
 7. **Never hardcode credentials** - always use environment
 
 ## Troubleshooting
 
 ### App won't start
-- Check that IORA_APP_ID is set
-- Check that IORA_ENDPOINT is set
-- Verify IORA runtime is running
+- Check that RUMAHL_APP_ID is set
+- Check that RUMAHL_ENDPOINT is set
+- Verify rumahl runtime is running
 
 ### Heartbeat failing
-- Check network connectivity to IORA_ENDPOINT
+- Check network connectivity to RUMAHL_ENDPOINT
 - Verify heartbeat interval is reasonable (5-10s)
 - Check for errors in logs
 

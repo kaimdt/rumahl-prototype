@@ -1,10 +1,10 @@
-import type { IframeMessage, IoraEvent, EventHandler, OsFileOpenResult, OsFileSaveRequest, OsFileSaveResult } from './types';
+import type { IframeMessage, rumahlEvent, EventHandler, OsFileOpenResult, OsFileSaveRequest, OsFileSaveResult } from './types';
 
 /**
- * IORA Iframe SDK
+ * rumahl Iframe SDK
  *
- * Enables secure communication between IORA apps running in iframes
- * and the main IORA application.
+ * Enables secure communication between rumahl apps running in iframes
+ * and the main rumahl application.
  *
  * Features:
  * - Secure postMessage communication
@@ -13,7 +13,7 @@ import type { IframeMessage, IoraEvent, EventHandler, OsFileOpenResult, OsFileSa
  * - API method calls
  * - Automatic reconnection
  */
-export default class IoraIframe {
+export default class rumahlIframe {
   private appId: string;
   private securityToken: string | null = null;
   private parentOrigin: string;
@@ -39,7 +39,7 @@ export default class IoraIframe {
   }
 
   /**
-   * Request security token from IORA
+   * Request security token from rumahl
    */
   private requestSecurityToken(): void {
     this.sendMessage({
@@ -112,7 +112,7 @@ export default class IoraIframe {
   }
 
   /**
-   * Call an IORA API method
+   * Call an rumahl API method
    */
   async call<T = any>(method: string, ...params: any[]): Promise<T> {
     await this.ready();
@@ -165,7 +165,7 @@ export default class IoraIframe {
   /**
    * Dispatch an event to handlers
    */
-  private dispatchEvent(event: IoraEvent): void {
+  private dispatchEvent(event: rumahlEvent): void {
     const handlers = this.eventHandlers.get(event.type);
     if (handlers) {
       handlers.forEach(handler => {
@@ -270,7 +270,7 @@ export default class IoraIframe {
   }
 
   /**
-   * Ask the user to select one file from their personal ORA Cloud.
+   * Ask the user to select one file from their personal rumahl Cloud.
    * The app only receives the explicitly selected file.
    */
   async openFile(): Promise<OsFileOpenResult> {
@@ -278,8 +278,8 @@ export default class IoraIframe {
   }
 
   /**
-   * Ask the user where a file should be saved in their personal ORA Cloud.
-   * The save only happens after confirmation in the ORA system dialog.
+   * Ask the user where a file should be saved in their personal rumahl Cloud.
+   * The save only happens after confirmation in the rumahl system dialog.
    */
   async saveFile(file: OsFileSaveRequest): Promise<OsFileSaveResult> {
     return this.call('files.save', file);
@@ -310,10 +310,10 @@ export default class IoraIframe {
 /**
  * Create a singleton instance for easy access
  */
-export function createIoraIframe(appId: string, parentOrigin?: string): IoraIframe {
+export function createrumahlIframe(appId: string, parentOrigin?: string): rumahlIframe {
   if (typeof window === 'undefined') {
-    throw new Error('IoraIframe can only be used in browser environment');
+    throw new Error('rumahlIframe can only be used in browser environment');
   }
 
-  return new IoraIframe(appId, parentOrigin);
+  return new rumahlIframe(appId, parentOrigin);
 }

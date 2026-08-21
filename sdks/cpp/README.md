@@ -1,6 +1,6 @@
-# IORA C++ SDK
+# rumahl C++ SDK
 
-Official C++ SDK for developing IORA apps and plugins.
+Official C++ SDK for developing rumahl apps and plugins.
 
 ## Features
 
@@ -9,7 +9,7 @@ Official C++ SDK for developing IORA apps and plugins.
 - 📦 **JSON Support** - Built on nlohmann/json for easy data handling
 - 🔑 **Permission Management** - Built-in permission enums and helpers
 - 📝 **Manifest Builder** - Fluent API for manifest creation
-- 🎯 **REST API Client** - Complete IORA API client using libcurl
+- 🎯 **REST API Client** - Complete rumahl API client using libcurl
 
 ## Requirements
 
@@ -23,8 +23,8 @@ Official C++ SDK for developing IORA apps and plugins.
 ### Using CMake
 
 ```cmake
-find_package(iora-sdk REQUIRED)
-target_link_libraries(your_app PRIVATE iora::iora-sdk)
+find_package(rumahl-sdk REQUIRED)
+target_link_libraries(your_app PRIVATE ora::rumahl-sdk)
 ```
 
 ### Building from Source
@@ -41,13 +41,13 @@ sudo cmake --install .
 ### Simple App Example
 
 ```cpp
-#include <iora/client.hpp>
-#include <iora/types.hpp>
+#include <ora/client.hpp>
+#include <ora/types.hpp>
 #include <iostream>
 
 int main() {
     // Initialize client
-    iora::Client client("http://localhost:8080", "your-api-key");
+    ora::Client client("http://localhost:8080", "your-api-key");
 
     // Get all entities
     auto entities = client.get_entities();
@@ -57,8 +57,8 @@ int main() {
     client.turn_on("light.living_room", {{"brightness", 255}});
 
     // Send notification
-    iora::NotificationPayload notification{
-        .title = "Hello IORA",
+    ora::NotificationPayload notification{
+        .title = "Hello rumahl",
         .message = "App is running!",
         .priority = "normal"
     };
@@ -79,16 +79,16 @@ int main() {
 
 ### Client
 
-Main HTTP client for IORA API interactions.
+Main HTTP client for rumahl API interactions.
 
 ```cpp
-iora::Client client("http://localhost:8080", "api-key");
+ora::Client client("http://localhost:8080", "api-key");
 
 // Entity API
 auto entities = client.get_entities();
 auto entity = client.get_entity("light.bedroom");
 
-iora::ServiceCall call{
+ora::ServiceCall call{
     .domain = "light",
     .service = "turn_on",
     .entity_id = "light.bedroom",
@@ -100,7 +100,7 @@ client.turn_on("light.bedroom", {{"brightness", 200}});
 client.turn_off("light.bedroom");
 
 // Notifications
-iora::NotificationPayload notification{
+ora::NotificationPayload notification{
     .title = "Alert",
     .message = "Something happened",
     .priority = "high"
@@ -120,15 +120,15 @@ client.update_settings("app-id", {{"theme", "dark"}});
 ### ManifestBuilder
 
 ```cpp
-#include <iora/manifest.hpp>
-#include <iora/permissions.hpp>
+#include <ora/manifest.hpp>
+#include <ora/permissions.hpp>
 
-using namespace iora;
+using namespace ora;
 
 auto manifest = ManifestBuilder("my-app", "My App")
     .version("1.0.0")
     .developer("Your Name")
-    .description("An awesome IORA app")
+    .description("An awesome rumahl app")
     .permissions({
         Permission::READ_ENTITIES,
         Permission::CONTROL_ENTITIES,
@@ -172,7 +172,7 @@ ManifestBuilder("my-app", "My App")
 ### Permissions
 
 ```cpp
-#include <iora/permissions.hpp>
+#include <ora/permissions.hpp>
 
 // Use permissions
 std::vector<Permission> perms = {
@@ -193,17 +193,17 @@ auto desc = get_permission_description(Permission::CAMERA_ACCESS);
 ## Complete Example
 
 ```cpp
-#include <iora/client.hpp>
-#include <iora/types.hpp>
-#include <iora/manifest.hpp>
+#include <ora/client.hpp>
+#include <ora/types.hpp>
+#include <ora/manifest.hpp>
 #include <iostream>
 #include <thread>
 #include <chrono>
 
 class WeatherApp {
 public:
-    WeatherApp(const std::string& iora_url, const std::string& api_key)
-        : client_(iora_url, api_key), app_id_("weather-app") {}
+    WeatherApp(const std::string& rumahl_url, const std::string& api_key)
+        : client_(rumahl_url, api_key), app_id_("weather-app") {}
 
     void run() {
         // Get settings
@@ -228,7 +228,7 @@ private:
         // (Implementation would use actual HTTP client)
 
         // Send alert if severe
-        iora::NotificationPayload notification{
+        ora::NotificationPayload notification{
             .title = "Severe Weather Alert",
             .message = "Storm expected in your area",
             .priority = "high"
@@ -236,19 +236,19 @@ private:
         client_.send_notification(notification);
     }
 
-    iora::Client client_;
+    ora::Client client_;
     std::string app_id_;
 };
 
-iora::AppManifest create_manifest() {
-    return iora::ManifestBuilder("weather-app", "Weather Dashboard")
+ora::AppManifest create_manifest() {
+    return ora::ManifestBuilder("weather-app", "Weather Dashboard")
         .version("1.0.0")
         .developer("Your Name")
         .description("Real-time weather monitoring")
         .permissions({
-            iora::Permission::STORAGE_WRITE,
-            iora::Permission::SEND_NOTIFICATIONS,
-            iora::Permission::NETWORK_OUTBOUND
+            ora::Permission::STORAGE_WRITE,
+            ora::Permission::SEND_NOTIFICATIONS,
+            ora::Permission::NETWORK_OUTBOUND
         })
         .network_access({
             {"allowed_domains", json::array({"api.weather.com"})}
@@ -281,10 +281,10 @@ project(my-app)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(iora-sdk REQUIRED)
+find_package(rumahl-sdk REQUIRED)
 
 add_executable(my-app main.cpp)
-target_link_libraries(my-app PRIVATE iora::iora-sdk)
+target_link_libraries(my-app PRIVATE ora::rumahl-sdk)
 ```
 
 ### Dockerfile
@@ -323,7 +323,7 @@ try {
 ### 2. RAII and Smart Pointers
 
 ```cpp
-auto client = std::make_unique<iora::Client>("http://localhost:8080");
+auto client = std::make_unique<ora::Client>("http://localhost:8080");
 ```
 
 ### 3. Minimal Permissions
@@ -348,6 +348,6 @@ MIT
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/iora/iora-sdk-cpp
-- Documentation: https://docs.iora.io
-- Community: https://community.iora.io
+- GitHub Issues: https://github.com/ora/rumahl-sdk-cpp
+- Documentation: https://docs.ora.io
+- Community: https://community.ora.io

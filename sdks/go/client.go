@@ -1,5 +1,5 @@
-// Package iora provides the official Go SDK for IORA app and plugin development
-package iora
+// Package ora provides the official Go SDK for rumahl app and plugin development
+package ora
 
 import (
 	"bytes"
@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// Client is the main IORA API client
+// Client is the main rumahl API client
 type Client struct {
 	BaseURL    string
 	APIKey     string
 	HTTPClient *http.Client
 }
 
-// NewClient creates a new IORA API client
+// NewClient creates a new rumahl API client
 func NewClient(baseURL string, apiKey string) *Client {
 	return &Client{
 		BaseURL: baseURL,

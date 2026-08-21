@@ -1,7 +1,7 @@
 {
-  "name": "iora-forge",
+  "name": "rumahl-forge",
   "version": "1.0.0",
-  "description": "IORA Forge – Idle Settler Game. Ein entspanntes Idle-Spiel für die IORA-Plattform.",
+  "description": "rumahl Forge – Idle Settler Game. Ein entspanntes Idle-Spiel für die rumahl-Plattform.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -13,6 +13,6 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "author": "IORA Community",
+  "author": "rumahl Community",
   "license": "MIT"
 }

@@ -1,4 +1,4 @@
-//! IORA Notification Formatter Plugin
+//! rumahl Notification Formatter Plugin
 //!
 //! Ein Beispiel-Plugin, das Benachrichtigungen formatiert und anreichert.
 //! Demonstriert die Sandbox-Execution und API-Registrierung.
@@ -7,11 +7,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
-use iora_shared::plugin::{
+use rumahl_shared::plugin::{
     IPlugin, PluginMetadata, PluginExecutionResult, PluginPermission,
     PluginType, SandboxConfig,
 };
-use iora_shared::api_gateway::{ApiEndpoint, HttpMethod, ProviderType};
+use rumahl_shared::api_gateway::{ApiEndpoint, HttpMethod, ProviderType};
 
 mod formatter;
 mod validator;
@@ -34,7 +34,7 @@ impl NotificationFormatterPlugin {
                 name: "Benachrichtigungs-Formatierer".to_string(),
                 version: "1.0.0".to_string(),
                 description: "Formatiert und validiert Benachrichtigungen".to_string(),
-                author: "IORA Team".to_string(),
+                author: "rumahl Team".to_string(),
                 plugin_type: PluginType::DataProcessor,
                 permissions: vec![
                     PluginPermission::ReadEntities,

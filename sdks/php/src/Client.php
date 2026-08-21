@@ -1,14 +1,14 @@
 <?php
 
-namespace Iora;
+namespace rumahl;
 
 use GuzzleHttp\Client as HttpClient;
 use GuzzleHttp\Exception\GuzzleException;
 
 /**
- * IORA API Client
+ * rumahl API Client
  *
- * HTTP client for interacting with IORA APIs
+ * HTTP client for interacting with rumahl APIs
  */
 class Client
 {

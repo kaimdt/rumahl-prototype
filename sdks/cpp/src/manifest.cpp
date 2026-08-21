@@ -1,8 +1,8 @@
-#include "iora/manifest.hpp"
+#include "ora/manifest.hpp"
 #include <fstream>
 #include <stdexcept>
 
-namespace iora {
+namespace ora {
 
 ManifestBuilder::ManifestBuilder(const std::string& id, const std::string& name) {
     manifest_.id = id;
@@ -173,4 +173,4 @@ json AppManifest::to_json() const {
     return j;
 }
 
-} // namespace iora
+} // namespace ora

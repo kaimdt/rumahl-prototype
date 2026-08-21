@@ -1,0 +1,465 @@
+{
+  "id": "rumahl-coding-agent",
+  "name": "rumahl Coding Agent",
+  "version": "1.0.0",
+  "developer": "rumahl Team",
+  "description": "Bridges GitHub and rumahl Assist for agentic coding. Mention the bot (e.g. @ora) in a Pull Request to spawn an isolated container that clones the repo, runs the pi coding agent (powered by rumahl Assist or an external provider), commits the result and reports back on the PR. Tasks can also be started directly from the app UI, similar to GitHub Copilot.",
+  "icon": "https://raw.githubusercontent.com/ora/assets/main/rumahl-coding-agent.png",
+  "type": "app",
+  "permissions": [
+    "NetworkAccess",
+    "NetworkOutbound",
+    "NetworkInbound",
+    "SystemInfo",
+    "ExternalHttpRequest",
+    "AppStorageRead",
+    "AppStorageWrite",
+    "AssistChat",
+    "AssistTaskCreate",
+    "AssistTaskManage",
+    "GitHubRead",
+    "GitHubPullRequestRead",
+    "GitHubPullRequestComment",
+    "GitHubWrite",
+    "AgentContainerSpawn",
+    "AssistToolProvide",
+    "ServiceExport",
+    "ServiceCall",
+    "LifecycleHookRegister"
+  ],
+  "endpoints": [
+    {
+      "path": "/webhook/github",
+      "method": "POST",
+      "description": "GitHub App webhook receiver (issue_comment, pull_request, pull_request_review_comment). Verifies the HMAC-SHA256 signature and triggers an agent run when the bot is mentioned.",
+      "requires_auth": false
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "description": "List agentic coding tasks with status and metadata.",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks",
+      "method": "POST",
+      "description": "Start an agentic coding task manually (repo, base branch, prompt, provider, model).",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks/:id",
+      "method": "GET",
+      "description": "Get a single task with its full result and metadata.",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks/:id/logs",
+      "method": "GET",
+      "description": "Server-Sent-Events stream of live agent log/event lines for a task.",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks/:id/cancel",
+      "method": "POST",
+      "description": "Cancel a queued or running task.",
+      "requires_auth": true
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "description": "Health check for rumahl supervisor.",
+      "requires_auth": false
+    }
+  ],
+  "assist_tools": [
+    {
+      "name": "start_coding_task",
+      "description": "Start an agentic coding task: clone a GitHub repository, run the pi coding agent against a natural-language prompt, commit the result and push a work branch. Use this when the user asks to implement, fix, refactor or change code in a repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repo": { "type": "string", "description": "Repository in 'owner/name' form, e.g. 'ora/dashboard'." },
+          "prompt": { "type": "string", "description": "What the agent should do, in natural language." },
+          "base_branch": { "type": "string", "description": "Branch to start from. Defaults to 'main'." },
+          "provider": { "type": "string", "description": "Optional pi provider: ora | anthropic | openai | google." },
+          "model": { "type": "string", "description": "Optional model identifier for the provider." }
+        },
+        "required": ["repo", "prompt"]
+      },
+      "handler": "/tools/start_coding_task",
+      "method": "POST",
+      "requires_confirmation": true,
+      "tags": ["coding", "github", "agent"]
+    },
+    {
+      "name": "get_coding_task",
+      "description": "Get the current status and result (work branch, commit, summary) of a previously started coding task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string", "description": "The id returned by start_coding_task." }
+        },
+        "required": ["task_id"]
+      },
+      "handler": "/tools/get_coding_task",
+      "method": "POST",
+      "requires_confirmation": false,
+      "tags": ["coding", "status"]
+    },
+    {
+      "name": "list_coding_tasks",
+      "description": "List the most recent agentic coding tasks with their status.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "description": "Maximum number of tasks to return (1-100, default 20)." }
+        }
+      },
+      "handler": "/tools/list_coding_tasks",
+      "method": "POST",
+      "requires_confirmation": false,
+      "tags": ["coding", "status"]
+    },
+    {
+      "name": "cancel_coding_task",
+      "description": "Cancel a queued or running coding task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string", "description": "The id of the task to cancel." }
+        },
+        "required": ["task_id"]
+      },
+      "handler": "/tools/cancel_coding_task",
+      "method": "POST",
+      "requires_confirmation": true,
+      "tags": ["coding"]
+    },
+    {
+      "name": "bridge_status",
+      "description": "Get a live snapshot of the coding agent: task counts, capacity and recent tasks.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "handler": "/tools/bridge_status",
+      "method": "POST",
+      "requires_confirmation": false,
+      "tags": ["coding", "status", "bridge"]
+    },
+    {
+      "name": "agent_control",
+      "description": "Send a control command to the coding agent: ping, get_state, cancel, cancel_all.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": ["ping", "get_state", "cancel", "cancel_all"],
+            "description": "The control command to execute."
+          },
+          "task_id": { "type": "string", "description": "Task id (required for the cancel command)." }
+        },
+        "required": ["command"]
+      },
+      "handler": "/tools/agent_control",
+      "method": "POST",
+      "requires_confirmation": true,
+      "tags": ["coding", "control", "bridge"]
+    }
+  ],
+  "lifecycle_hooks": {
+    "hooks": [
+      { "event": "on_install", "handler": "/hooks/on_install" },
+      { "event": "on_uninstall", "handler": "/hooks/on_uninstall" },
+      { "event": "on_config_changed", "handler": "/hooks/on_config_changed" }
+    ]
+  },
+  "exposed_services": [
+    {
+      "id": "coding.agent",
+      "name": "rumahl Coding Agent",
+      "description": "Inter-app RPC service to start and query agentic coding tasks from other rumahl apps.",
+      "version": "1.0.0",
+      "base_path": "/services/coding-agent",
+      "required_permission": "ServiceCall",
+      "methods": [
+        {
+          "name": "start_task",
+          "description": "Start an agentic coding task and return the created task.",
+          "method": "POST",
+          "path": "/tasks",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "repo": { "type": "string" },
+              "prompt": { "type": "string" },
+              "base_branch": { "type": "string" },
+              "provider": { "type": "string" },
+              "model": { "type": "string" }
+            },
+            "required": ["repo", "prompt"]
+          },
+          "output_schema": { "type": "object" }
+        },
+        {
+          "name": "get_task",
+          "description": "Fetch the status and result of a coding task by id.",
+          "method": "POST",
+          "path": "/tasks/get",
+          "input_schema": {
+            "type": "object",
+            "properties": { "task_id": { "type": "string" } },
+            "required": ["task_id"]
+          },
+          "output_schema": { "type": "object" }
+        }
+      ]
+    }
+  ],
+  "custom_pages": [
+    {
+      "id": "rumahl-coding-agent",
+      "title": "rumahl Coding Agent",
+      "icon": "GitBranch",
+      "url": "/apps/rumahl-coding-agent/",
+      "show_in_nav": true,
+      "order": 120
+    }
+  ],
+  "settings_schema": {
+    "title": "rumahl Coding Agent Einstellungen",
+    "description": "Konfiguriere die GitHub App Anbindung sowie die KI-Provider für das Agentic Coding.",
+    "fields": [
+      {
+        "key": "bot_mention",
+        "label": "Bot-Erwähnung (Trigger)",
+        "description": "Der @-Name, auf den der Bot in PR-Kommentaren reagiert (ohne @).",
+        "type": "text",
+        "default": "ora",
+        "required": true
+      },
+      {
+        "key": "github_app_id",
+        "label": "GitHub App ID",
+        "description": "Die numerische App-ID deiner GitHub App.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "github_app_private_key",
+        "label": "GitHub App Private Key (PEM)",
+        "description": "Der private Schlüssel der GitHub App im PEM-Format.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "key": "github_webhook_secret",
+        "label": "GitHub Webhook Secret",
+        "description": "Das in der GitHub App konfigurierte Webhook-Secret (zur Signaturprüfung).",
+        "type": "password",
+        "required": true
+      },
+      {
+        "key": "github_default_installation_id",
+        "label": "Standard Installation ID",
+        "description": "Optionale Fallback-Installation-ID, falls der Webhook keine mitliefert.",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "default_provider",
+        "label": "Standard KI-Provider",
+        "description": "Welcher pi-Provider standardmäßig genutzt wird. Modelle werden dynamisch von rumahl Assist abgerufen.",
+        "type": "select",
+        "default": "ora",
+        "dynamic_options": {
+          "source": "assist",
+          "endpoint": "/api/assist/config/providers",
+          "value_field": "provider_type",
+          "label_field": "provider_type"
+        },
+        "options": [
+          { "value": "ora", "label": "rumahl Assist (rumahl AI)" },
+          { "value": "anthropic", "label": "Anthropic (Claude)" },
+          { "value": "openai", "label": "OpenAI" },
+          { "value": "google", "label": "Google Gemini" }
+        ]
+      },
+      {
+        "key": "default_model",
+        "label": "Standard Modell",
+        "description": "Modell-Bezeichner für den gewählten Provider. Modelle werden dynamisch von rumahl Assist abgerufen.",
+        "type": "select",
+        "default": "rumahl-default",
+        "dynamic_options": {
+          "source": "assist",
+          "endpoint": "/api/assist/models",
+          "provider_param": "default_provider",
+          "value_field": "id",
+          "label_field": "name"
+        },
+        "options": [
+          { "value": "rumahl-default", "label": "rumahl-default" }
+        ]
+      },
+      {
+        "key": "rumahl_base_url",
+        "label": "rumahl AI Base URL (OpenAI-kompatibel)",
+        "description": "OpenAI-kompatibler Endpunkt von rumahl Assist, z.B. http://rumahl-assist:8092/v1",
+        "type": "text",
+        "default": "http://rumahl-assist:8092/v1"
+      },
+      {
+        "key": "rumahl_api_key",
+        "label": "rumahl AI API Key",
+        "description": "API-Key für den rumahl Assist Endpunkt (falls erforderlich).",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "anthropic_api_key",
+        "label": "Anthropic API Key",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "openai_api_key",
+        "label": "OpenAI API Key",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "google_api_key",
+        "label": "Google Gemini API Key",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "runner_mode",
+        "label": "Ausführungsmodus",
+        "description": "docker = isolierter Container pro Task (empfohlen). local = Ausführung im App-Container (nur für Entwicklung/Tests).",
+        "type": "select",
+        "default": "docker",
+        "options": [
+          { "value": "docker", "label": "Docker-Container (isoliert)" },
+          { "value": "local", "label": "Lokal im App-Container (Dev)" }
+        ]
+      },
+      {
+        "key": "agent_image",
+        "label": "Agent Container Image",
+        "description": "Docker-Image für den Coding-Agenten (enthält git + pi).",
+        "type": "text",
+        "default": "rumahl-coding-agent-runtime:latest"
+      },
+      {
+        "key": "agent_timeout_seconds",
+        "label": "Agent Timeout (Sekunden)",
+        "description": "Maximale Laufzeit eines Agent-Laufs bevor er abgebrochen wird.",
+        "type": "number",
+        "default": 1800,
+        "validation": { "min": 60, "max": 14400 }
+      },
+      {
+        "key": "max_concurrent_tasks",
+        "label": "Max. parallele Tasks",
+        "type": "number",
+        "default": 2,
+        "validation": { "min": 1, "max": 10 }
+      },
+      {
+        "key": "incremental_commits",
+        "label": "Inkrementelle Commits",
+        "description": "Wenn aktiviert, erstellt der Agent nach jedem logischen Änderungsschritt einen eigenen Commit. Ermöglicht einfaches Rollback einzelner Änderungen.",
+        "type": "select",
+        "default": "true",
+        "options": [
+          { "value": "true", "label": "Aktiviert (empfohlen)" },
+          { "value": "false", "label": "Deaktiviert (ein Commit am Ende)" }
+        ]
+      },
+      {
+        "key": "incremental_commit_interval",
+        "label": "Inkrementelles Commit-Intervall (Sekunden)",
+        "description": "Minimale Wartezeit zwischen zwei inkrementellen Commits.",
+        "type": "number",
+        "default": 120,
+        "validation": { "min": 30, "max": 600 }
+      },
+      {
+        "key": "prompt_optimizer_enabled",
+        "label": "Prompt-Optimierung",
+        "description": "Wenn aktiviert, wird der Benutzer-Prompt vor der Übergabe an das Hauptmodell von einem leichteren Modell für die KI optimiert.",
+        "type": "select",
+        "default": "false",
+        "options": [
+          { "value": "false", "label": "Deaktiviert" },
+          { "value": "true", "label": "Aktiviert" }
+        ]
+      },
+      {
+        "key": "prompt_optimizer_model",
+        "label": "Prompt-Optimierer Modell",
+        "description": "Leichteres Modell für die Prompt-Optimierung (z.B. rumahl-default, gpt-4o-mini).",
+        "type": "text",
+        "default": "rumahl-default"
+      },
+      {
+        "key": "prompt_optimizer_provider",
+        "label": "Prompt-Optimierer Provider",
+        "description": "Provider für das Optimierer-Modell (Standard: gleicher Provider wie Hauptmodell).",
+        "type": "select",
+        "default": "",
+        "options": [
+          { "value": "", "label": "Gleicher Provider wie Hauptmodell" },
+          { "value": "ora", "label": "rumahl Assist (rumahl AI)" },
+          { "value": "openai", "label": "OpenAI" },
+          { "value": "anthropic", "label": "Anthropic" },
+          { "value": "google", "label": "Google Gemini" }
+        ]
+      },
+      {
+        "key": "pi_extensions",
+        "label": "pi.dev Erweiterungen",
+        "description": "Kommaseparierte Liste von pi-Erweiterungen die im Agent-Container geladen werden. pi-context-tools: Token-Management & Kontext-Komprimierung. pi-codex-goal: Multi-Step Workflow-Tracking.",
+        "type": "text",
+        "default": ""
+      }
+    ]
+  },
+  "docker": {
+    "auto_build": true,
+    "base_image": "node:20-bookworm-slim",
+    "working_dir": "/app",
+    "install_cmd": "npm install --omit=dev",
+    "start_cmd": "node server.js",
+    "internal_ports": [
+      { "port": 3000, "protocol": "tcp", "description": "HTTP API, GitHub webhook and UI" }
+    ],
+    "environment": {
+      "NODE_ENV": "production",
+      "PORT": "3000",
+      "DATA_DIR": "/app/data"
+    },
+    "volumes": [
+      "rumahl-coding-agent-data:/app/data",
+      "/var/run/docker.sock:/var/run/docker.sock"
+    ],
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "store_metadata": {
+    "category": "Entwicklung",
+    "tags": ["github", "ai", "agent", "coding", "pi", "ci", "automation"],
+    "screenshots": [],
+    "min_rumahl_version": "2.1.0",
+    "homepage": "https://github.com/ora/rumahl-coding-agent",
+    "source_url": "https://github.com/ora/rumahl-coding-agent",
+    "license": "MIT"
+  }
+}

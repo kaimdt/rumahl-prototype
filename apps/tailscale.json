@@ -3,7 +3,7 @@
   "name": "Tailscale",
   "version": "1.62.0",
   "developer": "Tailscale Inc.",
-  "description": "Zero-config VPN for secure remote access to your IORA system and smart home devices. Create a private mesh network without port forwarding or complex firewall rules.",
+  "description": "Zero-config VPN for secure remote access to your rumahl system and smart home devices. Create a private mesh network without port forwarding or complex firewall rules.",
   "icon": "https://tailscale.com/files/press/tailscale-logo-square.svg",
   "type": "app",
   "permissions": [
@@ -70,7 +70,7 @@
         "label": "Hostname",
         "description": "Custom hostname for this device on your Tailscale network",
         "type": "text",
-        "default": "iora-home",
+        "default": "rumahl-home",
         "validation": {
           "pattern": "^[a-z0-9-]+$",
           "min_length": 1,
@@ -131,7 +131,7 @@
       "TS_USERSPACE": "false"
     },
     "volumes": [
-      "/var/lib/iora/apps/tailscale:/var/lib/tailscale",
+      "/var/lib/ora/apps/tailscale:/var/lib/tailscale",
       "/dev/net/tun:/dev/net/tun"
     ],
     "health_check": {
@@ -165,7 +165,7 @@
     "screenshots": [
       "https://tailscale.com/files/images/solutions/home-network.png"
     ],
-    "min_iora_version": "0.1.0",
+    "min_rumahl_version": "0.1.0",
     "homepage": "https://tailscale.com",
     "source_url": "https://github.com/tailscale/tailscale",
     "support_url": "https://tailscale.com/contact/support",

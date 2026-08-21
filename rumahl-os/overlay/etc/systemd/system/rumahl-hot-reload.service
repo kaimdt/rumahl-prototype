@@ -1,0 +1,16 @@
+[Unit]
+Description=rumahl OS Hot-Reload Monitor
+Documentation=https://github.com/rumahl-os/ora
+After=network.target multi-user.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/rumahl-hot-reload.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

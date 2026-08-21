@@ -1,18 +1,18 @@
 # Energy Optimizer AI Plugin
 
-An intelligent plugin that uses ORA AI to analyze and optimize your home energy consumption.
+An intelligent plugin that uses rumahl AI to analyze and optimize your home energy consumption.
 
 ## Features
 
 - 🔋 **Real-time Energy Analysis** - Analyzes current power consumption across all devices
 - 📊 **High Consumer Detection** - Identifies devices using the most energy
 - ⏰ **Smart Scheduling** - Recommends optimal times to run appliances based on electricity rates
-- 💡 **AI-Powered Insights** - Uses ORA AI to provide personalized energy-saving tips
+- 💡 **AI-Powered Insights** - Uses rumahl AI to provide personalized energy-saving tips
 - 💰 **Cost Savings** - Estimates potential savings by shifting device usage to off-peak hours
 
 ## How It Works
 
-This plugin registers two AI tools that ORA can use:
+This plugin registers two AI tools that rumahl can use:
 
 ### 1. Energy Usage Analysis
 ```typescript
@@ -34,28 +34,28 @@ create_energy_schedule(device_type, priority?)
 
 ## Installation
 
-1. Copy this plugin to your IORA plugins directory
-2. The plugin will auto-register when IORA starts
-3. ORA AI can now answer energy-related questions
+1. Copy this plugin to your rumahl plugins directory
+2. The plugin will auto-register when rumahl starts
+3. rumahl AI can now answer energy-related questions
 
 ## Usage Examples
 
-### Ask ORA AI:
+### Ask rumahl AI:
 
 **"Show me my current energy usage"**
-- ORA calls `analyze_energy_usage`
+- rumahl calls `analyze_energy_usage`
 - Returns total power, high consumers, and recommendations
 
 **"When should I run the dishwasher?"**
-- ORA calls `create_energy_schedule` with `device_type='dishwasher'`
+- rumahl calls `create_energy_schedule` with `device_type='dishwasher'`
 - Recommends off-peak hours for maximum savings
 
 **"How can I reduce my electricity bill?"**
-- ORA analyzes your consumption patterns
+- rumahl analyzes your consumption patterns
 - Suggests specific devices to turn off or reschedule
 
 **"Schedule my EV charging for the cheapest time"**
-- ORA calls `create_energy_schedule` with `device_type='ev_charger'` and `priority='low'`
+- rumahl calls `create_energy_schedule` with `device_type='ev_charger'` and `priority='low'`
 - Recommends overnight charging during off-peak hours
 
 ## Configuration
@@ -77,7 +77,7 @@ Default configuration:
 
 ## Requirements
 
-- IORA Home with ORA AI enabled
+- rumahl Home with rumahl AI enabled
 - Home Assistant with power/energy sensors
 - Supported entities:
   - `sensor.*_power` - Current power consumption (W)
@@ -87,7 +87,7 @@ Default configuration:
 
 **User**: "What's using the most power right now?"
 
-**ORA AI**: *[calls analyze_energy_usage]*
+**rumahl AI**: *[calls analyze_energy_usage]*
 
 "I've analyzed your current energy consumption. You're using **1,850W** total across 12 devices. The top consumers are:
 
@@ -104,7 +104,7 @@ Default configuration:
 
 **User**: "When should I charge my electric car?"
 
-**ORA AI**: *[calls create_energy_schedule with device_type='ev_charger']*
+**rumahl AI**: *[calls create_energy_schedule with device_type='ev_charger']*
 
 "For optimal cost savings, I recommend charging your EV **tonight at 22:00** (in 6 hours).
 
@@ -129,13 +129,13 @@ To modify this plugin:
 
 1. Edit `src/index.ts`
 2. Update tool parameters or handler logic
-3. Reload IORA to apply changes
+3. Reload rumahl to apply changes
 
 ## Support
 
 For issues or questions:
-- GitHub: https://github.com/kaimdt/home-assistant-dashb/issues
-- Documentation: [ORA_AI_PLUGIN_INTEGRATION.md](../../ORA_AI_PLUGIN_INTEGRATION.md)
+- GitHub: https://github.com/rumahl/home-assistant-dashb/issues
+- Documentation: [RUMAHL_AI_PLUGIN_INTEGRATION.md](../../RUMAHL_AI_PLUGIN_INTEGRATION.md)
 
 ## License
 
@@ -143,4 +143,4 @@ MIT License - See repository for details
 
 ## Author
 
-IORA Team - Example plugin demonstrating AI integration capabilities
+rumahl Team - Example plugin demonstrating AI integration capabilities

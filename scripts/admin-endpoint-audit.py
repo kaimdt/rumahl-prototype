@@ -12,7 +12,7 @@ import re
 import os
 import sys
 
-ROOT = 'iora-os/backend'
+ROOT = 'rumahl-os/backend'
 FRONTEND = 'frontend/src'
 route_re = re.compile(r'\.route\(\s*"([^"]+)"')
 def all_frontend_files():
@@ -53,7 +53,7 @@ def check_duplicate_routes():
     from collections import defaultdict
     route_re_full = re.compile(r'\.route\(\s*"([^"]+)"\s*,\s*([^)]+)\)')
     problems = 0
-    for base, label in [(os.path.join(ROOT, 'services/iora-home/src'), 'iora-home')]:
+    for base, label in [(os.path.join(ROOT, 'services/rumahl-home/src'), 'rumahl-home')]:
         if not os.path.isdir(base):
             continue
         by_path = defaultdict(list)
@@ -87,19 +87,19 @@ def main():
     dup = check_duplicate_routes()
     if dup:
         sys.exit(1)
-    home = extract_routes(os.path.join(ROOT, 'services/iora-home/src'))
-    control = extract_routes(os.path.join(ROOT, 'services/iora-control/src'))
-    files = extract_routes(os.path.join(ROOT, 'services/iora-files/src'))
+    home = extract_routes(os.path.join(ROOT, 'services/rumahl-home/src'))
+    control = extract_routes(os.path.join(ROOT, 'services/rumahl-control/src'))
+    files = extract_routes(os.path.join(ROOT, 'services/rumahl-files/src'))
     services = {
-        'network': extract_routes(os.path.join(ROOT, 'services/iora-network-monitor/src')),
-        'secrets': extract_routes(os.path.join(ROOT, 'services/iora-secrets/src')),
-        'connector': extract_routes(os.path.join(ROOT, 'services/iora-connector/src')),
-        'appstore': extract_routes(os.path.join(ROOT, 'services/iora-appstore/src')),
-        'gateway': extract_routes(os.path.join(ROOT, 'services/iora-gateway/src')),
-        'assist': extract_routes(os.path.join(ROOT, 'services/iora-assist/src')),
-        'watchdog': extract_routes(os.path.join(ROOT, 'services/iora-watchdog/src')),
-        'updater': extract_routes(os.path.join(ROOT, 'services/iora-updater/src')),
-        'resource': extract_routes(os.path.join(ROOT, 'services/iora-resource-manager/src')),
+        'network': extract_routes(os.path.join(ROOT, 'services/rumahl-network-monitor/src')),
+        'secrets': extract_routes(os.path.join(ROOT, 'services/rumahl-secrets/src')),
+        'connector': extract_routes(os.path.join(ROOT, 'services/rumahl-connector/src')),
+        'appstore': extract_routes(os.path.join(ROOT, 'services/rumahl-appstore/src')),
+        'gateway': extract_routes(os.path.join(ROOT, 'services/rumahl-gateway/src')),
+        'assist': extract_routes(os.path.join(ROOT, 'services/rumahl-assist/src')),
+        'watchdog': extract_routes(os.path.join(ROOT, 'services/rumahl-watchdog/src')),
+        'updater': extract_routes(os.path.join(ROOT, 'services/rumahl-updater/src')),
+        'resource': extract_routes(os.path.join(ROOT, 'services/rumahl-resource-manager/src')),
     }
 
     def norm(p):
@@ -128,12 +128,12 @@ def main():
         return False
 
     def proxy_targets(fp):
-        if fp.startswith('/api/admin/iora-control/'):
-            return control, '/api/control/' + fp[len('/api/admin/iora-control/'):]
+        if fp.startswith('/api/admin/rumahl-control/'):
+            return control, '/api/control/' + fp[len('/api/admin/rumahl-control/'):]
         if fp.startswith('/api/os/control/'):
             return control, '/api/control/' + fp[len('/api/os/control/'):]
         if fp.startswith('/api/os/backups/'):
-            backup = extract_routes(os.path.join(ROOT, 'services/iora-backup/src'))
+            backup = extract_routes(os.path.join(ROOT, 'services/rumahl-backup/src'))
             return backup, '/api/backup/' + fp[len('/api/os/backups/'):]
         if fp.startswith('/api/files'):
             return files, fp
@@ -145,7 +145,7 @@ def main():
             return services['secrets'], fp
         if fp.startswith('/api/appstore/'):
             return services['appstore'], fp
-        if fp.startswith('/api/connector/') or fp.startswith('/api/admin/iora-cloud'):
+        if fp.startswith('/api/connector/') or fp.startswith('/api/admin/rumahl-cloud'):
             return services['connector'], fp
         if fp.startswith('/api/gateway/'):
             return services['gateway'], fp
@@ -199,9 +199,9 @@ def main():
         ('components/adminTabs/homeAssistant.tsx', '/api/admin/ha/registry/{}'):
             'kind in {entities, devices, areas} — three concrete routes exist',
         ('components/OsSystemShell.tsx', '/api/os/control/os/{}'):
-            'dynamic os/* path — any() proxy to iora-control with concrete os/* routes',
+            'dynamic os/* path — any() proxy to rumahl-control with concrete os/* routes',
         ('components/SettingsPage.tsx', '/api/os/control/os/{}'):
-            'dynamic os/* path — any() proxy to iora-control with concrete os/* routes',
+            'dynamic os/* path — any() proxy to rumahl-control with concrete os/* routes',
     }
 
     real_misses = [(f, m) for (f, m) in misses if (f, m) not in ALLOWLIST]

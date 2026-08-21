@@ -1,0 +1,13 @@
+{
+  "domain": "rumahl_home_dashboard",
+  "name": "rumahl Home Dashboard",
+  "codeowners": ["@rumahl"],
+  "config_flow": true,
+  "documentation": "https://github.com/rumahl/rumahl-home-integration",
+  "issue_tracker": "https://github.com/rumahl/rumahl-home-integration/issues",
+  "requirements": [],
+  "version": "2.2.0",
+  "iot_class": "local_polling",
+  "integration_type": "hub",
+  "dependencies": ["frontend"]
+}

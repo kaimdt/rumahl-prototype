@@ -79,18 +79,18 @@ impl fmt::Display for LogLevel {
     }
 }
 
-/// Message types for IORA communication
+/// Message types for rumahl communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum IoraMessage {
-    /// Heartbeat signal from app to IORA
+pub enum RumahlMessage {
+    /// Heartbeat signal from app to rumahl
     Heartbeat {
         app_id: String,
         status: AppStatus,
         timestamp: i64,
     },
 
-    /// Status update from app to IORA
+    /// Status update from app to rumahl
     StatusUpdate {
         app_id: String,
         old_status: AppStatus,
@@ -99,7 +99,7 @@ pub enum IoraMessage {
         timestamp: i64,
     },
 
-    /// Log entry from app to IORA
+    /// Log entry from app to rumahl
     Log {
         app_id: String,
         level: LogLevel,
@@ -108,7 +108,7 @@ pub enum IoraMessage {
         timestamp: i64,
     },
 
-    /// Permission request from app to IORA
+    /// Permission request from app to rumahl
     PermissionRequest {
         app_id: String,
         permission: String,
@@ -116,33 +116,33 @@ pub enum IoraMessage {
         duration: u64,
     },
 
-    /// Permission grant from IORA to app
+    /// Permission grant from rumahl to app
     PermissionGrant {
         token: String,
         expires_at: i64,
         permission: String,
     },
 
-    /// Permission denial from IORA to app
+    /// Permission denial from rumahl to app
     PermissionDenied {
         permission: String,
         reason: String,
     },
 
-    /// Query from IORA to app
+    /// Query from rumahl to app
     Query {
         query_id: String,
         command: String,
         params: Option<serde_json::Value>,
     },
 
-    /// Response from app to IORA
+    /// Response from app to rumahl
     Response {
         query_id: String,
         data: serde_json::Value,
     },
 
-    /// Error response from app to IORA
+    /// Error response from app to rumahl
     ErrorResponse {
         query_id: String,
         error: String,

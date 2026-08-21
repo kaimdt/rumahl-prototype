@@ -2,8 +2,8 @@
 
 require 'vendor/autoload.php';
 
-use Iora\DataProcessorPlugin;
-use Iora\PluginContext;
+use rumahl\DataProcessorPlugin;
+use rumahl\PluginContext;
 
 /**
  * Temperature Converter Plugin
@@ -40,7 +40,7 @@ class TemperatureConverter extends DataProcessorPlugin
 }
 
 // Example usage
-$client = new \Iora\Client('http://localhost:8080', 'api-key');
+$client = new \rumahl\Client('http://localhost:8080', 'api-key');
 $context = new PluginContext(
     client: $client,
     appId: 'temperature-converter',

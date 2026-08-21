@@ -1,0 +1,94 @@
+[package]
+name = "rumahl-home"
+version = "2.0.0"
+edition = "2021"
+description = "rumahl Backend – Interface for Optimized Residential Autonomy – Rust/Axum server for smart home dashboard"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace", "compression-gzip", "compression-br"] }
+rumahl-shared = { path = "../../shared/rumahl-shared" }
+rumahl-shared-heartbeat = { path = "../../shared/rumahl-shared-heartbeat" }
+rumahl-shared-config = { path = "../../shared/rumahl-shared-config" }
+rumahl-shared-upload = { path = "../../shared/rumahl-shared-upload" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client for Home Assistant
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Streaming reverse proxy (App Embedding Gateway) + WebSocket upgrade tunnel
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+# HTTPS upstream support (apps serving TLS inside their container)
+# rustls-gw aliases rustls 0.23 — rumahl-home also uses rustls 0.22 for the
+# Home Assistant WebSocket client (ha_websocket.rs), so both coexist.
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "native-tokio", "webpki-roots", "logging", "tls12"] }
+rustls-gw = { package = "rustls", version = "0.23" }
+webpki-roots = "1"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+
+# WebSocket
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
+rustls = "0.22"
+rustls-native-certs = "0.7"
+futures-util = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+async-stream = "0.3"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+
+# Environment
+dotenv = "0.15"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+libsqlite3-sys = { workspace = true }
+
+# Authentication
+bcrypt = "0.15"
+jsonwebtoken = "9.2"
+rand = "0.8"
+hex = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+# AES-256-GCM for at-rest encryption of sensitive secrets (e.g. MQTT passwords)
+aes-gcm = "0.10"
+
+# System info
+sysinfo = "0.30"
+
+# MQTT client
+rumqttc = "0.24"
+
+# API documentation
+utoipa = { version = "4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+
+# Local app-store: extract uploaded ZIPs without depending on rumahl-appstore
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+base64 = "0.22"
+
+# SQLite for per-app databases (via sqlx, consistent with other workspace crates)
+# rusqlite was removed to avoid libsqlite3-sys version conflict with sqlx-sqlite.
+# Pin libsqlite3-sys via workspace (matching sqlx-sqlite 0.8's requirement) so that
+# any transitive dependency that needs libsqlite3-sys gets the same version.
+
+# Cron expression parsing
+cron = "0.12"

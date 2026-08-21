@@ -10,5 +10,5 @@
   <text x="10" y="130" fill="#1a2a1a" font-family="monospace" font-size="8">0x0030: 00 00 00 00 40 00 38 00</text>
   <text x="10" y="145" fill="#1a2a1a" font-family="monospace" font-size="8">0x0038: 02 00 40 00 00 00 00 00</text>
   <text x="10" y="160" fill="#1a2a1a" font-family="monospace" font-size="8">0x0040: 01 00 00 00 05 00 00 00</text>
-  <text x="10" y="175" fill="#0d0d0d" font-family="monospace" font-size="7">─ iora-terminal-core.sys ─</text>
+  <text x="10" y="175" fill="#0d0d0d" font-family="monospace" font-size="7">─ rumahl-terminal-core.sys ─</text>
 </svg>

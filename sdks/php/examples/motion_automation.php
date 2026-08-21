@@ -2,8 +2,8 @@
 
 require 'vendor/autoload.php';
 
-use Iora\AutomationPlugin;
-use Iora\PluginContext;
+use rumahl\AutomationPlugin;
+use rumahl\PluginContext;
 
 /**
  * Motion Light Automation Plugin
@@ -67,7 +67,7 @@ class MotionLightAutomation extends AutomationPlugin
 }
 
 // Example usage
-$client = new \Iora\Client('http://localhost:8080', 'api-key');
+$client = new \rumahl\Client('http://localhost:8080', 'api-key');
 $context = new PluginContext(
     client: $client,
     appId: 'motion-light-automation',

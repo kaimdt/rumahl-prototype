@@ -3,16 +3,16 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "iora-sdk"
+name = "rumahl-sdk"
 version = "0.1.0"
-description = "Official Python SDK for IORA app and plugin development"
+description = "Official Python SDK for rumahl app and plugin development"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "IORA Team", email = "dev@iora.io"}
+    {name = "rumahl Team", email = "dev@ora.io"}
 ]
-keywords = ["iora", "home-automation", "iot", "smart-home", "sdk"]
+keywords = ["ora", "home-automation", "iot", "smart-home", "sdk"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -42,10 +42,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://iora.io"
-Documentation = "https://docs.iora.io"
-Repository = "https://github.com/iora/iora-sdk-python"
-"Bug Tracker" = "https://github.com/iora/iora-sdk-python/issues"
+Homepage = "https://ora.io"
+Documentation = "https://docs.ora.io"
+Repository = "https://github.com/ora/rumahl-sdk-python"
+"Bug Tracker" = "https://github.com/ora/rumahl-sdk-python/issues"
 
 [tool.black]
 line-length = 100

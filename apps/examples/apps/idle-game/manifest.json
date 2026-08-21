@@ -1,8 +1,8 @@
 {
-  "id": "iora-forge",
-  "name": "IORA Forge – Idle Settler",
+  "id": "rumahl-forge",
+  "name": "rumahl Forge – Idle Settler",
   "version": "1.0.0",
-  "developer": "IORA Community",
+  "developer": "rumahl Community",
   "description": "Ein entspanntes Idle-Spiel, bei dem du eine Siedlung aufbaust. Deine Gebäude produzieren automatisch Ressourcen – du schaust zu und triffst strategische Entscheidungen. Mit Prestige-System, Upgrades und Save/Load.",
   "icon": "https://img.icons8.com/color/256/minecraft-pickaxe.png",
   "type": "app",
@@ -23,16 +23,16 @@
   },
   "custom_pages": [
     {
-      "id": "iora-forge-main",
-      "title": "IORA Forge",
+      "id": "rumahl-forge-main",
+      "title": "rumahl Forge",
       "icon": "Hammer",
-      "url": "/apps/iora-forge/",
+      "url": "/apps/rumahl-forge/",
       "show_in_nav": true,
       "order": 200
     }
   ],
   "settings_schema": {
-    "title": "IORA Forge Einstellungen",
+    "title": "rumahl Forge Einstellungen",
     "description": "Passe dein Spielerlebnis an",
     "fields": [
       {
@@ -92,8 +92,8 @@
       "strategie",
       "settler"
     ],
-    "min_iora_version": "2.0.0",
-    "source_url": "https://github.com/iora/idle-game",
+    "min_rumahl_version": "2.0.0",
+    "source_url": "https://github.com/ora/idle-game",
     "license": "MIT"
   },
   "lifecycle_hooks": {

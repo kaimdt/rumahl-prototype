@@ -4,10 +4,10 @@
     "name": "Energy Optimizer AI",
     "version": "1.0.0",
     "description": "AI-powered energy optimization and smart scheduling for home devices",
-    "author": "IORA Team",
+    "author": "rumahl Team",
     "license": "MIT",
     "icon": "lightning-slash",
-    "repository": "https://github.com/kaimdt/home-assistant-dashb"
+    "repository": "https://github.com/rumahl/home-assistant-dashb"
   },
   "type": "service",
   "entry": "./src/index.ts",

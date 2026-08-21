@@ -1,0 +1,196 @@
+# ============================================================================
+# rumahl OS – Docker Compose (rumahl OS Services)
+# ============================================================================
+# Nur Dienste die rumahl OS voraussetzen (AppArmor, Supervisor, etc.).
+# Diese Datei ERWEITERT docker-compose.yml – zuerst das Basis-Compose starten,
+# dann diese Services:
+#
+#   docker compose up -d                          # Basis-Dienste
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.rumahl-os.yml up -d   # + rumahl-OS-Dienste
+#
+# ODER für alles auf einmal:
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.rumahl-os.yml up -d
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # ── rumahl-supervisor – Docker-Container-Management ──────────────────────
+  # Benötigt privilegierten Docker-Socket-Zugriff (nur auf rumahl OS sicher).
+  rumahl-supervisor:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: Dockerfile
+      target: rumahl-supervisor
+    image: ora/supervisor:latest
+    container_name: rumahl-supervisor
+    ports:
+      - "${SUPERVISOR_PORT:-8097}:8097"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - supervisor_data:/var/lib/ora
+    environment:
+      PORT: "8097"
+      RUMAHL_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - rumahl-network
+    restart: unless-stopped
+    privileged: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rumahl-core:
+        condition: service_started
+
+  # ── rumahl-intelligence – KI-Systemanalyse ───────────────────────────────
+  rumahl-intelligence:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: Dockerfile
+      target: rumahl-intelligence
+    image: ora/intelligence:latest
+    container_name: rumahl-intelligence
+    ports:
+      - "${INTELLIGENCE_PORT:-8099}:8099"
+    volumes:
+      - intelligence_data:/var/lib/ora
+    environment:
+      PORT: "8099"
+      RUMAHL_HOME_URL: "http://rumahl-home:8126"
+      CORE_URL: "http://rumahl-core:8090"
+      RUMAHL_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - rumahl-network
+    restart: unless-stopped
+    depends_on:
+      rumahl-core:
+        condition: service_started
+
+  # ── rumahl-backup – Erweitertes Backup (rumahl OS) ─────────────────────────
+  # Auf rumahl OS mit vollem Systemzugriff für komplette Backups.
+  rumahl-backup:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: Dockerfile
+      target: rumahl-backup
+    image: ora/backup:latest
+    container_name: rumahl-backup
+    ports:
+      - "${BACKUP_PORT:-8100}:8100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/ora:/var/lib/ora
+      - /mnt/data:/mnt/data
+      - /etc/ora:/etc/ora:ro
+    environment:
+      PORT: "8100"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-ora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rumahl_backup"
+      POSTGRES_HOST: "postgres"
+      POSTGRES_USER: ${POSTGRES_USER:-ora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      BACKUP_DIR: "/var/lib/ora/backups"
+      RUMAHL_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - rumahl-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── rumahl-nginx – Reverse Proxy (rumahl OS) ───────────────────────────────
+  rumahl-nginx:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: Dockerfile
+      target: rumahl-nginx
+    image: ora/nginx:latest
+    container_name: rumahl-nginx
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+      - "443:443"
+    environment:
+      RUMAHL_HOME_URL: "http://rumahl-home:8126"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
+    volumes:
+      - nginx_certs:/etc/nginx/certs
+    networks:
+      - rumahl-network
+    restart: unless-stopped
+    depends_on:
+      - rumahl-home
+      - rumahl-core
+
+  # ── rumahl-updater – Update-Manager ──────────────────────────────────────
+  rumahl-updater:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: Dockerfile
+      target: rumahl-updater
+    image: ora/updater:latest
+    container_name: rumahl-updater
+    ports:
+      - "${UPDATER_PORT:-8103}:8103"
+    environment:
+      PORT: "8103"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
+      RUMAHL_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - rumahl-network
+    restart: unless-stopped
+    depends_on:
+      - rumahl-core
+
+  # ── rumahl-connector – Remote-Verbindung ─────────────────────────────────
+  rumahl-connector:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: Dockerfile
+      target: rumahl-connector
+    image: ora/connector:latest
+    container_name: rumahl-connector
+    ports:
+      - "${CONNECTOR_PORT:-8104}:8104"
+    environment:
+      PORT: "8104"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
+      RUMAHL_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - rumahl-core
+    profiles:
+      - remote
+
+  # ── rumahl-network-monitor – Netzwerk-Scanner ────────────────────────────
+  rumahl-network-monitor:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: Dockerfile
+      target: rumahl-network-monitor
+    image: ora/network-monitor:latest
+    container_name: rumahl-network-monitor
+    network_mode: host
+    environment:
+      PORT: "${NETWORK_MONITOR_PORT:-8105}"
+      RUMAHL_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    restart: unless-stopped
+
+networks:
+  rumahl-network:
+    external: true
+
+volumes:
+  supervisor_data:
+    driver: local
+  intelligence_data:
+    driver: local
+  nginx_certs:
+    driver: local

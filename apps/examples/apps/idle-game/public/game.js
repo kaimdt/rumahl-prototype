@@ -1,4 +1,4 @@
-// IORA Forge – Complete Canvas 2D with all features
+// rumahl Forge – Complete Canvas 2D with all features
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 let W,H,TS=6,wW=800,wHgt=600;
 let wMap=null,wH=null,wSpawn=null,walkable=null;

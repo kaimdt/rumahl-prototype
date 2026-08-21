@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rumahl Stream Sender</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
+  .container { max-width: 600px; width: 100%; }
+  h1 { font-size: 1.1rem; font-weight: 600; margin-bottom: 6px; letter-spacing: 0.05em; }
+  .subtitle { font-size: 0.75rem; color: #888; margin-bottom: 24px; }
+  .card { background: #161616; border: 1px solid #2a2a2a; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+  label { font-size: 0.75rem; color: #aaa; display: block; margin-bottom: 4px; }
+  select, input { width: 100%; padding: 8px 12px; background: #0e0e0e; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; font-size: 0.8rem; outline: none; }
+  select:focus, input:focus { border-color: #5b8def; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; width: 100%; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; }
+  .status-idle { background: #1a1a2e; color: #888; }
+  .status-live { background: #0a2e0a; color: #4ade80; }
+  .status-error { background: #2e0a0a; color: #f87171; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-idle { background: #666; }
+  .dot-live { background: #4ade80; animation: pulse 1.5s infinite; }
+  .dot-error { background: #f87171; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .preview { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; overflow: hidden; position: relative; margin-bottom: 12px; }
+  .preview video { width: 100%; height: 100%; object-fit: contain; }
+  .preview canvas { display: none; }
+  .meter { height: 4px; background: #222; border-radius: 2px; overflow: hidden; margin-top: 6px; }
+  .meter-fill { height: 100%; background: #4ade80; transition: width 0.1s; border-radius: 2px; }
+  .toggle-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .toggle-btn { flex: 1; padding: 10px; border-radius: 8px; background: #1a1a1a; border: 1px solid #333; color: #aaa; font-size: 0.75rem; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.15s; }
+  .toggle-btn.active { border-color: #2563eb; color: #fff; background: #1a2744; }
+  .stats { display: flex; gap: 16px; font-size: 0.7rem; color: #666; margin-top: 8px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>rumahl Stream Sender</h1>
+  <p class="subtitle">Wähle Kamera und/oder Mikrofon und starte den Stream mit einem Klick.</p>
+
+  <div id="statusBar" class="status status-idle">
+    <span class="dot dot-idle" id="statusDot"></span>
+    <span id="statusText">Bereit</span>
+  </div>
+
+  <div class="card">
+    <h2>📡 Modus</h2>
+    <div class="toggle-row">
+      <button class="toggle-btn active" id="btnModeAV" onclick="setMode('av')">🎬 Video + Audio</button>
+      <button class="toggle-btn" id="btnModeVideo" onclick="setMode('video')">📹 Nur Video</button>
+      <button class="toggle-btn" id="btnModeAudio" onclick="setMode('audio')">🎙️ Nur Audio</button>
+    </div>
+  </div>
+
+  <div class="card" id="videoCard">
+    <h2>📹 Videoquelle</h2>
+    <label>Kamera</label>
+    <select id="videoSelect"><option value="">Wird geladen...</option></select>
+    <div style="margin-top:8px">
+      <label>Qualität</label>
+      <select id="qualitySelect">
+        <option value="720">720p (empfohlen)</option>
+        <option value="1080">1080p</option>
+        <option value="1440">1440p (2K)</option>
+        <option value="2160">2160p (4K)</option>
+        <option value="480">480p (niedrige Bandbreite)</option>
+      </select>
+    </div>
+    <div style="margin-top:8px">
+      <label>FPS</label>
+      <select id="fpsSelect">
+        <option value="15">15 FPS (niedrige Bandbreite)</option>
+        <option value="24" selected>24 FPS (empfohlen)</option>
+        <option value="30">30 FPS</option>
+        <option value="48">48 FPS</option>
+        <option value="60">60 FPS</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card" id="audioCard">
+    <h2>🎙️ Audioquelle</h2>
+    <label>Mikrofon</label>
+    <select id="audioSelect"><option value="">Wird geladen...</option></select>
+    <div class="meter"><div class="meter-fill" id="audioMeter" style="width:0%"></div></div>
+  </div>
+
+  <div class="card" id="previewCard">
+    <h2>👁️ Vorschau</h2>
+    <div class="preview">
+      <video id="previewVideo" autoplay muted playsinline></video>
+      <canvas id="captureCanvas"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📊 Stream-Name</h2>
+    <input type="text" id="streamName" value="Mein Stream" placeholder="Name des Streams">
+  </div>
+
+  <button class="btn btn-primary" id="btnStart" onclick="startStream()">
+    ▶ Stream starten
+  </button>
+  <button class="btn btn-danger hidden" id="btnStop" onclick="stopStream()">
+    ⏹ Stream beenden
+  </button>
+
+  <div class="stats" id="stats" style="display:none">
+    <span>Frames: <b id="statFrames">0</b></span>
+    <span>Zuschauer: <b id="statViewers">0</b></span>
+    <span>Laufzeit: <b id="statUptime">0:00</b></span>
+  </div>
+</div>
+
+<script>
+// State
+let mode = 'av'; // 'av' | 'video' | 'audio'
+let mediaStream = null;
+let ws = null;
+let streamId = null;
+let ingestToken = null;
+let frameCount = 0;
+let startTime = null;
+let audioCtx = null;
+let analyser = null;
+let statusPollInterval = null;
+
+// Parse URL params (pre-filled stream_id/token for OBS)
+const params = new URLSearchParams(location.search);
+if (params.get('stream_id')) streamId = params.get('stream_id');
+if (params.get('token')) ingestToken = params.get('token');
+
+// Get base URL (same origin as this page)
+function getBaseUrl() {
+  return location.origin;
+}
+
+function getWsUrl() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}`;
+}
+
+// Mode switching
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnModeAV').classList.toggle('active', m === 'av');
+  document.getElementById('btnModeVideo').classList.toggle('active', m === 'video');
+  document.getElementById('btnModeAudio').classList.toggle('active', m === 'audio');
+  document.getElementById('videoCard').classList.toggle('hidden', m === 'audio');
+  document.getElementById('audioCard').classList.toggle('hidden', m === 'video');
+  document.getElementById('previewCard').classList.toggle('hidden', m === 'audio');
+  refreshPreview();
+}
+
+// Enumerate devices
+async function loadDevices() {
+  try {
+    // Request permission first to get labels
+    const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true }).catch(() => null);
+    if (tempStream) tempStream.getTracks().forEach(t => t.stop());
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoSelect = document.getElementById('videoSelect');
+    const audioSelect = document.getElementById('audioSelect');
+    videoSelect.innerHTML = '';
+    audioSelect.innerHTML = '';
+
+    let videoCount = 0, audioCount = 0;
+    for (const d of devices) {
+      if (d.kind === 'videoinput') {
+        videoCount++;
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Kamera ${videoCount}`;
+        videoSelect.appendChild(opt);
+      }
+      if (d.kind === 'audioinput') {
+        audioCount++;
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Mikrofon ${audioCount}`;
+        audioSelect.appendChild(opt);
+      }
+    }
+    if (!videoCount) videoSelect.innerHTML = '<option value="">Keine Kamera gefunden</option>';
+    if (!audioCount) audioSelect.innerHTML = '<option value="">Kein Mikrofon gefunden</option>';
+  } catch (e) {
+    console.error('Geräte konnten nicht geladen werden:', e);
+  }
+}
+
+// Preview
+async function refreshPreview() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+
+  const video = document.getElementById('previewVideo');
+  const constraints = {};
+  const quality = document.getElementById('qualitySelect').value;
+  const fps = parseInt(document.getElementById('fpsSelect').value);
+
+  if (mode !== 'audio') {
+    const videoId = document.getElementById('videoSelect').value;
+    constraints.video = {
+      deviceId: videoId ? { exact: videoId } : undefined,
+      width: { ideal: quality === '2160' ? 3840 : quality === '1440' ? 2560 : quality === '1080' ? 1920 : quality === '720' ? 1280 : 854 },
+      height: { ideal: quality === '2160' ? 2160 : quality === '1440' ? 1440 : quality === '1080' ? 1080 : quality === '720' ? 720 : 480 },
+      frameRate: { ideal: fps }
+    };
+  }
+  if (mode !== 'video') {
+    const audioId = document.getElementById('audioSelect').value;
+    constraints.audio = {
+      deviceId: audioId ? { exact: audioId } : undefined,
+      echoCancellation: true,
+      noiseSuppression: true,
+    };
+  }
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = mediaStream;
+
+    // Audio meter
+    if (mode !== 'video' && mediaStream.getAudioTracks().length > 0) {
+      audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(mediaStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      updateAudioMeter();
+    }
+  } catch (e) {
+    console.error('Medien-Zugriff fehlgeschlagen:', e);
+    setStatus('error', 'Kamera/Mikrofon-Zugriff verweigert');
+  }
+}
+
+function updateAudioMeter() {
+  if (!analyser) return;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+  const avg = data.reduce((a, b) => a + b, 0) / data.length;
+  const pct = Math.min(100, (avg / 128) * 100);
+  document.getElementById('audioMeter').style.width = pct + '%';
+  if (mediaStream) requestAnimationFrame(updateAudioMeter);
+}
+
+function setStatus(type, text) {
+  const bar = document.getElementById('statusBar');
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  bar.className = 'status status-' + type;
+  dot.className = 'dot dot-' + type;
+  txt.textContent = text;
+}
+
+// ─── Stream lifecycle ───
+
+async function startStream() {
+  try {
+    document.getElementById('btnStart').disabled = true;
+
+    // 1. Ensure we have media
+    if (!mediaStream) await refreshPreview();
+    if (!mediaStream) { setStatus('error', 'Keine Medienquelle verfügbar'); document.getElementById('btnStart').disabled = false; return; }
+
+    // 2. Create stream via API (unless pre-configured via URL params)
+    if (!streamId || !ingestToken) {
+      const name = document.getElementById('streamName').value || 'Stream';
+      const res = await fetch(`${getBaseUrl()}/api/streams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description: `${mode} stream`, source_type: 'websocket_relay' })
+      });
+      if (!res.ok) throw new Error('Stream konnte nicht erstellt werden');
+      const data = await res.json();
+      streamId = data.stream.id;
+      ingestToken = data.ingest_token;
+    }
+
+    // 3. Connect WebSocket
+    ws = new WebSocket(`${getWsUrl()}/ws/stream/ingest`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ stream_id: streamId, token: ingestToken }));
+    };
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'auth_ok') {
+        setStatus('live', 'LIVE — Stream läuft');
+        startCapture();
+        document.getElementById('btnStart').classList.add('hidden');
+        document.getElementById('btnStop').classList.remove('hidden');
+        document.getElementById('stats').style.display = 'flex';
+        startTime = Date.now();
+        startStatusPolling();
+      } else if (msg.type === 'auth_failed') {
+        setStatus('error', 'Authentifizierung fehlgeschlagen');
+        ws.close();
+        document.getElementById('btnStart').disabled = false;
+      }
+    };
+
+    ws.onerror = () => { setStatus('error', 'WebSocket Fehler'); document.getElementById('btnStart').disabled = false; };
+    ws.onclose = () => { if (window._videoRecorder || window._audioRecorder) stopStream(); };
+
+  } catch (e) {
+    setStatus('error', e.message);
+    document.getElementById('btnStart').disabled = false;
+  }
+}
+
+function startCapture() {
+  const quality = document.getElementById('qualitySelect').value;
+  const bitrateMap = { '480': 1000000, '720': 2500000, '1080': 5000000, '1440': 10000000, '2160': 20000000 };
+
+  if (mode !== 'audio') {
+    // Use MediaRecorder for smooth video (+ audio if mode is 'av')
+    const tracks = [...mediaStream.getVideoTracks()];
+    if (mode === 'av' && mediaStream.getAudioTracks().length > 0) {
+      tracks.push(...mediaStream.getAudioTracks());
+    }
+    const recordStream = new MediaStream(tracks);
+
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+      ? 'video/webm;codecs=vp9,opus'
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
+        : 'video/webm';
+
+    const recorder = new MediaRecorder(recordStream, {
+      mimeType,
+      videoBitsPerSecond: bitrateMap[quality] || 2500000,
+      audioBitsPerSecond: 128000,
+    });
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 524288) {
+        e.data.arrayBuffer().then(buf => {
+          ws.send(buf);
+          frameCount++;
+          document.getElementById('statFrames').textContent = frameCount;
+        });
+      }
+    };
+    recorder.start(100); // 100ms chunks for smooth low-latency streaming
+    window._videoRecorder = recorder;
+  }
+
+  if (mode === 'audio' && mediaStream.getAudioTracks().length > 0) {
+    // Audio-only: record audio separately
+    const audioStream = new MediaStream(mediaStream.getAudioTracks());
+    const audioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus' : 'audio/webm';
+    const recorder = new MediaRecorder(audioStream, { mimeType: audioMime, audioBitsPerSecond: 128000 });
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 65536) {
+        e.data.arrayBuffer().then(buf => {
+          ws.send(buf);
+          frameCount++;
+          document.getElementById('statFrames').textContent = frameCount;
+        });
+      }
+    };
+    recorder.start(250);
+    window._audioRecorder = recorder;
+  }
+
+  // Update uptime
+  window._uptimeInterval = setInterval(() => {
+    if (!startTime) return;
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    document.getElementById('statUptime').textContent = `${m}:${ss}`;
+  }, 1000);
+
+  // Snapshot capture for feed view (every 2 seconds)
+  if (mode !== 'audio' && streamId) {
+    const snapId = streamId;
+    window._snapshotInterval = setInterval(() => {
+      const video = document.getElementById('previewVideo');
+      const canvas = document.getElementById('captureCanvas');
+      if (!video || !canvas || video.videoWidth === 0) return;
+      canvas.width = Math.min(video.videoWidth, 640);
+      canvas.height = Math.round(canvas.width * (video.videoHeight / video.videoWidth));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(function(blob) {
+        if (blob) {
+          fetch(getBaseUrl() + '/api/streams/' + snapId + '/snapshot', {
+            method: 'POST',
+            body: blob,
+          }).catch(function() {});
+        }
+      }, 'image/jpeg', 0.7);
+    }, 2000);
+  }
+}
+
+function startStatusPolling() {
+  statusPollInterval = setInterval(async () => {
+    if (!streamId) return;
+    try {
+      const res = await fetch(`${getBaseUrl()}/api/streams/${streamId}`);
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('statViewers').textContent = data.stream.viewer_count || 0;
+      }
+    } catch {}
+  }, 3000);
+}
+
+async function stopStream() {
+  if (window._videoRecorder) { try { window._videoRecorder.stop(); } catch {} window._videoRecorder = null; }
+  if (window._audioRecorder) { try { window._audioRecorder.stop(); } catch {} window._audioRecorder = null; }
+  if (window._uptimeInterval) { clearInterval(window._uptimeInterval); window._uptimeInterval = null; }
+  if (window._snapshotInterval) { clearInterval(window._snapshotInterval); window._snapshotInterval = null; }
+  if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+  if (ws) { ws.close(); ws = null; }
+
+  // Stop the stream on the server
+  if (streamId) {
+    try { await fetch(`${getBaseUrl()}/api/streams/${streamId}`, { method: 'DELETE' }); } catch {}
+  }
+
+  streamId = null;
+  ingestToken = null;
+  frameCount = 0;
+  startTime = null;
+
+  setStatus('idle', 'Stream beendet');
+  document.getElementById('btnStart').classList.remove('hidden');
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').classList.add('hidden');
+  document.getElementById('stats').style.display = 'none';
+}
+
+// Device change listeners
+document.getElementById('videoSelect').addEventListener('change', refreshPreview);
+document.getElementById('audioSelect').addEventListener('change', refreshPreview);
+document.getElementById('qualitySelect').addEventListener('change', refreshPreview);
+document.getElementById('fpsSelect').addEventListener('change', refreshPreview);
+
+// Init
+loadDevices().then(() => refreshPreview());
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum IoraError {
+pub enum RumahlError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 
@@ -39,4 +39,4 @@ pub enum IoraError {
     Unknown(String),
 }
 
-pub type Result<T> = std::result::Result<T, IoraError>;
+pub type Result<T> = std::result::Result<T, RumahlError>;

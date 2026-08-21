@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * IORA Frontend + Backend Dev Runner
+ * rumahl Frontend + Backend Dev Runner
  *
- * Starts both Vite dev server (frontend) and iora-home (backend) concurrently
+ * Starts both Vite dev server (frontend) and rumahl-home (backend) concurrently
  * with proper environment configuration for hot reload integration.
  *
  * Usage:
@@ -11,8 +11,8 @@
  *   node scripts/dev/start-full.mjs  # Direct execution
  *
  * Environment:
- *   - Automatically sets IORA_FRONTEND_DEV_URL for backend
- *   - Configures VITE_IORA_BACKEND_URL for frontend proxy
+ *   - Automatically sets rumahl_FRONTEND_DEV_URL for backend
+ *   - Configures VITE_rumahl_BACKEND_URL for frontend proxy
  *   - Aggregates logs from both processes
  */
 
@@ -27,7 +27,7 @@ import { Socket } from "node:net";
 const IS_WIN = platform() === "win32";
 const ROOT = resolve(import.meta.dirname, "../..");
 const FRONTEND_DIR = resolve(ROOT, "frontend");
-const BACKEND_DIR = resolve(ROOT, "iora-os/backend");
+const BACKEND_DIR = resolve(ROOT, "rumahl-os/backend");
 const COMPOSE_FILE = resolve(ROOT, "deploy/docker-compose.yml");
 
 // Default ports
@@ -37,10 +37,10 @@ const BACKEND_PORT = process.env.BACKEND_PORT || 3001;
 // Parse command line args
 const args = process.argv.slice(2);
 const customPort = args.find(arg => arg.startsWith("--port="))?.split("=")[1] || BACKEND_PORT;
-const DEV_ADMIN_USER = process.env.IORA_BOOTSTRAP_ADMIN_USER || "admin";
-const DEV_ADMIN_PASSWORD = process.env.IORA_BOOTSTRAP_ADMIN_PASSWORD || "iora-dev-admin";
-const DEV_OS_USER = process.env.IORA_DEV_OS_USER || process.env.USER || "iora";
-const DEV_OS_PASSWORD = process.env.IORA_DEV_OS_PASSWORD || "iora-dev-os";
+const DEV_ADMIN_USER = process.env.rumahl_BOOTSTRAP_ADMIN_USER || "admin";
+const DEV_ADMIN_PASSWORD = process.env.rumahl_BOOTSTRAP_ADMIN_PASSWORD || "rumahl-dev-admin";
+const DEV_OS_USER = process.env.rumahl_DEV_OS_USER || process.env.USER || "rumahl";
+const DEV_OS_PASSWORD = process.env.rumahl_DEV_OS_PASSWORD || "rumahl-dev-os";
 
 // ── ANSI Colors ─────────────────────────────────────────────────────────
 
@@ -93,10 +93,10 @@ async function ensurePostgres() {
 
 function databaseUrl() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const user = process.env.POSTGRES_USER || "iora";
+  const user = process.env.POSTGRES_USER || "rumahl";
   const password = process.env.POSTGRES_PASSWORD || "changeme";
   const port = process.env.POSTGRES_PORT || "5432";
-  return `postgres://${user}:${password}@127.0.0.1:${port}/iora_home`;
+  return `postgres://${user}:${password}@127.0.0.1:${port}/rumahl_home`;
 }
 
 // ── Process Management ──────────────────────────────────────────────────
@@ -132,7 +132,7 @@ process.on("exit", cleanup);
 async function main() {
   console.clear();
   console.log(`${colors.bold}${colors.cyan}╔════════════════════════════════════════════════════════════╗${colors.reset}`);
-  console.log(`${colors.bold}${colors.cyan}║  IORA Full Dev Mode — Frontend + Backend Hot Reload      ║${colors.reset}`);
+  console.log(`${colors.bold}${colors.cyan}║  rumahl Full Dev Mode — Frontend + Backend Hot Reload      ║${colors.reset}`);
   console.log(`${colors.bold}${colors.cyan}╚════════════════════════════════════════════════════════════╝${colors.reset}\n`);
 
   // Verify directories exist
@@ -146,9 +146,9 @@ async function main() {
   }
 
   log("CONFIG", colors.blue, `Frontend (Vite): http://localhost:${VITE_PORT}`);
-  log("CONFIG", colors.blue, `Backend (iora-home): http://localhost:${customPort}`);
-  log("CONFIG", colors.blue, `Environment: IORA_FRONTEND_DEV_URL=http://localhost:${VITE_PORT}`);
-  log("CONFIG", colors.blue, `Dev IORA login: ${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}`);
+  log("CONFIG", colors.blue, `Backend (rumahl-home): http://localhost:${customPort}`);
+  log("CONFIG", colors.blue, `Environment: rumahl_FRONTEND_DEV_URL=http://localhost:${VITE_PORT}`);
+  log("CONFIG", colors.blue, `Dev rumahl login: ${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}`);
   log("CONFIG", colors.blue, `Dev OS login: ${DEV_OS_USER} / ${DEV_OS_PASSWORD}`);
   console.log();
 
@@ -166,7 +166,7 @@ async function main() {
       cwd: FRONTEND_DIR,
       env: {
         ...process.env,
-        VITE_IORA_BACKEND_URL: `http://localhost:${customPort}`,
+        VITE_rumahl_BACKEND_URL: `http://localhost:${customPort}`,
         FORCE_COLOR: "1",
       },
       stdio: "pipe",
@@ -220,29 +220,29 @@ async function main() {
   log("READY", colors.green, "Vite dev server is ready!");
   console.log();
 
-  // Start Backend (iora-home with cargo)
-  log("START", colors.green, "Starting iora-home backend...");
+  // Start Backend (rumahl-home with cargo)
+  log("START", colors.green, "Starting rumahl-home backend...");
 
   // Check if cargo is available
   const cargoCmd = IS_WIN ? "cargo.exe" : "cargo";
 
   backendProcess = spawn(
     cargoCmd,
-    ["run", "-p", "iora-home"],
+    ["run", "-p", "rumahl-home"],
     {
       cwd: BACKEND_DIR,
       env: {
         ...process.env,
-        IORA_FRONTEND_DEV_URL: `http://localhost:${VITE_PORT}`,
-        IORA_DEV_MODE: "true",
+        rumahl_FRONTEND_DEV_URL: `http://localhost:${VITE_PORT}`,
+        rumahl_DEV_MODE: "true",
         PORT: String(customPort),
         DATABASE_URL: databaseUrl(),
-        IORA_BOOTSTRAP_ADMIN_USER: DEV_ADMIN_USER,
-        IORA_BOOTSTRAP_ADMIN_PASSWORD: DEV_ADMIN_PASSWORD,
-        IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME: process.env.IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME || "IORA Dev Admin",
-        IORA_DEV_OS_USER: DEV_OS_USER,
-        IORA_DEV_OS_PASSWORD: DEV_OS_PASSWORD,
-        RUST_LOG: process.env.RUST_LOG || "info,iora_home=debug",
+        rumahl_BOOTSTRAP_ADMIN_USER: DEV_ADMIN_USER,
+        rumahl_BOOTSTRAP_ADMIN_PASSWORD: DEV_ADMIN_PASSWORD,
+        rumahl_BOOTSTRAP_ADMIN_DISPLAY_NAME: process.env.rumahl_BOOTSTRAP_ADMIN_DISPLAY_NAME || "rumahl Dev Admin",
+        rumahl_DEV_OS_USER: DEV_OS_USER,
+        rumahl_DEV_OS_PASSWORD: DEV_OS_PASSWORD,
+        RUST_LOG: process.env.RUST_LOG || "info,rumahl_home=debug",
         FORCE_COLOR: "1",
       },
       stdio: "pipe",
@@ -287,7 +287,7 @@ async function main() {
   console.log(`${colors.bold}Access Points:${colors.reset}`);
   console.log(`  ${colors.cyan}Frontend (with HMR):${colors.reset}  http://localhost:${VITE_PORT}`);
   console.log(`  ${colors.magenta}Backend API:${colors.reset}          http://localhost:${customPort}`);
-  console.log(`  ${colors.green}IORA Login:${colors.reset}          ${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}`);
+  console.log(`  ${colors.green}rumahl Login:${colors.reset}          ${DEV_ADMIN_USER} / ${DEV_ADMIN_PASSWORD}`);
   console.log(`  ${colors.green}OS Login:${colors.reset}            ${DEV_OS_USER} / ${DEV_OS_PASSWORD}`);
   console.log(`  ${colors.dim}Backend Dev Info:${colors.reset}     http://localhost:${customPort}/ (shows dev mode page)`);
   console.log();

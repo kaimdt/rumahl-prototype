@@ -1,0 +1,28 @@
+#include <tunables/global>
+#include <tunables/proc>
+# rumahl OS dev VM starter profile for rumahl-watchdog (health monitoring;
+# native, NOT the Docker container profile - see apparmor/rumahl-watchdog).
+# Loaded in COMPLAIN mode by the dev VM provisioning (violations are logged,
+# nothing is blocked). Attaches by process name - covers
+# /usr/bin/rumahl-watchdog (build mode) and the cargo-run binary (source mode).
+#
+# Flip to enforce:
+#   sed -i 's/flags=(complain)//' /etc/apparmor.d/rumahl-watchdog
+#   apparmor_parser -r /etc/apparmor.d/rumahl-watchdog
+#   systemctl restart rumahl-watchdog
+profile rumahl-watchdog flags=(complain) {
+  #include <abstractions/base>
+
+  network inet stream,
+  network inet6 stream,
+
+  /etc/rumahl/** r,
+  /var/log/rumahl/** w,
+  /opt/rumahl/data/rumahl-watchdog/** rw,
+  /usr/bin/rumahl-watchdog mr,
+  /usr/lib/rumahl/** mr,
+  /home/rumahl/rumahl/rumahl-os/backend/target/** mr,
+  /run/systemd/** r,
+  /proc/** r,
+  /dev/urandom r,
+}

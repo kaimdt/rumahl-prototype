@@ -1,12 +1,12 @@
 [package]
-name = "iora-sdk"
+name = "rumahl-sdk"
 version = "0.1.0"
 edition = "2021"
-authors = ["IORA Team"]
-description = "Official Rust SDK for IORA app and plugin development"
+authors = ["rumahl Team"]
+description = "Official Rust SDK for rumahl app and plugin development"
 license = "MIT"
-repository = "https://github.com/kaimdt/home-assistant-dashb"
-keywords = ["iora", "sdk", "plugin", "app", "home-automation"]
+repository = "https://github.com/rumahl/home-assistant-dashb"
+keywords = ["ora", "sdk", "plugin", "app", "home-automation"]
 categories = ["api-bindings", "development-tools"]
 
 [dependencies]

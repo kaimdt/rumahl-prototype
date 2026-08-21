@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# IORA OS — Nightly Build
+# rumahl OS — Nightly Build
 # Scheduled build of the default (pc) target to catch regressions early.
 # Runs daily at 03:00 UTC with minimal artifacts to save time/space.
 # On failure, files a GitHub Issue for triage.
@@ -33,14 +33,14 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IORA_OS_DIR: iora-os
-  IORA_CACHE_DIR: ~/.iora-cache
-  BR2_CCACHE_DIR: ~/.iora-cache/ccache
-  BR2_DL_DIR: ~/.iora-cache/dl
+  rumahl_OS_DIR: rumahl-os
+  rumahl_CACHE_DIR: ~/.rumahl-cache
+  BR2_CCACHE_DIR: ~/.rumahl-cache/ccache
+  BR2_DL_DIR: ~/.rumahl-cache/dl
 
 jobs:
   nightly-build:
-    name: Nightly IORA OS (${{ inputs.target || 'pc' }})
+    name: Nightly rumahl OS (${{ inputs.target || 'pc' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 240
 
@@ -63,13 +63,13 @@ jobs:
         id: cache-buildroot
         uses: actions/cache@v4
         with:
-          path: ${{ env.IORA_OS_DIR }}/buildroot-2024.02.tar.gz
+          path: ${{ env.rumahl_OS_DIR }}/buildroot-2024.02.tar.gz
           key: buildroot-2024.02-tar
           lookup-only: true
 
       - name: Pre-download Buildroot tarball (cache miss)
         if: steps.cache-buildroot.outputs.cache-hit != 'true'
-        working-directory: ${{ env.IORA_OS_DIR }}
+        working-directory: ${{ env.rumahl_OS_DIR }}
         run: |
           wget -q "https://buildroot.org/downloads/buildroot-2024.02.tar.gz" \
             -O "buildroot-2024.02.tar.gz"
@@ -79,9 +79,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/.iora-cache/dl
-            ~/.iora-cache/ccache
-          key: br2-dl-nightly-${{ hashFiles('iora-os/configs/iora_*') }}
+            ~/.rumahl-cache/dl
+            ~/.rumahl-cache/ccache
+          key: br2-dl-nightly-${{ hashFiles('rumahl-os/configs/rumahl_*') }}
           restore-keys: |
             br2-dl-nightly-
             br2-dl-
@@ -93,8 +93,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ${{ env.IORA_OS_DIR }}/backend/target
-          key: cargo-nightly-${{ runner.os }}-${{ hashFiles('iora-os/backend/Cargo.lock') }}
+            ${{ env.rumahl_OS_DIR }}/backend/target
+          key: cargo-nightly-${{ runner.os }}-${{ hashFiles('rumahl-os/backend/Cargo.lock') }}
           restore-keys: |
             cargo-nightly-${{ runner.os }}-
           continue-on-error: true
@@ -119,22 +119,22 @@ jobs:
       # ── Cache dirs ────────────────────────────────────────────────
       - name: Create cache directories
         run: |
-          mkdir -p ~/.iora-cache/{dl,ccache}
+          mkdir -p ~/.rumahl-cache/{dl,ccache}
           ccache --max-size=10G
 
       # ── Build ─────────────────────────────────────────────────────
-      - name: Build IORA OS image (nightly)
+      - name: Build rumahl OS image (nightly)
         id: build
-        working-directory: ${{ env.IORA_OS_DIR }}
+        working-directory: ${{ env.rumahl_OS_DIR }}
         env:
-          IORA_TARGET: ${{ inputs.target || 'pc' }}
+          rumahl_TARGET: ${{ inputs.target || 'pc' }}
         run: |
           artifact_opts="--minimal-artifacts"
           if [[ "${{ inputs.artifacts || 'minimal' }}" == "all" ]]; then
             artifact_opts=""
           fi
 
-          bash ./build.sh all --target "${IORA_TARGET}" ${artifact_opts} \
+          bash ./build.sh all --target "${rumahl_TARGET}" ${artifact_opts} \
             --unattended --progress \
             --jobs "$(nproc)" \
             2>&1 | tee build.log
@@ -161,7 +161,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: iora-os-nightly-${{ steps.tag-version.outputs.version }}
+          name: rumahl-os-nightly-${{ steps.tag-version.outputs.version }}
           path: ${{ steps.build.outputs.artifacts-dir }}
           retention-days: 30
           compression-level: 0
@@ -170,7 +170,7 @@ jobs:
       - name: Print build summary
         run: |
           echo "================================================"
-          echo "  IORA OS Nightly Build Complete"
+          echo "  rumahl OS Nightly Build Complete"
           echo "  Version : ${{ steps.tag-version.outputs.version }}"
           echo "  Target  : ${{ inputs.target || 'pc' }}"
           echo "================================================"

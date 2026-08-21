@@ -116,7 +116,7 @@ export function getPermissionDescription(permission: Permission): string {
     [Permission.NetworkLocalAccess]: 'Access local network devices',
     [Permission.SystemInfo]: 'Read system information',
     [Permission.SystemControl]: 'Control system settings',
-    [Permission.SystemRestart]: 'Restart IORA system',
+    [Permission.SystemRestart]: 'Restart rumahl system',
     [Permission.DatabaseRead]: 'Read from database',
     [Permission.DatabaseWrite]: 'Write to database',
     [Permission.DatabaseCreate]: 'Create database tables',

@@ -1,0 +1,31 @@
+#include <tunables/global>
+#include <tunables/proc>
+# rumahl OS dev VM starter profile for rumahl-home (native, NOT the Docker
+# container profile - see apparmor/rumahl-home for that one).
+# Loaded in COMPLAIN mode by the dev VM provisioning (violations are logged
+# to the kernel log, nothing is blocked). Attaches by process name, so it
+# covers both /usr/bin/rumahl-home (build mode) and the cargo-run binary
+# under backend/target (source mode).
+#
+# Flip to enforce to test production behaviour:
+#   sed -i 's/flags=(complain)//' /etc/apparmor.d/rumahl-home
+#   apparmor_parser -r /etc/apparmor.d/rumahl-home
+#   systemctl restart rumahl-home
+profile rumahl-home flags=(complain) {
+  #include <abstractions/base>
+  #include <abstractions/openssl>
+
+  capability net_bind_service,
+
+  network inet stream,
+  network inet6 stream,
+
+  /etc/rumahl/** r,
+  /opt/rumahl/data/rumahl-home/** rw,
+  /var/log/rumahl/** w,
+  /usr/bin/rumahl-home mr,
+  /usr/lib/rumahl/** mr,
+  /home/rumahl/rumahl/rumahl-os/backend/target/** mr,
+  /dev/urandom r,
+  /proc/** r,
+}

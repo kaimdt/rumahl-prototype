@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# IORA OS — Buildroot Release Pipeline
+# rumahl OS — Buildroot Release Pipeline
 # Builds the full OS image, uploads artifacts, and creates GitHub Releases.
 #
 # Triggers:
@@ -42,15 +42,15 @@ concurrency:
   cancel-in-progress: false  # don't cancel — builds are expensive
 
 env:
-  IORA_OS_DIR: iora-os
-  IORA_CACHE_DIR: ~/.iora-cache
-  BR2_CCACHE_DIR: ~/.iora-cache/ccache
-  BR2_DL_DIR: ~/.iora-cache/dl
+  rumahl_OS_DIR: rumahl-os
+  rumahl_CACHE_DIR: ~/.rumahl-cache
+  BR2_CCACHE_DIR: ~/.rumahl-cache/ccache
+  BR2_DL_DIR: ~/.rumahl-cache/dl
   CARGO_TERM_COLOR: always
 
 jobs:
   build-image:
-    name: Build IORA OS (${{ inputs.target || 'pc' }})
+    name: Build rumahl OS (${{ inputs.target || 'pc' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 360  # Buildroot builds can take 2-4 hours
 
@@ -77,13 +77,13 @@ jobs:
         id: cache-buildroot
         uses: actions/cache@v4
         with:
-          path: ${{ env.IORA_OS_DIR }}/buildroot-2024.02.tar.gz
+          path: ${{ env.rumahl_OS_DIR }}/buildroot-2024.02.tar.gz
           key: buildroot-2024.02-tar
           lookup-only: true
 
       - name: Pre-download Buildroot tarball (cache miss)
         if: steps.cache-buildroot.outputs.cache-hit != 'true'
-        working-directory: ${{ env.IORA_OS_DIR }}
+        working-directory: ${{ env.rumahl_OS_DIR }}
         run: |
           wget -q "https://buildroot.org/downloads/buildroot-2024.02.tar.gz" -O "buildroot-2024.02.tar.gz"
 
@@ -92,9 +92,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/.iora-cache/dl
-            ~/.iora-cache/ccache
-          key: br2-dl-${{ inputs.target || 'pc' }}-${{ hashFiles('iora-os/configs/iora_*') }}-${{ github.run_id }}
+            ~/.rumahl-cache/dl
+            ~/.rumahl-cache/ccache
+          key: br2-dl-${{ inputs.target || 'pc' }}-${{ hashFiles('rumahl-os/configs/rumahl_*') }}-${{ github.run_id }}
           restore-keys: |
             br2-dl-${{ inputs.target || 'pc' }}-
             br2-dl-
@@ -106,8 +106,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ${{ env.IORA_OS_DIR }}/backend/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('iora-os/backend/Cargo.lock') }}
+            ${{ env.rumahl_OS_DIR }}/backend/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('rumahl-os/backend/Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-
           continue-on-error: true
@@ -133,16 +133,16 @@ jobs:
       # ── Ensure cache dirs exist ────────────────────────────────────
       - name: Create cache directories
         run: |
-          mkdir -p ~/.iora-cache/{dl,ccache}
+          mkdir -p ~/.rumahl-cache/{dl,ccache}
           ccache --max-size=10G
 
       # ── Build the OS image ─────────────────────────────────────────
-      - name: Build IORA OS image
+      - name: Build rumahl OS image
         id: build
-        working-directory: ${{ env.IORA_OS_DIR }}
+        working-directory: ${{ env.rumahl_OS_DIR }}
         env:
-          IORA_TARGET: ${{ inputs.target || 'pc' }}
-          IORA_OS_DEV: ${{ inputs.dev-mode || '0' }}
+          rumahl_TARGET: ${{ inputs.target || 'pc' }}
+          rumahl_OS_DEV: ${{ inputs.dev-mode || '0' }}
         run: |
           artifact_opts=""
           if [[ "${{ inputs.artifacts || 'all' }}" == "minimal" ]]; then
@@ -150,7 +150,7 @@ jobs:
           fi
 
           # Redirecting to avoid flooding GHA logs (build log goes to file)
-          bash ./build.sh all --target "${IORA_TARGET}" ${artifact_opts} \
+          bash ./build.sh all --target "${rumahl_TARGET}" ${artifact_opts} \
             --unattended --progress \
             --jobs "$(nproc)" \
             2>&1 | tee build.log
@@ -177,7 +177,7 @@ jobs:
       - name: Upload artifacts (workflow run)
         uses: actions/upload-artifact@v4
         with:
-          name: iora-os-${{ inputs.target || 'pc' }}-${{ steps.tag-version.outputs.version }}
+          name: rumahl-os-${{ inputs.target || 'pc' }}-${{ steps.tag-version.outputs.version }}
           path: ${{ steps.build.outputs.artifacts-dir }}
           retention-days: 30
           compression-level: 0  # files are already compressed
@@ -188,9 +188,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "IORA OS ${{ github.ref_name }}"
+          name: "rumahl OS ${{ github.ref_name }}"
           body: |
-            ## IORA OS ${{ github.ref_name }}
+            ## rumahl OS ${{ github.ref_name }}
 
             **Target:** ${{ inputs.target || 'pc' }}
 
@@ -203,7 +203,7 @@ jobs:
             - Init: systemd
             - Filesystem: squashfs + ext4
 
-            See [BUILD_IMAGES.md](iora-os/BUILD_IMAGES.md) for details on each image format.
+            See [BUILD_IMAGES.md](rumahl-os/BUILD_IMAGES.md) for details on each image format.
           files: |
             ${{ steps.build.outputs.artifacts-dir }}/*
           fail_on_unmatched_files: false
@@ -213,7 +213,7 @@ jobs:
       - name: Print build summary
         run: |
           echo "================================================"
-          echo "  IORA OS Build Complete"
+          echo "  rumahl OS Build Complete"
           echo "  Version : ${{ steps.tag-version.outputs.version }}"
           echo "  Target  : ${{ inputs.target || 'pc' }}"
           echo "  Runner  : ${{ runner.name }}"

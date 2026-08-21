@@ -1,5 +1,5 @@
-// Package iora provides plugin development framework
-package iora
+// Package ora provides plugin development framework
+package ora
 
 import (
 	"context"
@@ -48,7 +48,7 @@ func (pc *PluginContext) Notify(title, message, priority string) error {
 	})
 }
 
-// Plugin is the base interface for IORA plugins
+// Plugin is the base interface for rumahl plugins
 type Plugin interface {
 	Execute(ctx context.Context, pluginCtx *PluginContext) (map[string]interface{}, error)
 	OnInstall(ctx context.Context, pluginCtx *PluginContext) error

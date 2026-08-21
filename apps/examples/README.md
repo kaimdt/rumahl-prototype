@@ -1,6 +1,6 @@
-# IORA Example Apps
+# rumahl Example Apps
 
-> Beispiel-Anwendungen, Plugins und Themes zur Demonstration der IORA-Funktionen
+> Beispiel-Anwendungen, Plugins und Themes zur Demonstration der rumahl-Funktionen
 
 ## Ordnerstruktur
 
@@ -53,7 +53,7 @@ Apps laufen in Docker-Containern und bieten vollständige UIs oder Backend-Diens
 
 ## Plugins (2)
 
-Funktions-Plugins laufen in der IORA-Runtime-Sandbox.
+Funktions-Plugins laufen in der rumahl-Runtime-Sandbox.
 
 | Plugin | Beschreibung |
 |--------|-------------|
@@ -82,14 +82,14 @@ cd themes\cyberpunk-neon
 # Erstellt: cyberpunk-neon-v1.0.0.zip
 ```
 
-Die `.zip`-Datei kann dann im IORA App Store installiert werden.
+Die `.zip`-Datei kann dann im rumahl App Store installiert werden.
 
 ### Einzelne App/Plugin/Theme installieren:
 
 1. Baue die `.zip`-Datei mit `build.sh` oder `build.ps1`
-2. Öffne den IORA App Store
+2. Öffne den rumahl App Store
 3. Klicke auf "Aus Datei installieren" und wähle die `.zip`-Datei
-4. Alternativ: Entpacke nach `/var/lib/iora/apps/installed/`
+4. Alternativ: Entpacke nach `/var/lib/ora/apps/installed/`
 
 ### Alle Beispiele installieren:
 
@@ -99,8 +99,8 @@ for dir in themes/*/ apps/*/ plugins/*/; do
   (cd "$dir" && ./build.sh)
 done
 
-# IORA neu starten (damit Apps erkannt werden)
-sudo systemctl restart iora-home
+# rumahl neu starten (damit Apps erkannt werden)
+sudo systemctl restart rumahl-home
 ```
 
 ## Entwicklung
@@ -110,7 +110,7 @@ sudo systemctl restart iora-home
 1. Erstelle einen neuen Ordner: `apps/examples/my-app/`
 2. Erstelle `manifest.json` (siehe [App Development Guide](../../docs/development/app-development.md))
 3. Entwickle deine App (HTML/JS, React, oder Docker-Container)
-4. Teste lokal mit `cp -r my-app /var/lib/iora/apps/installed/`
+4. Teste lokal mit `cp -r my-app /var/lib/ora/apps/installed/`
 5. Erstelle eine README.md mit Erklärungen
 
 ### Beispiel-Struktur:
@@ -130,7 +130,7 @@ my-app/
 ## Best Practices
 
 ### 1. Theme-Integration
-✅ **DO:** Verwende IORA CSS-Variablen für konsistente UI
+✅ **DO:** Verwende rumahl CSS-Variablen für konsistente UI
 ```css
 .my-element {
   background: var(--card);
@@ -176,13 +176,13 @@ my-app/
 
 ```bash
 # 1. App nach installed/ kopieren
-sudo cp -r my-app /var/lib/iora/apps/installed/
+sudo cp -r my-app /var/lib/ora/apps/installed/
 
-# 2. IORA neu starten
-sudo systemctl restart iora-home
+# 2. rumahl neu starten
+sudo systemctl restart rumahl-home
 
 # 3. Logs überprüfen
-journalctl -u iora-home -f
+journalctl -u rumahl-home -f
 
 # 4. App im Browser testen
 # http://localhost:8126/
@@ -213,15 +213,15 @@ docker run -p 8080:8080 my-app
 - [PHP SDK](../../sdks/php/)
 
 ### Tools
-- [IORA CLI](../../iora-os/backend/tools/iora-cli/)
-- [App Signing](../../iora-os/backend/tools/iora-sign/)
-- [App Verification](../../iora-os/backend/tools/iora-verify/)
+- [rumahl CLI](../../rumahl-os/backend/tools/rumahl-cli/)
+- [App Signing](../../rumahl-os/backend/tools/rumahl-sign/)
+- [App Verification](../../rumahl-os/backend/tools/rumahl-verify/)
 
 ## Support
 
-- **GitHub Issues:** [https://github.com/iora/iora/issues](https://github.com/iora/iora/issues)
-- **Dokumentation:** [https://docs.iora.io](https://docs.iora.io)
-- **Community:** [https://community.iora.io](https://community.iora.io)
+- **GitHub Issues:** [https://github.com/ora/ora/issues](https://github.com/ora/ora/issues)
+- **Dokumentation:** [https://docs.ora.io](https://docs.ora.io)
+- **Community:** [https://community.ora.io](https://community.ora.io)
 
 ## Lizenz
 

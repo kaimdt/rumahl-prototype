@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Permission types in IORA
+/// Permission types in rumahl
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Permission {
     // Entity permissions
@@ -56,7 +56,7 @@ pub enum Permission {
     LocationAccess,
     Automations,
 
-    // File sharing permissions (iora-share)
+    // File sharing permissions (rumahl-share)
     FileShareRead,
     FileShareWrite,
     FileShareDelete,
@@ -150,7 +150,7 @@ impl Permission {
             Permission::NetworkLocalAccess => "Access local network devices",
             Permission::SystemInfo => "Read system information",
             Permission::SystemControl => "Control system settings",
-            Permission::SystemRestart => "Restart IORA system",
+            Permission::SystemRestart => "Restart rumahl system",
             Permission::DatabaseRead => "Read from database",
             Permission::DatabaseWrite => "Write to database",
             Permission::DatabaseCreate => "Create database tables",
@@ -171,13 +171,13 @@ impl Permission {
             Permission::FileSystemExecute => "Execute files",
             Permission::LocationAccess => "Access location data",
             Permission::Automations => "Create and manage automations",
-            Permission::FileShareRead => "Read shared files via iora-share",
-            Permission::FileShareWrite => "Upload files to iora-share",
-            Permission::FileShareDelete => "Delete files from iora-share",
+            Permission::FileShareRead => "Read shared files via rumahl-share",
+            Permission::FileShareWrite => "Upload files to rumahl-share",
+            Permission::FileShareDelete => "Delete files from rumahl-share",
             Permission::FileShareManage => "Manage file sharing settings and permissions",
             Permission::BackupAccess => "Access system backups",
             Permission::LogAccess => "Access system and app logs",
-            Permission::UserManagement => "Manage IORA users and accounts",
+            Permission::UserManagement => "Manage rumahl users and accounts",
             Permission::SecuritySettings => "Modify security settings",
             Permission::NetworkMonitoring => "Monitor network traffic and connections",
             Permission::ProcessControl => "Control system processes and services",

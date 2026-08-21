@@ -1,6 +1,6 @@
-# IORA Python SDK
+# rumahl Python SDK
 
-Official Python SDK for developing IORA apps and plugins.
+Official Python SDK for developing rumahl apps and plugins.
 
 ## Features
 
@@ -9,18 +9,18 @@ Official Python SDK for developing IORA apps and plugins.
 - 📦 **Plugin Framework** - Base classes for plugin development
 - 🔑 **Permission Management** - Built-in permission enums and risk assessment
 - 📝 **Manifest Builder** - Programmatic app manifest creation
-- 🎯 **REST API Client** - Complete IORA API client
+- 🎯 **REST API Client** - Complete rumahl API client
 
 ## Installation
 
 ```bash
-pip install iora-sdk
+pip install rumahl-sdk
 ```
 
 Or with development dependencies:
 
 ```bash
-pip install iora-sdk[dev]
+pip install rumahl-sdk[dev]
 ```
 
 ## Quick Start
@@ -29,12 +29,12 @@ pip install iora-sdk[dev]
 
 ```python
 import asyncio
-from iora_sdk import IoraClient, Permission
-from iora_sdk.types import NotificationPayload
+from rumahl_sdk import rumahlClient, Permission
+from rumahl_sdk.types import NotificationPayload
 
 async def main():
     # Initialize client
-    async with IoraClient("http://localhost:8080", "your-api-key") as client:
+    async with rumahlClient("http://localhost:8080", "your-api-key") as client:
         # Get all entities
         entities = await client.get_entities()
         print(f"Found {len(entities)} entities")
@@ -44,7 +44,7 @@ async def main():
 
         # Send notification
         notification = NotificationPayload(
-            title="Hello IORA",
+            title="Hello rumahl",
             message="App is running!",
             priority="normal"
         )
@@ -61,7 +61,7 @@ if __name__ == "__main__":
 ### Plugin Development
 
 ```python
-from iora_sdk import Plugin, PluginContext
+from rumahl_sdk import Plugin, PluginContext
 from typing import Dict, Any
 
 class MyPlugin(Plugin):
@@ -102,7 +102,7 @@ class MyPlugin(Plugin):
 ### Data Processor Plugin
 
 ```python
-from iora_sdk import DataProcessorPlugin, PluginContext
+from rumahl_sdk import DataProcessorPlugin, PluginContext
 from typing import Any
 
 class TemperatureConverter(DataProcessorPlugin):
@@ -121,7 +121,7 @@ class TemperatureConverter(DataProcessorPlugin):
 ### Automation Plugin
 
 ```python
-from iora_sdk import AutomationPlugin, PluginContext
+from rumahl_sdk import AutomationPlugin, PluginContext
 from typing import Dict, Any
 
 class MotionLightAutomation(AutomationPlugin):
@@ -156,20 +156,20 @@ class MotionLightAutomation(AutomationPlugin):
 
 ## API Reference
 
-### IoraClient
+### rumahlClient
 
-Main HTTP client for IORA API interactions.
+Main HTTP client for rumahl API interactions.
 
 #### Constructor
 
 ```python
-client = IoraClient(base_url: str = "http://localhost:8080", api_key: Optional[str] = None)
+client = rumahlClient(base_url: str = "http://localhost:8080", api_key: Optional[str] = None)
 ```
 
 #### Context Manager
 
 ```python
-async with IoraClient("http://localhost:8080", "api-key") as client:
+async with rumahlClient("http://localhost:8080", "api-key") as client:
     entities = await client.get_entities()
 ```
 
@@ -183,7 +183,7 @@ entities: List[Entity] = await client.get_entities()
 entity: Entity = await client.get_entity("light.bedroom")
 
 # Call service
-from iora_sdk.types import ServiceCall
+from rumahl_sdk.types import ServiceCall
 
 await client.call_service(ServiceCall(
     domain="light",
@@ -200,7 +200,7 @@ await client.turn_off("light.bedroom")
 #### Notification Methods
 
 ```python
-from iora_sdk.types import NotificationPayload, NotificationAction
+from rumahl_sdk.types import NotificationPayload, NotificationAction
 
 # Send notification
 await client.send_notification(NotificationPayload(
@@ -234,7 +234,7 @@ await client.delete_storage("my-key")
 #### Settings Methods
 
 ```python
-from iora_sdk.types import AppSettings
+from rumahl_sdk.types import AppSettings
 
 # Get app settings
 settings: AppSettings = await client.get_settings("app-id")
@@ -251,8 +251,8 @@ await client.update_settings("app-id", {
 Build app manifests programmatically.
 
 ```python
-from iora_sdk import ManifestBuilder, Permission
-from iora_sdk.manifest import (
+from rumahl_sdk import ManifestBuilder, Permission
+from rumahl_sdk.manifest import (
     CustomPage,
     IframeConfig,
     SettingsSchema,
@@ -266,7 +266,7 @@ manifest = (
     ManifestBuilder("my-app", "My App")
     .version("1.0.0")
     .developer("Your Name")
-    .description("An awesome IORA app")
+    .description("An awesome rumahl app")
     .permissions([
         Permission.READ_ENTITIES,
         Permission.CONTROL_ENTITIES,
@@ -338,7 +338,7 @@ json_str = manifest_builder.to_json()
 ### Permissions
 
 ```python
-from iora_sdk import Permission, RiskLevel, get_permission_risk_level, get_permission_description
+from rumahl_sdk import Permission, RiskLevel, get_permission_risk_level, get_permission_description
 
 # Use permissions
 perms = [
@@ -398,14 +398,14 @@ Permission.AUTOMATIONS
 All types are Pydantic models with full validation:
 
 ```python
-from iora_sdk.types import (
+from rumahl_sdk.types import (
     Entity,
     ServiceCall,
     NotificationPayload,
     NotificationAction,
     AppSettings,
     HealthStatus,
-    IoraEvent
+    rumahlEvent
 )
 
 # Entity
@@ -429,17 +429,17 @@ call = ServiceCall(
 ```python
 import asyncio
 from datetime import datetime
-from iora_sdk import IoraClient, ManifestBuilder, Permission
-from iora_sdk.types import NotificationPayload
-from iora_sdk.manifest import (
+from rumahl_sdk import rumahlClient, ManifestBuilder, Permission
+from rumahl_sdk.types import NotificationPayload
+from rumahl_sdk.manifest import (
     SettingsSchema,
     SettingsField,
     NetworkAccessConfig
 )
 
 class WeatherApp:
-    def __init__(self, iora_url: str, api_key: str):
-        self.client = IoraClient(iora_url, api_key)
+    def __init__(self, rumahl_url: str, api_key: str):
+        self.client = rumahlClient(rumahl_url, api_key)
         self.app_id = "weather-app"
 
     async def run(self):
@@ -541,14 +541,14 @@ pytest
 ### Type Checking
 
 ```bash
-mypy iora_sdk
+mypy rumahl_sdk
 ```
 
 ### Code Formatting
 
 ```bash
-black iora_sdk
-ruff check iora_sdk
+black rumahl_sdk
+ruff check rumahl_sdk
 ```
 
 ## Docker Deployment
@@ -571,7 +571,7 @@ CMD ["python", "app.py"]
 Create `requirements.txt`:
 
 ```
-iora-sdk>=0.1.0
+rumahl-sdk>=0.1.0
 httpx>=0.25.0
 ```
 
@@ -582,7 +582,7 @@ Create `manifest.json` using the ManifestBuilder as shown above.
 ### 1. Use Context Managers
 
 ```python
-async with IoraClient(url, api_key) as client:
+async with rumahlClient(url, api_key) as client:
     # Client automatically closes
     pass
 ```
@@ -602,9 +602,9 @@ except Exception as e:
 
 ```python
 from typing import List
-from iora_sdk.types import Entity
+from rumahl_sdk.types import Entity
 
-async def get_lights(client: IoraClient) -> List[Entity]:
+async def get_lights(client: rumahlClient) -> List[Entity]:
     entities = await client.get_entities()
     return [e for e in entities if e.entity_id.startswith("light.")]
 ```
@@ -645,6 +645,6 @@ MIT
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/your-org/iora-sdk-python
-- Documentation: https://docs.iora.io
-- Community: https://community.iora.io
+- GitHub Issues: https://github.com/your-org/rumahl-sdk-python
+- Documentation: https://docs.ora.io
+- Community: https://community.ora.io

@@ -1,23 +1,23 @@
 # Network Scanner App
 
-A complete example IORA app that demonstrates network scanning capabilities using the Rust SDK.
+A complete example rumahl app that demonstrates network scanning capabilities using the Rust SDK.
 
 ## Features
 
 - 🔍 **Network Discovery** - Automatically discover devices on your local network
 - 📊 **Device Tracking** - Track device status, hostnames, and MAC addresses
 - 🔌 **Port Scanning** - Identify open ports on discovered devices
-- 📱 **Dashboard Widget** - Display network status in IORA dashboard
+- 📱 **Dashboard Widget** - Display network status in rumahl dashboard
 - 🔔 **Notifications** - Alert when new devices join the network
 - ⚙️ **Configurable** - Customize scan intervals and network ranges
 - 🔒 **Secure** - Runs in isolated Docker container with permission controls
 
 ## Architecture
 
-This app demonstrates several key IORA SDK features:
+This app demonstrates several key rumahl SDK features:
 
 1. **Complete App Structure** - Full manifest, Docker configuration, and settings
-2. **IORA API Integration** - Uses SDK to interact with IORA services
+2. **rumahl API Integration** - Uses SDK to interact with rumahl services
 3. **Custom Pages** - Provides iframe-based dashboard
 4. **Widget Development** - Includes a dashboard widget
 5. **Permission Management** - Demonstrates proper permission usage
@@ -33,8 +33,8 @@ cargo build --release
 
 ```bash
 # Set environment variables
-export IORA_BASE_URL=http://localhost:8080
-export IORA_API_KEY=your-api-key
+export RUMAHL_BASE_URL=http://localhost:8080
+export RUMAHL_API_KEY=your-api-key
 export RUST_LOG=info
 
 # Run the app
@@ -43,14 +43,14 @@ cargo run
 
 The app will start on port 3000 and begin scanning the network.
 
-## Installation in IORA
+## Installation in rumahl
 
 1. Package the app:
 ```bash
 zip -r network-scanner.zip manifest.json Cargo.toml src/ icon.png
 ```
 
-2. Upload to IORA App Store
+2. Upload to rumahl App Store
 3. Grant required permissions:
    - NetworkLocalAccess
    - NetworkScan
@@ -59,7 +59,7 @@ zip -r network-scanner.zip manifest.json Cargo.toml src/ icon.png
    - SendNotifications
    - RegisterWidget
 
-4. Configure settings in IORA:
+4. Configure settings in rumahl:
    - Scan interval (default: 300 seconds)
    - Network range (default: 192.168.1.0/24)
    - Notification preferences
@@ -87,7 +87,7 @@ Edit `manifest.json` to customize:
 ```
 network-scanner-app/
 ├── Cargo.toml          # Dependencies
-├── manifest.json       # IORA app manifest
+├── manifest.json       # rumahl app manifest
 ├── src/
 │   ├── main.rs        # HTTP server and app logic
 │   └── scanner.rs     # Network scanning implementation
@@ -105,11 +105,11 @@ The scanner module uses:
 - ARP table lookup for MAC addresses
 - DNS lookup for hostnames
 
-### IORA SDK Usage
+### rumahl SDK Usage
 
 ```rust
-// Create IORA client
-let client = iora_sdk::IoraClient::new(&iora_url)
+// Create rumahl client
+let client = rumahl_sdk::rumahlClient::new(&rumahl_url)
     .with_api_key(api_key);
 
 // Load app settings
@@ -177,7 +177,7 @@ tokio::spawn(async move {
 
 ## Learn More
 
-- [IORA SDK Documentation](../../sdks/rust/README.md)
+- [rumahl SDK Documentation](../../sdks/rust/README.md)
 - [App Development Guide](../../docs/development/app-development.md)
 - [Permission System](../../docs/development/permissions.md)
 

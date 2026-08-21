@@ -2,7 +2,7 @@
   "id": "network-scanner",
   "name": "Network Scanner",
   "version": "1.0.0",
-  "developer": "IORA Team",
+  "developer": "rumahl Team",
   "description": "Scan and discover devices on your local network",
   "type": "app",
   "icon": "icon.png",
@@ -131,7 +131,7 @@
       "screenshot1.png",
       "screenshot2.png"
     ],
-    "homepage": "https://github.com/iora/network-scanner"
+    "homepage": "https://github.com/ora/network-scanner"
   },
   "lifecycle_hooks": {
     "hooks": [

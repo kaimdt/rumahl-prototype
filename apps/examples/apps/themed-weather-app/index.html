@@ -315,8 +315,8 @@
   </div>
 
   <script type="module">
-    // Import the IORA Theme SDK
-    // In production, this would be: import { IoraThemeClient } from '@iora/sdk'
+    // Import the rumahl Theme SDK
+    // In production, this would be: import { rumahlThemeClient } from '@rumahl/sdk'
     // For this example, we'll create a simplified inline version
 
     class SimpleThemeClient {
@@ -331,7 +331,7 @@
       init() {
         // Listen for theme updates from parent
         window.addEventListener('message', (event) => {
-          if (event.data?.type === 'iora:theme:update') {
+          if (event.data?.type === 'ora:theme:update') {
             this.handleThemeUpdate(event.data.theme)
           }
         })
@@ -342,7 +342,7 @@
 
       requestTheme() {
         window.parent.postMessage({
-          type: 'iora:theme:request',
+          type: 'ora:theme:request',
           appId: this.appId,
         }, '*')
       }
@@ -398,7 +398,7 @@
         const computed = {}
         const styles = getComputedStyle(document.documentElement)
 
-        // Get common IORA variables
+        // Get common rumahl variables
         const commonVars = [
           'background', 'foreground', 'card', 'card-foreground',
           'muted', 'muted-foreground', 'accent', 'accent-foreground',

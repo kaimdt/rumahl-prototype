@@ -1,45 +1,45 @@
 #!/bin/bash
-# IORA Service Dependency Validator
+# rumahl Service Dependency Validator
 # Ensures critical services are enabled and validates dependencies
 
 set -e
 
-CRITICAL_SERVICES=("postgres" "iora-core" "iora-secrets" "iora-home")
-OPTIONAL_SERVICES=("iora-supervisor" "iora-security" "iora-watchdog" "iora-gateway" "iora-control" "iora-assist" "iora-appstore")
+CRITICAL_SERVICES=("postgres" "rumahl-core" "rumahl-secrets" "rumahl-home")
+OPTIONAL_SERVICES=("rumahl-supervisor" "rumahl-security" "rumahl-watchdog" "rumahl-gateway" "rumahl-control" "rumahl-assist" "rumahl-appstore")
 
 check_service_dependencies() {
     local service="$1"
 
     case "$service" in
-        "iora-core")
+        "rumahl-core")
             echo "  Dependencies: postgres"
             ;;
-        "iora-secrets")
+        "rumahl-secrets")
             echo "  Dependencies: postgres"
             ;;
-        "iora-home")
-            echo "  Dependencies: postgres, iora-core"
+        "rumahl-home")
+            echo "  Dependencies: postgres, rumahl-core"
             ;;
-        "iora-security")
+        "rumahl-security")
             echo "  Dependencies: postgres"
             ;;
-        "iora-watchdog")
-            echo "  Dependencies: iora-core"
+        "rumahl-watchdog")
+            echo "  Dependencies: rumahl-core"
             ;;
-        "iora-control")
-            echo "  Dependencies: iora-core, iora-home"
+        "rumahl-control")
+            echo "  Dependencies: rumahl-core, rumahl-home"
             ;;
-        "iora-assist")
-            echo "  Dependencies: iora-core"
+        "rumahl-assist")
+            echo "  Dependencies: rumahl-core"
             ;;
-        "iora-gateway")
+        "rumahl-gateway")
             echo "  Dependencies: none"
             ;;
-        "iora-supervisor")
+        "rumahl-supervisor")
             echo "  Dependencies: none"
             ;;
-        "iora-appstore")
-            echo "  Dependencies: postgres, iora-supervisor"
+        "rumahl-appstore")
+            echo "  Dependencies: postgres, rumahl-supervisor"
             ;;
         *)
             echo "  Dependencies: unknown"
@@ -54,15 +54,15 @@ validate_critical_services() {
     local all_critical_enabled=true
 
     for service in "${CRITICAL_SERVICES[@]}"; do
-        local container_name="iora-$service"
+        local container_name="rumahl-$service"
         if [ "$service" = "postgres" ]; then
-            container_name="iora-postgres"
+            container_name="rumahl-postgres"
         fi
 
         echo "Checking $service..."
 
         # Check if service is defined in docker-compose
-        if docker compose config --services 2>/dev/null | grep -q "$service\|${service#iora-}"; then
+        if docker compose config --services 2>/dev/null | grep -q "$service\|${service#rumahl-}"; then
             echo "  ✓ Defined in docker-compose.yml"
             check_service_dependencies "$service"
         else
@@ -75,7 +75,7 @@ validate_critical_services() {
 
     if [ "$all_critical_enabled" = false ]; then
         echo "ERROR: One or more critical services are not defined!"
-        echo "IORA requires the following services to function:"
+        echo "rumahl requires the following services to function:"
         for service in "${CRITICAL_SERVICES[@]}"; do
             echo "  - $service"
         done
@@ -93,14 +93,14 @@ validate_service_order() {
 
     # Services should start in this order:
     # 1. postgres
-    # 2. iora-core, iora-secrets
-    # 3. iora-home (depends on core)
+    # 2. rumahl-core, rumahl-secrets
+    # 3. rumahl-home (depends on core)
     # 4. Optional services
 
     echo "Expected startup order:"
     echo "  1. postgres (database)"
-    echo "  2. iora-core, iora-secrets (parallel)"
-    echo "  3. iora-home (depends on core)"
+    echo "  2. rumahl-core, rumahl-secrets (parallel)"
+    echo "  3. rumahl-home (depends on core)"
     echo "  4. Optional services"
     echo ""
 }
@@ -111,7 +111,7 @@ show_optional_services() {
     echo ""
 
     for service in "${OPTIONAL_SERVICES[@]}"; do
-        if docker compose config --services 2>/dev/null | grep -q "${service#iora-}"; then
+        if docker compose config --services 2>/dev/null | grep -q "${service#rumahl-}"; then
             echo "  ✓ $service (enabled)"
             check_service_dependencies "$service"
         else
@@ -136,7 +136,7 @@ generate_minimal_config() {
 
 # Main execution
 echo "╔════════════════════════════════════════╗"
-echo "║  IORA Service Dependency Validator    ║"
+echo "║  rumahl Service Dependency Validator    ║"
 echo "╚════════════════════════════════════════╝"
 echo ""
 
@@ -174,5 +174,5 @@ echo ""
 echo "Next steps:"
 echo "  1. Start services: docker compose up -d"
 echo "  2. Check health: ./scripts/healthcheck.sh"
-echo "  3. Access IORA: http://localhost:8080"
+echo "  3. Access rumahl: http://localhost:8080"
 echo ""

@@ -1,7 +1,7 @@
 @echo off
 :: Build all backend crates (release mode is handled separately)
 cd /d "%~dp0..\backend"
-echo Building all IORA backend crates...
+echo Building all rumahl backend crates...
 cargo build
 if %ERRORLEVEL% NEQ 0 (
     echo Build failed.

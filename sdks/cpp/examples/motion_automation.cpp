@@ -1,11 +1,11 @@
-#include <iora/client.hpp>
+#include <ora/client.hpp>
 #include <iostream>
 #include <thread>
 #include <chrono>
 
 class MotionLightAutomation {
 public:
-    MotionLightAutomation(iora::Client& client, const std::string& motion_sensor,
+    MotionLightAutomation(ora::Client& client, const std::string& motion_sensor,
                          const std::string& light_entity, int brightness, int timeout)
         : client_(client), motion_sensor_(motion_sensor),
           light_entity_(light_entity), brightness_(brightness), timeout_(timeout) {}
@@ -18,7 +18,7 @@ public:
         client_.turn_on(light_entity_, data);
 
         // Send notification
-        iora::NotificationPayload notification{
+        ora::NotificationPayload notification{
             .title = "Motion Detected",
             .message = "Turned on " + light_entity_ + " at " + std::to_string(brightness_) + " brightness",
             .priority = "normal"
@@ -45,7 +45,7 @@ public:
         if (sensor.state == "off") {
             client_.turn_off(light_entity_);
 
-            iora::NotificationPayload notification{
+            ora::NotificationPayload notification{
                 .title = "Auto-Off",
                 .message = "Turned off " + light_entity_ + " after " + std::to_string(timeout_) + "s",
                 .priority = "normal"
@@ -57,7 +57,7 @@ public:
     }
 
 private:
-    iora::Client& client_;
+    ora::Client& client_;
     std::string motion_sensor_;
     std::string light_entity_;
     int brightness_;
@@ -66,7 +66,7 @@ private:
 
 int main() {
     try {
-        iora::Client client("http://localhost:8080", "api-key");
+        ora::Client client("http://localhost:8080", "api-key");
 
         MotionLightAutomation automation(
             client,

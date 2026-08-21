@@ -1,6 +1,6 @@
-# IORA Go SDK
+# rumahl Go SDK
 
-Official Go SDK for developing IORA apps and plugins.
+Official Go SDK for developing rumahl apps and plugins.
 
 ## Features
 
@@ -9,12 +9,12 @@ Official Go SDK for developing IORA apps and plugins.
 - 📦 **Plugin Framework** - Interfaces for plugin development
 - 🔑 **Permission Management** - Built-in permission constants and helpers
 - 📝 **Manifest Builder** - Fluent API for manifest creation
-- 🎯 **REST API Client** - Complete IORA API client
+- 🎯 **REST API Client** - Complete rumahl API client
 
 ## Installation
 
 ```bash
-go get github.com/iora/iora-sdk-go
+go get github.com/ora/rumahl-sdk-go
 ```
 
 ## Quick Start
@@ -28,12 +28,12 @@ import (
 	"fmt"
 	"log"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 func main() {
 	// Initialize client
-	client := iora.NewClient("http://localhost:8080", "your-api-key")
+	client := ora.NewClient("http://localhost:8080", "your-api-key")
 
 	// Get all entities
 	entities, err := client.GetEntities()
@@ -51,8 +51,8 @@ func main() {
 	}
 
 	// Send notification
-	err = client.SendNotification(iora.NotificationPayload{
-		Title:    "Hello IORA",
+	err = client.SendNotification(ora.NotificationPayload{
+		Title:    "Hello rumahl",
 		Message:  "App is running!",
 		Priority: "normal",
 	})
@@ -88,16 +88,16 @@ import (
 	"fmt"
 	"log"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 // MyPlugin is an example plugin
 type MyPlugin struct {
-	iora.BasePlugin
+	ora.BasePlugin
 }
 
 // Execute implements the Plugin interface
-func (p *MyPlugin) Execute(ctx context.Context, pluginCtx *iora.PluginContext) (map[string]interface{}, error) {
+func (p *MyPlugin) Execute(ctx context.Context, pluginCtx *ora.PluginContext) (map[string]interface{}, error) {
 	// Get settings
 	apiKey := pluginCtx.Settings["api_key"].(string)
 
@@ -134,12 +134,12 @@ func (p *MyPlugin) Execute(ctx context.Context, pluginCtx *iora.PluginContext) (
 }
 
 // OnInstall is called when plugin is installed
-func (p *MyPlugin) OnInstall(ctx context.Context, pluginCtx *iora.PluginContext) error {
+func (p *MyPlugin) OnInstall(ctx context.Context, pluginCtx *ora.PluginContext) error {
 	return pluginCtx.Notify("Plugin Installed", "MyPlugin is ready!", "normal")
 }
 
 // OnSettingsChanged is called when settings change
-func (p *MyPlugin) OnSettingsChanged(ctx context.Context, pluginCtx *iora.PluginContext) error {
+func (p *MyPlugin) OnSettingsChanged(ctx context.Context, pluginCtx *ora.PluginContext) error {
 	return pluginCtx.Notify("Settings Updated", "Plugin settings have changed", "normal")
 }
 
@@ -147,8 +147,8 @@ func main() {
 	plugin := &MyPlugin{}
 
 	// Create context
-	client := iora.NewClient("http://localhost:8080", "api-key")
-	pluginCtx := &iora.PluginContext{
+	client := ora.NewClient("http://localhost:8080", "api-key")
+	pluginCtx := &ora.PluginContext{
 		Client:   client,
 		AppID:    "my-plugin",
 		Settings: map[string]interface{}{"api_key": "test"},
@@ -173,16 +173,16 @@ import (
 	"context"
 	"fmt"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 // TemperatureConverter converts temperature between Celsius and Fahrenheit
 type TemperatureConverter struct {
-	iora.DataProcessorPlugin
+	ora.DataProcessorPlugin
 }
 
 // Process implements data processing
-func (tc *TemperatureConverter) Process(ctx context.Context, pluginCtx *iora.PluginContext, data interface{}) (interface{}, error) {
+func (tc *TemperatureConverter) Process(ctx context.Context, pluginCtx *ora.PluginContext, data interface{}) (interface{}, error) {
 	mode := pluginCtx.Settings["mode"].(string)
 	value := data.(float64)
 
@@ -206,16 +206,16 @@ import (
 	"context"
 	"fmt"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 // MotionLightAutomation turns on lights when motion is detected
 type MotionLightAutomation struct {
-	iora.AutomationPlugin
+	ora.AutomationPlugin
 }
 
 // OnEvent handles motion events
-func (mla *MotionLightAutomation) OnEvent(ctx context.Context, pluginCtx *iora.PluginContext, event map[string]interface{}) error {
+func (mla *MotionLightAutomation) OnEvent(ctx context.Context, pluginCtx *ora.PluginContext, event map[string]interface{}) error {
 	if event["type"] != "entity_state_changed" {
 		return nil
 	}
@@ -250,12 +250,12 @@ func (mla *MotionLightAutomation) OnEvent(ctx context.Context, pluginCtx *iora.P
 
 ### Client
 
-Main HTTP client for IORA API interactions.
+Main HTTP client for rumahl API interactions.
 
 #### Constructor
 
 ```go
-client := iora.NewClient(baseURL string, apiKey string)
+client := ora.NewClient(baseURL string, apiKey string)
 ```
 
 #### Entity Methods
@@ -268,7 +268,7 @@ entities, err := client.GetEntities()
 entity, err := client.GetEntity("light.bedroom")
 
 // Call service
-err = client.CallService(iora.ServiceCall{
+err = client.CallService(ora.ServiceCall{
 	Domain:      "light",
 	Service:     "turn_on",
 	EntityID:    "light.bedroom",
@@ -284,12 +284,12 @@ err = client.TurnOff("light.bedroom")
 
 ```go
 // Send notification
-err = client.SendNotification(iora.NotificationPayload{
+err = client.SendNotification(ora.NotificationPayload{
 	Title:    "Alert",
 	Message:  "Something happened",
 	Priority: "high",
 	Icon:     "bell",
-	Actions: []iora.NotificationAction{
+	Actions: []ora.NotificationAction{
 		{Action: "view", Title: "View"},
 		{Action: "dismiss", Title: "Dismiss"},
 	},
@@ -331,36 +331,36 @@ err = client.UpdateSettings("app-id", map[string]interface{}{
 Build app manifests with a fluent API.
 
 ```go
-manifest := iora.NewManifestBuilder("my-app", "My App").
+manifest := ora.NewManifestBuilder("my-app", "My App").
 	Version("1.0.0").
 	Developer("Your Name").
-	Description("An awesome IORA app").
-	Permissions([]iora.Permission{
-		iora.PermissionReadEntities,
-		iora.PermissionControlEntities,
-		iora.PermissionStorageWrite,
-		iora.PermissionSendNotifications,
+	Description("An awesome rumahl app").
+	Permissions([]ora.Permission{
+		ora.PermissionReadEntities,
+		ora.PermissionControlEntities,
+		ora.PermissionStorageWrite,
+		ora.PermissionSendNotifications,
 	}).
-	CustomPage(iora.CustomPage{
+	CustomPage(ora.CustomPage{
 		ID:    "dashboard",
 		Title: "Dashboard",
 		Icon:  "chart-line",
 		URL:   "/dashboard",
 		Iframe: true,
-		IframeConfig: &iora.IframeConfig{
+		IframeConfig: &ora.IframeConfig{
 			Sandbox:       []string{"allow-scripts", "allow-same-origin"},
 			Allow:         []string{"camera", "microphone"},
 			SecurityToken: true,
 		},
 	}).
-	NetworkAccess(iora.NetworkAccessConfig{
+	NetworkAccess(ora.NetworkAccessConfig{
 		AllowedDomains:   []string{"api.example.com"},
 		AllowUserDomains: true,
 	}).
-	SettingsSchema(iora.SettingsSchema{
+	SettingsSchema(ora.SettingsSchema{
 		Title:       "App Settings",
 		Description: "Configure your app",
-		Fields: []iora.SettingsField{
+		Fields: []ora.SettingsField{
 			{
 				Key:      "api_key",
 				Label:    "API Key",
@@ -372,20 +372,20 @@ manifest := iora.NewManifestBuilder("my-app", "My App").
 				Label:   "Update Interval (seconds)",
 				Type:    "number",
 				Default: 60,
-				Validation: &iora.FieldValidation{
+				Validation: &ora.FieldValidation{
 					Min: intPtr(10),
 					Max: intPtr(3600),
 				},
 			},
 		},
 	}).
-	Docker(iora.DockerConfig{
+	Docker(ora.DockerConfig{
 		AutoBuild:  true,
 		BaseImage:  "golang:1.21-alpine",
 		WorkingDir: "/app",
 		InstallCmd: "go mod download",
 		StartCmd:   "go run main.go",
-		InternalPorts: []iora.PortConfig{
+		InternalPorts: []ora.PortConfig{
 			{
 				Port:           8000,
 				Protocol:       "tcp",
@@ -409,36 +409,36 @@ jsonStr, err := manifest.ToJSON()
 
 ```go
 // Use permissions
-perms := []iora.Permission{
-	iora.PermissionReadEntities,
-	iora.PermissionControlEntities,
-	iora.PermissionNetworkAccess,
+perms := []ora.Permission{
+	ora.PermissionReadEntities,
+	ora.PermissionControlEntities,
+	ora.PermissionNetworkAccess,
 }
 
 // Get risk level
-risk := iora.GetPermissionRiskLevel(iora.PermissionNetworkScan)
-// Returns: iora.RiskLevelCritical
+risk := ora.GetPermissionRiskLevel(ora.PermissionNetworkScan)
+// Returns: ora.RiskLevelCritical
 
 // Get description
-desc := iora.GetPermissionDescription(iora.PermissionCameraAccess)
+desc := ora.GetPermissionDescription(ora.PermissionCameraAccess)
 // Returns: "Access camera"
 
 // All available permissions
-iora.PermissionReadEntities
-iora.PermissionControlEntities
-iora.PermissionCreateEntities
-iora.PermissionDeleteEntities
-iora.PermissionStorageRead
-iora.PermissionStorageWrite
-iora.PermissionStorageDelete
-iora.PermissionNetworkAccess
-iora.PermissionNetworkOutbound
-iora.PermissionNetworkInbound
-iora.PermissionNetworkScan
-iora.PermissionNetworkLocalAccess
-iora.PermissionSystemInfo
-iora.PermissionSystemControl
-iora.PermissionSystemRestart
+ora.PermissionReadEntities
+ora.PermissionControlEntities
+ora.PermissionCreateEntities
+ora.PermissionDeleteEntities
+ora.PermissionStorageRead
+ora.PermissionStorageWrite
+ora.PermissionStorageDelete
+ora.PermissionNetworkAccess
+ora.PermissionNetworkOutbound
+ora.PermissionNetworkInbound
+ora.PermissionNetworkScan
+ora.PermissionNetworkLocalAccess
+ora.PermissionSystemInfo
+ora.PermissionSystemControl
+ora.PermissionSystemRestart
 // ... and more
 ```
 
@@ -484,17 +484,17 @@ import (
 	"net/http"
 	"time"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 type WeatherApp struct {
-	client *iora.Client
+	client *ora.Client
 	appID  string
 }
 
-func NewWeatherApp(ioraURL, apiKey string) *WeatherApp {
+func NewWeatherApp(oraURL, apiKey string) *WeatherApp {
 	return &WeatherApp{
-		client: iora.NewClient(ioraURL, apiKey),
+		client: ora.NewClient(oraURL, apiKey),
 		appID:  "weather-app",
 	}
 }
@@ -545,7 +545,7 @@ func (wa *WeatherApp) updateWeather(apiKey string) error {
 	// Check for alerts
 	if severity, ok := weather["severity"].(string); ok && severity == "high" {
 		condition := weather["condition"].(string)
-		err = wa.client.SendNotification(iora.NotificationPayload{
+		err = wa.client.SendNotification(ora.NotificationPayload{
 			Title:    "Severe Weather Alert",
 			Message:  fmt.Sprintf("%s expected in your area", condition),
 			Priority: "high",
@@ -558,24 +558,24 @@ func (wa *WeatherApp) updateWeather(apiKey string) error {
 	return nil
 }
 
-func createManifest() (*iora.AppManifest, error) {
-	manifest := iora.NewManifestBuilder("weather-app", "Weather Dashboard").
+func createManifest() (*ora.AppManifest, error) {
+	manifest := ora.NewManifestBuilder("weather-app", "Weather Dashboard").
 		Version("1.0.0").
 		Developer("Your Name").
 		Description("Real-time weather monitoring and alerts").
-		Permissions([]iora.Permission{
-			iora.PermissionStorageWrite,
-			iora.PermissionSendNotifications,
-			iora.PermissionNetworkOutbound,
+		Permissions([]ora.Permission{
+			ora.PermissionStorageWrite,
+			ora.PermissionSendNotifications,
+			ora.PermissionNetworkOutbound,
 		}).
-		NetworkAccess(iora.NetworkAccessConfig{
+		NetworkAccess(ora.NetworkAccessConfig{
 			AllowedDomains:   []string{"api.weather.com"},
 			AllowUserDomains: false,
 		}).
-		SettingsSchema(iora.SettingsSchema{
+		SettingsSchema(ora.SettingsSchema{
 			Title:       "Weather Settings",
 			Description: "Configure weather app",
-			Fields: []iora.SettingsField{
+			Fields: []ora.SettingsField{
 				{
 					Key:      "weather_api_key",
 					Label:    "Weather API Key",
@@ -587,7 +587,7 @@ func createManifest() (*iora.AppManifest, error) {
 					Label:   "Update Interval (seconds)",
 					Type:    "number",
 					Default: 300,
-					Validation: &iora.FieldValidation{
+					Validation: &ora.FieldValidation{
 						Min: intPtr(60),
 						Max: intPtr(3600),
 					},
@@ -626,7 +626,7 @@ func main() {
 
 ```bash
 go mod init my-app
-go get github.com/iora/iora-sdk-go
+go get github.com/ora/rumahl-sdk-go
 ```
 
 ### 2. Build
@@ -671,7 +671,7 @@ if err != nil {
 ### 2. Context Usage
 
 ```go
-func (p *MyPlugin) Execute(ctx context.Context, pluginCtx *iora.PluginContext) (map[string]interface{}, error) {
+func (p *MyPlugin) Execute(ctx context.Context, pluginCtx *ora.PluginContext) (map[string]interface{}, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -705,9 +705,9 @@ if err := app.Run(ctx); err != nil && err != context.Canceled {
 Only request permissions you actually need:
 
 ```go
-.Permissions([]iora.Permission{
-	iora.PermissionReadEntities,  // Only if you need to read
-	iora.PermissionStorageRead,   // Only if you need storage
+.Permissions([]ora.Permission{
+	ora.PermissionReadEntities,  // Only if you need to read
+	ora.PermissionStorageRead,   // Only if you need storage
 })
 ```
 
@@ -724,6 +724,6 @@ MIT
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/iora/iora-sdk-go
-- Documentation: https://docs.iora.io
-- Community: https://community.iora.io
+- GitHub Issues: https://github.com/ora/rumahl-sdk-go
+- Documentation: https://docs.ora.io
+- Community: https://community.ora.io

@@ -1,5 +1,5 @@
-// Package iora provides manifest builder and types
-package iora
+// Package ora provides manifest builder and types
+package ora
 
 import (
 	"encoding/json"

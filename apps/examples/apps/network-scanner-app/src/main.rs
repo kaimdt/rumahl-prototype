@@ -23,7 +23,7 @@ use scanner::NetworkScanner;
 #[derive(Clone)]
 struct AppState {
     scanner: Arc<RwLock<NetworkScanner>>,
-    iora_client: Arc<iora_sdk::IoraClient>,
+    rumahl_client: Arc<rumahl_sdk::rumahlClient>,
     discovered_devices: Arc<RwLock<HashMap<IpAddr, DiscoveredDevice>>>,
 }
 
@@ -54,17 +54,17 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting Network Scanner App v1.0.0");
 
-    // Get IORA base URL from environment
-    let iora_url = std::env::var("IORA_BASE_URL").unwrap_or_else(|_| "http://iora-home:8080".to_string());
-    let api_key = std::env::var("IORA_API_KEY").ok();
+    // Get rumahl base URL from environment
+    let rumahl_url = std::env::var("RUMAHL_BASE_URL").unwrap_or_else(|_| "http://rumahl-home:8080".to_string());
+    let api_key = std::env::var("RUMAHL_API_KEY").ok();
 
-    // Create IORA client
-    let mut client = iora_sdk::IoraClient::new(&iora_url);
+    // Create rumahl client
+    let mut client = rumahl_sdk::rumahlClient::new(&rumahl_url);
     if let Some(key) = api_key {
         client = client.with_api_key(key);
     }
 
-    // Load settings from IORA
+    // Load settings from rumahl
     let settings = match client.settings().get("network-scanner").await {
         Ok(s) => s,
         Err(e) => {
@@ -88,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
     // Create app state
     let state = AppState {
         scanner: Arc::new(RwLock::new(scanner)),
-        iora_client: Arc::new(client),
+        rumahl_client: Arc::new(client),
         discovered_devices: Arc::new(RwLock::new(HashMap::new())),
     };
 
@@ -204,7 +204,7 @@ async fn get_device(
 /// Serve widget JavaScript
 async fn serve_widget() -> impl IntoResponse {
     let widget_js = r#"
-// IORA Network Scanner Widget
+// rumahl Network Scanner Widget
 class NetworkScannerWidget {
     constructor(config) {
         this.config = config;
@@ -417,8 +417,8 @@ async fn background_scanner(state: AppState, interval_secs: u64) {
     }
 }
 
-fn default_settings() -> iora_sdk::types::AppSettings {
-    iora_sdk::types::AppSettings {
+fn default_settings() -> rumahl_sdk::types::AppSettings {
+    rumahl_sdk::types::AppSettings {
         app_id: "network-scanner".to_string(),
         settings: {
             let mut map = HashMap::new();

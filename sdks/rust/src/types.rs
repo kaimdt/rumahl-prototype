@@ -41,7 +41,7 @@ pub struct HealthStatus {
     pub details: Option<HashMap<String, serde_json::Value>>,
 }
 
-/// File metadata from iora-share
+/// File metadata from rumahl-share
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMetadata {
     pub id: String,

@@ -1,7 +1,7 @@
-#include "iora/permissions.hpp"
+#include "ora/permissions.hpp"
 #include <unordered_map>
 
-namespace iora {
+namespace ora {
 
 std::string permission_to_string(Permission permission) {
     static const std::unordered_map<Permission, std::string> permission_strings = {
@@ -103,7 +103,7 @@ std::string get_permission_description(Permission permission) {
         {Permission::NETWORK_LOCAL_ACCESS, "Access local network devices"},
         {Permission::SYSTEM_INFO, "Read system information"},
         {Permission::SYSTEM_CONTROL, "Control system settings"},
-        {Permission::SYSTEM_RESTART, "Restart IORA system"},
+        {Permission::SYSTEM_RESTART, "Restart rumahl system"},
         {Permission::DATABASE_READ, "Read from database"},
         {Permission::DATABASE_WRITE, "Write to database"},
         {Permission::DATABASE_CREATE, "Create database tables"},
@@ -133,4 +133,4 @@ std::string get_permission_description(Permission permission) {
     return "Unknown permission";
 }
 
-} // namespace iora
+} // namespace ora

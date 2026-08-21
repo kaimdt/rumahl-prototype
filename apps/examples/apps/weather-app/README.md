@@ -1,6 +1,6 @@
 # Wetter-Dienst (Weather Service) - Beispiel App
 
-Ein vollständiges Beispiel für eine IORA App, die als Docker Container läuft.
+Ein vollständiges Beispiel für eine rumahl App, die als Docker Container läuft.
 
 ## Überblick
 
@@ -17,8 +17,8 @@ Der Wetter-Dienst ist eine Node.js-Anwendung, die:
 - ✅ **REST API**: Aktuelle Wetterdaten und 7-Tage Vorhersage
 - ✅ **Caching**: Reduziert externe API-Aufrufe
 - ✅ **Health Checks**: Überwacht Service-Status
-- ✅ **Dashboard Widget**: Zeigt Wetter direkt im IORA Dashboard
-- ✅ **Crash-Sicher**: Bei Absturz bleibt IORA System funktionsfähig
+- ✅ **Dashboard Widget**: Zeigt Wetter direkt im rumahl Dashboard
+- ✅ **Crash-Sicher**: Bei Absturz bleibt rumahl System funktionsfähig
 
 ## Struktur
 
@@ -39,7 +39,7 @@ weather-app/
 ### 1. Registrierung
 
 ```bash
-curl -X POST http://iora-supervisor:8097/api/supervisor/apps/register \
+curl -X POST http://rumahl-supervisor:8097/api/supervisor/apps/register \
   -H "Content-Type: application/json" \
   -d @manifest.json
 ```
@@ -53,7 +53,7 @@ Ein Administrator muss die App im Admin Panel unter "Registrierungen" genehmigen
 Nach Genehmigung wird die App automatisch:
 - Als Docker Container gebaut (basierend auf `manifest.json`)
 - Gestartet
-- Bei IORA registriert
+- Bei rumahl registriert
 
 ## Verwendung
 
@@ -62,7 +62,7 @@ Nach Genehmigung wird die App automatisch:
 #### Aktuelle Wetterdaten
 
 ```bash
-curl http://iora-core:8090/api/gateway/weather/current \
+curl http://rumahl-core:8090/api/gateway/weather/current \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -81,7 +81,7 @@ Antwort:
 #### 7-Tage Vorhersage
 
 ```bash
-curl http://iora-core:8090/api/gateway/weather/forecast \
+curl http://rumahl-core:8090/api/gateway/weather/forecast \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -111,7 +111,7 @@ Die App wird automatisch containerisiert basierend auf der `docker`-Konfiguratio
 }
 ```
 
-IORA erstellt automatisch ein Dockerfile:
+rumahl erstellt automatisch ein Dockerfile:
 
 ```dockerfile
 FROM node:18-alpine
@@ -159,18 +159,18 @@ docker push ghcr.io/your-org/weather-app:1.0.0
 
 ```bash
 # Deaktivieren (stoppt Container)
-curl -X POST http://iora-supervisor:8097/api/supervisor/apps/weather-service/disable \
+curl -X POST http://rumahl-supervisor:8097/api/supervisor/apps/weather-service/disable \
   -H "Authorization: Bearer ADMIN_TOKEN"
 
 # Aktivieren (startet Container)
-curl -X POST http://iora-supervisor:8097/api/supervisor/apps/weather-service/enable \
+curl -X POST http://rumahl-supervisor:8097/api/supervisor/apps/weather-service/enable \
   -H "Authorization: Bearer ADMIN_TOKEN"
 ```
 
 ## Deinstallation
 
 ```bash
-curl -X DELETE http://iora-supervisor:8097/api/supervisor/apps/weather-service \
+curl -X DELETE http://rumahl-supervisor:8097/api/supervisor/apps/weather-service \
   -H "Authorization: Bearer ADMIN_TOKEN"
 ```
 
@@ -231,12 +231,12 @@ curl http://weather-service:3000/api/weather/health
 ### Widget wird nicht angezeigt
 
 - Widget wird nur angezeigt, wenn der Container läuft
-- Bei Absturz zeigt IORA eine "nicht verfügbar" Nachricht
+- Bei Absturz zeigt rumahl eine "nicht verfügbar" Nachricht
 - Prüfen Sie den Container-Status im Admin Panel
 
 ## Best Practices
 
-1. **Implementieren Sie Health Checks**: Zeigt IORA den Service-Status
+1. **Implementieren Sie Health Checks**: Zeigt rumahl den Service-Status
 2. **Verwenden Sie Caching**: Reduziert Last auf externe APIs
 3. **Behandeln Sie Timeouts**: API Gateway timeout ist 30 Sekunden
 4. **Loggen Sie angemessen**: Hilft bei Fehlersuche
@@ -244,6 +244,6 @@ curl http://weather-service:3000/api/weather/health
 
 ## Siehe auch
 
-- [IORA SDK Dokumentation](../../IORA_SDK.md)
+- [rumahl SDK Dokumentation](../../RUMAHL_SDK.md)
 - [App & Plugin Isolation](../../APP_PLUGIN_ISOLATION.md)
 - [Notification Plugin Beispiel](../notification-plugin/)

@@ -1,10 +1,10 @@
-#include "iora/client.hpp"
-#include "iora/types.hpp"
+#include "ora/client.hpp"
+#include "ora/types.hpp"
 #include <curl/curl.h>
 #include <stdexcept>
 #include <sstream>
 
-namespace iora {
+namespace ora {
 
 // Helper function for CURL write callback
 static size_t write_callback(void* contents, size_t size, size_t nmemb, std::string* userp) {
@@ -162,4 +162,4 @@ std::string Client::get_entity_domain(const std::string& entity_id) {
     return "";
 }
 
-} // namespace iora
+} // namespace ora

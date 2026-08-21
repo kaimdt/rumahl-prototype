@@ -18,7 +18,7 @@
     name: 'Steampunk Revolution',
   };
 
-  window.__iora_theme = THEME;
+  window.__rumahl_theme = THEME;
   console.log(
     `%c⚙ %c${THEME.name} v${THEME.version} %c– Steam pressure nominal`,
     'color: oklch(0.65 0.18 85); font-size: 14px;',

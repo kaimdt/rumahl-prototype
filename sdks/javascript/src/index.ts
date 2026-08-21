@@ -1,7 +1,7 @@
 /**
- * IORA JavaScript/TypeScript SDK
+ * rumahl JavaScript/TypeScript SDK
  *
- * Provides secure iframe communication and API access for IORA apps
+ * Provides secure iframe communication and API access for rumahl apps
  */
 
 export * from './client';
@@ -30,7 +30,7 @@ export * from './runtime-manager';
 export * from './theme';
 export * from './validation';
 
-export { default as IoraClient } from './client';
-export { default as IoraIframe } from './iframe';
+export { default as rumahlClient } from './client';
+export { default as rumahlIframe } from './iframe';
 export { RuntimeManager } from './runtime-manager';
-export { IoraThemeClient } from './theme';
+export { rumahlThemeClient } from './theme';

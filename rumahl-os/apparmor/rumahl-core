@@ -1,0 +1,30 @@
+#include <tunables/global>
+
+/app/rumahl-core {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # Binary execution
+  /app/rumahl-core r,
+
+  # Network
+  network inet stream,
+  network inet6 stream,
+
+  # PostgreSQL client libraries
+  /usr/lib/** rm,
+
+  # Temporary files
+  /tmp/** rw,
+
+  # Configuration
+  /etc/rumahl/** r,
+
+  # Plugin system (restricted)
+  /opt/rumahl/plugins/** r,
+
+  # No privilege escalation
+  deny capability sys_admin,
+  deny capability sys_module,
+  deny capability sys_ptrace,
+}

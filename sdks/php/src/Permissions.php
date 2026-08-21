@@ -1,9 +1,9 @@
 <?php
 
-namespace Iora;
+namespace rumahl;
 
 /**
- * IORA Permission types
+ * rumahl Permission types
  */
 enum Permission: string
 {
@@ -142,7 +142,7 @@ function getPermissionDescription(Permission $permission): string
         Permission::NETWORK_LOCAL_ACCESS => 'Access local network devices',
         Permission::SYSTEM_INFO => 'Read system information',
         Permission::SYSTEM_CONTROL => 'Control system settings',
-        Permission::SYSTEM_RESTART => 'Restart IORA system',
+        Permission::SYSTEM_RESTART => 'Restart rumahl system',
         Permission::DATABASE_READ => 'Read from database',
         Permission::DATABASE_WRITE => 'Write to database',
         Permission::DATABASE_CREATE => 'Create database tables',
