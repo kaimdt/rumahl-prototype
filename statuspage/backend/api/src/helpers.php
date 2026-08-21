@@ -138,6 +138,7 @@ function settings_get(): array
         'webhook_urls' => list_value($stored['webhook_urls'] ?? $defaults['webhook_urls']),
         'latency_threshold_ms' => (int) ($stored['latency_threshold_ms'] ?? $defaults['latency_threshold_ms']),
         'failure_window' => (int) ($stored['failure_window'] ?? $defaults['failure_window']),
+        'auto_incidents_enabled' => (int) ($stored['auto_incidents_enabled'] ?? $defaults['auto_incidents_enabled']),
     ];
 }
 
@@ -152,6 +153,9 @@ function settings_save(array $settings): void
         'webhook_urls' => json_encode(array_values(array_filter(array_map('trim', $settings['webhook_urls'] ?? [])))),
         'latency_threshold_ms' => max(100, (int) ($settings['latency_threshold_ms'] ?? 3000)),
         'failure_window' => max(1, min(30, (int) ($settings['failure_window'] ?? 5))),
+        'auto_incidents_enabled' => isset($settings['auto_incidents_enabled'])
+            ? ((int) $settings['auto_incidents_enabled'] ? 1 : 0)
+            : 1,
     ];
     foreach ($pairs as $key => $value) {
         db_exec(

@@ -28,7 +28,7 @@ export function SiteFooter() {
             Uptime history
           </Link>
           <Link
-            href="/api/feed"
+            href="/rss"
             className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
           >
             <Rss className="h-3.5 w-3.5" />

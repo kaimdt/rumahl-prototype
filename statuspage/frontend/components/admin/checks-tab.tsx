@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Play, XCircle } from "lucide-react";
+import { CheckCircle2, Play, TriangleAlert, XCircle } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type { CheckResult, Component } from "@/lib/types";
 import { Button, SectionCard, Select } from "@/components/admin/ui";
@@ -93,40 +93,55 @@ export function ChecksTab() {
               <thead>
                 <tr className="border-b border-border/30 bg-muted/20 text-[10.5px] uppercase tracking-wider text-muted-foreground">
                   <th className="px-3 py-2 font-bold">Result</th>
+                  <th className="px-3 py-2 font-bold">Component</th>
+                  <th className="px-3 py-2 font-bold">Type</th>
                   <th className="px-3 py-2 font-bold">Latency</th>
-                  <th className="px-3 py-2 font-bold">HTTP</th>
+                  <th className="px-3 py-2 font-bold">Code</th>
                   <th className="px-3 py-2 font-bold">Error</th>
                   <th className="px-3 py-2 font-bold">Checked at</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/15">
-                {results.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-3 py-2">
-                      {r.ok ? (
-                        <span className="inline-flex items-center gap-1 font-semibold text-status-operational">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> OK
+                {results.map((r) => {
+                  const softfail = !r.ok && r.softfail;
+                  return (
+                    <tr key={r.id}>
+                      <td className="px-3 py-2">
+                        {r.ok ? (
+                          <span className="inline-flex items-center gap-1 font-semibold text-status-operational">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> OK
+                          </span>
+                        ) : softfail ? (
+                          <span className="inline-flex items-center gap-1 font-semibold text-status-degraded">
+                            <TriangleAlert className="h-3.5 w-3.5" /> SOFTFAIL
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-semibold text-status-major">
+                            <XCircle className="h-3.5 w-3.5" /> FAIL
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{r.component_name}</td>
+                      <td className="px-3 py-2">
+                        <span className="rounded-full border border-border/40 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
+                          {r.check_type}
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 font-semibold text-status-major">
-                          <XCircle className="h-3.5 w-3.5" /> FAIL
-                        </span>
-                      )}
-                    </td>
-                    <td className={cn("px-3 py-2 tabular-nums", r.latency_ms !== null && r.latency_ms > 3000 && "text-status-degraded font-semibold")}>
-                      {r.latency_ms !== null ? `${r.latency_ms} ms` : "—"}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                      {r.status_code ?? "—"}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground max-w-[280px] truncate" title={r.error ?? ""}>
-                      {r.error ?? "—"}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
-                      {new Date(r.checked_at).toLocaleString("en-GB")}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className={cn("px-3 py-2 tabular-nums", r.latency_ms !== null && r.latency_ms > 3000 && "text-status-degraded font-semibold")}>
+                        {r.latency_ms !== null ? `${r.latency_ms} ms` : "—"}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                        {r.status_code ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground max-w-[280px] truncate" title={r.error ?? ""}>
+                        {r.error ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                        {new Date(r.checked_at).toLocaleString("en-GB")}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -61,9 +61,7 @@ export default function StatusPage() {
     );
   }
 
-  const resolved = data.active_incidents.filter(
-    (i) => i.type === "incident" && (i.status === "resolved" || i.status === "completed")
-  );
+  const pastIncidents = data.past_incidents ?? [];
 
   return (
     <>
@@ -87,11 +85,11 @@ export default function StatusPage() {
           </section>
         )}
 
-        {resolved.length > 0 && (
+        {pastIncidents.length > 0 && (
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                Recent Incidents
+                Past Incidents
               </h2>
               <Link
                 href="/incidents/"
@@ -100,11 +98,11 @@ export default function StatusPage() {
                 View all <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
-            <IncidentList incidents={resolved.slice(0, 5)} compact />
+            <IncidentList incidents={pastIncidents.slice(0, 5)} compact />
           </section>
         )}
 
-        {data.active_incidents.length === 0 && resolved.length === 0 && (
+        {data.active_incidents.length === 0 && pastIncidents.length === 0 && (
           <div className="surface-card p-6 text-center">
             <p className="text-sm text-muted-foreground">
               No active incidents — all systems running normally.

@@ -81,10 +81,12 @@ function components_with_status(): array
             'name' => $row['name'],
             'description' => $row['description'],
             'kind' => $row['kind'],
+            'check_type' => (string) ($row['check_type'] ?? 'http'),
             'endpoint_url' => $row['endpoint_url'],
             'method' => $row['method'],
             'expected_status' => (int) $row['expected_status'],
             'timeout_ms' => (int) $row['timeout_ms'],
+            'headers' => $row['headers'] !== null ? json_decode((string) $row['headers'], true) : null,
             'position' => (int) $row['position'],
             'enabled' => (bool) $row['enabled'],
             'status' => $status,
@@ -204,6 +206,11 @@ function build_status_response(): array
         [],
         20
     );
+    $past = incidents_full(
+        "type = 'incident' AND status IN ('resolved','completed')",
+        [],
+        5
+    );
 
     return [
         'page' => [
@@ -216,6 +223,7 @@ function build_status_response(): array
         'groups' => components_grouped($components),
         'active_incidents' => $active,
         'scheduled_maintenance' => $maintenance,
+        'past_incidents' => $past,
     ];
 }
 

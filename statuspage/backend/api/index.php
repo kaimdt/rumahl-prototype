@@ -7,7 +7,9 @@
  *   GET  /api/status.json        statuspage.io-style machine output
  *   GET  /api/uptime             daily uptime for one component
  *   GET  /api/incidents          incident list (pagination) or ?id= detail
- *   GET  /api/feed               RSS feed of incidents
+ *   GET  /api/rss                RSS feed of incidents & maintenance
+ *   GET  /api/feed               alias of /api/rss (kept for compatibility)
+ *   GET  /api/favicon.svg        status-colored favicon (green/yellow/orange/red/blue)
  *   POST /api/admin/auth/verify  check admin token
  *   GET  /api/admin/settings     GET/POST settings
  *   GET  /api/admin/components   components with groups
@@ -63,8 +65,11 @@ function route(string $method, string $path): never
     if ($method === 'GET' && $path === '/incidents') {
         route_incidents();
     }
-    if ($method === 'GET' && $path === '/feed') {
+    if ($method === 'GET' && ($path === '/rss' || $path === '/feed')) {
         route_feed();
+    }
+    if ($method === 'GET' && $path === '/favicon.svg') {
+        route_favicon();
     }
 
     // ── Admin ───────────────────────────────────────────────────
@@ -201,20 +206,25 @@ function route_incidents(): never
 function route_feed(): never
 {
     $settings = settings_get();
-    $incidents = incidents_full("type = 'incident'", [], 20);
+    $incidents = incidents_full("type IN ('incident','maintenance')", [], 20);
 
     $items = '';
     foreach ($incidents as $incident) {
-        $pubDate = gmdate('D, d M Y H:i:s', strtotime($incident['updated_at']));
+        $pubDate = gmdate('D, d M Y H:i:s', strtotime($incident['updated_at'])) . ' +0000';
         $link = $settings['page_url'] . '/incidents/?id=' . urlencode($incident['id']);
-        $title = htmlspecialchars($incident['title'], ENT_XML1);
+        $title = htmlspecialchars(
+            ($incident['type'] === 'maintenance' ? '[Maintenance] ' : '') . $incident['title'],
+            ENT_XML1
+        );
         $lastUpdate = $incident['updates'] === []
             ? $incident['title']
             : $incident['updates'][count($incident['updates']) - 1]['message'];
         $description = htmlspecialchars($lastUpdate, ENT_XML1);
+        $category = $incident['type'] === 'maintenance' ? 'Maintenance' : 'Incident';
         $items .= "<item><title>{$title}</title><link>{$link}</link>"
             . "<guid isPermaLink=\"false\">rumahl-status-{$incident['id']}</guid>"
-            . "<pubDate>{$pubDate}</pubDate><description>{$description}</description></item>";
+            . "<pubDate>{$pubDate}</pubDate><category>{$category}</category>"
+            . "<description>{$description}</description></item>";
     }
 
     header('Content-Type: application/rss+xml; charset=utf-8');
@@ -222,9 +232,38 @@ function route_feed(): never
     echo '<rss version="2.0"><channel>'
         . '<title>' . htmlspecialchars($settings['page_name']) . ' — Incidents</title>'
         . '<link>' . htmlspecialchars($settings['page_url']) . '</link>'
-        . '<description>Incident history for the rumahl platform.</description>'
+        . '<description>Incident and maintenance history for the rumahl platform.</description>'
         . '<language>en</language>'
         . $items
         . '</channel></rss>';
+    exit;
+}
+
+/**
+ * Status-colored favicon (the “r” mark):
+ *   green  = all systems operational
+ *   yellow = degraded performance
+ *   orange = partial outage
+ *   red    = major outage
+ *   blue   = scheduled maintenance active (takes priority)
+ */
+function route_favicon(): never
+{
+    $status = build_status_response();
+    $maintenanceActive = $status['scheduled_maintenance'] !== [];
+    $color = match (true) {
+        $maintenanceActive => '3b82f6', // blue
+        $status['overall'] === 'major_outage' => 'ef4444',
+        $status['overall'] === 'partial_outage' => 'f97316',
+        $status['overall'] === 'degraded' => 'eab308',
+        default => '22c55e',
+    };
+
+    header('Content-Type: image/svg+xml; charset=utf-8');
+    header('Cache-Control: no-store, max-age=0');
+    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-40 50 230 270">'
+        . '<rect x="-40" y="50" width="230" height="270" rx="58" fill="#0d1117"/>'
+        . '<path fill="#' . $color . '" d="m 22,284 q -4,0 -4,-4 V 171 c 0,-52 34,-86 85,-86 h 17 q 4,0 4,4 v 36 q 0,4 -4,4 h -13 c -28,0 -46,17 -46,45 v 106 q 0,4 -4,4 z"/>'
+        . '</svg>';
     exit;
 }

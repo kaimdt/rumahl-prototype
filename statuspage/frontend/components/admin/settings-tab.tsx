@@ -83,6 +83,25 @@ export function SettingsTab() {
               onChange={(e) => set("failure_window", Number(e.target.value) || 5)}
             />
           </Field>
+          <div className="sm:col-span-2">
+            <label className="flex items-center gap-3 rounded-xl border border-border/30 bg-muted/10 px-4 py-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.auto_incidents_enabled === 1}
+                onChange={(e) => set("auto_incidents_enabled", e.target.checked ? 1 : 0)}
+                className="h-4 w-4 accent-[hsl(var(--primary))]"
+              />
+              <span>
+                <span className="block text-[13px] font-semibold text-foreground">
+                  Create incidents automatically on outages
+                </span>
+                <span className="block text-[11.5px] text-muted-foreground mt-0.5">
+                  When a component drops to partial or major outage, an incident is created
+                  automatically and resolved once the component recovers.
+                </span>
+              </span>
+            </label>
+          </div>
         </div>
       </SectionCard>
 

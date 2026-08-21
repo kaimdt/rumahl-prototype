@@ -5,12 +5,13 @@ import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type {
   AdminComponentInput,
+  CheckType,
   Component,
   ComponentGroup,
   ComponentKind,
   ComponentStatus,
 } from "@/lib/types";
-import { Button, Field, Input, SectionCard, Select } from "@/components/admin/ui";
+import { Button, Field, Input, SectionCard, Select, Textarea } from "@/components/admin/ui";
 import { cn } from "@/lib/utils";
 
 interface GroupFull extends ComponentGroup {
@@ -23,11 +24,25 @@ const EMPTY_FORM: AdminComponentInput & { manual_status: ComponentStatus } = {
   name: "",
   description: "",
   kind: "manual",
+  check_type: "http",
   endpoint_url: "",
   method: "GET",
   expected_status: 200,
   timeout_ms: 10000,
+  headers: [],
   manual_status: "operational",
+};
+
+const ENDPOINT_HINT: Record<CheckType, string> = {
+  http: "e.g. https://rumahl.com/health or https://status.rumahl.com/api/status",
+  tcp: "e.g. db.internal:3306 or https://example.com (connects to 443)",
+  ping: "Hostname or IPv4 address, e.g. rumahl.com or 8.8.8.8 (ICMP)",
+};
+
+const CHECK_TYPE_LABEL: Record<CheckType, string> = {
+  http: "HTTP(S) request",
+  tcp: "TCP port reachable",
+  ping: "ICMP ping",
 };
 
 export function ComponentsTab() {
@@ -167,10 +182,24 @@ export function ComponentsTab() {
               value={form.kind}
               onChange={(e) => set("kind", e.target.value as ComponentKind)}
             >
-              <option value="auto">Auto (HTTP check)</option>
+              <option value="auto">Auto (monitored)</option>
               <option value="manual">Manual (status set by admin)</option>
             </Select>
           </Field>
+          {form.kind === "auto" && (
+            <Field label="Check type">
+              <Select
+                value={form.check_type}
+                onChange={(e) => set("check_type", e.target.value as CheckType)}
+              >
+                {(Object.keys(CHECK_TYPE_LABEL) as CheckType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {CHECK_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Field label="Manual status" hint="Used when type is manual">
             <Select
               value={form.manual_status}
@@ -186,28 +215,32 @@ export function ComponentsTab() {
           {form.kind === "auto" && (
             <>
               <div className="sm:col-span-2">
-                <Field label="Endpoint URL *" hint="e.g. https://rumahl.com/health or https://status.rumahl.com/api/status">
+                <Field label="Endpoint *" hint={ENDPOINT_HINT[form.check_type ?? "http"]}>
                   <Input
                     value={form.endpoint_url}
                     onChange={(e) => set("endpoint_url", e.target.value)}
-                    placeholder="https://…"
+                    placeholder={form.check_type === "ping" ? "example.com" : "https://…"}
                   />
                 </Field>
               </div>
-              <Field label="Method">
-                <Select value={form.method} onChange={(e) => set("method", e.target.value)}>
-                  {["GET", "HEAD", "POST", "OPTIONS"].map((m) => (
-                    <option key={m}>{m}</option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Expected status">
-                <Input
-                  type="number"
-                  value={form.expected_status}
-                  onChange={(e) => set("expected_status", Number(e.target.value) || 200)}
-                />
-              </Field>
+              {form.check_type === "http" && (
+                <>
+                  <Field label="Method">
+                    <Select value={form.method} onChange={(e) => set("method", e.target.value)}>
+                      {["GET", "HEAD", "POST", "OPTIONS"].map((m) => (
+                        <option key={m}>{m}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Expected status">
+                    <Input
+                      type="number"
+                      value={form.expected_status}
+                      onChange={(e) => set("expected_status", Number(e.target.value) || 200)}
+                    />
+                  </Field>
+                </>
+              )}
               <Field label="Timeout (ms)">
                 <Input
                   type="number"
@@ -215,6 +248,26 @@ export function ComponentsTab() {
                   onChange={(e) => set("timeout_ms", Number(e.target.value) || 10000)}
                 />
               </Field>
+              {form.check_type === "http" && (
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Custom headers"
+                    hint='One "Name: value" per line — sent with every request'
+                  >
+                    <Textarea
+                      value={(form.headers ?? []).join("\n")}
+                      onChange={(e) =>
+                        set(
+                          "headers",
+                          e.target.value.split(/\r?\n/).map((v) => v.trim()).filter(Boolean)
+                        )
+                      }
+                      placeholder={'Authorization: Bearer token\nX-API-Key: secret'}
+                      rows={3}
+                    />
+                  </Field>
+                </div>
+              )}
             </>
           )}
           <div className="sm:col-span-2 flex items-center gap-3">
@@ -307,10 +360,12 @@ export function ComponentsTab() {
                             name: component.name,
                             description: component.description,
                             kind: component.kind,
+                            check_type: component.check_type,
                             endpoint_url: component.endpoint_url,
                             method: component.method,
                             expected_status: component.expected_status,
                             timeout_ms: component.timeout_ms,
+                            headers: component.headers ?? [],
                             manual_status: component.status,
                           })
                         }

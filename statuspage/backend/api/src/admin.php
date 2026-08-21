@@ -31,6 +31,10 @@ function admin_components_save(): never
         json_error('Component name is required');
     }
     $kind = ($input['kind'] ?? 'manual') === 'auto' ? 'auto' : 'manual';
+    $checkType = in_array($input['check_type'] ?? '', ['http', 'tcp', 'ping'], true)
+        ? $input['check_type']
+        : 'http';
+    $headers = component_headers_json($input['headers'] ?? null);
 
     if (!empty($input['id'])) {
         // Update existing component
@@ -43,18 +47,20 @@ function admin_components_save(): never
             'group_id' => ($input['group_id'] ?? $existing['group_id']) ?: null,
             'description' => (string) ($input['description'] ?? $existing['description']),
             'kind' => $kind,
+            'check_type' => $checkType,
             'endpoint_url' => (string) ($input['endpoint_url'] ?? $existing['endpoint_url']),
             'method' => strtoupper((string) ($input['method'] ?? $existing['method'])),
             'expected_status' => (int) ($input['expected_status'] ?? $existing['expected_status']),
             'timeout_ms' => max(500, (int) ($input['timeout_ms'] ?? $existing['timeout_ms'])),
+            'headers' => $headers,
             'enabled' => isset($input['enabled']) ? ($input['enabled'] ? 1 : 0) : (int) $existing['enabled'],
             'updated_at' => now_utc(),
         ];
         db_exec(
             'UPDATE components SET name=:name, group_id=:group_id, description=:description,
-                    kind=:kind, endpoint_url=:endpoint_url, method=:method,
+                    kind=:kind, check_type=:check_type, endpoint_url=:endpoint_url, method=:method,
                     expected_status=:expected_status, timeout_ms=:timeout_ms,
-                    enabled=:enabled, updated_at=:updated_at
+                    headers=:headers, enabled=:enabled, updated_at=:updated_at
               WHERE id = :id',
             array_merge($fields, ['id' => $input['id']])
         );
@@ -72,19 +78,21 @@ function admin_components_save(): never
     // Create
     $id = uuid4();
     db_exec(
-        'INSERT INTO components (id, group_id, name, description, kind, endpoint_url,
-                                 method, expected_status, timeout_ms, position, enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO components (id, group_id, name, description, kind, check_type, endpoint_url,
+                                 method, expected_status, timeout_ms, headers, position, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
             $id,
             ($input['group_id'] ?? null) ?: null,
             $name,
             (string) ($input['description'] ?? ''),
             $kind,
+            $checkType,
             (string) ($input['endpoint_url'] ?? ''),
             strtoupper((string) ($input['method'] ?? 'GET')),
             (int) ($input['expected_status'] ?? 200),
             max(500, (int) ($input['timeout_ms'] ?? 10000)),
+            $headers,
             (int) ($input['position'] ?? 0),
             isset($input['enabled']) ? ($input['enabled'] ? 1 : 0) : 1,
             now_utc(),
@@ -288,12 +296,19 @@ function admin_checks_log(): never
     $limit = max(1, min(200, (int) ($_GET['limit'] ?? 40)));
     if ($componentId !== '') {
         $rows = db_all(
-            'SELECT * FROM check_results WHERE component_id = ? ORDER BY checked_at DESC, id DESC LIMIT ?',
+            'SELECT cr.*, c.name AS component_name, c.check_type
+               FROM check_results cr
+               JOIN components c ON c.id = cr.component_id
+              WHERE cr.component_id = ?
+              ORDER BY cr.checked_at DESC, cr.id DESC LIMIT ?',
             [$componentId, $limit]
         );
     } else {
         $rows = db_all(
-            'SELECT * FROM check_results ORDER BY checked_at DESC, id DESC LIMIT ?',
+            'SELECT cr.*, c.name AS component_name, c.check_type
+               FROM check_results cr
+               JOIN components c ON c.id = cr.component_id
+              ORDER BY cr.checked_at DESC, cr.id DESC LIMIT ?',
             [$limit]
         );
     }
@@ -301,11 +316,39 @@ function admin_checks_log(): never
         return [
             'id' => (int) $row['id'],
             'component_id' => $row['component_id'],
+            'component_name' => $row['component_name'],
+            'check_type' => (string) ($row['check_type'] ?? 'http'),
             'ok' => (bool) $row['ok'],
+            'softfail' => (bool) $row['softfail'],
             'latency_ms' => $row['latency_ms'] !== null ? (int) $row['latency_ms'] : null,
             'status_code' => $row['status_code'] !== null ? (int) $row['status_code'] : null,
             'error' => $row['error'],
             'checked_at' => iso($row['checked_at']),
         ];
     }, $rows));
+}
+
+/** Normalize the headers input to a JSON string of "Name: value" lines. */
+function component_headers_json(mixed $input): ?string
+{
+    $lines = [];
+    if (is_string($input)) {
+        $decoded = json_decode($input, true);
+        $candidate = is_array($decoded) ? $decoded : preg_split('/\r?\n/', $input);
+    } elseif (is_array($input)) {
+        $candidate = $input;
+    } else {
+        $candidate = [];
+    }
+    foreach ((array) $candidate as $line) {
+        if (!is_string($line)) {
+            continue;
+        }
+        $line = trim($line);
+        if ($line === '' || !str_contains($line, ':') || preg_match('/[\r\n]/', $line)) {
+            continue;
+        }
+        $lines[] = $line;
+    }
+    return $lines === [] ? null : json_encode($lines, JSON_UNESCAPED_SLASHES);
 }

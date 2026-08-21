@@ -9,6 +9,8 @@ export type ComponentStatus =
   | "partial_outage"
   | "major_outage";
 
+export type CheckType = "http" | "tcp" | "ping";
+
 export type IncidentStatus =
   | "investigating"
   | "identified"
@@ -35,10 +37,13 @@ export interface Component {
   name: string;
   description: string;
   kind: ComponentKind;
+  check_type: CheckType;
   endpoint_url: string;
   method: string;
   expected_status: number;
   timeout_ms: number;
+  /** custom request headers, e.g. ["Authorization: Bearer …"] */
+  headers: string[] | null;
   position: number;
   enabled: boolean;
   /** current status — derived (auto) or manually set (manual) */
@@ -85,6 +90,8 @@ export interface StatusResponse {
   groups: ComponentGroup[];
   active_incidents: Incident[];
   scheduled_maintenance: Incident[];
+  /** most recent resolved incidents (shown at the bottom of the overview) */
+  past_incidents: Incident[];
 }
 
 export interface UptimeDay {
@@ -103,7 +110,11 @@ export interface UptimeResponse {
 export interface CheckResult {
   id: number;
   component_id: string;
+  component_name: string;
+  check_type: CheckType;
   ok: boolean;
+  /** answered, but response did not match expectations (e.g. HTTP 308 vs 200) */
+  softfail: boolean;
   latency_ms: number | null;
   status_code: number | null;
   error: string | null;
@@ -118,10 +129,12 @@ export interface AdminComponentInput {
   name: string;
   description?: string;
   kind: ComponentKind;
+  check_type?: CheckType;
   endpoint_url?: string;
   method?: string;
   expected_status?: number;
   timeout_ms?: number;
+  headers?: string[];
   position?: number;
   enabled?: boolean;
   manual_status?: ComponentStatus;
@@ -148,4 +161,5 @@ export interface Settings {
   webhook_urls: string[];
   latency_threshold_ms: number;
   failure_window: number;
+  auto_incidents_enabled: number;
 }

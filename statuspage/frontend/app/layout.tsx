@@ -3,6 +3,7 @@ import { Manrope, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { FaviconUpdater } from "@/components/favicon";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -25,6 +26,10 @@ export const metadata: Metadata = {
   description:
     "Current status of rumahl — system components, incidents and uptime history for rumahl.com, the rumahl Store and the rumahl OS services.",
   robots: "index, follow",
+  icons: {
+    // served by the backend — color reflects the current status
+    icon: "/api/favicon.svg",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
@@ -50,6 +55,7 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
+          <FaviconUpdater />
           <div className="flex flex-col min-h-screen">
             <SiteHeader />
             <main className="flex-1">{children}</main>

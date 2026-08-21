@@ -47,6 +47,7 @@ function statuspage_config(): array
             'webhook_urls' => [],
             'latency_threshold_ms' => 3000,
             'failure_window' => 5,
+            'auto_incidents_enabled' => 1,
         ],
     ];
 
