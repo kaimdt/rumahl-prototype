@@ -7,6 +7,7 @@ import type {
   DowntimeResponse,
   Incident,
   LatencyResponse,
+  MonitoringOverview,
   Settings,
   StatusResponse,
   UptimeResponse,
@@ -111,8 +112,11 @@ export const publicApi = {
 /* ── Admin API ── */
 
 export const adminApi = {
-  verify: (token: string) =>
-    request<{ ok: boolean }>("/admin/auth/verify", { method: "POST", body: { token }, token }),
+  verify: (token?: string | null) =>
+    request<{ ok: boolean; identity?: { subject: string; roles: string[]; provider: string } }>(
+      "/admin/auth/verify",
+      { method: "POST", body: token ? { token } : {}, token: token ?? null }
+    ),
 
   settings: () => request<Settings>("/admin/settings"),
   saveSettings: (settings: Settings) =>
@@ -174,5 +178,15 @@ export const adminApi = {
     request<{ ok: boolean; deleted: number }>("/admin/checks", {
       method: "POST",
       body: { action: "clear", component_id: componentId },
+    }),
+  monitoringOverview: () => request<MonitoringOverview>("/admin/monitoring/overview"),
+  monitoringList: <T>(entity: "hosts" | "services" | "checks" | "alerts" | "agents" | "status-pages") =>
+    request<{ items: T[]; total: number; page: number; pages: number }>(
+      `/admin/monitoring/${entity}`
+    ),
+  updateAlertState: (id: string, state: "active" | "acknowledged" | "resolved") =>
+    request<{ ok: boolean }>("/admin/monitoring/alerts/state", {
+      method: "POST",
+      body: { id, state },
     }),
 };

@@ -475,6 +475,10 @@ function apply_status(string $componentId, string $newStatus, bool $manual = fal
          ON DUPLICATE KEY UPDATE status = VALUES(status), changed_at = VALUES(changed_at)',
         [$componentId, $newStatus, now_utc()]
     );
+    db_exec(
+        'UPDATE monitoring_services SET status = ?, updated_at = ? WHERE legacy_component_id = ?',
+        [$newStatus, now_utc(), $componentId]
+    );
 
     if ($manual) {
         return; // manual changes are admin actions, no alert
@@ -575,6 +579,11 @@ function sync_auto_incident(string $componentId, string $name, string $from, str
         db_exec(
             'INSERT INTO incident_components (incident_id, component_id) VALUES (?, ?)',
             [$id, $componentId]
+        );
+        db_exec(
+            "INSERT IGNORE INTO status_page_incidents (status_page_id, incident_id)
+             SELECT id, ? FROM status_pages WHERE slug = 'default'",
+            [$id]
         );
         $message = sprintf(
             'Detected automatically: %s changed from %s to %s.',

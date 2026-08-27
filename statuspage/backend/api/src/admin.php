@@ -341,6 +341,11 @@ function admin_incidents_save(): never
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [$id, $type, $title, $status, $impact, $startsAt, $resolvesAt, now_utc(), now_utc()]
     );
+    db_exec(
+        "INSERT IGNORE INTO status_page_incidents (status_page_id, incident_id)
+         SELECT id, ? FROM status_pages WHERE slug = 'default'",
+        [$id]
+    );
 
     foreach (($input['component_ids'] ?? []) as $componentId) {
         db_exec(

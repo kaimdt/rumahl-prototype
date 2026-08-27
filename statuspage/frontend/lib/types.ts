@@ -240,3 +240,43 @@ export interface Settings {
   /** schema migration level, e.g. v3 */
   schema_version?: string;
 }
+
+export interface MonitoringOverview {
+  summary: {
+    hosts: number;
+    services: number;
+    failing_services: number;
+    degraded_services: number;
+    active_incidents: number;
+    maintenances: number;
+    failed_checks: number;
+    offline_agents: number;
+    active_alerts: number;
+  };
+  alerts: Array<{
+    id: string;
+    title: string;
+    severity: "info" | "minor" | "major" | "critical";
+    state: "active" | "acknowledged" | "resolved";
+    created_at: string;
+    service_name: string | null;
+    host_name: string | null;
+  }>;
+  high_latency_services: Array<{ id: string; name: string; avg_latency_ms: number }>;
+  high_resource_hosts: Array<{
+    id: string;
+    name: string;
+    metric_key: string;
+    value: number;
+    unit: string | null;
+    recorded_at: string;
+  }>;
+  recent_failures: Array<{
+    id: string;
+    name: string;
+    check_name: string;
+    last_failure_at: string;
+    status: ComponentStatus | "unknown";
+  }>;
+  generated_at: string;
+}

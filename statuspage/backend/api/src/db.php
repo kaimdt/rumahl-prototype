@@ -50,6 +50,8 @@ function db(bool $ensureSchema = true): PDO
  *  v6  check_type extended: dns, ssl (certificate expiry), smtp
  *  v7  component_status gains the 'maintenance' status (checks paused
  *      while a maintenance window covers the component)
+ *  v8  monitoring platform entities (hosts, agents, services, checks,
+ *      metrics, alerts and independently routed status pages)
  */
 function schema_migrations(): array
 {
@@ -81,6 +83,15 @@ function schema_migrations(): array
         ],
         'v7' => [
             ['component_status', 'status', "ENUM('operational','degraded','partial_outage','major_outage','maintenance') NOT NULL DEFAULT 'operational'", 'modify'],
+        ],
+        'v8' => [
+            ['incidents', 'description', 'TEXT NULL'],
+            ['incidents', 'internal_notes', 'TEXT NULL'],
+            ['incidents', 'root_cause', 'TEXT NULL'],
+            ['incidents', 'assigned_user', 'VARCHAR(150) NULL'],
+            ['incidents', 'public_visible', 'TINYINT(1) NOT NULL DEFAULT 1'],
+            ['incident_updates', 'visibility', "ENUM('public','internal') NOT NULL DEFAULT 'public'"],
+            ['incident_updates', 'author', 'VARCHAR(150) NULL'],
         ],
     ];
 }
@@ -141,6 +152,38 @@ function db_migrate(PDO $pdo): array
         }
         if ($changed) {
             $applied[] = $version;
+        }
+    }
+
+    $monitoringSchemaExists = (int) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN
+          ('monitoring_hosts','monitoring_agents','monitoring_services','monitoring_service_hosts',
+           'monitoring_service_dependencies','monitor_checks','monitoring_metrics','monitoring_alerts',
+           'status_pages','status_page_domains','status_page_groups','status_page_services','status_page_incidents')"
+    )->fetchColumn() === 13;
+    if (!$monitoringSchemaExists) {
+        $sql = file_get_contents(__DIR__ . '/../migrations/008_monitoring_platform.sql');
+        if ($sql === false) {
+            throw new RuntimeException('Unable to read monitoring platform migration');
+        }
+        $statements = preg_split('/\n(?=(?:CREATE TABLE|INSERT IGNORE)\b)/', trim($sql)) ?: [];
+        try {
+            foreach ($statements as $statement) {
+                if (trim($statement) !== '') {
+                    $pdo->exec($statement);
+                }
+            }
+            $stmt = $pdo->prepare(
+                "INSERT INTO settings (skey, svalue) VALUES ('schema_version', 'v8')
+                 ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)"
+            );
+            $stmt->execute();
+            if (!in_array('v8', $applied, true)) {
+                $applied[] = 'v8';
+            }
+        } catch (Throwable $e) {
+            throw $e;
         }
     }
     return $applied;

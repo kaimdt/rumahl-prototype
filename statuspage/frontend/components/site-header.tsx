@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Activity, History, Megaphone, Moon, Settings, Sun } from "lucide-react";
+import { Activity, History, Megaphone, Moon, Sun } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
@@ -69,19 +69,6 @@ export function SiteHeader() {
               <Moon className="h-4 w-4" strokeWidth={2} />
             )}
           </button>
-          <Link
-            href="/admin/"
-            aria-label="Admin"
-            title="Admin"
-            className={cn(
-              "inline-flex items-center rounded-lg p-2 transition-colors",
-              pathname.startsWith("/admin")
-                ? "bg-primary/12 text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-            )}
-          >
-            <Settings className="h-4 w-4" strokeWidth={2} />
-          </Link>
         </nav>
       </div>
     </header>

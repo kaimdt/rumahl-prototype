@@ -36,6 +36,13 @@ function statuspage_config(): array
         ],
         // Admin token — required for /api/admin/* (Bearer auth).
         'admin_token' => env('ADMIN_TOKEN', ''),
+        // Authentication bridge for the future central Rust identity service.
+        // A reverse proxy may sign X-Rumahl-* identity headers with this secret.
+        'auth' => [
+            'mode' => env('AUTH_MODE', 'hybrid'),
+            'proxy_hmac_secret' => env('AUTH_PROXY_HMAC_SECRET', ''),
+            'max_clock_skew_seconds' => (int) env('AUTH_MAX_CLOCK_SKEW_SECONDS', '60'),
+        ],
         // Key for the HTTP cron entry point (cron.php?key=…).
         'cron_key' => env('CRON_KEY', ''),
         // Backup directory for api/upgrade.php. Empty = system temp dir

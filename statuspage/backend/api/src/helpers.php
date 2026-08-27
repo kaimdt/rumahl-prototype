@@ -94,25 +94,69 @@ function bearer_token(): ?string
     return null;
 }
 
-/** Require a valid admin token. */
-function require_admin(): void
+/**
+ * Resolve the authenticated operations identity.
+ *
+ * The legacy bearer token remains available during migration. The central
+ * Rust identity service can later authenticate users upstream and forward a
+ * short-lived, HMAC-signed identity without changing any monitoring handler.
+ */
+function operations_identity(?string $explicitToken = null): ?array
 {
     $config = statuspage_config();
-    // Accept the token from the Bearer header or the X-Auth-Token header
-    // (Apache does not strip custom headers, so X-Auth-Token works even
-    // where the Authorization header is filtered for PHP-FPM/CGI).
-    $token = bearer_token();
+    $auth = $config['auth'] ?? [];
+    $mode = (string) ($auth['mode'] ?? 'hybrid');
+
+    if (in_array($mode, ['hybrid', 'trusted_proxy'], true)) {
+        $user = trim((string) ($_SERVER['HTTP_X_RUMAHL_USER'] ?? ''));
+        $rolesRaw = trim((string) ($_SERVER['HTTP_X_RUMAHL_ROLES'] ?? ''));
+        $timestamp = (int) ($_SERVER['HTTP_X_RUMAHL_TIMESTAMP'] ?? 0);
+        $signature = strtolower(trim((string) ($_SERVER['HTTP_X_RUMAHL_SIGNATURE'] ?? '')));
+        $secret = (string) ($auth['proxy_hmac_secret'] ?? '');
+        $skew = max(10, (int) ($auth['max_clock_skew_seconds'] ?? 60));
+        if ($secret !== '' && $user !== '' && $timestamp > 0 && abs(time() - $timestamp) <= $skew) {
+            $payload = $timestamp . "\n" . $user . "\n" . $rolesRaw;
+            $expected = hash_hmac('sha256', $payload, $secret);
+            if ($signature !== '' && hash_equals($expected, $signature)) {
+                $roles = array_values(array_intersect(
+                    ['viewer', 'operator', 'administrator'],
+                    array_values(array_filter(array_map('trim', explode(',', strtolower($rolesRaw)))))
+                ));
+                if ($roles !== []) {
+                    return ['subject' => $user, 'roles' => $roles, 'provider' => 'central'];
+                }
+            }
+        }
+    }
+
+    if (!in_array($mode, ['hybrid', 'legacy_token'], true)) {
+        return null;
+    }
+    $token = $explicitToken ?? bearer_token();
     if ($token === null) {
         $token = $_SERVER['HTTP_X_AUTH_TOKEN'] ?? null;
         if (is_string($token)) {
             $token = trim($token) !== '' ? trim($token) : null;
         }
     }
-    if ($config['admin_token'] === '') {
-        json_error('Admin token is not configured', 401);
+    if ($config['admin_token'] !== '' && $token !== null && hash_equals($config['admin_token'], $token)) {
+        return ['subject' => 'legacy-admin', 'roles' => ['administrator'], 'provider' => 'legacy_token'];
     }
-    if ($token === null || !hash_equals($config['admin_token'], $token)) {
+    return null;
+}
+
+/** Require an operations identity and enforce read/write roles server-side. */
+function require_admin(): void
+{
+    $identity = operations_identity();
+    if ($identity === null) {
         json_error('Unauthorized', 401);
+    }
+    $required = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+        ? ['viewer', 'operator', 'administrator']
+        : ['operator', 'administrator'];
+    if (array_intersect($required, $identity['roles']) === []) {
+        json_error('Forbidden', 403);
     }
 }
 

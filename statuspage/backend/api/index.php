@@ -33,6 +33,7 @@ require_once __DIR__ . '/src/checks.php';
 require_once __DIR__ . '/src/alerts.php';
 require_once __DIR__ . '/src/incidents.php';
 require_once __DIR__ . '/src/admin.php';
+require_once __DIR__ . '/src/monitoring.php';
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -54,6 +55,10 @@ try {
 
 function route(string $method, string $path): never
 {
+    if ($method === 'GET' && ($path === '/public/status' || str_starts_with($path, '/public/status/'))) {
+        $slug = $path === '/public/status' ? null : rawurldecode(substr($path, strlen('/public/status/')));
+        monitoring_public_page($slug);
+    }
     // ── Public ──────────────────────────────────────────────────
     if ($method === 'GET' && $path === '/status') {
         json_out(build_status_response());
@@ -79,6 +84,9 @@ function route(string $method, string $path): never
     if ($method === 'GET' && $path === '/favicon.svg') {
         route_favicon();
     }
+    if ($method === 'POST' && $path === '/agents/heartbeat') {
+        monitoring_agent_heartbeat();
+    }
 
     // ── Admin ───────────────────────────────────────────────────
     if (str_starts_with($path, '/admin')) {
@@ -87,13 +95,10 @@ function route(string $method, string $path): never
         // token from the JSON body is accepted as a fallback here.
         if ($method === 'POST' && $path === '/admin/auth/verify') {
             $body = json_body();
-            $config = statuspage_config();
             $token = bearer_token() ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? (string) ($body['token'] ?? '');
-            if ($config['admin_token'] === '') {
-                json_error('Admin token is not configured', 401);
-            }
-            if ($token !== '' && hash_equals($config['admin_token'], $token)) {
-                json_out(['ok' => true]);
+            $identity = operations_identity($token !== '' ? $token : null);
+            if ($identity !== null) {
+                json_out(['ok' => true, 'identity' => $identity]);
             }
             json_error('Unauthorized', 401);
         }
@@ -150,6 +155,30 @@ function route(string $method, string $path): never
         }
         if ($method === 'GET' && $path === '/admin/checks') {
             admin_checks_log();
+        }
+        if ($method === 'GET' && $path === '/admin/monitoring/overview') {
+            monitoring_overview();
+        }
+        if ($method === 'GET' && preg_match('#^/admin/monitoring/(hosts|services|checks|alerts|agents|status-pages)$#', $path, $m)) {
+            monitoring_list($m[1]);
+        }
+        if ($method === 'POST' && $path === '/admin/monitoring/hosts') {
+            monitoring_save_host();
+        }
+        if ($method === 'POST' && $path === '/admin/monitoring/services') {
+            monitoring_save_service();
+        }
+        if ($method === 'POST' && $path === '/admin/monitoring/checks') {
+            monitoring_save_check();
+        }
+        if ($method === 'POST' && $path === '/admin/monitoring/status-pages') {
+            monitoring_save_status_page();
+        }
+        if ($method === 'POST' && $path === '/admin/monitoring/domains') {
+            monitoring_save_domain();
+        }
+        if ($method === 'POST' && $path === '/admin/monitoring/alerts/state') {
+            monitoring_update_alert();
         }
         json_error('Not found', 404);
     }

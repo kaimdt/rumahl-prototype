@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound } from "lucide-react";
+import { KeyRound, LogIn } from "lucide-react";
 import { adminApi, setToken } from "@/lib/api";
 import { Button, Input } from "@/components/admin/ui";
+import { useAdminTranslation } from "@/lib/admin-i18n";
 
 export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
+  const t = useAdminTranslation();
+  const centralLoginUrl = process.env.NEXT_PUBLIC_CENTRAL_LOGIN_URL;
   const [token, setTokenValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,24 +36,29 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
           <KeyRound className="h-5 w-5" strokeWidth={1.8} />
         </div>
         <h1 className="text-xl font-bold tracking-tight text-center text-foreground mb-2">
-          Admin access
+          {t("auth.title")}
         </h1>
         <p className="text-sm text-muted-foreground text-center mb-6">
-          Enter the admin token configured in the backend to manage
-          components, incidents and notifications.
+          {t("auth.description")}
         </p>
+        {centralLoginUrl && (
+          <a href={centralLoginUrl} className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90">
+            <LogIn className="h-4 w-4" />
+            {t("auth.centralSignIn")}
+          </a>
+        )}
         <form onSubmit={submit} className="space-y-4">
           <Input
             type="password"
             value={token}
             onChange={(e) => setTokenValue(e.target.value)}
-            placeholder="Admin token"
+            placeholder={t("auth.tokenPlaceholder")}
             autoFocus
             autoComplete="off"
           />
           {error && <p className="text-xs text-status-major">{error}</p>}
           <Button type="submit" disabled={busy || !token.trim()} className="w-full justify-center">
-            {busy ? "Verifying…" : "Sign in"}
+            {busy ? t("auth.verifying") : t("auth.signIn")}
           </Button>
         </form>
       </div>

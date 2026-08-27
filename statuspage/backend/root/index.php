@@ -86,6 +86,10 @@ function serve_static(string $file, bool $immutable = false): never
 
 function serve_frontend(string $path): never
 {
+    if ($path === '/admin' || str_starts_with($path, '/admin/')) {
+        header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
+        header('Cache-Control: no-store');
+    }
     $base = realpath(__DIR__ . '/frontend');
     if ($base === false) {
         http_response_code(503);
