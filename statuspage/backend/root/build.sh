@@ -42,6 +42,10 @@ sed -e "s|__DIR__ . '/src/|__DIR__ . '/|g" "$API/install.php" > "$ROOT/src/insta
 sed -e "s|__DIR__ . '/src/|__DIR__ . '/|g" "$API/seed.php"    > "$ROOT/src/seed.php"
 cp "$API/schema.sql" "$ROOT/src/schema.sql"
 
+# ── SQL migrations — db.php loads them via __DIR__ . '/../migrations/' at runtime ──
+rm -rf "$ROOT/migrations"
+cp -r "$API/migrations" "$ROOT/migrations"
+
 # ── Static frontend (Next.js export) ──
 if [ -d "$FRONTEND/out" ]; then
   cp -r "$FRONTEND/out" "$ROOT/frontend"

@@ -8,6 +8,7 @@ frontend/.env.local
 backend/api/src/config.local.php
 backend/root/src/
 backend/root/frontend/
+backend/root/migrations/
 
 # Automatic upgrade backups (created by api/upgrade.php)
 backups/

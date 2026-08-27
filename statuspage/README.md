@@ -34,6 +34,7 @@ httpdocs/
 ├── index.php          ← router (all requests)
 ├── .htaccess          ← rewrite + src/ protection
 ├── src/               ← backend modules (never served directly)
+├── migrations/        ← SQL migration files (loaded by db.php)
 ├── frontend/          ← static Next.js export (out/)
 └── robots.txt, …      ← optional extra static files
 ```

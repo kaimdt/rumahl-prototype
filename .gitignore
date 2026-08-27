@@ -71,3 +71,5 @@ __pycache__/
 /ora-website/.next
 *.tsbuildinfo
 /iora-os/.cache
+/.iora-data
+/.rumahl-data
