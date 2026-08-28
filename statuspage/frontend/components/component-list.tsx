@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   CheckCircle2,
   ChevronDown,
@@ -39,6 +40,8 @@ const STATUS_BADGE_ICON: Record<ComponentStatus, typeof CheckCircle2> = {
 };
 
 function ComponentCard({ component }: { component: Component }) {
+  const pathname = usePathname();
+  const tenantPrefix = pathname.match(/^\/s\/[a-z0-9]+(?:-[a-z0-9]+)*/)?.[0] ?? "";
   const meta = STATUS_META[component.status];
   // View mode and history range are configured by the ADMIN per component
   // (backend fields) — visitors cannot change them.
@@ -83,7 +86,7 @@ function ComponentCard({ component }: { component: Component }) {
   }, [component.id, showCharts, days, view, latencyDays]);
 
   return (
-    <div className="px-4 sm:px-5 py-3.5">
+    <div className="statuspage-component px-4 sm:px-5 py-3.5" data-component-id={component.id} data-status={component.status} data-monitoring={monitoring ? "enabled" : "disabled"}>
       <div className="flex items-center gap-3">
         <span
           className={cn(
@@ -104,7 +107,7 @@ function ComponentCard({ component }: { component: Component }) {
           )}
           {monitoring && !isSelf && (
             <Link
-              href={`/history/?component=${encodeURIComponent(component.id)}`}
+              href={`${tenantPrefix}/history/?component=${encodeURIComponent(component.id)}`}
               className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
               title="Uptime history"
             >
@@ -237,9 +240,9 @@ function GroupSection({ group }: { group: ComponentGroup }) {
   const count = group.components.filter((c) => c.enabled).length;
 
   return (
-    <section className="surface-card overflow-hidden">
+    <section className="statuspage-component-group surface-card overflow-hidden" data-group-id={group.id} data-collapsed={collapsed ? "true" : "false"}>
       {/* taller group header — overall group status front AND back */}
-      <div className="border-b border-border/30 bg-muted/20 px-3 sm:px-4 py-3.5">
+      <div className="statuspage-component-group-header status-group-header border-b px-3 sm:px-4 py-3.5">
         <button
           onClick={() => setCollapsed((c) => !c)}
           className="flex w-full items-center gap-3 text-left group"
@@ -282,7 +285,7 @@ function GroupSection({ group }: { group: ComponentGroup }) {
         </button>
       </div>
       {!collapsed && (
-        <div className="divide-y divide-border/25">
+        <div className="statuspage-component-group-body divide-y divide-border/25">
           {group.components.map((component) => (
             <ComponentCard key={component.id} component={component} />
           ))}
@@ -307,10 +310,16 @@ export function ComponentList({ groups }: { groups: ComponentGroup[] }) {
   }
 
   return (
-    <div className="space-y-6">
-      {visibleGroups.map((group) => (
-        <GroupSection key={group.id} group={group} />
-      ))}
+    <div className="statuspage-components space-y-6">
+      {visibleGroups.map((group) => {
+        const ungrouped = group.id === "ungrouped" || group.id === "__ungrouped__";
+        if (ungrouped) {
+          return <div key={group.id} className="space-y-3">{group.components.map((component) => (
+            <div key={component.id} className="surface-card overflow-hidden"><ComponentCard component={component} /></div>
+          ))}</div>;
+        }
+        return <GroupSection key={group.id} group={group} />;
+      })}
     </div>
   );
 }

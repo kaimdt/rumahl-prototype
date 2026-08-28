@@ -10,7 +10,7 @@
 
 declare(strict_types=1);
 
-const STATUSPAGE_VERSION = '1.7.0';
+const STATUSPAGE_VERSION = '2.1.0';
 
 function env(string $key, ?string $default = null): ?string
 {
@@ -49,6 +49,13 @@ function statuspage_config(): array
         // (always inside open_basedir); set e.g. to an allowed path like
         // /var/www/vhosts/example.com/tmp if you want the dumps elsewhere.
         'backup_dir' => env('BACKUP_DIR', ''),
+        // Optional Plesk-compatible screenshot provider. It receives JSON with
+        // the failed URL and must return JSON containing a HTTPS `url` value.
+        'screenshot' => [
+            'endpoint' => env('SCREENSHOT_ENDPOINT', ''),
+            'token' => env('SCREENSHOT_TOKEN', ''),
+            'timeout_ms' => (int) env('SCREENSHOT_TIMEOUT_MS', '15000'),
+        ],
         'defaults' => [
             'page_name' => 'rumahl Status',
             'page_url' => 'https://status.rumahl.com',

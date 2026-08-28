@@ -77,6 +77,10 @@ async function request<T>(
 /* ── Public API ── */
 
 export const publicApi = {
+  statusPage: (slug?: string) =>
+    request<import("./types").PublicStatusPageResponse>(
+      slug ? `/public/status/${encodeURIComponent(slug)}` : "/public/status"
+    ),
   status: () => request<StatusResponse>("/status"),
   incidents: (page = 1, perPage = 25) =>
     request<{ incidents: Incident[]; total: number; page: number; pages: number }>(
@@ -184,6 +188,32 @@ export const adminApi = {
     request<{ items: T[]; total: number; page: number; pages: number }>(
       `/admin/monitoring/${entity}`
     ),
+  saveStatusPage: (statusPage: Record<string, unknown>) =>
+    request<{ ok: boolean; id: string; verification: { type: string; name: string; value: string } | null }>("/admin/monitoring/status-pages", {
+      method: "POST",
+      body: { status_page: statusPage },
+    }),
+  monitorDetail: (id: string, period: "hour" | "day" | "week" | "month") =>
+    request<{ check: Record<string, unknown>; metrics: Array<{ metric_key: string; value: number; unit: string | null; recorded_at: string }>; history: Array<{ id: number; ok: boolean; softfail: boolean; status: string; latency_ms: number | null; dns_ms: number | null; connect_ms: number | null; tls_ms: number | null; server_ms: number | null; status_code: number | null; error_text: string | null; diagnostic: Record<string, unknown> | null; checked_at: string }>; problem: { error: string; started_at: string; last_seen_at: string; consecutive_failures: number; same_error_count: number; previous_same_error_at: string | null; latest: Record<string, unknown> } | null; period: string; summary: { total: number; incidents: number; samples: number; minimum_ms: number | null; maximum_ms: number | null; average_ms: number | null; p95_ms: number | null; latest_ms: number | null } }>(`/admin/monitoring/checks/${encodeURIComponent(id)}?period=${period}`),
+  saveMonitor: (check: Record<string, unknown>) =>
+    request<{ ok: boolean; id: string }>("/admin/monitoring/checks", { method: "POST", body: { check } }),
+  testMonitorAlert: (id: string) =>
+    request<{ ok: boolean; alert_id: string }>(`/admin/monitoring/checks/${encodeURIComponent(id)}/test-alert`, { method: "POST" }),
+  runMonitorNow: (id: string) =>
+    request<{ ok: boolean; result: Record<string, unknown> }>(`/admin/monitoring/checks/${encodeURIComponent(id)}/run`, { method: "POST" }),
+  uploadBranding: async (file: File, kind: "logo" | "logo_dark" | "mobile_logo" | "mobile_logo_dark" | "favicon", colorMode: "same" | "adaptive" | "custom") => {
+    const body = new FormData();
+    body.set("file", file);
+    body.set("kind", kind);
+    body.set("color_mode", colorMode);
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) { headers.Authorization = `Bearer ${token}`; headers["X-Auth-Token"] = token; }
+    const response = await fetch(`${API_BASE}/admin/monitoring/branding/upload`, { method: "POST", headers, body });
+    const data = await response.json();
+    if (!response.ok) throw new ApiError(response.status, String(data.error ?? "Upload failed"));
+    return data as { url: string; dark_url: string | null; color_mode: "same" | "adaptive" | "custom" };
+  },
   updateAlertState: (id: string, state: "active" | "acknowledged" | "resolved") =>
     request<{ ok: boolean }>("/admin/monitoring/alerts/state", {
       method: "POST",

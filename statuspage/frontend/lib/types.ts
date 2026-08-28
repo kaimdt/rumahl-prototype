@@ -105,6 +105,31 @@ export interface StatusResponse {
   past_incidents: Incident[];
 }
 
+export interface PublicStatusPageResponse {
+  page: {
+    id: string; slug: string; title: string; description: string | null;
+    logo_url: string | null; logo_dark_url: string | null; logo_mode: "same" | "adaptive" | "custom";
+    mobile_logo_url: string | null; mobile_logo_dark_url: string | null; header_brand_mode: "logo" | "text";
+    header_config: { sticky?: boolean; show_theme_toggle?: boolean; show_language_switcher?: boolean; centered?: boolean } | null;
+    nav_links: Array<{ label: string; href: string; enabled?: boolean }> | null;
+    footer_config: { enabled?: boolean; text?: string; show_timezone?: boolean; centered?: boolean } | null;
+    footer_links: Array<{ label: string; href: string; enabled?: boolean }> | null;
+    favicon_url: string | null; custom_css_url: string | null; custom_css: string | null;
+    theme: { primary?: string; background?: string; surface?: string; text?: string; muted?: string; border?: string; max_width?: string; radius?: string } | null;
+    canonical_domain: string | null; path_enabled: boolean; domain_enabled: boolean; show_disabled_components: boolean;
+    default_language: string; enabled_locales: string[];
+    translations: Record<string, {
+      title?: string; description?: string; footer_text?: string;
+      nav_links?: Array<{ label: string; href: string; enabled?: boolean }>;
+      footer_links?: Array<{ label: string; href: string; enabled?: boolean }>;
+    }>;
+  };
+  overall: ComponentStatus | "unknown";
+  groups: Array<{ id: string; name: string; collapsed: boolean; auto_expand: boolean; services: Array<Record<string, unknown>> }>;
+  incidents: Incident[];
+  updated_at: string;
+}
+
 export interface UptimeDay {
   day: string; // YYYY-MM-DD
   ok: number;
@@ -186,6 +211,20 @@ export interface CheckResult {
   server_ms: number | null;
   status_code: number | null;
   error: string | null;
+  diagnostic: {
+    effective_url: string;
+    primary_ip: string;
+    primary_port: number;
+    local_ip: string;
+    redirect_count: number;
+    content_type: string | null;
+    download_bytes: number;
+    request_headers: string[];
+    response_headers: string[];
+    body_excerpt: string | null;
+    captured_at: string;
+  } | null;
+  screenshot_url: string | null;
   checked_at: string;
 }
 

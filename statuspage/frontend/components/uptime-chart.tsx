@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DowntimeResponse, UptimeDay } from "@/lib/types";
 import { formatTime } from "@/lib/status-meta";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,7 @@ function daySegments(u: UptimeDay): { min: number; cls: string; label: string }[
   return [
     { min: outage, cls: "bg-status-major", label: "outage" },
     { min: maintenance, cls: "bg-info/70", label: "maintenance" },
-    { min: online, cls: "bg-status-operational/35", label: "online" },
+    { min: online, cls: u.pct === 100 ? "bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.65)]" : "bg-status-operational/35", label: "online" },
   ]
     .filter((s) => s.min > 0)
     .sort((a, b) => b.min - a.min);
@@ -76,6 +76,12 @@ export function UptimeChart({
   downtimeDetails?: Record<string, Omit<DowntimeResponse, "day">>;
 }) {
   const [hover, setHover] = useState<HoverState | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (element) element.scrollLeft = element.scrollWidth;
+  }, [uptime, days]);
 
   const pct = useMemo(() => {
     const withData = uptime.filter((u) => u.total > 0);
@@ -85,7 +91,8 @@ export function UptimeChart({
     return (sum / total) * 100;
   }, [uptime]);
 
-  // Month markers under the bar grid
+  // Month markers under the bar grid. Sparse markers prevent overlaps and
+  // every label is forced onto a single line.
   const months = useMemo(() => {
     const seen = new Set<string>();
     const out: { index: number; label: string }[] = [];
@@ -100,7 +107,8 @@ export function UptimeChart({
         });
       }
     });
-    return out;
+    const stride = out.length > 8 ? 3 : out.length > 5 ? 2 : 1;
+    return out.filter((_, index) => index % stride === 0 || index === out.length - 1);
   }, [uptime]);
 
   const compact = density === "compact";
@@ -114,7 +122,7 @@ export function UptimeChart({
   const tooltipBelow = hover ? hover.y < 220 : false;
 
   return (
-    <div className={cn(compact ? "" : "surface-card p-5 sm:p-6")}>
+    <div className={cn("statuspage-uptime-chart", compact ? "" : "surface-card p-5 sm:p-6")} data-days={uptime.length}>
       <div className="flex items-baseline justify-between gap-4 mb-4">
         <h3 className={cn("font-bold text-foreground", compact ? "text-[12.5px]" : "text-sm")}>
           Uptime · last {days} days
@@ -124,12 +132,9 @@ export function UptimeChart({
         </p>
       </div>
 
-      <div
-        className={cn(
-          "flex gap-[3px]",
-          many ? "flex-nowrap overflow-x-auto pb-1" : "flex-wrap"
-        )}
-      >
+      <div ref={scrollRef} className="overflow-x-auto pb-1">
+      <div className="relative ml-auto w-max min-w-full" style={{ minWidth: `${Math.max(100, uptime.length * (barW + 3))}px` }}>
+      <div className="statuspage-uptime-bars flex flex-nowrap justify-end gap-[3px]">
         {uptime.map((u) => {
           const segments = daySegments(u);
           const hoverData = {
@@ -193,22 +198,27 @@ export function UptimeChart({
         })}
       </div>
 
-      <div className="relative mt-2 h-4 text-[10px] text-muted-foreground/70">
+      <div className="relative mt-2 h-4 whitespace-nowrap text-[10px] text-muted-foreground/70">
         {months.map((m) => (
           <span
             key={m.index}
-            className="absolute -translate-x-1/2"
+            className="absolute -translate-x-1/2 whitespace-nowrap"
             style={{ left: `${(m.index / Math.max(uptime.length, 1)) * 100}%` }}
           >
             {m.label}
           </span>
         ))}
       </div>
+      </div>
+      </div>
 
       {!compact && (
         <div className="mt-4 flex items-center gap-4 text-[11px] text-muted-foreground border-t border-border/30 pt-3">
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-sm bg-status-operational/35" /> online
+            <span className="h-2 w-2 rounded-sm bg-emerald-400" /> 100% online
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-status-operational/35" /> below 100%
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-sm bg-status-major" /> outage

@@ -69,6 +69,9 @@ function monitoring_overview(): never
 
 function monitoring_list(string $entity): never
 {
+    if (in_array($entity, ['checks', 'services', 'status-pages'], true)) {
+        monitoring_ensure_check_services();
+    }
     [$page, $perPage] = monitoring_pagination();
     $offset = ($page - 1) * $perPage;
     $search = trim((string) ($_GET['search'] ?? ''));
@@ -105,6 +108,54 @@ function monitoring_list(string $entity): never
     );
     foreach ($items as &$item) {
         unset($item['token_hash']);
+        if ($entity === 'services') {
+            $legacy = !empty($item['legacy_component_id'])
+                ? db_row('SELECT endpoint_url,check_type,method,enabled FROM components WHERE id=?', [$item['legacy_component_id']])
+                : null;
+            $check = db_row('SELECT id,target,interval_seconds,last_checked_at,enabled FROM monitor_checks WHERE service_id=? ORDER BY updated_at DESC LIMIT 1', [$item['id']]);
+            $item['monitor_check_id'] = $check['id'] ?? null;
+            $item['target'] = $check['target'] ?? ($legacy['endpoint_url'] ?? null);
+            $item['interval_seconds'] = isset($check['interval_seconds']) ? (int) $check['interval_seconds'] : null;
+            $item['last_checked_at'] = $check['last_checked_at'] ?? null;
+            $item['monitor_enabled'] = isset($check['enabled']) ? (bool) $check['enabled'] : null;
+            $item['legacy_check_type'] = $legacy['check_type'] ?? null;
+        }
+        if ($entity === 'status-pages') {
+            $resources = db_all(
+                "SELECT ps.service_id,ps.group_id,ps.position,ps.enabled,ps.show_uptime,ps.show_performance,ps.history_days,
+                        s.public_name,s.internal_name
+                   FROM status_page_services ps JOIN monitoring_services s ON s.id=ps.service_id
+                  WHERE ps.status_page_id=? ORDER BY ps.position,s.public_name",
+                [$item['id']]
+            );
+            $sections = [];
+            foreach (db_all('SELECT id,name,position,collapsed,auto_expand FROM status_page_groups WHERE status_page_id=? ORDER BY position,name', [$item['id']]) as $group) {
+                $sections[(string) $group['id']] = [
+                    'id' => $group['id'], 'name' => $group['name'], 'position' => (int) $group['position'],
+                    'collapsed' => (bool) $group['collapsed'], 'auto_expand' => (bool) $group['auto_expand'], 'resources' => [],
+                ];
+            }
+            $ungrouped = ['id' => null, 'name' => '', 'position' => 9999, 'resources' => []];
+            foreach ($resources as $resource) {
+                $resource['position'] = (int) $resource['position'];
+                $resource['enabled'] = (bool) $resource['enabled'];
+                $resource['show_uptime'] = (bool) $resource['show_uptime'];
+                $resource['show_performance'] = (bool) $resource['show_performance'];
+                $resource['history_days'] = (int) $resource['history_days'];
+                $groupId = $resource['group_id'] !== null ? (string) $resource['group_id'] : '';
+                unset($resource['group_id']);
+                if ($groupId !== '' && isset($sections[$groupId])) {
+                    $sections[$groupId]['resources'][] = $resource;
+                } else {
+                    $ungrouped['resources'][] = $resource;
+                }
+            }
+            if ($ungrouped['resources'] !== []) {
+                $sections[''] = $ungrouped;
+            }
+            $item['sections'] = array_values($sections);
+            $item['service_ids'] = array_column($resources, 'service_id');
+        }
     }
     json_out(['items' => $items, 'total' => $total, 'page' => $page, 'pages' => max(1, (int) ceil($total / $perPage))]);
 }
@@ -176,13 +227,28 @@ function monitoring_save_check(): never
     $name = trim((string) ($input['name'] ?? ''));
     $target = trim((string) ($input['target'] ?? ''));
     $type = (string) ($input['check_type'] ?? 'http');
-    if ($name === '' || $target === '' || !in_array($type, ['http', 'tcp', 'icmp', 'dns', 'tls', 'custom'], true)) {
+    if ($name === '' || $target === '' || !in_array($type, ['http', 'tcp', 'icmp', 'dns', 'tls', 'smtp', 'custom'], true)) {
         json_error('Check name, type and target are required');
     }
     if ($type !== 'custom' && !monitoring_validate_target($target)) {
         json_error('Monitoring target is not allowed');
     }
     $id = (string) ($input['id'] ?? uuid4());
+    $serviceId = trim((string) ($input['service_id'] ?? ''));
+    if ($serviceId === '') {
+        $existing = db_row('SELECT service_id FROM monitor_checks WHERE id=?', [$id]);
+        $serviceId = trim((string) ($existing['service_id'] ?? ''));
+    }
+    if ($serviceId === '') {
+        $serviceId = uuid4();
+        db_exec(
+            "INSERT INTO monitoring_services (id,internal_name,internal_description,public_name,public_description,environment,tags,status,public_status_enabled,notes,created_at,updated_at)
+             VALUES (?,?,?,?,?,'production','[]','unknown',1,NULL,?,?)",
+            [$serviceId, $name, 'Created from monitor', $name, $target, now_utc(), now_utc()]
+        );
+    } else {
+        db_exec('UPDATE monitoring_services SET internal_name=?,public_name=?,public_description=?,public_status_enabled=1,updated_at=? WHERE id=?', [$name, $name, $target, now_utc(), $serviceId]);
+    }
     db_exec(
         "INSERT INTO monitor_checks
           (id,service_id,host_id,name,check_type,target,config,interval_seconds,timeout_ms,retry_count,
@@ -193,7 +259,7 @@ function monitoring_save_check(): never
           timeout_ms=VALUES(timeout_ms),retry_count=VALUES(retry_count),failure_threshold=VALUES(failure_threshold),
           recovery_threshold=VALUES(recovery_threshold),monitoring_location=VALUES(monitoring_location),
           auto_incident_enabled=VALUES(auto_incident_enabled),enabled=VALUES(enabled),updated_at=VALUES(updated_at)",
-        [$id, $input['service_id'] ?? null, $input['host_id'] ?? null, $name, $type, $target,
+        [$id, $serviceId, $input['host_id'] ?? null, $name, $type, $target,
          json_encode($input['config'] ?? new stdClass()), max(30, (int) ($input['interval_seconds'] ?? 60)),
          max(100, min(60000, (int) ($input['timeout_ms'] ?? 10000))), max(0, min(10, (int) ($input['retry_count'] ?? 1))),
          max(1, min(20, (int) ($input['failure_threshold'] ?? 3))), max(1, min(20, (int) ($input['recovery_threshold'] ?? 2))),
@@ -201,6 +267,141 @@ function monitoring_save_check(): never
          !isset($input['enabled']) || !empty($input['enabled']) ? 1 : 0, now_utc(), now_utc()]
     );
     json_out(['ok' => true, 'id' => $id]);
+}
+
+/** Give legacy monitoring-center checks a public service identity for status pages. */
+function monitoring_ensure_check_services(): void
+{
+    foreach (db_all('SELECT id,name,target,status,created_at FROM monitor_checks WHERE service_id IS NULL') as $check) {
+        $serviceId = uuid4();
+        db_exec(
+            "INSERT INTO monitoring_services (id,internal_name,internal_description,public_name,public_description,environment,tags,status,public_status_enabled,notes,created_at,updated_at)
+             VALUES (?,?,?,?,?,'production','[]',?,1,NULL,?,?)",
+            [$serviceId, $check['name'], 'Created from monitor', $check['name'], $check['target'], $check['status'], $check['created_at'], now_utc()]
+        );
+        db_exec('UPDATE monitor_checks SET service_id=?,updated_at=? WHERE id=? AND service_id IS NULL', [$serviceId, now_utc(), $check['id']]);
+    }
+}
+
+function monitoring_run_check_now(string $id): never
+{
+    if (db_row('SELECT id FROM monitor_checks WHERE id=?', [$id]) === null) {
+        json_error('Monitor not found', 404);
+    }
+    $results = run_platform_checks($id);
+    if ($results === []) {
+        json_error('Monitor is disabled and cannot be checked', 409);
+    }
+    json_out(['ok' => true, 'result' => $results[0]]);
+}
+
+function monitoring_check_detail(string $id): never
+{
+    $check = db_row(
+        "SELECT c.*,s.public_name service_name,h.display_name host_name
+           FROM monitor_checks c
+           LEFT JOIN monitoring_services s ON s.id=c.service_id
+           LEFT JOIN monitoring_hosts h ON h.id=c.host_id
+          WHERE c.id=?",
+        [$id]
+    );
+    if ($check === null) {
+        json_error('Monitor not found', 404);
+    }
+    $check['config'] = json_decode((string) ($check['config'] ?? '{}'), true) ?: [];
+    $period = (string) ($_GET['period'] ?? 'day');
+    $hours = match ($period) { 'hour' => 1, 'week' => 168, 'month' => 744, default => 24 };
+    $metrics = db_all(
+        "SELECT metric_key,value,unit,recorded_at FROM monitoring_metrics
+          WHERE check_id=? AND metric_key IN ('response_time_ms','latency_ms')
+            AND recorded_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {$hours} HOUR)
+          ORDER BY recorded_at ASC",
+        [$id]
+    );
+    $history = db_all(
+        "SELECT id,ok,softfail,status,latency_ms,dns_ms,connect_ms,tls_ms,server_ms,status_code,error_text,diagnostic_json,checked_at
+           FROM monitoring_check_results
+          WHERE check_id=? AND checked_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {$hours} HOUR)
+          ORDER BY checked_at DESC,id DESC LIMIT 250",
+        [$id]
+    );
+    foreach ($history as &$historyItem) {
+        $historyItem['ok'] = (bool) $historyItem['ok'];
+        $historyItem['softfail'] = (bool) $historyItem['softfail'];
+        $historyItem['diagnostic'] = json_decode((string) ($historyItem['diagnostic_json'] ?? 'null'), true);
+        unset($historyItem['diagnostic_json']);
+    }
+    unset($historyItem);
+    $alertSummary = db_row(
+        "SELECT COUNT(*) total,
+                SUM(CASE WHEN state='resolved' THEN 0 ELSE 1 END) incidents
+           FROM monitoring_alerts WHERE check_id=?",
+        [$id]
+    );
+    $values = array_values(array_map(static fn(array $metric): float => (float) $metric['value'], $metrics));
+    sort($values, SORT_NUMERIC);
+    $sampleCount = count($values);
+    $p95Index = $sampleCount > 0 ? max(0, (int) ceil($sampleCount * 0.95) - 1) : 0;
+    $summary = [
+        'total' => (int) ($alertSummary['total'] ?? 0),
+        'incidents' => (int) ($alertSummary['incidents'] ?? 0),
+        'samples' => $sampleCount,
+        'minimum_ms' => $sampleCount > 0 ? $values[0] : null,
+        'maximum_ms' => $sampleCount > 0 ? $values[$sampleCount - 1] : null,
+        'average_ms' => $sampleCount > 0 ? array_sum($values) / $sampleCount : null,
+        'p95_ms' => $sampleCount > 0 ? $values[$p95Index] : null,
+        'latest_ms' => $sampleCount > 0 ? (float) $metrics[$sampleCount - 1]['value'] : null,
+    ];
+    $problem = null;
+    if ($history !== [] && empty($history[0]['ok'])) {
+        $latestError = trim((string) ($history[0]['error_text'] ?? ''));
+        $streak = [];
+        foreach ($history as $result) {
+            if (!empty($result['ok'])) break;
+            $streak[] = $result;
+        }
+        $sameError = array_values(array_filter($history, static fn(array $result): bool => empty($result['ok']) && trim((string) ($result['error_text'] ?? '')) === $latestError));
+        $oldest = $streak[count($streak) - 1];
+        $problem = [
+            'error' => $latestError !== '' ? $latestError : 'The check did not return a successful result',
+            'started_at' => $oldest['checked_at'],
+            'last_seen_at' => $history[0]['checked_at'],
+            'consecutive_failures' => count($streak),
+            'same_error_count' => count($sameError),
+            'previous_same_error_at' => count($sameError) > 1 ? $sameError[1]['checked_at'] : null,
+            'latest' => $history[0],
+        ];
+        $fullStreak = db_row(
+            "SELECT MIN(checked_at) started_at,COUNT(*) failures
+               FROM monitoring_check_results
+              WHERE check_id=? AND ok=0 AND checked_at > COALESCE((SELECT MAX(ok_result.checked_at) FROM monitoring_check_results ok_result WHERE ok_result.check_id=? AND ok_result.ok=1),'1970-01-01')",
+            [$id, $id]
+        );
+        $previousSame = db_row(
+            'SELECT checked_at FROM monitoring_check_results WHERE check_id=? AND ok=0 AND error_text <=> ? AND id<>? ORDER BY checked_at DESC,id DESC LIMIT 1',
+            [$id, $history[0]['error_text'], $history[0]['id']]
+        );
+        $problem['started_at'] = $fullStreak['started_at'] ?? $problem['started_at'];
+        $problem['consecutive_failures'] = (int) ($fullStreak['failures'] ?? $problem['consecutive_failures']);
+        $problem['previous_same_error_at'] = $previousSame['checked_at'] ?? null;
+    }
+    json_out(['check' => $check, 'metrics' => $metrics, 'history' => $history, 'problem' => $problem, 'period' => $period, 'summary' => $summary]);
+}
+
+function monitoring_test_alert(string $id): never
+{
+    $check = db_row('SELECT id,name,service_id,host_id FROM monitor_checks WHERE id=?', [$id]);
+    if ($check === null) {
+        json_error('Monitor not found', 404);
+    }
+    $alertId = uuid4();
+    db_exec(
+        "INSERT INTO monitoring_alerts (id,host_id,service_id,check_id,alert_type,title,description,severity,state,created_at,updated_at)
+         VALUES (?,?,?,?,? ,?,?,?,'active',?,?)",
+        [$alertId, $check['host_id'], $check['service_id'], $id, 'test',
+         'Test alert: ' . $check['name'], 'Manually triggered monitor test alert.', 'info', now_utc(), now_utc()]
+    );
+    json_out(['ok' => true, 'alert_id' => $alertId]);
 }
 
 function monitoring_save_status_page(): never
@@ -216,17 +417,127 @@ function monitoring_save_status_page(): never
     if (($input['canonical_domain'] ?? '') !== '' && $canonical === null) {
         json_error('Invalid canonical domain');
     }
+    $customCssUrl = trim((string) ($input['custom_css_url'] ?? ''));
+    if ($customCssUrl !== '' && (!filter_var($customCssUrl, FILTER_VALIDATE_URL) || !str_starts_with($customCssUrl, 'https://'))) {
+        json_error('Custom CSS URL must use HTTPS');
+    }
+    $logoMode = (string) ($input['logo_mode'] ?? 'same');
+    if (!in_array($logoMode, ['same', 'adaptive', 'custom'], true)) {
+        json_error('Invalid logo mode');
+    }
+    $headerBrandMode = (string) ($input['header_brand_mode'] ?? 'logo');
+    if (!in_array($headerBrandMode, ['logo', 'text'], true)) {
+        json_error('Invalid header brand mode');
+    }
+    $customCss = (string) ($input['custom_css'] ?? '');
+    if (strlen($customCss) > 100000) {
+        json_error('Custom CSS is too large');
+    }
     db_exec(
-        "INSERT INTO status_pages (id,slug,title,description,logo_url,favicon_url,theme,contact_links,canonical_domain,enabled,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        "INSERT INTO status_pages (id,slug,title,description,logo_url,logo_dark_url,mobile_logo_url,mobile_logo_dark_url,logo_mode,header_brand_mode,header_config,nav_links,footer_config,footer_links,favicon_url,custom_css_url,custom_css,theme,contact_links,canonical_domain,path_enabled,domain_enabled,show_disabled_components,default_language,enabled_locales,translations,enabled,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE slug=VALUES(slug),title=VALUES(title),description=VALUES(description),logo_url=VALUES(logo_url),
-          favicon_url=VALUES(favicon_url),theme=VALUES(theme),contact_links=VALUES(contact_links),canonical_domain=VALUES(canonical_domain),
-          enabled=VALUES(enabled),updated_at=VALUES(updated_at)",
-        [$id, $slug, $title, $input['description'] ?? null, $input['logo_url'] ?? null, $input['favicon_url'] ?? null,
-         json_encode($input['theme'] ?? new stdClass()), json_encode($input['contact_links'] ?? []), $canonical,
+          logo_dark_url=VALUES(logo_dark_url),mobile_logo_url=VALUES(mobile_logo_url),mobile_logo_dark_url=VALUES(mobile_logo_dark_url),
+          logo_mode=VALUES(logo_mode),header_brand_mode=VALUES(header_brand_mode),header_config=VALUES(header_config),nav_links=VALUES(nav_links),
+          footer_config=VALUES(footer_config),footer_links=VALUES(footer_links),favicon_url=VALUES(favicon_url),
+          custom_css_url=VALUES(custom_css_url),custom_css=VALUES(custom_css),theme=VALUES(theme),contact_links=VALUES(contact_links),canonical_domain=VALUES(canonical_domain),
+          path_enabled=VALUES(path_enabled),domain_enabled=VALUES(domain_enabled),show_disabled_components=VALUES(show_disabled_components),default_language=VALUES(default_language),enabled_locales=VALUES(enabled_locales),translations=VALUES(translations),enabled=VALUES(enabled),updated_at=VALUES(updated_at)",
+        [$id, $slug, $title, $input['description'] ?? null, $input['logo_url'] ?? null,
+         $input['logo_dark_url'] ?? null, $input['mobile_logo_url'] ?? null, $input['mobile_logo_dark_url'] ?? null,
+         $logoMode, $headerBrandMode, json_encode($input['header_config'] ?? new stdClass()),
+         json_encode(array_values(is_array($input['nav_links'] ?? null) ? $input['nav_links'] : [])),
+         json_encode($input['footer_config'] ?? new stdClass()),
+         json_encode(array_values(is_array($input['footer_links'] ?? null) ? $input['footer_links'] : [])),
+         $input['favicon_url'] ?? null,
+         $customCssUrl !== '' ? $customCssUrl : null, $customCss !== '' ? $customCss : null,
+         json_encode($input['theme'] ?? new stdClass()),
+         json_encode($input['contact_links'] ?? []), $canonical,
+         !isset($input['path_enabled']) || !empty($input['path_enabled']) ? 1 : 0,
+         !isset($input['domain_enabled']) || !empty($input['domain_enabled']) ? 1 : 0,
+         !isset($input['show_disabled_components']) || !empty($input['show_disabled_components']) ? 1 : 0,
+         preg_match('/^[a-z]{2}(?:-[A-Z]{2})?$/', (string) ($input['default_language'] ?? 'en')) ? $input['default_language'] : 'en',
+         json_encode(array_values(array_filter($input['enabled_locales'] ?? ['en'], static fn($locale): bool => is_string($locale) && preg_match('/^[a-z]{2}(?:-[A-Z]{2})?$/', $locale) === 1))),
+         json_encode(is_array($input['translations'] ?? null) ? $input['translations'] : new stdClass()),
          !isset($input['enabled']) || !empty($input['enabled']) ? 1 : 0, now_utc(), now_utc()]
     );
-    json_out(['ok' => true, 'id' => $id]);
+    if (array_key_exists('sections', $input) && is_array($input['sections'])) {
+        $servicePosition = 0;
+        foreach (array_values($input['sections']) as $sectionPosition => $section) {
+            if (!is_array($section)) {
+                continue;
+            }
+            $groupName = trim((string) ($section['name'] ?? ''));
+            $groupId = null;
+            if ($groupName !== '') {
+                $candidateGroupId = trim((string) ($section['id'] ?? ''));
+                $existingGroup = $candidateGroupId !== ''
+                    ? db_row('SELECT id FROM status_page_groups WHERE id=? AND status_page_id=?', [$candidateGroupId, $id])
+                    : null;
+                $groupId = $existingGroup !== null ? $candidateGroupId : uuid4();
+                db_exec(
+                    'INSERT INTO status_page_groups (id,status_page_id,name,position,collapsed,auto_expand,created_at) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),position=VALUES(position),collapsed=VALUES(collapsed),auto_expand=VALUES(auto_expand)',
+                    [$groupId, $id, mb_substr($groupName, 0, 150), $sectionPosition,
+                     !empty($section['collapsed']) ? 1 : 0, !isset($section['auto_expand']) || !empty($section['auto_expand']) ? 1 : 0, now_utc()]
+                );
+            }
+            foreach (array_values(is_array($section['resources'] ?? null) ? $section['resources'] : []) as $resource) {
+                if (!is_array($resource)) {
+                    continue;
+                }
+                $serviceId = trim((string) ($resource['service_id'] ?? ''));
+                if ($serviceId === '' || db_row('SELECT id FROM monitoring_services WHERE id=?', [$serviceId]) === null) {
+                    continue;
+                }
+                $mode = (string) ($resource['view_mode'] ?? 'current');
+                if (!in_array($mode, ['current', 'history', 'performance'], true)) {
+                    $mode = 'current';
+                }
+                $historyDays = (int) ($resource['history_days'] ?? 90);
+                if (!in_array($historyDays, [7, 14, 30, 60, 90, 180, 365], true)) {
+                    $historyDays = 90;
+                }
+                db_exec(
+                    'INSERT INTO status_page_services (status_page_id,service_id,group_id,position,enabled,show_uptime,show_performance,history_days) VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE group_id=VALUES(group_id),position=VALUES(position),enabled=VALUES(enabled),show_uptime=VALUES(show_uptime),show_performance=VALUES(show_performance),history_days=VALUES(history_days)',
+                    [$id, $serviceId, $groupId, $servicePosition++, !isset($resource['enabled']) || !empty($resource['enabled']) ? 1 : 0,
+                     $mode !== 'current' ? 1 : 0, $mode === 'performance' ? 1 : 0, $historyDays]
+                );
+            }
+        }
+        foreach (array_values(is_array($input['removed_service_ids'] ?? null) ? $input['removed_service_ids'] : []) as $removedServiceId) {
+            $removedServiceId = trim((string) $removedServiceId);
+            if ($removedServiceId !== '') {
+                db_exec('DELETE FROM status_page_services WHERE status_page_id=? AND service_id=?', [$id, $removedServiceId]);
+            }
+        }
+    } elseif (array_key_exists('service_ids', $input) && is_array($input['service_ids'])) {
+        $serviceIds = array_values(array_unique(array_filter(array_map('strval', $input['service_ids']))));
+        foreach ($serviceIds as $position => $serviceId) {
+            if (db_row('SELECT id FROM monitoring_services WHERE id=?', [$serviceId]) !== null) {
+                db_exec(
+                    'INSERT INTO status_page_services (status_page_id,service_id,position,show_uptime,show_performance) VALUES (?,?,?,0,0) ON DUPLICATE KEY UPDATE position=VALUES(position)',
+                    [$id, $serviceId, $position]
+                );
+            }
+        }
+    }
+    $verification = null;
+    if ($canonical !== null) {
+        $domain = db_row('SELECT id,status,verification_token FROM status_page_domains WHERE hostname=?', [$canonical]);
+        if ($domain === null) {
+            $domainId = uuid4();
+            $token = bin2hex(random_bytes(32));
+            db_exec(
+                "INSERT INTO status_page_domains (id,status_page_id,hostname,verification_token,status,created_at)
+                 VALUES (?,?,?,?, 'pending', ?)",
+                [$domainId, $id, $canonical, $token, now_utc()]
+            );
+            $verification = ['type' => 'TXT', 'name' => '_rumahl-status.' . $canonical, 'value' => $token];
+        } elseif ($domain['status'] !== 'verified') {
+            db_exec('UPDATE status_page_domains SET status_page_id=? WHERE id=?', [$id, $domain['id']]);
+            $verification = ['type' => 'TXT', 'name' => '_rumahl-status.' . $canonical, 'value' => $domain['verification_token']];
+        }
+    }
+    json_out(['ok' => true, 'id' => $id, 'verification' => $verification]);
 }
 
 function monitoring_save_domain(): never
@@ -318,70 +629,271 @@ function monitoring_public_page(?string $slug = null): never
 {
     $host = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? '')));
     if ($slug !== null && $slug !== '') {
-        $page = db_row('SELECT * FROM status_pages WHERE slug = ? AND enabled = 1', [$slug]);
+        $page = db_row('SELECT * FROM status_pages WHERE slug = ? AND enabled = 1 AND path_enabled = 1', [$slug]);
     } elseif ($host !== '') {
+        monitoring_verify_domain_for_host($host);
         $page = db_row(
             "SELECT p.* FROM status_pages p JOIN status_page_domains d ON d.status_page_id=p.id
-              WHERE d.hostname=? AND d.status='verified' AND p.enabled=1",
+              WHERE d.hostname=? AND d.status='verified' AND p.enabled=1 AND p.domain_enabled=1",
             [$host]
         );
     } else {
         $page = null;
     }
-    $page ??= db_row("SELECT * FROM status_pages WHERE slug='default' AND enabled=1");
+    $knownDomain = $host !== ''
+        ? db_row('SELECT id FROM status_page_domains WHERE hostname=?', [$host]) !== null
+        : false;
+    if ($page === null && ($slug === null || $slug === '') && !$knownDomain) {
+        $page = db_row("SELECT * FROM status_pages WHERE slug='default' AND enabled=1");
+    }
     if ($page === null) {
         json_error('Status page not found', 404);
     }
-    $services = db_all(
-        "SELECT s.id,s.public_name name,s.public_description description,s.status,
-                ps.show_uptime,ps.show_performance,ps.position,g.id group_id,g.name group_name,g.position group_position,
-                c.id component_id
-           FROM status_page_services ps
-           JOIN monitoring_services s ON s.id=ps.service_id
-           LEFT JOIN status_page_groups g ON g.id=ps.group_id
-           LEFT JOIN components c ON c.id=s.legacy_component_id
-          WHERE ps.status_page_id=? AND s.public_status_enabled=1
-          ORDER BY COALESCE(g.position,9999),ps.position,s.public_name",
-        [$page['id']]
-    );
+    try {
+        $services = db_all(
+            "SELECT s.id,s.public_name name,s.public_description description,s.status,s.legacy_component_id,
+                    ps.enabled,ps.show_uptime,ps.show_performance,ps.history_days,ps.position,g.id group_id,
+                    g.name group_name,g.position group_position,g.collapsed group_collapsed,g.auto_expand group_auto_expand,
+                    s.legacy_component_id component_id
+               FROM status_page_services ps
+               JOIN monitoring_services s ON s.id=ps.service_id
+               LEFT JOIN status_page_groups g ON g.id=ps.group_id AND g.status_page_id=ps.status_page_id
+              WHERE ps.status_page_id=? AND ps.enabled=1
+              ORDER BY COALESCE(g.position,9999),ps.position,s.public_name",
+            [$page['id']]
+        );
+    } catch (Throwable $e) {
+        error_log('[rumahl-status] Public status services failed for page ' . $page['id'] . ': ' . $e->getMessage());
+        // Keep the independent status page online even if optional component
+        // presentation metadata is temporarily inconsistent.
+        $services = [];
+    }
     $groups = [];
+    $overallStatuses = [];
     foreach ($services as $service) {
+        try {
+            if (!empty($service['legacy_component_id'])) {
+                $legacyMonitoring = db_row('SELECT enabled FROM components WHERE id=?', [$service['legacy_component_id']]);
+                $service['monitoring_enabled'] = (bool) ((int) ($legacyMonitoring['enabled'] ?? 0));
+            } else {
+                $monitoring = db_row('SELECT MAX(enabled) enabled FROM monitor_checks WHERE service_id=?', [$service['id']]);
+                $service['monitoring_enabled'] = $monitoring === null || $monitoring['enabled'] === null
+                    ? true
+                    : (bool) ((int) $monitoring['enabled']);
+            }
+        } catch (Throwable $e) {
+            error_log('[rumahl-status] Public monitor state failed for service ' . $service['id'] . ': ' . $e->getMessage());
+            $service['monitoring_enabled'] = true;
+        }
+        $service['show_uptime'] = (bool) ((int) $service['show_uptime']);
+        $service['show_performance'] = (bool) ((int) $service['show_performance']);
+        $service['monitoring_enabled'] = (bool) ((int) $service['monitoring_enabled']);
+        if (empty($page['show_disabled_components']) && !$service['monitoring_enabled']) {
+            continue;
+        }
+        if ($service['monitoring_enabled']) {
+            $overallStatuses[] = (string) $service['status'];
+        }
+        $service['history_days'] = (int) $service['history_days'];
+        $service['position'] = (int) $service['position'];
         $groupId = $service['group_id'] ?? 'ungrouped';
         if (!isset($groups[$groupId])) {
-            $groups[$groupId] = ['id' => $groupId, 'name' => $service['group_name'] ?? 'Services', 'services' => []];
+            $groups[$groupId] = [
+                'id' => $groupId, 'name' => $service['group_name'] ?? 'Services',
+                'collapsed' => (bool) ($service['group_collapsed'] ?? false),
+                'auto_expand' => !isset($service['group_auto_expand']) || (bool) $service['group_auto_expand'],
+                'services' => [],
+            ];
         }
-        unset($service['group_id'], $service['group_name'], $service['group_position']);
+        unset($service['group_id'], $service['group_name'], $service['group_position'], $service['group_collapsed'], $service['group_auto_expand'], $service['enabled'], $service['legacy_component_id']);
         $groups[$groupId]['services'][] = $service;
     }
-    $incidents = db_all(
-        "SELECT i.id,i.type,i.title,i.description,i.status,i.impact,i.starts_at,i.resolves_at,i.updated_at
-           FROM status_page_incidents pi JOIN incidents i ON i.id=pi.incident_id
-          WHERE pi.status_page_id=? AND i.public_visible=1
-            AND i.status NOT IN ('resolved','completed','cancelled') ORDER BY i.starts_at DESC",
-        [$page['id']]
-    );
+    try {
+        $incidents = db_all(
+            "SELECT i.id,i.type,i.title,i.description,i.status,i.impact,i.starts_at,i.resolves_at,i.created_at,i.updated_at
+               FROM status_page_incidents pi JOIN incidents i ON i.id=pi.incident_id
+              WHERE pi.status_page_id=? AND i.public_visible=1
+                AND i.status NOT IN ('resolved','completed','cancelled') ORDER BY i.starts_at DESC",
+            [$page['id']]
+        );
+    } catch (Throwable $e) {
+        error_log('[rumahl-status] Public incidents failed for page ' . $page['id'] . ': ' . $e->getMessage());
+        $incidents = [];
+    }
     foreach ($incidents as &$incident) {
         $incident['updates'] = db_all(
             "SELECT id,status,message,created_at FROM incident_updates
               WHERE incident_id=? AND visibility='public' ORDER BY created_at ASC,id ASC",
             [$incident['id']]
         );
+        $incident['components'] = array_column(
+            db_all('SELECT component_id FROM incident_components WHERE incident_id=?', [$incident['id']]),
+            'component_id'
+        );
     }
     unset($incident);
-    $overall = monitoring_worst_status(array_column($services, 'status'));
+    $overall = monitoring_worst_status($overallStatuses);
     json_out([
         'page' => [
             'id' => $page['id'], 'slug' => $page['slug'], 'title' => $page['title'],
             'description' => $page['description'], 'logo_url' => $page['logo_url'],
-            'favicon_url' => $page['favicon_url'], 'theme' => json_decode((string) ($page['theme'] ?? 'null'), true),
+            'logo_dark_url' => $page['logo_dark_url'], 'logo_mode' => $page['logo_mode'],
+            'mobile_logo_url' => $page['mobile_logo_url'], 'mobile_logo_dark_url' => $page['mobile_logo_dark_url'],
+            'header_brand_mode' => $page['header_brand_mode'],
+            'header_config' => $page['header_config'] === null ? null : (json_decode((string) $page['header_config'], true) ?: []),
+            'nav_links' => $page['nav_links'] === null ? null : (json_decode((string) $page['nav_links'], true) ?: []),
+            'footer_config' => $page['footer_config'] === null ? null : (json_decode((string) $page['footer_config'], true) ?: []),
+            'footer_links' => $page['footer_links'] === null ? null : (json_decode((string) $page['footer_links'], true) ?: []),
+            'favicon_url' => $page['favicon_url'], 'custom_css_url' => $page['custom_css_url'],
+            'custom_css' => $page['custom_css'],
+            'theme' => json_decode((string) ($page['theme'] ?? 'null'), true),
             'contact_links' => json_decode((string) ($page['contact_links'] ?? '[]'), true),
             'canonical_domain' => $page['canonical_domain'],
+            'path_enabled' => (bool) $page['path_enabled'], 'domain_enabled' => (bool) $page['domain_enabled'],
+            'show_disabled_components' => (bool) $page['show_disabled_components'],
+            'default_language' => $page['default_language'] ?: 'en',
+            'enabled_locales' => json_decode((string) ($page['enabled_locales'] ?? '["en"]'), true) ?: ['en'],
+            'translations' => json_decode((string) ($page['translations'] ?? '{}'), true) ?: [],
         ],
         'overall' => $overall,
         'groups' => array_values($groups),
         'incidents' => $incidents,
         'updated_at' => iso(now_utc()),
     ]);
+}
+
+/**
+ * Last-resort response for the infrastructure's default page. The status page
+ * must remain useful when page-specific presentation metadata is inconsistent;
+ * the original exception is still logged for repair.
+ */
+function monitoring_public_default_fallback(Throwable $cause): never
+{
+    error_log('[rumahl-status] Default tenant DTO failed; serving legacy status fallback: ' . $cause->getMessage());
+    $legacy = build_status_response();
+    $page = db_row("SELECT * FROM status_pages WHERE slug='default' AND enabled=1");
+    if ($page === null) {
+        throw $cause;
+    }
+    $groups = [];
+    foreach ($legacy['groups'] as $group) {
+        $groups[] = [
+            'id' => $group['id'],
+            'name' => $group['name'] === 'Ungrouped' ? '' : $group['name'],
+            'collapsed' => (bool) ($group['collapsed'] ?? false),
+            'auto_expand' => (bool) ($group['auto_expand'] ?? true),
+            'services' => array_values($group['components'] ?? []),
+        ];
+    }
+    json_out([
+        'page' => [
+            'id' => $page['id'], 'slug' => $page['slug'], 'title' => $page['title'], 'description' => $page['description'],
+            'logo_url' => $page['logo_url'] ?? null, 'logo_dark_url' => $page['logo_dark_url'] ?? null,
+            'logo_mode' => $page['logo_mode'] ?? 'same', 'mobile_logo_url' => $page['mobile_logo_url'] ?? null,
+            'mobile_logo_dark_url' => $page['mobile_logo_dark_url'] ?? null, 'header_brand_mode' => $page['header_brand_mode'] ?? 'logo',
+            'header_config' => json_decode((string) ($page['header_config'] ?? '{}'), true) ?: [],
+            'nav_links' => json_decode((string) ($page['nav_links'] ?? 'null'), true),
+            'footer_config' => json_decode((string) ($page['footer_config'] ?? '{}'), true) ?: [],
+            'footer_links' => json_decode((string) ($page['footer_links'] ?? 'null'), true),
+            'favicon_url' => $page['favicon_url'] ?? null, 'custom_css_url' => $page['custom_css_url'] ?? null,
+            'custom_css' => $page['custom_css'] ?? null, 'theme' => json_decode((string) ($page['theme'] ?? '{}'), true) ?: [],
+            'contact_links' => json_decode((string) ($page['contact_links'] ?? '[]'), true) ?: [],
+            'canonical_domain' => $page['canonical_domain'] ?? null, 'path_enabled' => true, 'domain_enabled' => true,
+            'show_disabled_components' => true, 'default_language' => $page['default_language'] ?? 'en',
+            'enabled_locales' => json_decode((string) ($page['enabled_locales'] ?? '["en"]'), true) ?: ['en'],
+            'translations' => json_decode((string) ($page['translations'] ?? '{}'), true) ?: [],
+        ],
+        'overall' => $legacy['overall'], 'groups' => $groups,
+        'incidents' => array_values(array_merge($legacy['active_incidents'], $legacy['scheduled_maintenance'])),
+        'updated_at' => iso(now_utc()), 'fallback' => true,
+    ]);
+}
+
+function monitoring_upload_branding(): never
+{
+    $file = $_FILES['file'] ?? null;
+    $kind = (string) ($_POST['kind'] ?? 'logo');
+    $colorMode = (string) ($_POST['color_mode'] ?? 'same');
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        json_error('A branding file is required');
+    }
+    if (!in_array($kind, ['logo', 'logo_dark', 'mobile_logo', 'mobile_logo_dark', 'favicon'], true)
+        || !in_array($colorMode, ['same', 'adaptive', 'custom'], true)) {
+        json_error('Invalid branding upload options');
+    }
+    if ((int) ($file['size'] ?? 0) > 2 * 1024 * 1024) {
+        json_error('Branding files must not exceed 2 MB');
+    }
+    $original = (string) ($file['name'] ?? '');
+    $extension = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+    $allowed = ['svg', 'png', 'jpg', 'jpeg', 'webp', 'ico'];
+    if (!in_array($extension, $allowed, true)) {
+        json_error('Unsupported branding file type');
+    }
+    $tmp = (string) ($file['tmp_name'] ?? '');
+    $content = file_get_contents($tmp);
+    if ($content === false) {
+        json_error('Unable to read uploaded file');
+    }
+    if ($extension === 'svg') {
+        $content = monitoring_sanitize_svg($content);
+    }
+    $directory = dirname(__DIR__) . '/uploads/branding';
+    if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
+        json_error('Branding upload directory is not writable', 500);
+    }
+    $base = bin2hex(random_bytes(16));
+    $filename = $base . '.' . $extension;
+    if (file_put_contents($directory . '/' . $filename, $content, LOCK_EX) === false) {
+        json_error('Unable to store branding file', 500);
+    }
+    $urlPrefix = basename(dirname(__DIR__)) === 'api' ? '/api' : '';
+    $result = ['url' => $urlPrefix . '/uploads/branding/' . $filename, 'dark_url' => null, 'color_mode' => $colorMode];
+    if ($extension === 'svg' && in_array($kind, ['logo', 'mobile_logo'], true) && $colorMode === 'adaptive') {
+        $darkName = $base . '-dark.svg';
+        $darkSvg = preg_replace('/\b(fill|stroke)=([' . "'\"" . '])(?!none\b|url\()[^' . "'\"" . ']+\2/i', '$1=$2#ffffff$2', $content) ?? $content;
+        if (file_put_contents($directory . '/' . $darkName, $darkSvg, LOCK_EX) !== false) {
+            $result['dark_url'] = $urlPrefix . '/uploads/branding/' . $darkName;
+        }
+    }
+    json_out($result);
+}
+
+function monitoring_sanitize_svg(string $svg): string
+{
+    if (!str_contains(strtolower($svg), '<svg')
+        || preg_match('/<(script|foreignObject|iframe|object|embed)\b/i', $svg)
+        || preg_match('/\son[a-z]+\s*=/i', $svg)
+        || preg_match('/(?:href|src)\s*=\s*[' . "'\"" . ']\s*(?:https?:|data:text\/html|javascript:)/i', $svg)) {
+        json_error('Unsafe SVG content');
+    }
+    return $svg;
+}
+
+/** Verify a pending custom domain from its DNS TXT record on first use. */
+function monitoring_verify_domain_for_host(string $host): void
+{
+    if (!function_exists('dns_get_record')) {
+        return;
+    }
+    $domain = db_row(
+        "SELECT id,verification_token FROM status_page_domains WHERE hostname=? AND status='pending'",
+        [$host]
+    );
+    if ($domain === null) {
+        return;
+    }
+    $records = @dns_get_record('_rumahl-status.' . $host, DNS_TXT);
+    if (!is_array($records)) {
+        return;
+    }
+    foreach ($records as $record) {
+        $value = (string) ($record['txt'] ?? '');
+        if ($value !== '' && hash_equals((string) $domain['verification_token'], $value)) {
+            db_exec("UPDATE status_page_domains SET status='verified',verified_at=UTC_TIMESTAMP() WHERE id=?", [$domain['id']]);
+            return;
+        }
+    }
 }
 
 function monitoring_worst_status(array $statuses): string

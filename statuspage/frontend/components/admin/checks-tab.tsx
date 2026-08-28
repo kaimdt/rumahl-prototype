@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Eraser, Play, Trash2, TriangleAlert, XCircle } from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { CheckCircle2, Eraser, ExternalLink, Play, Trash2, TriangleAlert, XCircle } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type { CheckResult, Component } from "@/lib/types";
 import { Button, SectionCard, Select } from "@/components/admin/ui";
@@ -140,7 +140,8 @@ export function ChecksTab() {
                 {results.map((r) => {
                   const softfail = !r.ok && r.softfail;
                   return (
-                    <tr key={r.id}>
+                    <Fragment key={r.id}>
+                    <tr>
                       <td className="px-3 py-2">
                         {r.ok ? (
                           <span className="inline-flex items-center gap-1 font-semibold text-status-operational">
@@ -206,6 +207,7 @@ export function ChecksTab() {
                         {new Date(r.checked_at).toLocaleString("en-GB")}
                       </td>
                       <td className="px-2 py-2 text-right">
+                        {r.screenshot_url && <a href={r.screenshot_url} target="_blank" rel="noreferrer" className="inline-flex p-1 text-primary" title="Open failure screenshot"><ExternalLink className="h-3.5 w-3.5" /></a>}
                         <button
                           onClick={() => removeResult(r)}
                           className="p-1 text-muted-foreground/40 hover:text-status-major transition-colors"
@@ -215,6 +217,19 @@ export function ChecksTab() {
                         </button>
                       </td>
                     </tr>
+                    {!r.ok && r.diagnostic && <tr key={`${r.id}-diagnostic`} className="bg-muted/10">
+                      <td colSpan={10} className="px-4 py-3">
+                        <details>
+                          <summary className="cursor-pointer text-xs font-bold text-muted-foreground">Failure diagnostics</summary>
+                          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                            <DiagnosticBlock title="Request" lines={[r.diagnostic.effective_url, ...r.diagnostic.request_headers]} />
+                            <DiagnosticBlock title="Response headers" lines={r.diagnostic.response_headers} />
+                            {r.diagnostic.body_excerpt && <DiagnosticBlock title="Response excerpt" lines={[r.diagnostic.body_excerpt]} />}
+                          </div>
+                        </details>
+                      </td>
+                    </tr>}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -224,4 +239,11 @@ export function ChecksTab() {
       </SectionCard>
     </div>
   );
+}
+
+function DiagnosticBlock({ title, lines }: { title: string; lines: string[] }) {
+  return <div className="min-w-0 rounded-xl border border-border/30 bg-background/50 p-3">
+    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</p>
+    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-[11px] text-foreground/80">{lines.join("\n")}</pre>
+  </div>;
 }

@@ -66,17 +66,26 @@ function http_check(array $component): array
     }
 
     $curlHeaders = array_merge(['Accept: */*'], check_headers($component));
+    $responseHeaders = [];
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT_MS => max(500, (int) $component['timeout_ms']),
         CURLOPT_CONNECTTIMEOUT_MS => max(500, (int) $component['timeout_ms']),
         CURLOPT_NOBODY => ($component['method'] ?? 'GET') === 'HEAD',
+        CURLOPT_CUSTOMREQUEST => strtoupper((string) ($component['method'] ?? 'GET')),
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_MAXREDIRS => 0,
         CURLOPT_USERAGENT => 'rumahl-status-monitor/1.0',
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_HTTPHEADER => $curlHeaders,
+        CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$responseHeaders): int {
+            $trimmed = trim($line);
+            if ($trimmed !== '') {
+                $responseHeaders[] = $trimmed;
+            }
+            return strlen($line);
+        },
     ]);
 
     $start = hrtime(true);
@@ -100,11 +109,23 @@ function http_check(array $component): array
     $server = $startTransferMs > 0
         ? max(0, (int) round(($startTransferMs - ($appConnectMs > 0 ? $appConnectMs : $connectMs)) * 1000))
         : null;
+    $diagnostic = [
+        'effective_url' => diagnostic_mask_url((string) ($info['url'] ?? $url)),
+        'primary_ip' => (string) ($info['primary_ip'] ?? ''),
+        'primary_port' => (int) ($info['primary_port'] ?? 0),
+        'local_ip' => (string) ($info['local_ip'] ?? ''),
+        'redirect_count' => (int) ($info['redirect_count'] ?? 0),
+        'content_type' => $info['content_type'] ?? null,
+        'download_bytes' => (int) ($info['size_download'] ?? 0),
+        'request_headers' => diagnostic_mask_headers($curlHeaders),
+        'response_headers' => diagnostic_mask_headers($responseHeaders),
+        'body_excerpt' => diagnostic_body_excerpt(is_string($body) ? $body : ''),
+        'captured_at' => now_utc(),
+    ];
     curl_close($ch);
-    unset($body);
 
     if ($error !== '') {
-        return [false, $latencyMs, $statusCode, $error, false, $dns, $connect, $tls, $server];
+        return [false, $latencyMs, $statusCode, $error, false, $dns, $connect, $tls, $server, $diagnostic];
     }
     $expected = (int) $component['expected_status'];
     $ok = $statusCode === $expected;
@@ -118,7 +139,101 @@ function http_check(array $component): array
         $connect,
         $tls,
         $server,
+        $ok ? null : $diagnostic,
     ];
+}
+
+/** Keep enough of a secret to identify it without exposing the full value. */
+function diagnostic_mask_value(string $value): string
+{
+    $length = strlen($value);
+    if ($length <= 6) {
+        return str_repeat('*', $length);
+    }
+    if ($length < 16) {
+        return substr($value, 0, 2) . str_repeat('*', $length - 4) . substr($value, -2);
+    }
+    $middleStart = max(5, intdiv($length - 4, 2));
+    return substr($value, 0, 5) . str_repeat('*', $middleStart - 5)
+        . substr($value, $middleStart, 4)
+        . str_repeat('*', max(0, $length - $middleStart - 9)) . substr($value, -5);
+}
+
+function diagnostic_mask_headers(array $headers): array
+{
+    $sensitive = '/^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token)$/i';
+    $masked = [];
+    foreach ($headers as $line) {
+        if (!is_string($line) || !str_contains($line, ':')) {
+            $masked[] = (string) $line;
+            continue;
+        }
+        [$name, $value] = array_map('trim', explode(':', $line, 2));
+        $isSensitive = preg_match($sensitive, $name) === 1 || preg_match('/(token|secret|api[-_]?key)/i', $name) === 1;
+        $masked[] = $name . ': ' . ($isSensitive ? diagnostic_mask_value($value) : substr($value, 0, 2048));
+    }
+    return array_slice($masked, 0, 100);
+}
+
+function diagnostic_mask_url(string $url): string
+{
+    return preg_replace_callback(
+        '/([?&](?:token|secret|api[-_]?key|password|access_token)=)([^&#]+)/i',
+        static fn (array $match): string => $match[1] . rawurlencode(diagnostic_mask_value(rawurldecode($match[2]))),
+        $url
+    ) ?? $url;
+}
+
+function diagnostic_body_excerpt(string $body): ?string
+{
+    if ($body === '') {
+        return null;
+    }
+    $content = preg_replace('/\s+/', ' ', strip_tags($body)) ?? '';
+    $content = preg_replace('/((?:token|secret|api[-_]?key|password)["\'\s:=]+)([^&\s,"\']+)/i', '$1[masked]', $content) ?? $content;
+    return substr(trim($content), 0, 4096);
+}
+
+function capture_failure_screenshot(string $url): ?string
+{
+    $settings = statuspage_config()['screenshot'] ?? [];
+    $endpoint = trim((string) ($settings['endpoint'] ?? ''));
+    if ($endpoint === '' || !filter_var($endpoint, FILTER_VALIDATE_URL)) {
+        return null;
+    }
+    $ch = curl_init($endpoint);
+    $headers = ['Content-Type: application/json', 'Accept: application/json'];
+    if (($settings['token'] ?? '') !== '') {
+        $headers[] = 'Authorization: Bearer ' . $settings['token'];
+    }
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT_MS => max(1000, (int) ($settings['timeout_ms'] ?? 15000)),
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_POSTFIELDS => json_encode(['url' => $url, 'full_page' => true]),
+        CURLOPT_SSL_VERIFYPEER => !array_key_exists('tls_verify', $component) || !empty($component['tls_verify']),
+        CURLOPT_SSL_VERIFYHOST => (!array_key_exists('tls_verify', $component) || !empty($component['tls_verify'])) ? 2 : 0,
+    ]);
+    if (($component['body'] ?? '') !== '' && in_array(strtoupper((string) ($component['method'] ?? 'GET')), ['POST', 'PUT', 'PATCH'], true)) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, (string) $component['body']);
+    }
+    if (($component['basic_auth_username'] ?? '') !== '') {
+        curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+        curl_setopt($ch, CURLOPT_USERPWD, (string) $component['basic_auth_username'] . ':' . (string) ($component['basic_auth_password'] ?? ''));
+    }
+    if (($component['proxy_host'] ?? '') !== '') {
+        curl_setopt($ch, CURLOPT_PROXY, (string) $component['proxy_host']);
+        if ((int) ($component['proxy_port'] ?? 0) > 0) curl_setopt($ch, CURLOPT_PROXYPORT, (int) $component['proxy_port']);
+    }
+    if (($component['ip_version'] ?? 'both') === 'ipv4') curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    if (($component['ip_version'] ?? 'both') === 'ipv6') curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V6);
+    $response = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    $decoded = is_string($response) ? json_decode($response, true) : null;
+    $screenshotUrl = is_array($decoded) ? (string) ($decoded['url'] ?? '') : '';
+    return $status >= 200 && $status < 300 && str_starts_with($screenshotUrl, 'https://') ? $screenshotUrl : null;
 }
 
 /** TCP connect check — endpoint is "host" or "host:port" (default 80). */
@@ -431,10 +546,13 @@ function derive_status(string $componentId, int $window, ?array $component = nul
 /** Record one check result + update the daily uptime counter. */
 function record_check(string $componentId, array $result): void
 {
+    $diagnostic = $result[9] ?? null;
+    $component = !$result[0] ? db_row('SELECT endpoint_url FROM components WHERE id = ?', [$componentId]) : null;
+    $screenshotUrl = $component !== null ? capture_failure_screenshot((string) $component['endpoint_url']) : null;
     db_exec(
         'INSERT INTO check_results (component_id, ok, softfail, latency_ms, dns_ms, connect_ms,
-                                    tls_ms, server_ms, status_code, error, checked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                                    tls_ms, server_ms, status_code, error, diagnostic_json, screenshot_url, checked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
             $componentId,
             $result[0] ? 1 : 0,
@@ -446,6 +564,8 @@ function record_check(string $componentId, array $result): void
             $result[8],
             $result[2],
             $result[3],
+            $diagnostic === null ? null : json_encode($diagnostic, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            $screenshotUrl,
             now_utc(),
         ]
     );
@@ -707,6 +827,15 @@ function run_monitor(): array
         ];
     }
 
+    // The monitoring center stores its checks separately from legacy components.
+    // Run all checks that are due so monitors created in the new admin UI are
+    // real monitors rather than configuration-only records.
+    $platformResults = run_platform_checks();
+    foreach ($platformResults as $platformResult) {
+        $results[] = $platformResult;
+    }
+    db_exec('DELETE FROM monitoring_check_results WHERE checked_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 DAY)');
+
     // Best-effort cleanup of raw check results (kept 31 days — long enough
     // for the per-day outage episode details behind the uptime bars).
     db_exec('DELETE FROM check_results WHERE checked_at < DATE_SUB(NOW(), INTERVAL 31 DAY)');
@@ -720,4 +849,91 @@ function run_monitor(): array
         'alerts_sent' => $sent,
         'results' => $results,
     ];
+}
+
+/** Execute due checks created by the monitoring center and persist their state. */
+function run_platform_checks(?string $onlyCheckId = null): array
+{
+    $checks = $onlyCheckId === null
+        ? db_all(
+            "SELECT * FROM monitor_checks
+              WHERE enabled = 1
+                AND (last_checked_at IS NULL OR DATE_ADD(last_checked_at, INTERVAL interval_seconds SECOND) <= UTC_TIMESTAMP())
+              ORDER BY created_at ASC"
+        )
+        : db_all('SELECT * FROM monitor_checks WHERE enabled=1 AND id=? LIMIT 1', [$onlyCheckId]);
+    $results = [];
+    foreach ($checks as $check) {
+        $config = json_decode((string) ($check['config'] ?? '{}'), true);
+        $config = is_array($config) ? $config : [];
+        $headers = preg_split('/\r?\n/', (string) ($config['headers'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $type = match ((string) $check['check_type']) {
+            'icmp' => 'ping',
+            'tls' => 'ssl',
+            default => (string) $check['check_type'],
+        };
+        if ($type === 'custom') {
+            $result = [false, null, null, 'Custom checks require an external monitoring agent', false, null, null, null, null];
+        } else {
+            $component = [
+                'check_type' => $type,
+                'endpoint_url' => (string) $check['target'],
+                'timeout_ms' => (int) $check['timeout_ms'],
+                'method' => strtoupper((string) ($config['method'] ?? 'GET')),
+                'headers' => json_encode(array_values($headers)),
+                'expected_status' => (int) ($config['expected_status'] ?? 200),
+                'body' => (string) ($config['body'] ?? ''),
+                'tls_verify' => !array_key_exists('tls_verify', $config) || !empty($config['tls_verify']),
+                'ip_version' => (string) ($config['ip_version'] ?? 'both'),
+                'basic_auth_username' => (string) ($config['basic_auth_username'] ?? ''),
+                'basic_auth_password' => (string) ($config['basic_auth_password'] ?? ''),
+                'proxy_host' => (string) ($config['proxy_host'] ?? ''),
+                'proxy_port' => (int) ($config['proxy_port'] ?? 0),
+            ];
+            $result = run_check($component);
+            for ($attempt = 0; !$result[0] && $attempt < (int) $check['retry_count']; $attempt++) {
+                $result = run_check($component);
+            }
+            for ($attempt = 0; !$result[0] && $attempt < (int) $check['retry_count']; $attempt++) {
+                $result = run_check($component);
+            }
+        }
+
+        $ok = (bool) $result[0];
+        $failures = $ok ? 0 : ((int) $check['consecutive_failures'] + 1);
+        $successes = $ok ? ((int) $check['consecutive_successes'] + 1) : 0;
+        $status = (string) $check['status'];
+        if ($ok && $successes >= max(1, (int) $check['recovery_threshold'])) $status = 'operational';
+        if (!$ok && $failures >= max(1, (int) $check['failure_threshold'])) $status = 'major_outage';
+        $now = now_utc();
+        db_exec(
+            'UPDATE monitor_checks SET status=?,consecutive_failures=?,consecutive_successes=?,last_checked_at=?,last_success_at=IF(?, ?, last_success_at),last_failure_at=IF(?, ?, last_failure_at),updated_at=? WHERE id=?',
+            [$status, $failures, $successes, $now, $ok ? 1 : 0, $now, $ok ? 0 : 1, $now, $now, $check['id']]
+        );
+        if ($result[1] !== null) {
+            db_exec(
+                "INSERT INTO monitoring_metrics (host_id,service_id,check_id,metric_key,value,unit,granularity,recorded_at) VALUES (?,?,?,'response_time_ms',?,'ms','raw',?)",
+                [$check['host_id'], $check['service_id'], $check['id'], $result[1], $now]
+            );
+        }
+        db_exec(
+            'INSERT INTO monitoring_check_results (check_id,ok,softfail,status,latency_ms,dns_ms,connect_ms,tls_ms,server_ms,status_code,error_text,diagnostic_json,checked_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [$check['id'], $ok ? 1 : 0, !empty($result[4]) ? 1 : 0, $status, $result[1], $result[5], $result[6], $result[7], $result[8], $result[2], $result[3], isset($result[9]) ? json_encode($result[9]) : null, $now]
+        );
+        if (!empty($check['service_id'])) {
+            $serviceStatus = db_row(
+                "SELECT status FROM monitor_checks WHERE service_id=? AND enabled=1
+                  ORDER BY FIELD(status,'major_outage','partial_outage','degraded','maintenance','unknown','operational') ASC LIMIT 1",
+                [$check['service_id']]
+            );
+            db_exec('UPDATE monitoring_services SET status=?,updated_at=? WHERE id=?', [$serviceStatus['status'] ?? $status, $now, $check['service_id']]);
+        }
+        $results[] = [
+            'check_id' => $check['id'], 'component_id' => null, 'name' => $check['name'],
+            'check_type' => $check['check_type'], 'ok' => $ok, 'softfail' => (bool) $result[4],
+            'latency_ms' => $result[1], 'server_ms' => $result[8], 'status_code' => $result[2],
+            'error' => $result[3], 'status' => $status,
+        ];
+    }
+    return $results;
 }

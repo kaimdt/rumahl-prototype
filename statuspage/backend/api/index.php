@@ -57,7 +57,14 @@ function route(string $method, string $path): never
 {
     if ($method === 'GET' && ($path === '/public/status' || str_starts_with($path, '/public/status/'))) {
         $slug = $path === '/public/status' ? null : rawurldecode(substr($path, strlen('/public/status/')));
-        monitoring_public_page($slug);
+        try {
+            monitoring_public_page($slug);
+        } catch (Throwable $e) {
+            if ($slug === null || $slug === '' || $slug === 'default') {
+                monitoring_public_default_fallback($e);
+            }
+            throw $e;
+        }
     }
     // ── Public ──────────────────────────────────────────────────
     if ($method === 'GET' && $path === '/status') {
@@ -171,8 +178,20 @@ function route(string $method, string $path): never
         if ($method === 'POST' && $path === '/admin/monitoring/checks') {
             monitoring_save_check();
         }
+        if ($method === 'GET' && preg_match('#^/admin/monitoring/checks/([a-f0-9-]{36})$#', $path, $m)) {
+            monitoring_check_detail($m[1]);
+        }
+        if ($method === 'POST' && preg_match('#^/admin/monitoring/checks/([a-f0-9-]{36})/test-alert$#', $path, $m)) {
+            monitoring_test_alert($m[1]);
+        }
+        if ($method === 'POST' && preg_match('#^/admin/monitoring/checks/([a-f0-9-]{36})/run$#', $path, $m)) {
+            monitoring_run_check_now($m[1]);
+        }
         if ($method === 'POST' && $path === '/admin/monitoring/status-pages') {
             monitoring_save_status_page();
+        }
+        if ($method === 'POST' && $path === '/admin/monitoring/branding/upload') {
+            monitoring_upload_branding();
         }
         if ($method === 'POST' && $path === '/admin/monitoring/domains') {
             monitoring_save_domain();

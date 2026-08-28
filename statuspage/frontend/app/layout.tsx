@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { FaviconUpdater } from "@/components/favicon";
+import { TenantBranding } from "@/components/tenant-branding";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -49,6 +50,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={`${manrope.variable} ${jetbrainsMono.variable}`}>
       <body className="min-h-screen bg-background text-foreground antialiased overflow-x-hidden">
+        <script dangerouslySetInnerHTML={{ __html: "try{if(location.hostname!=='status.rumahl.com'||location.pathname.startsWith('/s/'))document.documentElement.setAttribute('data-tenant-loading','true')}catch(e){}" }} />
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
@@ -56,9 +58,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <FaviconUpdater />
-          <div className="flex flex-col min-h-screen">
+          <TenantBranding />
+          <div className="statuspage-shell flex flex-col min-h-screen">
             <SiteHeader />
-            <main className="flex-1">{children}</main>
+            <main className="statuspage-main flex-1">{children}</main>
             <SiteFooter />
           </div>
         </ThemeProvider>

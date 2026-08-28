@@ -99,6 +99,11 @@ function serve_frontend(string $path): never
     }
 
     $clean = '/' . ltrim(str_replace('\\', '/', $path), '/');
+    // Every tenant uses the same static export. The browser keeps /s/<slug>
+    // while the frontend derives the slug and requests its scoped API data.
+    if (preg_match('#^/s/[a-z0-9]+(?:-[a-z0-9]+)*(?:/(.*))?$#', $clean, $tenantPath)) {
+        $clean = empty($tenantPath[1]) ? '/' : '/' . ltrim($tenantPath[1], '/');
+    }
     $candidates = [];
     if ($clean === '/') {
         $candidates[] = '/index.html';

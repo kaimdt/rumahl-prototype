@@ -1,24 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Bell, CalendarClock, FlaskConical, Globe2, HardDrive, LayoutDashboard, LogOut, Settings, SlidersHorizontal } from "lucide-react";
+import { Activity, Bell, CalendarClock, FlaskConical, Globe2, HardDrive, LayoutDashboard, LogOut, SlidersHorizontal } from "lucide-react";
 import { adminApi, setToken } from "@/lib/api";
 import { LoginForm } from "@/components/admin/login-form";
-import { ComponentsTab } from "@/components/admin/components-tab";
 import { IncidentsTab } from "@/components/admin/incidents-tab";
 import { SettingsTab } from "@/components/admin/settings-tab";
-import { ChecksTab } from "@/components/admin/checks-tab";
 import { MonitoringOverviewTab } from "@/components/admin/monitoring-overview";
 import { useAdminTranslation } from "@/lib/admin-i18n";
 import { MonitoringListTab } from "@/components/admin/monitoring-list";
+import { MonitorCenter } from "@/components/admin/monitor-center";
 import { cn } from "@/lib/utils";
 
-type Tab = "overview" | "hosts" | "services" | "alerts" | "status-pages" | "components" | "incidents" | "checks" | "settings";
+type Tab = "overview" | "hosts" | "services" | "alerts" | "status-pages" | "incidents" | "checks" | "settings";
 
 const TABS: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: "components", label: "Components", icon: Activity },
   { id: "incidents", label: "Incidents", icon: CalendarClock },
-  { id: "checks", label: "Checks", icon: FlaskConical },
+  { id: "checks", label: "Monitors", icon: FlaskConical },
   { id: "settings", label: "Settings", icon: SlidersHorizontal },
 ];
 
@@ -49,61 +47,38 @@ export default function AdminPage() {
     return <LoginForm onSuccess={() => setAuthed(true)} />;
   }
 
+  const activeTab = tabs.find((item) => item.id === tab) ?? tabs[0];
   return (
-    <div className="mx-auto max-w-5xl px-5 lg:px-8 py-10">
-      <div className="flex items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-            {t("monitoring.adminTitle")}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t("monitoring.adminSubtitle")}
-          </p>
+    <div className="admin-shell min-h-screen bg-[#090c15] text-slate-100">
+      <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-white/[0.07] bg-[#0c101c] lg:flex">
+        <div className="flex h-16 items-center gap-3 border-b border-white/[0.07] px-5">
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-500/15 text-indigo-300"><Activity className="h-5 w-5" /></span>
+          <div><p className="text-sm font-bold tracking-tight">rumahl</p><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Uptime</p></div>
         </div>
-        <button
-          onClick={() => {
-            setToken(null);
-            setAuthed(false);
-            if (centralLogoutUrl) window.location.assign(centralLogoutUrl);
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 px-3 py-2 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          {t("monitoring.signOut")}
-        </button>
+        <nav className="admin-sidebar-nav flex-1 space-y-1 overflow-y-auto p-3" aria-label="Admin navigation">
+          {tabs.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={cn("admin-sidebar-link flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-semibold transition", tab === id ? "bg-indigo-500/15 text-indigo-200 ring-1 ring-inset ring-indigo-400/10" : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100")}><Icon className="h-4 w-4" strokeWidth={1.8} /><span>{label}</span>{tab === id && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-indigo-400" />}</button>)}
+        </nav>
+        <div className="border-t border-white/[0.07] p-3"><button onClick={() => { setToken(null); setAuthed(false); if (centralLogoutUrl) window.location.assign(centralLogoutUrl); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-semibold text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"><LogOut className="h-4 w-4" />{t("monitoring.signOut")}</button></div>
+      </aside>
+      <div className="admin-workspace lg:pl-60">
+        <header className="admin-topbar sticky top-0 z-30 border-b border-white/[0.07] bg-[#090c15]/90 backdrop-blur-xl">
+          <div className="flex min-h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-300/70">{t("monitoring.adminTitle")}</p><h1 className="truncate text-lg font-bold tracking-tight">{activeTab.label}</h1></div>
+            <div className="flex items-center gap-2 lg:hidden"><select value={tab} onChange={(event) => setTab(event.target.value as Tab)} className="rounded-lg border border-white/10 bg-[#111626] px-3 py-2 text-sm">{tabs.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><button onClick={() => { setToken(null); setAuthed(false); }} className="rounded-lg border border-white/10 p-2 text-slate-400"><LogOut className="h-4 w-4" /></button></div>
+            <span className="hidden items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/[0.06] px-3 py-1.5 text-[11px] font-semibold text-emerald-300 lg:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />{t("monitoring.liveUpdates")}</span>
+          </div>
+        </header>
+        <main className="admin-content mx-auto w-full max-w-[1500px] p-4 sm:p-6 lg:p-8">
+          {tab === "overview" && <MonitoringOverviewTab />}
+          {tab === "hosts" && <MonitoringListTab entity="hosts" />}
+          {tab === "services" && <MonitoringListTab entity="services" />}
+          {tab === "alerts" && <MonitoringListTab entity="alerts" />}
+          {tab === "status-pages" && <MonitoringListTab entity="status-pages" />}
+          {tab === "incidents" && <IncidentsTab />}
+          {tab === "checks" && <MonitorCenter />}
+          {tab === "settings" && <SettingsTab />}
+        </main>
       </div>
-
-      <div className="flex flex-wrap gap-1.5 mb-8 border-b border-border/40 pb-4">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors",
-              tab === id
-                ? "bg-primary/12 text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-            )}
-          >
-            <Icon className="h-4 w-4" strokeWidth={2} />
-            {label}
-          </button>
-        ))}
-        <span className="ml-auto hidden sm:inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
-          <Settings className="h-3.5 w-3.5" />
-          changes appear on the public page immediately
-        </span>
-      </div>
-
-      {tab === "overview" && <MonitoringOverviewTab />}
-      {tab === "hosts" && <MonitoringListTab entity="hosts" />}
-      {tab === "services" && <MonitoringListTab entity="services" />}
-      {tab === "alerts" && <MonitoringListTab entity="alerts" />}
-      {tab === "status-pages" && <MonitoringListTab entity="status-pages" />}
-      {tab === "components" && <ComponentsTab />}
-      {tab === "incidents" && <IncidentsTab />}
-      {tab === "checks" && <ChecksTab />}
-      {tab === "settings" && <SettingsTab />}
     </div>
   );
 }

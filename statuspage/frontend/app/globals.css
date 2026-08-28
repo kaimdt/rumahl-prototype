@@ -1,5 +1,46 @@
 @import "tailwindcss";
 
+html[data-tenant-loading="true"] body {
+  visibility: hidden;
+}
+
+/* Stable public customization hooks. Tenant CSS can target statuspage-* classes
+   and data-status/data-component-id/data-group-id attributes without relying on
+   Tailwind's generated utility selectors. */
+
+.admin-shell {
+  color-scheme: dark;
+  --background: 224 35% 7%;
+  --foreground: 220 20% 94%;
+  --card: 224 30% 9%;
+  --card-foreground: 220 20% 94%;
+  --surface: 224 28% 11%;
+  --popover: 224 30% 9%;
+  --popover-foreground: 220 20% 94%;
+  --primary: 238 82% 68%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 224 22% 13%;
+  --muted-foreground: 220 12% 60%;
+  --border: 224 18% 18%;
+  --input: 224 24% 12%;
+  --ring: 238 82% 68%;
+}
+
+.admin-shell :is(input, textarea, select):focus-visible {
+  border-color: rgb(129 140 248 / 0.65);
+  box-shadow: 0 0 0 3px rgb(99 102 241 / 0.12);
+  outline: none;
+}
+
+.admin-content > * {
+  animation: admin-content-in 180ms ease-out;
+}
+
+@keyframes admin-content-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @theme inline {
   --font-sans: var(--font-manrope);
   --font-mono: var(--font-jetbrains-mono);
@@ -238,6 +279,17 @@
     border-color: hsl(var(--ring) / 0.25);
     transform: translateY(-1px);
   }
+}
+
+.status-group-header {
+  background: hsl(var(--muted) / 0.42);
+  border-color: hsl(var(--border) / 0.55);
+}
+
+.light .status-group-header {
+  background: hsl(214 28% 91%);
+  border-color: hsl(214 18% 76%);
+  box-shadow: inset 0 -1px 0 hsl(214 18% 78% / 0.7);
 }
 
 @utility glass {

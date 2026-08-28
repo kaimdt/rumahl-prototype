@@ -52,6 +52,15 @@ function db(bool $ensureSchema = true): PDO
  *      while a maintenance window covers the component)
  *  v8  monitoring platform entities (hosts, agents, services, checks,
  *      metrics, alerts and independently routed status pages)
+ *  v9  per-page domain/path routing switches and failure diagnostics
+ *  v10 per-page custom stylesheet URL
+ *  v11 uploaded light/dark logos and inline custom CSS
+ *  v12 independent mobile logos and text-only header branding
+ *  v13 per-status-page group behavior, service visibility and history range
+ *  v14 configurable tenant header, navigation, footer and footer links
+ *  v15 per-status-page visibility of disabled monitoring components
+ *  v16 per-status-page languages and translated public content
+ *  v17 persisted monitor check history and SMTP monitor support
  */
 function schema_migrations(): array
 {
@@ -92,6 +101,45 @@ function schema_migrations(): array
             ['incidents', 'public_visible', 'TINYINT(1) NOT NULL DEFAULT 1'],
             ['incident_updates', 'visibility', "ENUM('public','internal') NOT NULL DEFAULT 'public'"],
             ['incident_updates', 'author', 'VARCHAR(150) NULL'],
+        ],
+        'v9' => [
+            ['status_pages', 'path_enabled', 'TINYINT(1) NOT NULL DEFAULT 1'],
+            ['status_pages', 'domain_enabled', 'TINYINT(1) NOT NULL DEFAULT 1'],
+            ['check_results', 'diagnostic_json', 'LONGTEXT NULL'],
+            ['check_results', 'screenshot_url', 'VARCHAR(1000) NULL'],
+        ],
+        'v10' => [
+            ['status_pages', 'custom_css_url', 'VARCHAR(1000) NULL'],
+        ],
+        'v11' => [
+            ['status_pages', 'logo_dark_url', 'VARCHAR(500) NULL'],
+            ['status_pages', 'logo_mode', "VARCHAR(20) NOT NULL DEFAULT 'same'"],
+            ['status_pages', 'custom_css', 'MEDIUMTEXT NULL'],
+        ],
+        'v12' => [
+            ['status_pages', 'mobile_logo_url', 'VARCHAR(500) NULL'],
+            ['status_pages', 'mobile_logo_dark_url', 'VARCHAR(500) NULL'],
+            ['status_pages', 'header_brand_mode', "VARCHAR(20) NOT NULL DEFAULT 'logo'"],
+        ],
+        'v13' => [
+            ['status_page_groups', 'collapsed', 'TINYINT(1) NOT NULL DEFAULT 0'],
+            ['status_page_groups', 'auto_expand', 'TINYINT(1) NOT NULL DEFAULT 1'],
+            ['status_page_services', 'enabled', 'TINYINT(1) NOT NULL DEFAULT 1'],
+            ['status_page_services', 'history_days', 'INT NOT NULL DEFAULT 90'],
+        ],
+        'v14' => [
+            ['status_pages', 'header_config', 'JSON NULL'],
+            ['status_pages', 'nav_links', 'JSON NULL'],
+            ['status_pages', 'footer_config', 'JSON NULL'],
+            ['status_pages', 'footer_links', 'JSON NULL'],
+        ],
+        'v15' => [
+            ['status_pages', 'show_disabled_components', 'TINYINT(1) NOT NULL DEFAULT 1'],
+        ],
+        'v16' => [
+            ['status_pages', 'default_language', "VARCHAR(10) NOT NULL DEFAULT 'en'"],
+            ['status_pages', 'enabled_locales', 'JSON NULL'],
+            ['status_pages', 'translations', 'JSON NULL'],
         ],
     ];
 }
@@ -146,6 +194,15 @@ function db_migrate(PDO $pdo): array
             if (isset($existing[$key])) {
                 continue;
             }
+            if (!isset($existing[$table . '.id']) && $table === 'status_pages') {
+                // v8 creates this table below on fresh installations.
+                continue;
+            }
+            if (($table === 'status_page_groups' && !isset($existing['status_page_groups.id']))
+                || ($table === 'status_page_services' && !isset($existing['status_page_services.status_page_id']))) {
+                // v8 creates these tables below on fresh installations.
+                continue;
+            }
             $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
             $existing[$key] = true;
             $changed = true;
@@ -184,6 +241,82 @@ function db_migrate(PDO $pdo): array
             }
         } catch (Throwable $e) {
             throw $e;
+        }
+    }
+    $monitorCheckType = strtolower((string) $pdo->query(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='monitor_checks' AND COLUMN_NAME='check_type'"
+    )->fetchColumn());
+    if (!str_contains($monitorCheckType, "'smtp'")) {
+        $pdo->exec("ALTER TABLE `monitor_checks` MODIFY COLUMN `check_type` ENUM('http','tcp','icmp','dns','tls','smtp','custom') NOT NULL DEFAULT 'http'");
+        if (!in_array('v17', $applied, true)) {
+            $applied[] = 'v17';
+        }
+    }
+    $monitorHistoryExists = (int) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='monitoring_check_results'"
+    )->fetchColumn() === 1;
+    if (!$monitorHistoryExists) {
+        $sql = file_get_contents(__DIR__ . '/../migrations/017_monitor_check_history.sql');
+        if ($sql === false) {
+            throw new RuntimeException('Unable to read monitor history migration');
+        }
+        $pdo->exec($sql);
+        if (!in_array('v17', $applied, true)) {
+            $applied[] = 'v17';
+        }
+    }
+    foreach ([
+        'path_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'domain_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'custom_css_url' => 'VARCHAR(1000) NULL',
+        'logo_dark_url' => 'VARCHAR(500) NULL',
+        'logo_mode' => "VARCHAR(20) NOT NULL DEFAULT 'same'",
+        'custom_css' => 'MEDIUMTEXT NULL',
+        'mobile_logo_url' => 'VARCHAR(500) NULL',
+        'mobile_logo_dark_url' => 'VARCHAR(500) NULL',
+        'header_brand_mode' => "VARCHAR(20) NOT NULL DEFAULT 'logo'",
+        'header_config' => 'JSON NULL',
+        'nav_links' => 'JSON NULL',
+        'footer_config' => 'JSON NULL',
+        'footer_links' => 'JSON NULL',
+        'show_disabled_components' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'default_language' => "VARCHAR(10) NOT NULL DEFAULT 'en'",
+        'enabled_locales' => 'JSON NULL',
+        'translations' => 'JSON NULL',
+    ] as $column => $definition) {
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='status_pages' AND COLUMN_NAME=?"
+        );
+        $stmt->execute([$column]);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE `status_pages` ADD COLUMN `{$column}` {$definition}");
+            if (!in_array('v9', $applied, true)) {
+                $applied[] = 'v9';
+            }
+        }
+    }
+    foreach ([
+        'status_page_groups' => [
+            'collapsed' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'auto_expand' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        ],
+        'status_page_services' => [
+            'enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+            'history_days' => 'INT NOT NULL DEFAULT 90',
+        ],
+    ] as $table => $columns) {
+        foreach ($columns as $column => $definition) {
+            $stmt = $pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?'
+            );
+            $stmt->execute([$table, $column]);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
+                if (!in_array('v13', $applied, true)) {
+                    $applied[] = 'v13';
+                }
+            }
         }
     }
     return $applied;

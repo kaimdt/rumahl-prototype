@@ -72,6 +72,21 @@ served from `frontend/` (404.html fallback).
 - **Machine-readable API** — `/api/status.json` in statuspage.io style
 - **Admin UI** — components, groups, incidents, check log, run-now, settings
   (Bearer token auth)
+- **Multiple public pages** — one shared frontend/backend can route each page
+  by a verified custom domain and/or `/s/<slug>/`; both modes are independently
+  enabled per page in the admin UI
+- **Per-page presentation** — select the monitoring services shown publicly
+  and configure title, description, logo, favicon and an optional HTTPS custom
+  stylesheet without deploying a separate frontend
+- **Branding uploads** — logos and favicons can be entered as URLs or uploaded
+  directly (SVG/PNG/JPEG/WebP, maximum 2 MB). SVG logos can keep their colors,
+  generate a light/dark pair automatically, or use a separately uploaded dark
+  logo. Inline CSS is available through the admin CSS editor.
+- **Responsive header branding** — each page can use independent desktop and
+  mobile logos (including dark variants), or replace all header artwork with
+  the configured page title as text.
+- **Failure diagnostics** — failed HTTP checks retain timing, network details,
+  masked request/response headers and a bounded response excerpt
 
 ## Requirements
 
@@ -175,6 +190,53 @@ https://status.rumahl.com/api/cron.php?key=YOUR_CRON_KEY
 `https://status.rumahl.com/admin/` → sign in with the admin token.
 Configure notifications under **Settings** (recipients, webhook URLs,
 latency threshold, failure window).
+
+Custom domains use a DNS TXT record named `_rumahl-status.<domain>`. The admin
+UI displays its generated value after the page is saved. The backend verifies
+the record automatically when that hostname is first requested.
+
+Migration `013_status_page_component_configuration.sql` stores collapsed and
+automatic expansion behavior, service visibility, display mode and history
+range independently for every status page.
+
+Migration `014_status_page_layout_configuration.sql` adds page-specific header,
+navigation and fully replaceable footer configuration. Migration
+`015_status_page_disabled_components.sql` controls whether disabled components
+remain visible on each individual public status page. Custom CSS is edited with
+a CodeMirror CSS editor with syntax highlighting, folding, completion and
+automatic indentation.
+
+The complete visual customization workflow, supported CSS hooks and practical
+desktop/mobile examples are documented in [CUSTOMIZATION.md](CUSTOMIZATION.md).
+
+Migration `016_status_page_localization.sql` adds a default language, enabled
+locales and translated page content per status page. Translations can replace
+the public title, description, navigation labels, footer text and the complete
+footer-link collection. The public language selector uses i18next and remembers
+the visitor's selection per status page.
+
+Checks created in the monitoring center are executed by the same cron entry as
+legacy component checks. Their interval, retries, timeout, request options and
+threshold state are persisted in `monitor_checks`; response-time samples are
+written to `monitoring_metrics` for the monitor detail chart.
+
+### Optional failure screenshots on shared hosting
+
+PHP/cURL captures all textual diagnostics itself. Rendering a real browser
+screenshot requires a browser renderer, which typical Plesk shared hosting does
+not provide. An optional HTTPS screenshot endpoint can therefore be configured:
+
+```text
+STATUSPAGE_SCREENSHOT_ENDPOINT=https://screenshots.example.com/capture
+STATUSPAGE_SCREENSHOT_TOKEN=provider-token
+STATUSPAGE_SCREENSHOT_TIMEOUT_MS=15000
+```
+
+On a failed HTTP check the backend POSTs `{"url":"…","full_page":true}` and
+expects `{"url":"https://…"}`. The resulting link appears beside the failed
+check. Sensitive headers (`Authorization`, cookies, API keys, tokens and
+secrets) are stored only in partially masked form: beginning, a short middle
+segment and ending remain visible for identification.
 
 ## API overview
 

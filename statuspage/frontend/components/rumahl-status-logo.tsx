@@ -13,11 +13,25 @@
 export function RumahlStatusLogo({
   className,
   status = true,
+  mobile = false,
 }: {
   className?: string;
   /** hide the "status" wordmark (compact mobile use) */
   status?: boolean;
+  /** compact mobile mark: the rumahl "r" followed by "status" */
+  mobile?: boolean;
 }) {
+  if (mobile) {
+    return (
+      <svg viewBox="0 0 370 132" className={className} role="img" aria-label="rumahl Status" xmlns="http://www.w3.org/2000/svg">
+        <g transform="matrix(0.48773096,0,0,0.48773096,-8.7792445,-8.7792008)">
+          <path fill="hsl(var(--primary))" d="m 22,284 q -4,0 -4,-4 V 171 c 0,-52 34,-86 85,-86 h 17 q 4,0 4,4 v 36 q 0,4 -4,4 h -13 c -28,0 -46,17 -46,45 v 106 q 0,4 -4,4 z" />
+        </g>
+        <rect x="63" y="28" width="3" height="78" rx="1.5" fill="hsl(var(--border))" />
+        <text x="82" y="103" fill="currentColor" fontFamily="var(--font-manrope), sans-serif" fontSize="88" fontWeight="800" letterSpacing="-5">status</text>
+      </svg>
+    );
+  }
   return (
     <svg
       viewBox="0 0 1056.8917 132.17509"

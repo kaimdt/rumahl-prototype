@@ -76,6 +76,7 @@ function admin_components_save(): never
               WHERE id = :id',
             array_merge($fields, ['id' => $input['id']])
         );
+        admin_sync_component_service((string) $input['id'], $name, $fields['description'], $fields['enabled']);
 
         // Manual components: persist the admin-chosen status immediately.
         if ($kind === 'manual' && isset($input['manual_status'])) {
@@ -123,8 +124,23 @@ function admin_components_save(): never
         'INSERT INTO component_status (component_id, status, changed_at) VALUES (?, ?, ?)',
         [$id, $status, now_utc()]
     );
+    admin_sync_component_service($id, $name, (string) ($input['description'] ?? ''), isset($input['enabled']) ? ($input['enabled'] ? 1 : 0) : 1);
 
     json_out(['ok' => true, 'id' => $id]);
+}
+
+function admin_sync_component_service(string $componentId, string $name, string $description, int $enabled): void
+{
+    $status = db_row('SELECT status FROM component_status WHERE component_id=?', [$componentId])['status'] ?? 'unknown';
+    db_exec(
+        "INSERT INTO monitoring_services
+          (id,legacy_component_id,internal_name,internal_description,public_name,public_description,status,public_status_enabled,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE legacy_component_id=VALUES(legacy_component_id),internal_name=VALUES(internal_name),
+          internal_description=VALUES(internal_description),public_name=VALUES(public_name),public_description=VALUES(public_description),
+          status=VALUES(status),public_status_enabled=VALUES(public_status_enabled),updated_at=VALUES(updated_at)",
+        [$componentId, $componentId, $name, $description, $name, $description, $status, $enabled, now_utc(), now_utc()]
+    );
 }
 
 function admin_components_delete(): never
@@ -545,6 +561,10 @@ function admin_checks_log(): never
             'server_ms' => $row['server_ms'] !== null ? (int) $row['server_ms'] : null,
             'status_code' => $row['status_code'] !== null ? (int) $row['status_code'] : null,
             'error' => $row['error'],
+            'diagnostic' => $row['diagnostic_json'] !== null
+                ? json_decode((string) $row['diagnostic_json'], true)
+                : null,
+            'screenshot_url' => $row['screenshot_url'],
             'checked_at' => iso($row['checked_at']),
         ];
     }, $rows));
