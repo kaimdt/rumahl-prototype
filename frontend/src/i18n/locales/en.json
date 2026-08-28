@@ -98,6 +98,21 @@
     "userMenu": "User Menu",
     "notifications": "Notifications"
   },
+  "setup": {
+    "back": "Back", "continue": "Continue", "getStarted": "Get started", "finish": "Finish setup", "finishing": "Setting up your home…",
+    "welcome": { "title": "Welcome home.", "subtitle": "Let's set up your rumahl OS.", "duration": "This will only take a few minutes." },
+    "locale": { "title": "Language and region", "subtitle": "Choose how dates, times, and language appear.", "country": "Country / Region", "timezone": "Timezone" },
+    "owner": { "title": "Create your owner account", "subtitle": "This is the first administrator of your rumahl.", "username": "Username", "firstName": "First name", "lastName": "Last name", "displayName": "What should rumahl call you?", "usernameHint": "Use lowercase letters, numbers, dots, dashes, or underscores.", "create": "Create owner" },
+    "password": { "title": "Create your password", "subtitle": "Choose a memorable password with at least eight characters.", "password": "Password", "confirm": "Confirm password", "capsLock": "Caps Lock is on.", "noMatch": "The passwords do not match." },
+    "recovery": { "title": "Account recovery", "subtitle": "Save this recovery key now. It will not be shown in full again.", "copy": "Copy", "download": "Download", "confirm": "I saved my recovery key securely" },
+    "network": { "title": "Connect your home", "subtitle": "rumahl verifies connectivity before keeping network changes.", "ethernet": "Ethernet", "dhcp": "Automatic configuration (DHCP)", "connected": "Connected", "checking": "Checking…", "safety": "Network changes use Apply → Verify → Commit. If verification fails, the previous working configuration is restored." },
+    "identity": { "title": "Name your rumahl", "subtitle": "Give your home a friendly name and a network-safe hostname.", "systemName": "System name", "systemPlaceholder": "My Home", "hostname": "Hostname" },
+    "appearance": { "title": "Make it yours.", "subtitle": "Choose the overall appearance. You can change it later in Settings.", "light": "Light", "dark": "Dark", "automatic": "Automatic", "accent": "Accent color", "soft": "Soft", "balanced": "Balanced", "clear": "Clear" },
+    "accessibility": { "title": "Accessibility", "subtitle": "These preferences are respected throughout rumahl OS.", "contrast": "Increase contrast", "reduceTransparency": "Reduce transparency", "reduceMotion": "Reduce motion", "largerText": "Larger text" },
+    "privacy": { "title": "Your home stays yours.", "subtitle": "rumahl OS is self-hosted. Optional diagnostics remain off unless you enable them.", "diagnostics": "Share anonymous diagnostics", "updates": "Keep rumahl OS up to date", "automatic": "Automatic updates — Recommended", "notify": "Notify me before installing", "manual": "Manual updates" },
+    "summary": { "title": "Your rumahl is ready.", "subtitle": "Review your choices before finishing setup.", "owner": "Owner", "device": "Device", "network": "Network", "appearance": "Appearance", "updates": "Updates" },
+    "errors": { "owner": "The owner account could not be created.", "recovery": "The recovery key could not be generated.", "finish": "Setup could not be completed." }
+  },
   "os": {
     "title": "rumahl Home",
     "eyebrow": "rumahl OS",
@@ -214,7 +229,8 @@
       "unlocking": "Unlocking…",
       "invalidCredential": "Password or PIN is incorrect.",
       "usePin": "Unlock with PIN",
-      "usePassword": "Unlock with password"
+      "usePassword": "Unlock with password",
+      "chooseUser": "Choose a user"
     },
     "permissions": {
       "title": "rumahl OS permissions",

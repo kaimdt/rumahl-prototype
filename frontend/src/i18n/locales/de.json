@@ -98,6 +98,21 @@
     "userMenu": "Benutzermenü",
     "notifications": "Benachrichtigungen"
   },
+  "setup": {
+    "back": "Zurück", "continue": "Weiter", "getStarted": "Los geht's", "finish": "Einrichtung abschließen", "finishing": "Dein Zuhause wird eingerichtet…",
+    "welcome": { "title": "Willkommen zu Hause.", "subtitle": "Lass uns dein rumahl OS einrichten.", "duration": "Das dauert nur wenige Minuten." },
+    "locale": { "title": "Sprache und Region", "subtitle": "Lege fest, wie Sprache, Datum und Uhrzeit erscheinen.", "country": "Land / Region", "timezone": "Zeitzone" },
+    "owner": { "title": "Owner-Account erstellen", "subtitle": "Dies ist der erste Administrator deines rumahl.", "username": "Benutzername", "firstName": "Vorname", "lastName": "Nachname", "displayName": "Wie soll rumahl dich nennen?", "usernameHint": "Verwende Kleinbuchstaben, Zahlen, Punkte, Bindestriche oder Unterstriche.", "create": "Owner erstellen" },
+    "password": { "title": "Passwort erstellen", "subtitle": "Wähle ein gut merkbares Passwort mit mindestens acht Zeichen.", "password": "Passwort", "confirm": "Passwort bestätigen", "capsLock": "Die Feststelltaste ist aktiv.", "noMatch": "Die Passwörter stimmen nicht überein." },
+    "recovery": { "title": "Account-Wiederherstellung", "subtitle": "Speichere diesen Wiederherstellungsschlüssel jetzt. Er wird nicht erneut vollständig angezeigt.", "copy": "Kopieren", "download": "Herunterladen", "confirm": "Ich habe den Wiederherstellungsschlüssel sicher gespeichert" },
+    "network": { "title": "Verbinde dein Zuhause", "subtitle": "rumahl prüft die Erreichbarkeit, bevor Netzwerkänderungen beibehalten werden.", "ethernet": "Ethernet", "dhcp": "Automatische Konfiguration (DHCP)", "connected": "Verbunden", "checking": "Wird geprüft…", "safety": "Netzwerkänderungen verwenden Anwenden → Prüfen → Übernehmen. Schlägt die Prüfung fehl, wird die letzte funktionierende Konfiguration wiederhergestellt." },
+    "identity": { "title": "Gib deinem rumahl einen Namen", "subtitle": "Wähle einen freundlichen Systemnamen und einen netzwerktauglichen Hostnamen.", "systemName": "Systemname", "systemPlaceholder": "Mein Zuhause", "hostname": "Hostname" },
+    "appearance": { "title": "Mach es zu deinem.", "subtitle": "Wähle das grundlegende Erscheinungsbild. Du kannst es später ändern.", "light": "Hell", "dark": "Dunkel", "automatic": "Automatisch", "accent": "Akzentfarbe", "soft": "Sanft", "balanced": "Ausgewogen", "clear": "Klar" },
+    "accessibility": { "title": "Barrierefreiheit", "subtitle": "Diese Einstellungen werden im gesamten rumahl OS berücksichtigt.", "contrast": "Kontrast erhöhen", "reduceTransparency": "Transparenz reduzieren", "reduceMotion": "Bewegung reduzieren", "largerText": "Größerer Text" },
+    "privacy": { "title": "Dein Zuhause bleibt deins.", "subtitle": "rumahl OS läuft bei dir zu Hause. Optionale Diagnosedaten bleiben aus, bis du sie aktivierst.", "diagnostics": "Anonyme Diagnosedaten teilen", "updates": "rumahl OS aktuell halten", "automatic": "Automatische Updates — Empfohlen", "notify": "Vor der Installation benachrichtigen", "manual": "Manuelle Updates" },
+    "summary": { "title": "Dein rumahl ist bereit.", "subtitle": "Prüfe deine Auswahl, bevor du die Einrichtung abschließt.", "owner": "Owner", "device": "Gerät", "network": "Netzwerk", "appearance": "Erscheinungsbild", "updates": "Updates" },
+    "errors": { "owner": "Der Owner-Account konnte nicht erstellt werden.", "recovery": "Der Wiederherstellungsschlüssel konnte nicht erzeugt werden.", "finish": "Die Einrichtung konnte nicht abgeschlossen werden." }
+  },
   "os": {
     "title": "rumahl Home",
     "eyebrow": "rumahl OS",
@@ -214,7 +229,8 @@
       "unlocking": "Wird entsperrt…",
       "invalidCredential": "Passwort oder PIN ist nicht korrekt.",
       "usePin": "Mit PIN entsperren",
-      "usePassword": "Mit Passwort entsperren"
+      "usePassword": "Mit Passwort entsperren",
+      "chooseUser": "Benutzer auswählen"
     },
     "permissions": {
       "title": "rumahl-OS-Berechtigungen",

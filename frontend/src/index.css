@@ -663,6 +663,31 @@ html {
     --glass-border-color 0.7s ease;
 }
 
+:root[data-high-contrast='true'] {
+  --glass-border-opacity: 0.34;
+  --muted-foreground: color-mix(in oklch, var(--foreground) 76%, transparent);
+}
+
+:root[data-reduce-transparency='true'] .glass-card,
+:root[data-reduce-transparency='true'] [class*='backdrop-blur'] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: var(--card) !important;
+}
+
+:root[data-larger-text='true'] {
+  font-size: 112.5%;
+}
+
+:root[data-reduce-motion='true'] *,
+:root[data-reduce-motion='true'] *::before,
+:root[data-reduce-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { transition: none; }
 }

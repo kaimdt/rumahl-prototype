@@ -78,6 +78,7 @@ mod person_tracker;
 mod plugin_sandbox;
 mod remote_handler;
 mod session_handler;
+mod setup_handler;
 mod streaming;
 mod system_events;
 mod terminal_handler;
@@ -2793,6 +2794,11 @@ async fn main() -> anyhow::Result<()> {
             post(desktop_gateway::ack_command),
         )
         // Authentication API (public)
+        .route("/api/setup/status", get(setup_handler::status))
+        .route("/api/setup/draft", put(setup_handler::save_draft))
+        .route("/api/setup/recovery-key", post(setup_handler::recovery_key))
+        .route("/api/setup/complete", post(setup_handler::complete))
+        .route("/api/auth/recover", post(setup_handler::recover_owner))
         .route("/api/auth/register", post(auth_register))
         .route("/api/auth/login", post(auth_login))
         .route("/api/auth/guest", post(auth_guest_login))
