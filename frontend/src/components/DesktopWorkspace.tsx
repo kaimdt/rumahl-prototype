@@ -47,6 +47,21 @@ interface ItemPos { col: number; row: number }
 const POS_KEY = 'rumahl-os-desktop-positions'
 const CURRENT_FOLDER_KEY = 'rumahl-os-desktop-folder'
 
+interface DesktopMetrics { scale: number; cellWidth: number; cellHeight: number; iconSize: number; labelSize: number }
+
+/** Windows-like desktop density that reacts to viewport size without letting
+ * ultrawide/4K displays inflate controls or compact screens crush labels. */
+function desktopMetricsForViewport(width: number, height: number): DesktopMetrics {
+  const scale = Math.min(1.08, Math.max(0.9, Math.min(width / 1440, height / 900)))
+  return {
+    scale,
+    cellWidth: Math.round(85 * scale),
+    cellHeight: Math.round(71 * scale),
+    iconSize: Math.min(48, Math.max(40, Math.round(44 * scale))),
+    labelSize: Math.round(Math.min(13, Math.max(12, 12.2 * scale)) * 10) / 10,
+  }
+}
+
 function readPositions(): Record<string, ItemPos> {
   try {
     const parsed = JSON.parse(localStorage.getItem(POS_KEY) || '{}')
@@ -107,7 +122,7 @@ function DesktopIcon({
       aria-pressed={selected}
     >
       <span
-        className={`rumahl-desktop-icon-art ${isFolder ? 'rumahl-desktop-icon-folder' : ''}`}
+        className={`rumahl-desktop-icon-art ${isFolder ? 'rumahl-desktop-icon-folder' : ''} ${iconUrl ? 'is-image' : ''}`}
         style={!iconUrl ? { '--app-accent': accent ?? 'oklch(0.5 0.15 280)' } as CSSProperties : undefined}
       >
         {iconUrl ? (
@@ -149,6 +164,17 @@ export function DesktopWorkspace() {
   const [dropHighlight, setDropHighlight] = useState(false)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [manageOpen, setManageOpen] = useState(false)
+  const [desktopMetrics, setDesktopMetrics] = useState(() => desktopMetricsForViewport(window.innerWidth, window.innerHeight))
+
+  useEffect(() => {
+    const updateDesktopMetrics = () => setDesktopMetrics(desktopMetricsForViewport(window.innerWidth, window.innerHeight))
+    window.addEventListener('resize', updateDesktopMetrics)
+    window.visualViewport?.addEventListener('resize', updateDesktopMetrics)
+    return () => {
+      window.removeEventListener('resize', updateDesktopMetrics)
+      window.visualViewport?.removeEventListener('resize', updateDesktopMetrics)
+    }
+  }, [])
 
   // Resolve the personal Desktop system folder (created on first use).
   useEffect(() => {
@@ -437,14 +463,11 @@ export function DesktopWorkspace() {
     setDraggingKey(null)
   }, [draggingKey])
 
-  const CELL_W = 6
-  const CELL_H = 4.8
-
   const renderSlot = (key: string, content: React.ReactNode, pos: ItemPos, index: number, draggableKey: string) => (
     <div
       key={key}
       className="rumahl-desktop-icon-slot"
-      style={{ left: pos.col * CELL_W, top: pos.row * CELL_H }}
+      style={{ left: pos.col * desktopMetrics.cellWidth, top: pos.row * desktopMetrics.cellHeight }}
       data-item-key={draggableKey}
       onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move' }}
       onDrop={(event) => { event.preventDefault(); event.stopPropagation(); placeDraggedAt(pos.col, pos.row) }}
@@ -457,6 +480,13 @@ export function DesktopWorkspace() {
     <section
       ref={workspaceRef}
       className={`rumahl-desktop-workspace ${dropHighlight ? 'is-drop' : ''}`}
+      style={{
+        '--desktop-scale': desktopMetrics.scale,
+        '--desktop-cell-width': `${desktopMetrics.cellWidth}px`,
+        '--desktop-cell-height': `${desktopMetrics.cellHeight}px`,
+        '--desktop-icon-size': `${desktopMetrics.iconSize}px`,
+        '--desktop-label-size': `${desktopMetrics.labelSize}px`,
+      } as CSSProperties}
       aria-label={t('os.shellMode.desktopWorkspace')}
       onPointerDown={onWallpaperPointerDown}
       onPointerMove={onWallpaperPointerMove}

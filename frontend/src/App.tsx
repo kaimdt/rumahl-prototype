@@ -180,7 +180,7 @@ function DashboardContent() {
   const isOsAppPage = isBuiltinPageId(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
   const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
   const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId) && !isRuntimeAppPage(currentPageId)
-  const { windows, immersivePageId, setImmersive, openWindow, focusWindow, closeWindow } = useOsWindows()
+  const { windows, activeWorkspaceId, immersivePageId, setImmersive, openWindow, focusWindow, closeWindow } = useOsWindows()
   const { resolvedMode: shellMode } = useShellMode()
 
   // OS app lookup used by the window manager (icons/names for windows + dock).
@@ -218,10 +218,10 @@ function DashboardContent() {
 
   const frontWindowPageId = useMemo(() => {
     const front = windows
-      .filter((w) => w.pageId && !w.minimized)
+      .filter((w) => w.workspaceId === activeWorkspaceId && w.pageId && !w.minimized)
       .sort((a, b) => b.z - a.z)[0]
     return front?.pageId ?? null
-  }, [windows])
+  }, [activeWorkspaceId, windows])
 
   const isDesktopApp = (id: string | null) => Boolean(id) && desktopAppPageIds.has(id as string) && (id as string) !== 'launcher'
 
@@ -233,7 +233,7 @@ function DashboardContent() {
   useEffect(() => {
     if (shellMode !== 'desktop' || immersivePageId) return
     if (!isDesktopApp(currentPageId)) return
-    const win = windows.find((w) => w.pageId === currentPageId && !w.minimized)
+    const win = windows.find((w) => w.workspaceId === activeWorkspaceId && w.pageId === currentPageId && !w.minimized)
     if (!win) {
       openWindow(currentPageId)
       return
@@ -241,7 +241,7 @@ function DashboardContent() {
     if (frontWindowPageId !== currentPageId) {
       focusWindow(currentPageId)
     }
-  }, [currentPageId, shellMode, immersivePageId, openWindow, focusWindow, windows, frontWindowPageId, desktopAppPageIds])
+  }, [currentPageId, shellMode, immersivePageId, openWindow, focusWindow, windows, frontWindowPageId, desktopAppPageIds, activeWorkspaceId])
 
   // window close → URL: if the URL points at an app whose window was closed,
   // fall back to the launcher so the address bar doesn't reference a dead app.
@@ -249,11 +249,11 @@ function DashboardContent() {
     if (shellMode !== 'desktop' || immersivePageId) return
     if (currentPageId === 'launcher') return
     if (!isDesktopApp(currentPageId)) return
-    const stillOpen = windows.some((w) => w.pageId === currentPageId)
+    const stillOpen = windows.some((w) => w.workspaceId === activeWorkspaceId && w.pageId === currentPageId)
     if (!stillOpen) {
       setCurrentPageId('launcher')
     }
-  }, [windows, currentPageId, shellMode, immersivePageId, desktopAppPageIds, setCurrentPageId])
+  }, [windows, currentPageId, shellMode, immersivePageId, desktopAppPageIds, setCurrentPageId, activeWorkspaceId])
 
 
 const renderSettings = (): React.ReactNode => (
@@ -554,14 +554,19 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
             style={{
               backgroundImage: `url('${DEFAULT_DASHBOARD_BACKGROUND_URL}')`,
               backgroundAttachment: 'fixed',
-              filter: theme === 'sleep'
-                ? 'brightness(0.02) grayscale(1) saturate(0)'
-                : theme === 'night' ? 'brightness(0.4)'
-                : theme === 'evening' ? 'brightness(0.5)'
-                : theme === 'light' ? 'brightness(1.15) saturate(0.9)'
-                : theme === 'day' ? 'brightness(0.95) saturate(0.95)'
-                : theme === 'day-classic' ? 'brightness(0.75)'
-                : 'brightness(0.75)',
+              // Desktop mode: show the wallpaper image as-is (no brightness /
+              // saturate / grayscale filter). The theme tint only applies in
+              // the dashboard/launcher, not on the desktop surface.
+              filter: shellMode === 'desktop'
+                ? 'none'
+                : theme === 'sleep'
+                  ? 'brightness(0.02) grayscale(1) saturate(0)'
+                  : theme === 'night' ? 'brightness(0.4)'
+                  : theme === 'evening' ? 'brightness(0.5)'
+                  : theme === 'light' ? 'brightness(1.15) saturate(0.9)'
+                  : theme === 'day' ? 'brightness(0.95) saturate(0.95)'
+                  : theme === 'day-classic' ? 'brightness(0.75)'
+                  : 'brightness(0.75)',
               opacity: theme === 'sleep' ? 0.15 : 1,
               transform: 'translateZ(0)',
               transition: 'filter var(--transition-duration) ease, opacity var(--transition-duration) ease',
@@ -572,11 +577,15 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
         <div
           className="fixed inset-0 z-10 pointer-events-none"
           style={{
-            background: theme === 'sleep'
-              ? 'black'
-              : (theme === 'day' || theme === 'light')
-              ? 'radial-gradient(circle at 70% 18%, rgba(255,255,255,0.24), transparent 36%), linear-gradient(to bottom, rgba(235,244,255,0.36), rgba(255,255,255,0.16), rgba(225,236,248,0.44))'
-              : 'radial-gradient(circle at 18% 20%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 38%), radial-gradient(circle at 82% 12%, rgba(38,82,160,0.2), transparent 34%), linear-gradient(to bottom, rgba(4,9,18,0.36), rgba(5,9,17,0.18), rgba(2,5,12,0.68))',
+            // Desktop mode: no tint overlay — the wallpaper image is the clean
+            // background. The gradient only applies on dashboard/launcher.
+            background: shellMode === 'desktop'
+              ? 'transparent'
+              : theme === 'sleep'
+                ? 'black'
+                : (theme === 'day' || theme === 'light')
+                ? 'radial-gradient(circle at 70% 18%, rgba(255,255,255,0.24), transparent 36%), linear-gradient(to bottom, rgba(235,244,255,0.36), rgba(255,255,255,0.16), rgba(225,236,248,0.44))'
+                : 'radial-gradient(circle at 18% 20%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 38%), radial-gradient(circle at 82% 12%, rgba(38,82,160,0.2), transparent 34%), linear-gradient(to bottom, rgba(4,9,18,0.36), rgba(5,9,17,0.18), rgba(2,5,12,0.68))',
             opacity: theme === 'sleep' ? 0.92 : hasActiveCustomBackground ? 0.5 : 1,
             transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
           }}

@@ -6,6 +6,7 @@ import { usePageNavigation } from '@/contexts/PageNavigationContext'
 
 interface Props {
   window: OsWindow
+  active?: boolean
   name: string
   icon: ReactNode
   /** Renders the app content for this window. */
@@ -70,7 +71,7 @@ function snapTargetFromPointer(clientX: number, clientY: number): OsSnapLayout |
  * Supports snap layouts (drag-to-edge with live preview, double-click to
  * maximize, dedicated toggle button) for floating windows.
  */
-export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
+export function OsWindowFrame({ window, active = false, name, icon, renderContent }: Props) {
   const { t } = useTranslation()
   const { focusWindow, minimizeWindow, updateWindow, closeWindow, snapWindow, toggleMaximize } = useOsWindows()
 
@@ -217,6 +218,7 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
     <>
       <div
         className="rumahl-os-window"
+        data-active={active ? 'true' : 'false'}
         style={{ zIndex: window.z, left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}
         onPointerDown={onWindowPointerDown}
         onPointerMove={onTitlePointerMove}

@@ -71,6 +71,7 @@ import {
 } from '@/lib/autoContrast'
 import { useTheme } from '@/contexts/ThemeContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { useUiScale } from '@/hooks/useUiScale'
 import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { YamlPageEditor } from '@/components/YamlPageEditor'
@@ -116,7 +117,6 @@ import {
 // SettingsPage bundle small. Each section loads on demand when its tab is opened.
 const LoginPinSection = lazy(() => import('./settings/SettingsSecurity').then((m) => ({ default: m.LoginPinSection })))
 const TwoFactorPasskeySection = lazy(() => import('./settings/SettingsSecurity').then((m) => ({ default: m.TwoFactorPasskeySection })))
-const ThemePickerSection = lazy(() => import('./settings/SettingsAppearance').then((m) => ({ default: m.ThemePickerSection })))
 const ScreensaverScheduleEditor = lazy(() => import('./settings/SettingsDashboard').then((m) => ({ default: m.ScreensaverScheduleEditor })))
 const AdditionalSettings = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.AdditionalSettings })))
 const NinaSettingsSection = lazy(() => import('./settings/SettingsSystem').then((m) => ({ default: m.NinaSettingsSection })))
@@ -355,9 +355,33 @@ export function SettingsPage(props: SettingsPageProps) {
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
+  const { preset: uiScalePreset, setPreset: setUiScale } = useUiScale()
+  const { selectedTheme, setSelectedTheme } = useTheme()
   // Per-user auto-lock timeout (minutes, 0 = disabled).
   const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('rumahl-auto-lock-minutes', 15)
   const [kioskMode, setKioskMode] = useLocalStorage<boolean>('rumahl-kiosk-mode', false)
+  // Reduce-motion (animations) toggle — persisted under the same key the OS
+  // accessibility flow reads (rumahl-accessibility.reduceMotion) so this toggle
+  // stays in sync with the `data-reduce-motion` attribute the whole app respects.
+  const [reduceMotion, setReduceMotion] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem('rumahl-accessibility')
+      const parsed = raw ? JSON.parse(raw) : null
+      return parsed?.reduceMotion === true
+    } catch {
+      return false
+    }
+  })
+  const onToggleReduceMotion = (value: boolean) => {
+    setReduceMotion(value)
+    document.documentElement.toggleAttribute('data-reduce-motion', value)
+    try {
+      const raw = localStorage.getItem('rumahl-accessibility')
+      const parsed = raw ? JSON.parse(raw) : {}
+      parsed.reduceMotion = value
+      localStorage.setItem('rumahl-accessibility', JSON.stringify(parsed))
+    } catch {}
+  }
   // Deep links via URL sub-path (/settings/apps/rumahl-browser): the Settings
   // app is path-driven so every tab (and the per-app detail view) has its
   // own URL that survives reloads, back/forward and sharing.
@@ -431,7 +455,12 @@ export function SettingsPage(props: SettingsPageProps) {
           />
         )}
         sidebar={(
-          <TabsList className="rumahl-settings-sidebar">
+          <div className="rumahl-settings-sidebar-wrap flex h-full flex-col">
+            <div className="rumahl-settings-sidebar-brand">
+              <span className="rumahl-settings-sidebar-brand-icon"><GearSix size={18} weight="fill" /></span>
+              <span className="rumahl-settings-sidebar-brand-label">{t('navigation.settings')}</span>
+            </div>
+            <TabsList className="rumahl-settings-sidebar">
           <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <User size={15} weight="fill" />
@@ -478,13 +507,23 @@ export function SettingsPage(props: SettingsPageProps) {
             </span>
           </TabsTrigger>
           </TabsList>
+          </div>
         )}
       >
         <div className="rumahl-settings-content">
-          <header className="rumahl-settings-content-header">
-            <h2>{settingsHeading.title}</h2>
-            <p>{settingsHeading.description}</p>
-          </header>
+          {settingsTab !== 'appearance' && (
+            <header className="rumahl-settings-content-header">
+              <div>
+                <h2>{settingsHeading.title}</h2>
+                <p>{settingsHeading.description}</p>
+              </div>
+              <div className="rumahl-settings-top-actions">
+                <button type="button" onClick={() => setCurrentPageId('settings')} aria-label={t('common.reset')} title={t('common.reset')} className="rumahl-settings-icon-btn"><ArrowClockwise size={17} /></button>
+                <button type="button" onClick={() => setCurrentPageId('launcher')} aria-label={t('os.window.close')} title={t('os.window.close')} className="rumahl-settings-icon-btn"><X size={18} /></button>
+              </div>
+            </header>
+          )}
+
 
         {/* ─── TAB: Allgemein ──────────────────────────────────────── */}
         <TabsContent value="general" className="space-y-5">
@@ -638,299 +677,274 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabsContent>
 
         {/* ─── TAB: Darstellung ────────────────────────────────────── */}
-        <TabsContent value="appearance" className="space-y-5">
-          {deviceLockMode && (
-            <div className="rounded-xl p-3.5 border border-amber-500/25 bg-amber-500/8 text-xs text-foreground/70 flex items-center gap-2">
-              <Shield size={14} className="text-amber-400 shrink-0" />
-              Einstellungen sind durch den Geräte-Modus gesperrt.
-            </div>
-          )}
-          <div className={deviceLockMode ? 'opacity-50 pointer-events-none select-none space-y-4' : 'space-y-4'}>
-
-            {/* Accent-tinted app icons */}
-            <SettingsSection icon={PaintBrush} title={t('settings.accentIcons')} description={t('settings.accentIconsDesc')} accentIcon>
-              <ToggleRow
-                label={t('settings.accentIcons')}
-                description={t('settings.accentIconsDesc')}
-                checked={accentIcons}
-                onCheckedChange={(value) => { setAccentIcons(value); applyAccentIcons(value) }}
-              />
-            </SettingsSection>
-
-            {/* Theme Mode */}
-            <Suspense fallback={null}><ThemePickerSection /></Suspense>
-
-            {/* Language Switcher */}
-            <SettingsSection icon={Globe} title="Sprache" description="Wähle deine bevorzugte Sprache für die gesamte Oberfläche" accentIcon>
-              <LanguageSwitcher />
-            </SettingsSection>
-
-            {/* Theme Custom Settings */}
-            <ThemeSettingsPanelWrapper />
-
-            {/* Accent Color */}
-            <SettingsSection icon={Drop} title={t("settings.accentColor")} description={t("settings.accentColorDesc")} accentIcon>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => accentColorSettings.setMode('auto')}
-                  className={`p-3.5 rounded-xl border-2 transition-all text-center ${
-                    accentColorSettings.mode === 'auto'
-                      ? 'border-accent bg-accent/10'
-                      : 'border-foreground/10 bg-foreground/[0.04] hover:border-foreground/20'
-                  }`}
-                >
-                  <Sparkle size={22} weight="fill" className={`mx-auto mb-1.5 ${accentColorSettings.mode === 'auto' ? 'text-accent' : 'text-foreground/50'}`} />
-                  <p className="text-xs font-medium">{t("settings.autoAccent")}</p>
-                  <p className="text-[10px] text-foreground/40 mt-0.5">{t("settings.autoAccentDesc")}</p>
-                </button>
-                <button
-                  onClick={() => accentColorSettings.setMode('static')}
-                  className={`p-3.5 rounded-xl border-2 transition-all text-center ${
-                    accentColorSettings.mode === 'static'
-                      ? 'border-accent bg-accent/10'
-                      : 'border-foreground/10 bg-foreground/[0.04] hover:border-foreground/20'
-                  }`}
-                >
-                  <PaintBucket size={22} weight="fill" className={`mx-auto mb-1.5 ${accentColorSettings.mode === 'static' ? 'text-accent' : 'text-foreground/50'}`} />
-                  <p className="text-xs font-medium">{t("settings.customColor")}</p>
-                  <p className="text-[10px] text-foreground/40 mt-0.5">{t("settings.customColorDesc")}</p>
-                </button>
+        <TabsContent value="appearance">
+          <div className={`rumahl-settings-appearance ${deviceLockMode ? 'opacity-50 pointer-events-none select-none' : ''}`}>
+            {deviceLockMode && (
+              <div className="rounded-xl p-3.5 mb-4 border border-amber-500/25 bg-amber-500/8 text-xs text-foreground/70 flex items-center gap-2">
+                <Shield size={14} className="text-amber-400 shrink-0" />
+                Einstellungen sind durch den Geräte-Modus gesperrt.
               </div>
-
-              <SliderRow
-                label={t("settings.accentIntensity")}
-                value={accentColorSettings.intensity}
-                min={0}
-                max={100}
-                unit="%"
-                onChange={accentColorSettings.setIntensity}
-              />
-
-              {/* Current accent preview */}
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-                <div className="w-9 h-9 rounded-lg border-2 border-foreground/10 shrink-0" style={{ backgroundColor: accentColorSettings.accentColor }} />
-                <div>
-                  <p className="text-[11px] text-foreground/50">{t("settings.currentAccent")}</p>
-                  <p className="text-xs font-mono font-medium text-foreground">{accentColorSettings.accentColor}</p>
-                </div>
-              </div>
-
-              {/* Extracted palette */}
-              {accentColorSettings.extractedPalette.length > 0 && (
-                <div>
-                  <p className="text-[11px] text-foreground/50 mb-2">{t("settings.extractedPalette")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {accentColorSettings.extractedPalette.map((color, i) => (
-                      <Tip content={color} key={`${color}-${i}`}>
-                        <button
-                          onClick={() => accentColorSettings.selectFromPalette(color)}
-                          className={`w-9 h-9 rounded-xl transition-all border-2 ${
-                            accentColorSettings.accentColor === color
-                              ? 'border-white scale-110 shadow-lg ring-2 ring-accent/40'
-                              : 'border-foreground/10 hover:scale-105 hover:border-foreground/25'
-                          }`}
-                          style={{ backgroundColor: color }}
-                        />
-                      </Tip>
-                    ))}
-                  </div>
-                  {/* Reset to auto button — shown when user has selected a static color */}
-                  {accentColorSettings.mode === 'static' && (
-                    <button
-                      onClick={accentColorSettings.resetToAuto}
-                      className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 text-accent hover:bg-accent/15 transition-all"
-                    >
-                      <ArrowsClockwise size={14} />
-                      {t("settings.resetToAuto")}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Static color picker */}
-              {accentColorSettings.mode === 'static' && (
-                <div className="flex items-center gap-4 p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-                  <input
-                    type="color"
-                    value={accentColorSettings.staticColor}
-                    onChange={(e) => accentColorSettings.setStaticColor(e.target.value)}
-                    className="w-14 h-14 rounded-lg cursor-pointer border-2 border-foreground/10"
-                  />
-                  <div>
-                    <p className="text-xs font-medium text-foreground">{t("settings.customColor")}</p>
-                    <p className="text-xs font-mono text-foreground/60 mt-0.5">{accentColorSettings.staticColor}</p>
-                  </div>
-                </div>
-              )}
-            </SettingsSection>
-
-            {/* Glass Effect */}
-            <SettingsSection icon={Eye} title={t("settings.glassEffects")} description={t("settings.glassEffectsDesc")}>
-              <ToggleRow
-                label={t("settings.glassEnable")}
-                description={t("settings.frostedGlassDesc")}
-                checked={glassSettings.enabled}
-                onCheckedChange={glassSettings.setEnabled}
-              />
-              {glassSettings.enabled && (
-                <div className="space-y-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-                  <SliderRow
-                    label={t("settings.glassBlur")}
-                    value={glassSettings.blurIntensity}
-                    min={0}
-                    max={60}
-                    unit="px"
-                    onChange={glassSettings.setBlurIntensity}
-                  />
-                  <SliderRow
-                    label={t("settings.glassTransparency")}
-                    value={Math.round(glassSettings.transparency * 100)}
-                    min={50}
-                    max={150}
-                    unit="%"
-                    onChange={(v) => glassSettings.setTransparency(v / 100)}
-                  />
-                  <SliderRow
-                    label={t("settings.glassCardRadius")}
-                    value={glassSettings.cardRadius}
-                    min={8}
-                    max={28}
-                    unit="px"
-                    onChange={glassSettings.setCardRadius}
-                  />
-                  <SliderRow
-                    label={t("settings.glassBorderAlpha")}
-                    value={Math.round(glassSettings.borderAlpha * 100)}
-                    min={0}
-                    max={30}
-                    unit="%"
-                    onChange={(v) => glassSettings.setBorderAlpha(v / 100)}
-                  />
-                </div>
-              )}
-            </SettingsSection>
-
-            {/* Night Mode */}
-            <SettingsSection icon={Moon} title={t("settings.nightMode")} description={t("settings.nightModeDesc")}>
-              {/* Live status pill */}
-              <div className="flex items-center justify-between rounded-xl bg-foreground/[0.04] border border-foreground/8 px-4 py-2.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${nightModeSettings.isActive ? 'bg-amber-400' : 'bg-foreground/25'}`}
-                    style={nightModeSettings.isActive ? { boxShadow: '0 0 8px rgba(251,191,36,0.55)' } : undefined}
-                  />
-                  <span className="text-[12px] text-foreground/75 font-medium">
-                    {nightModeSettings.isActive ? t('settings.nightFilterActive') : t('settings.nightFilterInactive')}
-                  </span>
-                </div>
-                {nightModeSettings.scheduleEnabled && (
-                  <span className="text-[10px] uppercase tracking-wider text-foreground/45">
-                    {nightModeSettings.startTime}–{nightModeSettings.endTime}
-                  </span>
-                )}
-              </div>
-
-              <ToggleRow
-                label={t("settings.nightFilter")}
-                description={t("settings.nightFilterDesc")}
-                checked={nightModeSettings.nightFilterEnabled}
-                onCheckedChange={nightModeSettings.setNightFilterEnabled}
-              />
-              {nightModeSettings.nightFilterEnabled && (
-                <div className="space-y-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-                  <SliderRow
-                    label={t("settings.colorTemperature")}
-                    value={nightModeSettings.colorTemperature}
-                    min={1500}
-                    max={6500}
-                    unit=" K"
-                    onChange={nightModeSettings.setColorTemperature}
-                  />
-                  <SliderRow
-                    label={t("settings.blueLightFilter")}
-                    value={nightModeSettings.blueLightReduction}
-                    min={0}
-                    max={100}
-                    unit="%"
-                    onChange={nightModeSettings.setBlueLightReduction}
-                  />
-                  <SliderRow
-                    label={t("settings.nightOverlay")}
-                    value={nightModeSettings.overlayStrength}
-                    min={0}
-                    max={100}
-                    unit="%"
-                    onChange={nightModeSettings.setOverlayStrength}
-                  />
-                  <ToggleRow
-                    label={t("settings.autoBrightness")}
-                    description={t("settings.brightnessAdjustDesc")}
-                    checked={nightModeSettings.autoBrightness}
-                    onCheckedChange={nightModeSettings.setAutoBrightness}
-                  />
-                  <ToggleRow
-                    label={t("settings.nightApplyAlways")}
-                    description={t("settings.nightApplyAlwaysDesc")}
-                    checked={nightModeSettings.applyAlways}
-                    onCheckedChange={nightModeSettings.setApplyAlways}
-                  />
-                  <ToggleRow
-                    label={t("settings.nightSchedule")}
-                    description={t("settings.nightScheduleDesc")}
-                    checked={nightModeSettings.scheduleEnabled}
-                    onCheckedChange={nightModeSettings.setScheduleEnabled}
-                  />
-                  {nightModeSettings.scheduleEnabled && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="space-y-1.5">
-                        <span className="text-[11px] uppercase tracking-wider text-foreground/55">
-                          {t("settings.nightStartTime")}
-                        </span>
-                        <input
-                          type="time"
-                          value={nightModeSettings.startTime}
-                          onChange={(e) => nightModeSettings.setStartTime(e.target.value)}
-                          className="w-full h-10 px-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow"
-                        />
-                      </label>
-                      <label className="space-y-1.5">
-                        <span className="text-[11px] uppercase tracking-wider text-foreground/55">
-                          {t("settings.nightEndTime")}
-                        </span>
-                        <input
-                          type="time"
-                          value={nightModeSettings.endTime}
-                          onChange={(e) => nightModeSettings.setEndTime(e.target.value)}
-                          className="w-full h-10 px-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow"
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-              )}
-            </SettingsSection>
-
-            {/* Haptic Feedback, Navigation, Typography, Animations */}
-            <Suspense fallback={null}><AdditionalSettings /></Suspense>
-
-            {/* Family / child profiles (admin only) */}
-            {authUser?.isAdmin && (
-              <Suspense fallback={null}><FamilyProfilesSection /></Suspense>
             )}
 
-            {/* Global keyboard shortcuts */}
-            <Suspense fallback={null}><KeyboardShortcutsSection /></Suspense>
+            {/* Top actions (reset + close) as in the reference mockup */}
+            <div className="appr-top-actions" role="group" aria-label="Aktionen">
+              <button type="button" onClick={() => setCurrentPageId('settings')} aria-label={t('common.reset')} title={t('common.reset')} className="appr-icon-btn">↻</button>
+              <button type="button" onClick={() => setCurrentPageId('launcher')} aria-label={t('os.window.close')} title={t('os.window.close')} className="appr-icon-btn">×</button>
+            </div>
 
-            {/* Default apps / MIME associations */}
-            <Suspense fallback={null}><DefaultAppsSection /></Suspense>
+            {/* Page header */}
+            <header className="appr-page-header">
+              <h1>{t('settings.appearance')}</h1>
+              <p>{t('settings.tabAppearanceDesc')}</p>
+            </header>
 
-            {/* Media Hub configuration */}
-            <Suspense fallback={null}><MediaHubConfigSection /></Suspense>
+            {/* Design panel */}
+            <section className="appr-panel" style={{ padding: '20px 22px 15px' }}>
+              <h2>Design</h2>
 
-            {/* Remote access (Package 7) */}
-            <Suspense fallback={null}><RemoteAccessSection /></Suspense>
+              {/* Farbmodus */}
+              <div className="appr-setting-row" style={{ marginTop: 16 }}>
+                <div>
+                  <h3>{t('settings.accentMode')}</h3>
+                  <p>{t('settings.accentModeDesc')}</p>
+                </div>
+                <button type="button" className="appr-select-btn">
+                  <span>Dunkel (Automatisch)</span><span aria-hidden="true">⌄</span>
+                </button>
+              </div>
+
+              <div className="appr-divider" />
+
+              {/* Akzentfarbe */}
+              <div className="appr-setting-row appr-wallpaper-row">
+                <div>
+                  <h3>{t('settings.accentColor')}</h3>
+                  <p>Wähle deine bevorzugte Akzentfarbe für Elemente und Highlights.</p>
+                </div>
+                <div className="appr-swatches" aria-label={t('settings.accentColor')}>
+                  {accentColorSettings.extractedPalette.length > 0
+                    ? accentColorSettings.extractedPalette.slice(0, 7).map((color, i) => (
+                        <button
+                          key={`${color}-${i}`}
+                          type="button"
+                          onClick={() => accentColorSettings.selectFromPalette(color)}
+                          className={`appr-swatch ${accentColorSettings.accentColor === color ? 'active' : ''}`}
+                          style={{ ['--sw' as string]: color }}
+                          aria-label={color}
+                        />
+                      ))
+                    : null}
+                  <button type="button" className="appr-add-swatch" aria-label="Akzentfarbe hinzufügen">＋</button>
+                </div>
+              </div>
+
+              <div className="appr-divider" />
+
+              {/* Design-Modus */}
+              <div className="appr-mode-section">
+                <h3>{t('settings.themeMode')}</h3>
+                <p>{t('settings.themeModeDesc')}</p>
+                <div className="appr-mode-grid">
+                  {[
+                    { id: 'auto', label: 'Automatisch', sub: 'Passt sich dem System an', cls: 'preview-auto' },
+                    { id: 'day-classic', label: 'Klassisch', sub: 'Zeitlos und schlicht', cls: 'preview-classic' },
+                    { id: 'day', label: 'Modern', sub: 'Klare und weiche Akzente', cls: 'preview-modern' },
+                    { id: 'night', label: 'Dunkel', sub: 'Tief und kontrastreich', cls: 'preview-dark' },
+                    { id: 'sleep', label: 'OLED Schwarz', sub: 'Reines Schwarz', cls: 'preview-oled' },
+                  ].map((mode) => {
+                    const selected = selectedTheme === mode.id
+                    return (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => setSelectedTheme(mode.id)}
+                        className={`appr-mode-card ${selected ? 'selected' : ''}`}
+                      >
+                        <span className={`appr-preview ${mode.cls}`} aria-hidden="true" />
+                        <strong>{mode.label}</strong>
+                        <small>{mode.sub}</small>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="appr-divider" />
+
+              {/* Hintergrund */}
+              <div className="appr-setting-row appr-wallpaper-row">
+                <div>
+                  <h3>{t('settings.hintergrund')}</h3>
+                  <p>{t('settings.hintergrundDesc')}</p>
+                </div>
+                <div className="appr-wallpaper-actions">
+                  <button type="button" className="appr-soft-btn" onClick={() => setCurrentPageId('settings')}>{t('settings.hintergrundAnpassen')}</button>
+                  <div className="appr-wallpaper-thumb" aria-label={t('settings.hintergrund')} />
+                </div>
+              </div>
+            </section>
+
+            {/* Lower grid: Verhalten | Zeitplan + UI-Skalierung */}
+            <div className="appr-lower-grid">
+              <section className="appr-panel appr-pad appr-behavior-panel">
+                <h2>{t('settings.verhalten')}</h2>
+
+                <div className="appr-setting-row" style={{ marginTop: 16 }}>
+                  <div>
+                    <h3>{t('settings.transparenz')}</h3>
+                    <p>Aktiviere Unschärfe und Transparenz für ein modernes Aussehen.</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={glassSettings.enabled}
+                    onClick={() => glassSettings.setEnabled(!glassSettings.enabled)}
+                    className={`appr-switch ${glassSettings.enabled ? 'on' : ''}`}
+                    aria-label={t('settings.transparenz')}
+                  />
+                </div>
+
+                <div className="appr-divider" />
+
+                <div className="appr-setting-row">
+                  <div>
+                    <h3>{t('settings.animationen')}</h3>
+                    <p>{t('settings.animationDesc')}</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!reduceMotion}
+                    onClick={() => onToggleReduceMotion(!reduceMotion)}
+                    className={`appr-switch ${!reduceMotion ? 'on' : ''}`}
+                    aria-label={t('settings.animationen')}
+                  />
+                </div>
+              </section>
+
+              <div className="appr-right-stack">
+                <section className="appr-panel appr-pad">
+                  <div className="appr-setting-row">
+                    <div>
+                      <h2>{t('settings.zeitplan')}</h2>
+                      <p style={{ marginTop: 4 }}>{t('settings.zeitplanDesc')}</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={nightModeSettings.scheduleEnabled}
+                      onClick={() => nightModeSettings.setScheduleEnabled(!nightModeSettings.scheduleEnabled)}
+                      className={`appr-switch ${nightModeSettings.scheduleEnabled ? 'on' : ''}`}
+                      aria-label={t('settings.autoTheme')}
+                    />
+                  </div>
+
+                  <div className="appr-schedule-controls">
+                    <button type="button" className="appr-pill-btn">Tag (Hell)</button>
+                    <button type="button" className="appr-pill-btn">06:00 <span aria-hidden="true">⌄</span></button>
+                    <button type="button" className="appr-pill-btn">Nacht (Dunkel)</button>
+                    <button type="button" className="appr-pill-btn">18:00 <span aria-hidden="true">⌄</span></button>
+                  </div>
+
+                  <p className="appr-hint">Das Design wechselt automatisch zur angegebenen Zeit.</p>
+                </section>
+
+                <section className="appr-panel appr-pad appr-scale-panel">
+                  <h2>{t('settings.uiScale')}</h2>
+                  <p>{t('settings.uiScaleDesc')}</p>
+                  <div className="appr-scale-controls">
+                    {([
+                      { id: 'auto', label: 'Auto' },
+                      { id: '100', label: '100% (Standard)' },
+                      { id: '125', label: '125%' },
+                      { id: '150', label: '150%' },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setUiScale(opt.id)}
+                        className={`appr-scale-choice ${uiScalePreset === opt.id || (opt.id === 'auto' && uiScalePreset === 'auto') ? 'selected' : ''}`}
+                      >
+                        {opt.id === '100' && <span className="appr-dot" aria-hidden="true" />}
+                        <span>{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+
+            {/* Advanced / additional appearance settings — kept as collapsible
+                sections so every existing flow remains reachable. */}
+            <div className="space-y-3.5 mt-4">
+              <SettingsSection icon={Eye} title={t('settings.glassEffects')} description={t('settings.glassEffectsDesc')}>
+                <ToggleRow
+                  label={t("settings.glassEnable")}
+                  description={t("settings.frostedGlassDesc")}
+                  checked={glassSettings.enabled}
+                  onCheckedChange={glassSettings.setEnabled}
+                />
+                {glassSettings.enabled && (
+                  <div className="space-y-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+                    <SliderRow label={t("settings.glassBlur")} value={glassSettings.blurIntensity} min={0} max={60} unit="px" onChange={glassSettings.setBlurIntensity} />
+                    <SliderRow label={t("settings.glassTransparency")} value={Math.round(glassSettings.transparency * 100)} min={50} max={150} unit="%" onChange={(v) => glassSettings.setTransparency(v / 100)} />
+                    <SliderRow label={t("settings.glassCardRadius")} value={glassSettings.cardRadius} min={8} max={28} unit="px" onChange={glassSettings.setCardRadius} />
+                    <SliderRow label={t("settings.glassBorderAlpha")} value={Math.round(glassSettings.borderAlpha * 100)} min={0} max={30} unit="%" onChange={(v) => glassSettings.setBorderAlpha(v / 100)} />
+                  </div>
+                )}
+              </SettingsSection>
+
+              <SettingsSection icon={Moon} title={t("settings.nightMode")} description={t("settings.nightModeDesc")}>
+                <ToggleRow
+                  label={t("settings.nightFilter")}
+                  description={t("settings.nightFilterDesc")}
+                  checked={nightModeSettings.nightFilterEnabled}
+                  onCheckedChange={nightModeSettings.setNightFilterEnabled}
+                />
+                {nightModeSettings.nightFilterEnabled && (
+                  <div className="space-y-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+                    <SliderRow label={t("settings.colorTemperature")} value={nightModeSettings.colorTemperature} min={1500} max={6500} unit=" K" onChange={nightModeSettings.setColorTemperature} />
+                    <SliderRow label={t("settings.blueLightFilter")} value={nightModeSettings.blueLightReduction} min={0} max={100} unit="%" onChange={nightModeSettings.setBlueLightReduction} />
+                    <SliderRow label={t("settings.nightOverlay")} value={nightModeSettings.overlayStrength} min={0} max={100} unit="%" onChange={nightModeSettings.setOverlayStrength} />
+                    <ToggleRow label={t("settings.autoBrightness")} description={t("settings.brightnessAdjustDesc")} checked={nightModeSettings.autoBrightness} onCheckedChange={nightModeSettings.setAutoBrightness} />
+                    <ToggleRow label={t("settings.nightApplyAlways")} description={t("settings.nightApplyAlwaysDesc")} checked={nightModeSettings.applyAlways} onCheckedChange={nightModeSettings.setApplyAlways} />
+                    <ToggleRow label={t("settings.nightSchedule")} description={t("settings.nightScheduleDesc")} checked={nightModeSettings.scheduleEnabled} onCheckedChange={nightModeSettings.setScheduleEnabled} />
+                  </div>
+                )}
+              </SettingsSection>
+
+              <Suspense fallback={null}><AdditionalSettings /></Suspense>
+
+              {authUser?.isAdmin && (
+                <Suspense fallback={null}><FamilyProfilesSection /></Suspense>
+              )}
+
+              <Suspense fallback={null}><KeyboardShortcutsSection /></Suspense>
+
+              <Suspense fallback={null}><DefaultAppsSection /></Suspense>
+
+              <Suspense fallback={null}><MediaHubConfigSection /></Suspense>
+
+              <Suspense fallback={null}><RemoteAccessSection /></Suspense>
+
+              <SettingsSection icon={Globe} title="Sprache" description="Wähle deine bevorzugte Sprache für die gesamte Oberfläche" accentIcon>
+                <LanguageSwitcher />
+              </SettingsSection>
+
+              <SettingsSection icon={PaintBrush} title={t('settings.accentIcons')} description={t('settings.accentIconsDesc')} accentIcon>
+                <ToggleRow
+                  label={t('settings.accentIcons')}
+                  description={t('settings.accentIconsDesc')}
+                  checked={accentIcons}
+                  onCheckedChange={(value) => { setAccentIcons(value); applyAccentIcons(value) }}
+                />
+              </SettingsSection>
+
+              <ThemeSettingsPanelWrapper />
+            </div>
           </div>
         </TabsContent>
+
 
         {/* ─── TAB: Dashboard ──────────────────────────────────────── */}
         <TabsContent value="dashboard" className="space-y-5">

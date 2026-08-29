@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlignLeft, AlignRight, ArrowSquareOut, CornersOut, Minus, SquaresFour, X } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
-import { useOsWindows } from '@/contexts/OsWindowContext'
+import { useOsWindows, type OsSnapLayout } from '@/contexts/OsWindowContext'
 import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
 
 /**
@@ -19,7 +19,7 @@ import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
 export function OsWindowActions({ pageId }: { pageId: string }) {
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
-  const { windows, openWindow, closeWindow, minimizeWindow, openSplit, setImmersive } = useOsWindows()
+  const { windows, activeWorkspaceId, openWindow, closeWindow, minimizeWindow, openSplit, setImmersive, snapWindow } = useOsWindows()
   const { hasHover } = useDeviceCapabilities()
   const [menuOpen, setMenuOpen] = useState(false)
   const hoverTimer = useRef<number | undefined>(undefined)
@@ -38,7 +38,7 @@ export function OsWindowActions({ pageId }: { pageId: string }) {
   const actionButton =
     'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring'
 
-  const windowState = windows.find((entry) => entry.pageId === pageId)
+  const windowState = windows.find((entry) => entry.workspaceId === activeWorkspaceId && entry.pageId === pageId)
   const goFullscreen = () => { setImmersive(pageId); setCurrentPageId(pageId); setMenuOpen(false) }
   const toggleWindowMaximize = () => {
     if (windowState) {
@@ -50,6 +50,13 @@ export function OsWindowActions({ pageId }: { pageId: string }) {
   }
   const goWindow = () => { openWindow(pageId); setCurrentPageId('launcher'); setMenuOpen(false) }
   const goSplit = (side: 'split-left' | 'split-right') => { openSplit(pageId, side); setCurrentPageId('launcher'); setMenuOpen(false) }
+  const applySnap = (layout: OsSnapLayout) => { snapWindow(pageId, layout); setCurrentPageId(pageId); setMenuOpen(false) }
+
+  const snapLayouts: Array<{ label: string; cells: OsSnapLayout[] }> = [
+    { label: t('os.window.snapHalves'), cells: ['left', 'right'] },
+    { label: t('os.window.snapQuarters'), cells: ['top-left', 'top-right', 'bottom-left', 'bottom-right'] },
+    { label: t('os.window.snapRows'), cells: ['top', 'bottom'] },
+  ]
 
   const menuItem =
     'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-foreground/8 hover:text-foreground'
@@ -86,11 +93,25 @@ export function OsWindowActions({ pageId }: { pageId: string }) {
 
         {menuOpen && (
           <div
-            className="absolute right-0 top-full z-[90] mt-1 w-44 overflow-hidden rounded-xl border border-foreground/10 bg-background/95 p-1.5 text-foreground shadow-xl backdrop-blur-xl"
+            className="rumahl-snap-menu absolute right-0 top-full z-[90] mt-1 w-56 overflow-hidden rounded-xl border border-foreground/10 bg-background/95 p-1.5 text-foreground shadow-xl backdrop-blur-xl"
             onMouseEnter={cancelClose}
             onMouseLeave={closeSoon}
             onClick={() => setMenuOpen(false)}
           >
+            {windowState && (
+              <div className="rumahl-snap-layouts" aria-label={t('os.window.snapLayouts')}>
+                <span>{t('os.window.snapLayouts')}</span>
+                <div>
+                  {snapLayouts.map((layout) => (
+                    <div key={layout.label} className={`rumahl-snap-layout rumahl-snap-layout-${layout.cells.length}`} aria-label={layout.label}>
+                      {layout.cells.map((cell) => (
+                        <button key={cell} type="button" onClick={() => applySnap(cell)} aria-label={`${t('os.window.snapTo')} ${t(`os.window.snap.${cell}`)}`} title={`${t('os.window.snapTo')} ${t(`os.window.snap.${cell}`)}`} />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <button type="button" onClick={goFullscreen} className={menuItem}>
               <CornersOut size={14} className="text-foreground/50" /> {t('os.window.fullscreen')}
             </button>

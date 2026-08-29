@@ -25,10 +25,12 @@ const windowMotion = {
  * floating windows (with snap layouts) plus the split-view pair.
  */
 export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
-  const { windows } = useOsWindows()
+  const { windows, activeWorkspaceId } = useOsWindows()
 
-  const floating = windows.filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
-  const split = windows.filter((w) => w.layout === 'split-left' || w.layout === 'split-right')
+  const activeWindows = windows.filter((w) => w.workspaceId === activeWorkspaceId)
+  const floating = activeWindows.filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
+  const activeZ = floating.reduce((highest, win) => Math.max(highest, win.z), -1)
+  const split = activeWindows.filter((w) => w.layout === 'split-left' || w.layout === 'split-right')
   const hasSplit = split.length > 0
 
   if (floating.length === 0 && !hasSplit) return null
@@ -42,7 +44,7 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
   }
 
   return createPortal(
-    <div className="rumahl-os-window-layer" aria-label="Open app windows">
+    <div className="rumahl-os-window-layer" aria-label="Open app windows" data-workspace={activeWorkspaceId}>
       {/* Split view */}
       {hasSplit && (
         <div className="rumahl-os-split">
@@ -79,6 +81,7 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
           >
             <OsWindowFrame
               window={win}
+              active={win.z === activeZ}
               name={win.pageId ? getName(win.pageId) : ''}
               icon={iconFor(win.pageId)}
               renderContent={renderContent}

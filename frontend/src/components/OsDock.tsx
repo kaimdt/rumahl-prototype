@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { DUR_SLOW, EASE_SOFT, SPRING_SOFT } from '@/lib/motion'
-import { ArrowSquareOut, Check, PushPin, SquaresFour } from '@phosphor-icons/react'
+import { ArrowSquareOut, Check, Minus, PushPin, SquaresFour, X } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
 import { iconMap, usePageNavigation } from '@/contexts/PageNavigationContext'
@@ -33,7 +33,7 @@ export function OsDock() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
-  const { windows, openWindow, openSplit, setImmersive, focusWindow, immersivePageId } = useOsWindows()
+  const { windows, workspaces, activeWorkspaceId, openWindow, openSplit, setImmersive, focusWindow, minimizeWindow, closeWindow, moveWindowToWorkspace, immersivePageId } = useOsWindows()
   const { installedApps } = useInstalledApps()
   const { can } = useOsPermissions()
   const { resolvedMode } = useShellMode()
@@ -107,12 +107,12 @@ export function OsDock() {
     const seen = new Set<string>()
     const result: OsAppDefinition[] = []
     for (const w of windows) {
-      if (!w.pageId || seen.has(w.pageId)) continue
+      if (w.workspaceId !== activeWorkspaceId || !w.pageId || seen.has(w.pageId)) continue
       const app = appByPageId.get(w.pageId)
       if (app) { seen.add(w.pageId); result.push(app) }
     }
     return result
-  }, [windows, appByPageId])
+  }, [activeWorkspaceId, windows, appByPageId])
 
   // Taskbar order: launcher, then pinned, then the open apps — pinned and open
   // are never duplicated (open apps that are already pinned stay pinned).
@@ -165,9 +165,16 @@ export function OsDock() {
       setLauncherOpen(true)
       return
     }
+    const openWin = windows.find((entry) => entry.workspaceId === activeWorkspaceId && entry.pageId === app.pageId)
     if (app.pageId === currentPageId) {
-      // Already the focused app — ensure its window is raised/restored.
+      // Native taskbar behaviour: clicking the focused running app minimizes
+      // it; clicking its taskbar icon again restores it through URL sync.
       if (immersivePageId === app.pageId) return
+      if (openWin && !openWin.minimized) {
+        minimizeWindow(app.pageId)
+        setCurrentPageId('launcher')
+        return
+      }
       focusWindow(app.pageId)
       return
     }
@@ -183,7 +190,7 @@ export function OsDock() {
     const menuOpen = menuId === app.id
     const isHovered = hoverId === app.id
     const scale = magnification(index)
-    const openWin = windows.find((w) => w.pageId === app.pageId)
+    const openWin = windows.find((w) => w.workspaceId === activeWorkspaceId && w.pageId === app.pageId)
     const isMinimized = Boolean(openWin?.minimized)
     return (
       <motion.div
@@ -195,6 +202,36 @@ export function OsDock() {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ delay: 0.3 + index * 0.05, ...SPRING_SOFT }}
       >
+        <AnimatePresence>
+          {resolvedMode === 'desktop' && openWin && isHovered && !menuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.98 }}
+              transition={{ duration: 0.14, ease: EASE_SOFT }}
+              className="rumahl-taskbar-preview"
+              role="status"
+            >
+              <div className="rumahl-taskbar-preview-head">
+                <span className="rumahl-taskbar-preview-icon" style={{ '--app-accent': app.accent } as React.CSSProperties}>
+                  {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={15} weight="duotone" />}
+                </span>
+                <strong>{name}</strong>
+                <button type="button" onClick={(event) => { event.stopPropagation(); minimizeWindow(app.pageId); if (currentPageId === app.pageId) setCurrentPageId('launcher') }} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}><Minus size={12} /></button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); closeWindow(app.pageId); if (currentPageId === app.pageId) setCurrentPageId('launcher') }} aria-label={t('os.window.close')} title={t('os.window.close')}><X size={12} /></button>
+              </div>
+              <button type="button" className="rumahl-taskbar-preview-body" onClick={() => handleItemClick(app)}>
+                <span className="rumahl-taskbar-preview-app" style={{ '--app-accent': app.accent } as React.CSSProperties}>
+                  {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={26} weight="duotone" />}
+                </span>
+                <span>
+                  <strong>{isMinimized ? t('os.window.minimized') : t('os.dock.preview')}</strong>
+                  <small>{Math.round(openWin.width)} × {Math.round(openWin.height)}</small>
+                </span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <button
           type="button"
           onClick={() => handleItemClick(app)}
@@ -219,14 +256,14 @@ export function OsDock() {
                   } as React.CSSProperties}
           >
             {app.iconUrl ? (
-              <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-0.5" />
+              <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain" />
             ) : app.id === 'launcher' ? (
               <RumahlMark className="h-6 w-6 text-foreground" />
             ) : (
               <Icon size={24} weight="duotone" />
             )}
           </span>
-          <span className="pointer-events-none absolute -top-9 left-1/2 z-50 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-lg border border-foreground/10 bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-xl backdrop-blur-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
+          <span className="rumahl-dock-tooltip pointer-events-none absolute -top-9 left-1/2 z-50 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-lg border border-foreground/10 bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-xl backdrop-blur-md transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
             {name}
           </span>
           <AnimatePresence>
@@ -263,8 +300,8 @@ export function OsDock() {
                 initial={{ opacity: 0, y: 6, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                className="fixed z-[88] w-44 overflow-hidden rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
-                style={{ left: Math.min(menuPos.x, window.innerWidth - 200), top: Math.min(menuPos.y + 8, window.innerHeight - 300) }}
+                className="fixed z-[88] max-h-[calc(100vh-1rem)] w-48 overflow-y-auto rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+                style={{ left: Math.min(menuPos.x, window.innerWidth - 208), top: Math.max(8, Math.min(menuPos.y + 8, window.innerHeight - 430)) }}
                 onClick={(event) => event.stopPropagation()}
               >
                 <button type="button" onClick={() => openApp(app.pageId)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
@@ -299,6 +336,22 @@ export function OsDock() {
                       <span className="flex-1">{t('os.window.immersive')}</span>
                       {getPreferredLaunchMode(app.pageId) === 'immersive' && <Check size={14} className="text-accent" />}
                     </button>
+                    {openWin && workspaces.length > 1 && (
+                      <div className="my-1 border-y border-foreground/8 py-1">
+                        <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground/35">{t('os.workspaces.moveWindow')}</p>
+                        {workspaces.filter((workspaceId) => workspaceId !== activeWorkspaceId).map((workspaceId, workspaceIndex) => (
+                          <button
+                            key={workspaceId}
+                            type="button"
+                            onClick={() => { moveWindowToWorkspace(app.pageId, workspaceId); setCurrentPageId('launcher'); setMenuId(null) }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/8"
+                          >
+                            <SquaresFour size={16} className="text-foreground/60" />
+                            {t('os.workspaces.workspace', { number: workspaces.indexOf(workspaceId) + 1 || workspaceIndex + 1 })}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </>
                 )}
                 <div className="my-1 h-px bg-foreground/8" />

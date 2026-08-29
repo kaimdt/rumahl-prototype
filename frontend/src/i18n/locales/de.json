@@ -549,8 +549,17 @@
     },
     "dock": {
       "open": "Öffnen",
+      "preview": "Aktives Fenster",
       "pin": "An Dock anheften",
       "unpin": "Vom Dock entfernen"
+    },
+    "workspaces": {
+      "title": "Arbeitsflächen",
+      "workspace": "Arbeitsfläche {{number}}",
+      "open": "Arbeitsfläche {{number}} öffnen",
+      "add": "Arbeitsfläche hinzufügen",
+      "remove": "Arbeitsfläche {{number}} entfernen",
+      "moveWindow": "Fenster verschieben nach"
     },
     "quickActions": {
       "arrange": "Apps anordnen",
@@ -596,7 +605,22 @@
       "open": "Fenster offen",
       "maximize": "Maximieren",
       "restore": "Wiederherstellen",
-      "launchModes": "Startmodi"
+      "launchModes": "Startmodi",
+      "snapLayouts": "Andocklayouts",
+      "snapTo": "Andocken an",
+      "snapHalves": "Nebeneinander",
+      "snapQuarters": "Vier Ecken",
+      "snapRows": "Übereinander",
+      "snap": {
+        "left": "linke Hälfte",
+        "right": "rechte Hälfte",
+        "top": "obere Hälfte",
+        "bottom": "untere Hälfte",
+        "top-left": "oben links",
+        "top-right": "oben rechts",
+        "bottom-left": "unten links",
+        "bottom-right": "unten rechts"
+      }
     },
     "images": {
       "dropHint": "Bilder hierher ziehen, um sie in diesen Ordner zu kopieren",
@@ -735,6 +759,23 @@
     "powerDesc": "System neu starten oder herunterfahren",
     "accentIcons": "App-Icons einfärben",
     "accentIconsDesc": "Färbt App-Icons und Ordner mit der aktuellen Primärfarbe ein (sepia + Hue-Rotation).",
+    "uiScale": "UI-Skalierung",
+    "uiScaleDesc": "Passe die Größe der Elemente auf dem Bildschirm an.",
+    "uiScaleHint": "Skaliert die gesamte Oberfläche (Texte, Icons, Abstände). 100% = Standard.",
+    "verhalten": "Verhalten",
+    "transparenz": "Transparenzeffekte",
+    "animationen": "Animationen",
+    "animationDesc": "Schalte Fensteranimationen und Übergangseffekte ein oder aus.",
+    "zeitplan": "Zeitplan",
+    "zeitplanDesc": "Automatisches Umschalten des Designs basierend auf der Tageszeit.",
+    "autoTheme": "Automatisches Design",
+    "autoThemeDesc": "Wechselt das Design zur angegebenen Zeit automatisch.",
+    "hintergrund": "Hintergrund",
+    "hintergrundDesc": "Wähle ein Hintergrundbild oder passe es an.",
+    "hintergrundAnpassen": "Hintergrund anpassen",
+    "hintergrundHint": "Das aktuelle Hintergrundbild bleibt über alle Oberflächen aktiv.",
+    "accentMode": "Farbmodus",
+    "accentModeDesc": "Wähle zwischen hellem und dunklem Design oder lasse es automatisch anpassen.",
     "apps": "Apps",
     "tabAppsDesc": "Installierte Apps, Berechtigungen & Einbettung",
     "appsDesc": "Verwalte deine installierten Apps: starte und stoppe sie, kontrolliere ihre Berechtigungen und entscheide, ob sie im rumahl Desktop laufen oder direkt über ihren Port geöffnet werden.",
@@ -1642,6 +1683,14 @@
     "taskSwitcher": {
       "label": "Task-Switcher",
       "desc": "Offene Fenster anzeigen"
+    },
+    "workspaceLeft": {
+      "label": "Vorherige Arbeitsfläche",
+      "desc": "Zur linken Arbeitsfläche wechseln"
+    },
+    "workspaceRight": {
+      "label": "Nächste Arbeitsfläche",
+      "desc": "Zur rechten Arbeitsfläche wechseln"
     },
     "snapLeft": {
       "label": "Fenster links andocken",

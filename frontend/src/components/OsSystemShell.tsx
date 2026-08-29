@@ -19,6 +19,7 @@ import {
   SignOut,
   Play,
   Pause,
+  Plus,
   MusicNotes,
   DownloadSimple,
   X,
@@ -37,6 +38,7 @@ import { ClipboardManager, useClipboardCapture } from '@/components/ClipboardMan
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import { RumahlMark } from '@/components/RumahlMark'
 import { comboMatches, getCombo } from '@/lib/shortcutRegistry'
+import { useShellMode } from '@/hooks/useShellMode'
 
 interface SystemStats {
   cpu_usage_percent: number
@@ -71,11 +73,13 @@ function formatUptime(seconds: number, t: (key: string, options?: Record<string,
 export function OsSystemShell() {
   const { t, i18n } = useTranslation()
   const { theme, sleepMode, setSleepMode } = useTheme()
+  const { resolvedMode } = useShellMode()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const [open, setOpen] = useState(false)
   const [showJobCenter, setShowJobCenter] = useState(false)
   const [showClipboard, setShowClipboard] = useState(false)
   const [showRecents, setShowRecents] = useState(false)
+  const [switcherIndex, setSwitcherIndex] = useState(0)
   const [recentIds, setRecentIds] = useState<string[]>(readRecentApps)
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [systemReachable, setSystemReachable] = useState<boolean | null>(null)
@@ -87,7 +91,7 @@ export function OsSystemShell() {
   const { can } = useOsPermissions()
   const { user, logout } = useAuth()
   const activeJobCount = useActiveSystemJobCount()
-  const { windows, snapWindow, toggleMaximize, immersivePageId, setImmersive, closeWindow, minimizeWindow } = useOsWindows()
+  const { windows, workspaces, activeWorkspaceId, createWorkspace, removeWorkspace, switchWorkspace, snapWindow, toggleMaximize, immersivePageId, setImmersive, closeWindow, minimizeWindow, focusWindow } = useOsWindows()
 
   // In immersive (fullscreen) the top bar auto-hides and slides in when the
   // pointer hits the top edge (macOS-style).
@@ -147,15 +151,34 @@ export function OsSystemShell() {
     () => recentIds.map((id) => appByPageId.get(id)).filter((app): app is OsAppDefinition => Boolean(app)),
     [appByPageId, recentIds],
   )
+  const activeWindows = useMemo(
+    () => windows.filter((item) => item.workspaceId === activeWorkspaceId),
+    [activeWorkspaceId, windows],
+  )
   const switcherApps = useMemo(() => {
-    const openApps = [...windows]
+    const openApps = [...activeWindows]
       .filter((item) => item.pageId)
       .sort((a, b) => b.z - a.z)
       .map((item) => appByPageId.get(item.pageId as string))
       .filter((app): app is OsAppDefinition => Boolean(app))
     const seen = new Set(openApps.map((app) => app.pageId))
     return [...openApps, ...recentApps.filter((app) => !seen.has(app.pageId))].slice(0, MAX_RECENT_APPS)
-  }, [appByPageId, recentApps, windows])
+  }, [activeWindows, appByPageId, recentApps])
+
+  const selectWorkspace = useCallback((workspaceId: number) => {
+    const target = windows
+      .filter((item) => item.workspaceId === workspaceId && item.pageId && !item.minimized)
+      .sort((a, b) => b.z - a.z)[0]
+    switchWorkspace(workspaceId)
+    setCurrentPageId(target?.pageId || 'launcher')
+    setShowRecents(false)
+  }, [setCurrentPageId, switchWorkspace, windows])
+
+  const cycleWorkspace = useCallback((direction: -1 | 1) => {
+    const currentIndex = workspaces.indexOf(activeWorkspaceId)
+    const nextIndex = (currentIndex + direction + workspaces.length) % workspaces.length
+    selectWorkspace(workspaces[nextIndex])
+  }, [activeWorkspaceId, selectWorkspace, workspaces])
 
   useEffect(() => {
     if (currentPageId === 'launcher') return
@@ -221,10 +244,25 @@ export function OsSystemShell() {
       // Task switcher (Alt+Tab)
       if (comboMatches(getCombo('task-switcher'), event)) {
         event.preventDefault()
-        setShowRecents(true)
+        if (showRecents) {
+          setSwitcherIndex((current) => switcherApps.length ? (current + 1) % switcherApps.length : 0)
+        } else {
+          setSwitcherIndex(0)
+          setShowRecents(true)
+        }
         setOpen(false)
         setShowJobCenter(false)
         setShowClipboard(false)
+        return
+      }
+      if (comboMatches(getCombo('workspace-left'), event)) {
+        event.preventDefault()
+        cycleWorkspace(-1)
+        return
+      }
+      if (comboMatches(getCombo('workspace-right'), event)) {
+        event.preventDefault()
+        cycleWorkspace(1)
         return
       }
       // Lock session
@@ -252,7 +290,7 @@ export function OsSystemShell() {
         event.preventDefault()
         const [_, layout] = snap
         const top = windows
-          .filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
+          .filter((w) => w.workspaceId === activeWorkspaceId && w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
           .sort((a, b) => b.z - a.z)[0]
         if (!top) return
         if (layout === 'maximize') toggleMaximize(top.pageId)
@@ -266,9 +304,21 @@ export function OsSystemShell() {
         setShowClipboard(false)
       }
     }
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (!showRecents || (event.key !== 'Alt' && event.key !== 'Meta')) return
+      const selected = switcherApps[switcherIndex]
+      if (!selected) return
+      setCurrentPageId(selected.pageId)
+      focusWindow(selected.pageId)
+      setShowRecents(false)
+    }
     window.addEventListener('keydown', handleKeyboard)
-    return () => window.removeEventListener('keydown', handleKeyboard)
-  }, [windows, snapWindow, toggleMaximize, sleepMode, setSleepMode])
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyboard)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [windows, snapWindow, toggleMaximize, sleepMode, setSleepMode, showRecents, switcherApps, switcherIndex, setCurrentPageId, focusWindow, activeWorkspaceId, cycleWorkspace])
 
   const openApp = (pageId: string) => {
     setCurrentPageId(pageId)
@@ -391,6 +441,31 @@ export function OsSystemShell() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {resolvedMode === 'desktop' && !immersivePageId && (
+        <nav className="rumahl-workspace-strip" aria-label={t('os.workspaces.title')}>
+          {workspaces.map((workspaceId, index) => {
+            const count = windows.filter((item) => item.workspaceId === workspaceId).length
+            const active = workspaceId === activeWorkspaceId
+            return (
+              <span key={workspaceId} className={`rumahl-workspace-item ${active ? 'is-active' : ''}`}>
+                <button type="button" onClick={() => selectWorkspace(workspaceId)} aria-current={active ? 'page' : undefined} aria-label={t('os.workspaces.open', { number: index + 1 })}>
+                  <strong>{index + 1}</strong>
+                  {count > 0 && <i aria-hidden="true">{count}</i>}
+                </button>
+                {active && workspaces.length > 1 && (
+                  <button type="button" className="rumahl-workspace-remove" onClick={() => removeWorkspace(workspaceId)} aria-label={t('os.workspaces.remove', { number: index + 1 })} title={t('os.workspaces.remove', { number: index + 1 })}>
+                    <X size={10} />
+                  </button>
+                )}
+              </span>
+            )
+          })}
+          <button type="button" className="rumahl-workspace-add" onClick={createWorkspace} disabled={workspaces.length >= 4} aria-label={t('os.workspaces.add')} title={t('os.workspaces.add')}>
+            <Plus size={12} weight="bold" />
+          </button>
+        </nav>
+      )}
 
       {showClock && (
         <>
@@ -604,19 +679,36 @@ export function OsSystemShell() {
                 </button>
               </div>
               <div className="rumahl-task-switcher-apps">
-                {(switcherApps.length ? switcherApps : apps.slice(0, 6)).map((app) => {
+                {(switcherApps.length ? switcherApps : apps.slice(0, 6)).map((app, index) => {
                   const Icon = app.icon
                   const name = app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
-                  const isOpen = windows.some((item) => item.pageId === app.pageId)
-                  const isFocused = currentPageId === app.pageId
+                  const openWindow = windows.find((item) => item.workspaceId === activeWorkspaceId && item.pageId === app.pageId)
+                  const isOpen = Boolean(openWindow)
+                  const isFocused = index === switcherIndex
                   return (
-                    <button key={app.id} type="button" onClick={() => openApp(app.pageId)} className={`rumahl-task-switcher-app ${isFocused ? 'is-focused' : ''}`}>
-                      <span className="rumahl-task-switcher-app-icon" style={{ '--app-accent': app.accent } as React.CSSProperties}>
-                        {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={20} weight="duotone" />}
+                    <button
+                      key={app.id}
+                      type="button"
+                      onMouseEnter={() => setSwitcherIndex(index)}
+                      onFocus={() => setSwitcherIndex(index)}
+                      onClick={() => openApp(app.pageId)}
+                      className={`rumahl-task-switcher-app ${isFocused ? 'is-focused' : ''}`}
+                      aria-selected={isFocused}
+                    >
+                      <span className="rumahl-task-switcher-window">
+                        <span className="rumahl-task-switcher-window-bar">
+                          <span style={{ '--app-accent': app.accent } as React.CSSProperties} />
+                          <i />
+                        </span>
+                        <span className="rumahl-task-switcher-window-content" style={{ '--app-accent': app.accent } as React.CSSProperties}>
+                          <span className="rumahl-task-switcher-app-icon">
+                            {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={22} weight="duotone" />}
+                          </span>
+                        </span>
                       </span>
                       <span className="rumahl-task-switcher-app-copy">
                         <strong>{name}</strong>
-                        <small>{isOpen ? t('os.window.open') : t('os.shell.recentApps')}</small>
+                        <small>{openWindow?.minimized ? t('os.window.minimized') : isOpen ? t('os.window.open') : t('os.shell.recentApps')}</small>
                       </span>
                       {isOpen && <span className="rumahl-task-switcher-running" aria-hidden="true" />}
                     </button>

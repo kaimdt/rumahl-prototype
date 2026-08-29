@@ -76,7 +76,7 @@ function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'norma
     >
       {!app.iconUrl && <span className="rumahl-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
-        <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-1" />
+        <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain" />
       ) : Icon ? (
         <Icon size={iconSize} weight="duotone" className="relative" />
       ) : null}

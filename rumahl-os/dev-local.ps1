@@ -1684,58 +1684,36 @@ if ((Test-Path $PROVISIONED_MARKER) -and (-not $Reprovision)) {
     }
 }
 
-# Always sync source (incremental 1:1 mirror via WSL rsync)
-Write-Info "Syncing project to VM (WSL rsync, incremental)..."
-$repoWsl = ConvertTo-WslPath $REPO_ROOT
-$keyWsl = ConvertTo-WslPath $SSH_KEY
-# drvfs keys have loose permissions that ssh refuses - stage a 0600 copy in WSL
-wsl bash -c "mkdir -p ~/.ssh && install -m 600 '$keyWsl' ~/.ssh/rumahl_dev_key 2>/dev/null || cp '$keyWsl' ~/.ssh/rumahl_dev_key" 2>&1 | Out-Null
-# The rsync fast path needs rsync in WSL (the VM gets it during provisioning)
-$null = wsl bash -c "command -v rsync >/dev/null 2>&1 || sudo apt-get install -y -qq rsync 2>&1 | tail -1" 2>&1 | Out-Null
-$syncExcludes = "--exclude='.git' --exclude='target' --exclude='node_modules' --exclude='.cache' --exclude='buildroot-*' --exclude='releases' --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' --exclude='*.tar.gz' --exclude='.rumahl-dev'"
-$syncSsh = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i ~/.ssh/rumahl_dev_key -p $VM_SSH_PORT"
-# WSL2 NAT mode: the VM's forwarded ports live on the Windows host, which WSL
-# reaches via its default-route gateway (127.0.0.1 inside WSL only works in
-# mirrored mode). Probe 127.0.0.1 first, then derive the gateway from
-# /proc/net/route, so the rsync fast path works in both WSL network modes.
-function Get-WslSyncHost {
-    if ($Bridge) { return $VM_HOST }
-    $null = wsl bash -c "ssh $syncSsh root@127.0.0.1 'true'" 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) { return "127.0.0.1" }
-    $route = wsl bash -c "cat /proc/net/route" 2>&1 | Where-Object { $_ -is [string] }
-    foreach ($l in $route) {
-        if ($l -match '^[A-Za-z0-9]+\s+00000000\s+([0-9A-Fa-f]{8})') {
-            $h = $matches[1]
-            $ip = @()
-            for ($i = 6; $i -ge 0; $i -= 2) { $ip += [Convert]::ToInt32($h.Substring($i, 2), 16) }
-            return ($ip -join '.')
-        }
+# Always sync source (incremental 1:1 mirror). Prefer the Windows-native
+# watcher (dev-sync.ps1): the VM's forwarded ports live on the Windows
+# loopback, which WSL2 NAT cannot reach — the bash rsync fast path there
+# fails with "host unreachable". Windows-native scp reaches the VM reliably.
+Write-Info "Syncing project to VM (Windows-native, incremental)..."
+$winSyncScript = Join-Path $SCRIPT_DIR "dev-sync.ps1"
+if (Test-Path $winSyncScript) {
+    $syncOut = & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $winSyncScript -once -vm-host $VM_HOST -vm-port $VM_SSH_PORT -ssh-key $SSH_KEY -quiet 2>&1
+    $mainSyncOk = ($LASTEXITCODE -eq 0)
+    if (-not $mainSyncOk) {
+        Write-Dim "  dev-sync.ps1 output (last 12 lines):"
+        ($syncOut | Select-Object -Last 12) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
     }
-    return $null
-}
-$wslHost = Get-WslSyncHost
-$syncOut = ""
-if ($wslHost) {
-    # The rsync receiver must exist INSIDE the guest too — install it there
-    # first (waiting out any cloud-init dpkg lock) so the fast path works.
-    wsl bash -c "ssh $syncSsh root@$wslHost 'command -v rsync >/dev/null 2>&1 || { for i in \$(seq 1 160); do fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1 || break; sleep 3; done; apt-get update -qq -o DPkg::Lock::Timeout=300; apt-get install -y -qq rsync -o DPkg::Lock::Timeout=300; }'" 2>&1 | Out-Null
-    $syncOut = wsl bash -c "rsync -az --delete $syncExcludes -e 'ssh $syncSsh' '$repoWsl/' root@${wslHost}:/home/ora/ora/ && ssh $syncSsh root@${wslHost} 'chown -R ora:ora /home/ora/ora'" 2>&1
-}
-$mainSyncOk = ($LASTEXITCODE -eq 0) -and $wslHost
-if (-not $mainSyncOk) {
-    Write-Dim "  rsync output (last 12 lines):"
-    ($syncOut | Select-Object -Last 12) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+} else {
+    Write-Warn "dev-sync.ps1 not found; falling back to WSL rsync."
+    $mainSyncOk = $false
 }
 if ($mainSyncOk -and $Mode -eq "build") {
     # Build mode: also mirror the drop-box so host-built binaries reach the daemon
-    wsl bash -c "rsync -az --delete -e 'ssh $syncSsh' '$repoWsl/.rumahl-dev/binaries/' root@${wslHost}:/home/ora/ora/.rumahl-dev/binaries/ 2>/dev/null || true" 2>&1 | Out-Null
+    $bins = Join-Path $REPO_ROOT ".rumahl-dev\binaries"
+    if (Test-Path $bins) {
+        & scp.exe @SSH_OPTS -i $SSH_KEY -P $VM_SSH_PORT -r "$bins/." "root@${VM_HOST}:/home/ora/ora/.rumahl-dev/binaries/" 2>$null | Out-Null
+    }
 }
 if ($mainSyncOk -and $script:RuntimeState) {
     $script:RuntimeState = Update-rumahlRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Synced"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
     Save-rumahlRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
 }
 if (-not $mainSyncOk) {
-    Write-Warn "WSL rsync failed - falling back to tar+scp..."
+    Write-Warn "Incremental sync failed - falling back to tar+scp..."
     $projectTar = Join-Path $CACHE "rumahl-project.tar.gz"
     Push-Location $REPO_ROOT
     try {
@@ -2433,13 +2411,22 @@ if (-not $NoWatch) {
 }
 if ($Mode -eq "source" -and -not $NoSync) {
     Write-Info "Starting continuous source sync for Vite HMR and Rust delta builds..."
-    Start-Process -FilePath "wsl" -WorkingDirectory $SCRIPT_DIR -ArgumentList @(
-        "bash", "dev-sync.sh", "--watch", "--vm-host", "$VM_HOST",
-        "--vm-port", "$VM_SSH_PORT", "--ssh-key", "$SSH_KEY", "--quiet"
-    ) -WindowStyle Minimized | Out-Null
-    if ($script:RuntimeState) {
-        $script:RuntimeState = Update-rumahlRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Watching"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
-        Save-rumahlRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+    # Windows-native watcher: the VM's forwarded ports live on the Windows
+    # loopback, which WSL2 NAT cannot reach (dev-sync.sh there fails with
+    # "host unreachable"). scp from Windows reaches the VM reliably.
+    $syncScript = Join-Path $SCRIPT_DIR "dev-sync.ps1"
+    if (Test-Path $syncScript) {
+        $syncArgs = @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $syncScript,
+            "-vm-host", "$VM_HOST", "-vm-port", "$VM_SSH_PORT", "-ssh-key", "$SSH_KEY", "-quiet"
+        )
+        Start-Process -FilePath "pwsh.exe" -ArgumentList $syncArgs -WindowStyle Minimized | Out-Null
+        if ($script:RuntimeState) {
+            $script:RuntimeState = Update-rumahlRuntimeState -State $script:RuntimeState -Values @{ syncStatus = "Watching"; lastSyncAt = (Get-Date).ToUniversalTime().ToString("o") }
+            Save-rumahlRuntimeState -State $script:RuntimeState -Path $RUNTIME_STATE_PATH
+        }
+    } else {
+        Write-Warn "dev-sync.ps1 not found - continuous source sync unavailable."
     }
 }
 

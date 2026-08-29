@@ -51,7 +51,7 @@ function LauncherAppTile({ app, name, onOpen }: { app: OsAppDefinition; name: st
         className={`rumahl-app-icon flex h-14 w-14 items-center justify-center overflow-hidden text-white transition-transform duration-200 group-hover:scale-105 ${app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''}`}
         style={app.iconUrl ? undefined : { '--app-accent': app.accent } as React.CSSProperties}
       >
-        {app.iconUrl ? <img src={app.iconUrl} alt={name} className="h-full w-full object-contain p-1" /> : <ColorIcon size={28} weight="duotone" />}
+        {app.iconUrl ? <img src={app.iconUrl} alt={name} className="h-full w-full object-contain" /> : <ColorIcon size={28} weight="duotone" />}
       </span>
       <span className="w-full truncate text-[11px] font-medium text-foreground/75">{name}</span>
     </button>
@@ -111,18 +111,18 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 8 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed inset-x-0 top-[12dvh] z-[91] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#101016]/92 text-foreground shadow-2xl backdrop-blur-2xl"
+            className="fixed inset-x-0 top-[12dvh] z-[91] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden rounded-3xl border border-foreground/12 bg-background/92 text-foreground shadow-2xl backdrop-blur-2xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label={t('os.launcher.label')}
           >
             {/* Header: brand + search */}
-            <div className="flex items-center gap-3 border-b border-white/8 px-5 py-4">
+            <div className="flex items-center gap-3 border-b border-foreground/8 px-5 py-4">
               <span className="flex shrink-0 items-center gap-2 font-semibold tracking-[0.08em] text-foreground/85">
                 <RumahlMark className="h-4 text-foreground/85" />
                 rumahl OS
               </span>
-              <label className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-white/8 bg-white/4 px-3.5 py-2.5 text-foreground/80 backdrop-blur focus-within:border-accent/40">
+              <label className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-foreground/12 bg-foreground/4 px-3.5 py-2.5 text-foreground/80 backdrop-blur focus-within:border-accent/40">
                 <MagnifyingGlass size={17} className="shrink-0 text-foreground/45" />
                 <input
                   ref={inputRef}
@@ -135,7 +135,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-foreground/55 transition-colors hover:bg-white/6 hover:text-foreground"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-foreground/55 transition-colors hover:bg-foreground/6 hover:text-foreground"
                 aria-label={t('os.apps.settings.name')}
                 title={t('os.apps.settings.name')}
               >

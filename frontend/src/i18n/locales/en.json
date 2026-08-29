@@ -549,8 +549,17 @@
     },
     "dock": {
       "open": "Open",
+      "preview": "Live window",
       "pin": "Pin to Dock",
       "unpin": "Remove from Dock"
+    },
+    "workspaces": {
+      "title": "Workspaces",
+      "workspace": "Workspace {{number}}",
+      "open": "Open workspace {{number}}",
+      "add": "Add workspace",
+      "remove": "Remove workspace {{number}}",
+      "moveWindow": "Move window to"
     },
     "quickActions": {
       "arrange": "Arrange apps",
@@ -596,7 +605,22 @@
       "open": "Window open",
       "maximize": "Maximize",
       "restore": "Restore",
-      "launchModes": "Launch modes"
+      "launchModes": "Launch modes",
+      "snapLayouts": "Snap layouts",
+      "snapTo": "Snap to",
+      "snapHalves": "Side by side",
+      "snapQuarters": "Four corners",
+      "snapRows": "Stacked",
+      "snap": {
+        "left": "left half",
+        "right": "right half",
+        "top": "top half",
+        "bottom": "bottom half",
+        "top-left": "top left",
+        "top-right": "top right",
+        "bottom-left": "bottom left",
+        "bottom-right": "bottom right"
+      }
     },
     "images": {
       "dropHint": "Drop images here to copy them into this folder",
@@ -735,6 +759,23 @@
     "powerDesc": "Reboot or shut down the system",
     "accentIcons": "Tint app icons",
     "accentIconsDesc": "Recolors app icons and folders with the current primary color (sepia + hue rotation).",
+    "uiScale": "UI scaling",
+    "uiScaleDesc": "Adjust the size of elements on screen.",
+    "uiScaleHint": "Scales the entire UI (text, icons, spacing). 100% = default.",
+    "verhalten": "Behavior",
+    "transparenz": "Transparency effects",
+    "animationen": "Animations",
+    "animationDesc": "Turn window animations and transition effects on or off.",
+    "zeitplan": "Schedule",
+    "zeitplanDesc": "Automatically switch the design based on the time of day.",
+    "autoTheme": "Automatic design",
+    "autoThemeDesc": "Switches the design automatically at the specified time.",
+    "hintergrund": "Background",
+    "hintergrundDesc": "Choose a wallpaper or customize it.",
+    "hintergrundAnpassen": "Customize background",
+    "hintergrundHint": "The current wallpaper stays active across all surfaces.",
+    "accentMode": "Color mode",
+    "accentModeDesc": "Choose between light and dark design or let it adapt automatically.",
     "apps": "Apps",
     "tabAppsDesc": "Installed apps, permissions & embedding",
     "appsDesc": "Manage your installed apps: start and stop them, control their permissions and decide whether they run inside the rumahl desktop or open directly via their port.",
@@ -1641,6 +1682,14 @@
     "taskSwitcher": {
       "label": "Task switcher",
       "desc": "Show open windows"
+    },
+    "workspaceLeft": {
+      "label": "Previous workspace",
+      "desc": "Switch to the workspace on the left"
+    },
+    "workspaceRight": {
+      "label": "Next workspace",
+      "desc": "Switch to the workspace on the right"
     },
     "snapLeft": {
       "label": "Snap window left",

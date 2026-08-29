@@ -284,6 +284,6 @@ do {
         "P" { Start-CriticalServices; Read-Host "Press Enter" | Out-Null }
         "I" { Show-Settings }
         "W" { & $script:DevLocal -Watcher; $dashboard.State.watcherStatus = "Running"; Save-rumahlRuntimeState $dashboard.State $script:StatePath }
-        "Y" { Start-Process -FilePath "wsl" -WorkingDirectory $script:Root -ArgumentList @("bash", "dev-sync.sh", "--watch", "--vm-host", $dashboard.Connection.Host, "--vm-port", $dashboard.Connection.SshPort); $dashboard.State.syncStatus = "Watching"; Save-rumahlRuntimeState $dashboard.State $script:StatePath }
+        "Y" { $syncScript = Join-Path $script:Root "dev-sync.ps1"; if (Test-Path $syncScript) { $key = Join-Path $script:Cache "rumahl-dev-key"; Start-Process -FilePath "pwsh.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $syncScript, "-vm-host", $dashboard.Connection.Host, "-vm-port", $dashboard.Connection.SshPort, "-ssh-key", $key, "-quiet") -WindowStyle Minimized | Out-Null; $dashboard.State.syncStatus = "Watching"; Save-rumahlRuntimeState $dashboard.State $script:StatePath } else { Write-Host "dev-sync.ps1 not found." -ForegroundColor Yellow } }
     }
 } while ($choice -ne "Q")
