@@ -55,4 +55,13 @@
 - Browser verification on `/settings/dashboard` and `/settings/system`: category selection remained active, two Dashboard tool rows and eleven System fact rows rendered, System scrolling moved from scrollTop 829 to 1309, and the maximize action changed its title to `Wiederherstellen` while increasing the content viewport from 457 px to 582 px.
 - Latest focused ESLint, TypeScript no-check build, and Vite production build: passed on 2026-08-29. The global `npx` shim is broken on this host, so verification used the same locally installed project binaries directly.
 
+**Task-switcher pass**
+
+- Source visual truth: `/var/folders/g9/w0jh8x3s5x1d9h953djdjkw40000gn/T/codex-clipboard-2384145f-a0fa-4169-88d9-0ef824c56994.jpg` (2974 × 1058 px).
+- Implementation URL: `http://127.0.0.1:4173/`, 1280 × 720 CSS px at device pixel ratio 2.
+- Open windows now take priority in the task switcher, with focused and running states represented explicitly.
+- The task switcher is compact and bottom-anchored above the taskbar to match the source's spatial hierarchy.
+- Production build, focused ESLint, and `git diff --check`: passed.
+- Browser comparison is blocked because the local preview stops at the unauthenticated login screen while the backend is unavailable; the authenticated task-switcher state could not be captured.
+
 final result: blocked

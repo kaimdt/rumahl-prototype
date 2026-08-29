@@ -3322,6 +3322,58 @@ body {
 }
 :root[data-shell-mode="desktop"] .rumahl-dock-shell > div::-webkit-scrollbar { display: none; }
 
+/* Desktop task switcher: a compact, bottom-anchored application strip that
+   preserves the spatial relationship with the taskbar while keeping the
+   desktop and open windows visible behind it. */
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-backdrop {
+  background: rgb(0 0 0 / 0.2);
+  backdrop-filter: blur(3px) saturate(0.82);
+}
+:root[data-shell-mode="desktop"] .rumahl-task-switcher {
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.11);
+  border-radius: 0.8rem;
+  background: linear-gradient(180deg, rgb(22 22 29 / 0.97), rgb(12 12 17 / 0.98));
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.66), inset 0 1px rgb(255 255 255 / 0.055);
+  color: rgb(255 255 255 / 0.9);
+  backdrop-filter: blur(30px);
+}
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-header {
+  display: flex;
+  min-height: 2.7rem;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgb(255 255 255 / 0.065);
+  padding: 0.55rem 0.7rem 0.5rem 0.85rem;
+}
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-header h2 { font-size: 0.72rem; font-weight: 600; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-header p { margin-top: 0.08rem; color: rgb(255 255 255 / 0.34); font-size: 0.6rem; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-close { display: grid; width: 1.8rem; height: 1.8rem; place-items: center; border-radius: 0.45rem; color: rgb(255 255 255 / 0.42); }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-close:hover { background: rgb(255 255 255 / 0.07); color: white; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-apps { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.55rem; padding: 0.65rem; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 4.2rem;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 0.6rem;
+  background: rgb(255 255 255 / 0.025);
+  padding: 0.65rem;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app:hover { border-color: rgb(255 255 255 / 0.14); background: rgb(255 255 255 / 0.055); transform: translateY(-1px); }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app.is-focused { border-color: color-mix(in oklch, var(--accent) 58%, transparent); background: color-mix(in oklch, var(--accent) 13%, transparent); box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 16%, transparent) inset; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app-icon { display: grid; width: 2.3rem; height: 2.3rem; flex: 0 0 auto; place-items: center; overflow: hidden; border: 1px solid rgb(255 255 255 / 0.11); border-radius: 0.62rem; background: color-mix(in oklch, var(--app-accent, var(--accent)) 52%, #111117); color: white; box-shadow: 0 8px 18px rgb(0 0 0 / 0.32); }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app-icon img { width: 100%; height: 100%; object-fit: contain; padding: 0.1rem; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app-copy { min-width: 0; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; font-weight: 600; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-app-copy small { display: block; margin-top: 0.18rem; color: rgb(255 255 255 / 0.34); font-size: 0.6rem; }
+:root[data-shell-mode="desktop"] .rumahl-task-switcher-running { position: absolute; right: 0.55rem; top: 0.55rem; width: 0.32rem; height: 0.32rem; border-radius: 999px; background: var(--accent); box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 75%, transparent); }
+
 /* Desktop start (launcher) button: subtle tile so the logo reads over the
    wallpaper, at the leading edge of the taskbar. */
 :root[data-shell-mode="desktop"] .rumahl-dock-shell .rumahl-dock-item:first-child .rumahl-app-icon {
@@ -3958,4 +4010,3 @@ body {
   .rumahl-app-navbar { min-height: 3.5rem; padding-block: 0.55rem; }
   .rumahl-app-navbar .rumahl-icon-button { min-width: 2.45rem; min-height: 2.45rem; }
 }
-

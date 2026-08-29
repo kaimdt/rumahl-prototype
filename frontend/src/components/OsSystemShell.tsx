@@ -147,6 +147,15 @@ export function OsSystemShell() {
     () => recentIds.map((id) => appByPageId.get(id)).filter((app): app is OsAppDefinition => Boolean(app)),
     [appByPageId, recentIds],
   )
+  const switcherApps = useMemo(() => {
+    const openApps = [...windows]
+      .filter((item) => item.pageId)
+      .sort((a, b) => b.z - a.z)
+      .map((item) => appByPageId.get(item.pageId as string))
+      .filter((app): app is OsAppDefinition => Boolean(app))
+    const seen = new Set(openApps.map((app) => app.pageId))
+    return [...openApps, ...recentApps.filter((app) => !seen.has(app.pageId))].slice(0, MAX_RECENT_APPS)
+  }, [appByPageId, recentApps, windows])
 
   useEffect(() => {
     if (currentPageId === 'launcher') return
@@ -571,7 +580,7 @@ export function OsSystemShell() {
       <AnimatePresence>
         {showRecents && (
           <motion.div
-            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4 backdrop-blur-xl"
+            className="rumahl-task-switcher-backdrop fixed inset-0 z-[70] flex items-end justify-center p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -582,31 +591,34 @@ export function OsSystemShell() {
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 16, scale: 0.98 }}
               transition={MOTION_PANEL}
-              className="glass-card w-full max-w-3xl rounded-4xl border border-white/15 p-5 shadow-2xl"
+              className="rumahl-task-switcher mb-14 w-full max-w-3xl"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-4 flex items-center justify-between">
+              <div className="rumahl-task-switcher-header">
                 <div>
-                  <h2 className="text-lg font-semibold">{t('os.shell.recentApps')}</h2>
-                  <p className="text-xs text-foreground/40">{t('os.shell.taskSwitcherHint')}</p>
+                  <h2>{t('os.shell.recentApps')}</h2>
+                  <p>{t('os.shell.taskSwitcherHint')}</p>
                 </div>
-                <button type="button" onClick={() => setShowRecents(false)} className="rounded-full p-2 text-foreground/50 hover:bg-foreground/10">
-                  <CaretRight size={18} />
+                <button type="button" onClick={() => setShowRecents(false)} className="rumahl-task-switcher-close" aria-label={t('common.close')}>
+                  <X size={14} />
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {(recentApps.length ? recentApps : apps.slice(0, 6)).map((app) => {
+              <div className="rumahl-task-switcher-apps">
+                {(switcherApps.length ? switcherApps : apps.slice(0, 6)).map((app) => {
                   const Icon = app.icon
                   const name = app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
+                  const isOpen = windows.some((item) => item.pageId === app.pageId)
+                  const isFocused = currentPageId === app.pageId
                   return (
-                    <button key={app.id} type="button" onClick={() => openApp(app.pageId)} className="group rounded-2xl border border-white/10 bg-foreground/5 p-4 text-left hover:bg-foreground/10">
-                      <span className="mb-8 flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-lg" style={{ background: app.accent }}>
-                        <Icon size={24} weight="duotone" />
+                    <button key={app.id} type="button" onClick={() => openApp(app.pageId)} className={`rumahl-task-switcher-app ${isFocused ? 'is-focused' : ''}`}>
+                      <span className="rumahl-task-switcher-app-icon" style={{ '--app-accent': app.accent } as React.CSSProperties}>
+                        {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={20} weight="duotone" />}
                       </span>
-                      <span className="flex items-center justify-between gap-2 text-sm font-semibold">
-                        <span className="truncate">{name}</span>
-                        <CaretRight size={14} className="text-foreground/25 transition-transform group-hover:translate-x-1" />
+                      <span className="rumahl-task-switcher-app-copy">
+                        <strong>{name}</strong>
+                        <small>{isOpen ? t('os.window.open') : t('os.shell.recentApps')}</small>
                       </span>
+                      {isOpen && <span className="rumahl-task-switcher-running" aria-hidden="true" />}
                     </button>
                   )
                 })}
