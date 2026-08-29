@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShellMode } from '@/hooks/useShellMode'
+import { DesktopWorkspace } from '@/components/DesktopWorkspace'
 import {
   ArrowRight,
   Check,
@@ -42,6 +44,7 @@ import { useConnection } from '@/contexts/ConnectionContext'
 import { useInstalledApps, appGradient } from '@/hooks/useInstalledApps'
 import { isAppOpenExternal } from '@/lib/appOpenPrefs'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
+import { resolveDesktopFolder, createDesktopShortcut } from '@/lib/desktopShortcuts'
 
 type BuiltInLauncher = 'default' | 'deck' | 'canvas'
 
@@ -65,11 +68,11 @@ function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'norma
   return (
     <span
       className={`rumahl-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${size === 'large' ? 'h-20 w-20 rounded-[1.7rem]' : 'h-14 w-14 rounded-2xl'} ${
-        app.iconUrl ? 'border-0 bg-transparent shadow-none' : 'border border-white/15 shadow-lg'
+        app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''
       }`}
       style={app.iconUrl
         ? { boxShadow: 'none' }
-        : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
+        : { '--app-accent': app.accent } as React.CSSProperties}
     >
       {!app.iconUrl && <span className="rumahl-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
@@ -82,6 +85,7 @@ function AppIcon({ app, size = 'normal' }: { app: OsAppDefinition; size?: 'norma
 }
 
 export function OsHomeScreen() {
+  const { resolvedMode } = useShellMode()
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
   const { pages, setCurrentPageId, navigateToPage } = usePageNavigation()
@@ -361,6 +365,13 @@ export function OsHomeScreen() {
       return
     }
     const mode = getPreferredLaunchMode(app.pageId)
+    // Launcher mode (iOS/Android): tapping an app ALWAYS opens it fullscreen —
+    // never as a window/split/immersive. Desktop mode keeps the chosen mode.
+    if (resolvedMode === 'launcher') {
+      setImmersive(null)
+      setCurrentPageId(app.pageId)
+      return
+    }
     if (mode === 'window') {
       openWindow(app.pageId)
       setCurrentPageId('launcher')
@@ -376,6 +387,20 @@ export function OsHomeScreen() {
   }
   const getName = (app: OsAppDefinition) => app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
   const getDescription = (app: OsAppDefinition) => app.descriptionKey ? t(app.descriptionKey) : t('os.launcher.openApp')
+
+  // Add an app as a real desktop shortcut (stored in the Files Desktop folder).
+  const addToDesktop = async (app: OsAppDefinition) => {
+    const desktopFolderId = await resolveDesktopFolder()
+    const ok = await createDesktopShortcut({ pageId: app.pageId, name: getName(app) }, desktopFolderId)
+    window.dispatchEvent(new CustomEvent('rumahl:toast', {
+      detail: { message: ok ? t('os.launcher.addedToDesktop', { name: getName(app) }) : t('os.launcher.failedToAddDesktop') },
+    }))
+    // Notify the desktop + Files to reload their listings.
+    if (ok) {
+      window.dispatchEvent(new Event('rumahl:desktop-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
+    }
+  }
 
   const onWheelPage = (event: React.WheelEvent) => {
     // Shift + mouse wheel switches launcher pages (Windows-style).
@@ -395,7 +420,9 @@ export function OsHomeScreen() {
     },
   }
 
-  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} installJobs={activeJobs} />
+  const appGrid = <LauncherAppGrid items={appPages[activePage]} apps={apps} folders={folders} editMode={editMode} onEditModeChange={setEditMode} onFoldersChange={setFolders} onReorder={handleReorder} onOpenApp={openApp} getAppName={getName} onLaunch={launchApp} onAddToDesktop={addToDesktop} installJobs={activeJobs} />
+
+  if (resolvedMode === 'desktop') return <DesktopWorkspace />
 
   return (
     <section
@@ -412,15 +439,15 @@ export function OsHomeScreen() {
             <AnimatePresence mode="wait" initial={false}>
               {greetingVisible ? (
                 <motion.div key="greeting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.45 }}>
-                  <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-4xl">{t('os.greeting', { name: user?.displayName || user?.username || t('os.defaultUser') })}</h1>
-                  <p className="mx-auto mt-2 max-w-xl text-sm text-white/50">{t('os.subtitle')}</p>
+                  <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">{t('os.greeting', { name: user?.displayName || user?.username || t('os.defaultUser') })}</h1>
+                  <p className="mx-auto mt-2 max-w-xl text-sm">{t('os.subtitle')}</p>
                 </motion.div>
               ) : (
                 <motion.div key="clock" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.45 }}>
-                  <h1 className="text-5xl font-semibold tabular-nums tracking-tight text-white sm:text-7xl">
+                  <h1 className="text-5xl font-semibold tabular-nums tracking-tight sm:text-7xl">
                     {now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
                   </h1>
-                  <p className="mt-2 text-sm font-medium text-white/60 sm:text-base">
+                  <p className="mt-2 text-sm font-medium sm:text-base">
                     {now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}
                   </p>
                 </motion.div>
@@ -551,7 +578,7 @@ export function OsHomeScreen() {
               </div>
             )}
           </div>}
-          {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-4xl border border-white/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
+          {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-4xl border border-foreground/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
         </div>
       )}
 

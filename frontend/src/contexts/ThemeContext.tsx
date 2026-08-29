@@ -508,7 +508,7 @@ function getThemePreview(themeId: string): string {
     day: 'linear-gradient(135deg, #e0e4ec 0%, #c8cdd8 50%, #b8bfcc 100%)',
     'day-classic': 'linear-gradient(135deg, #2a2d3e 0%, #1a1d2e 50%, #0f1118 100%)',
     evening: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)',
-    night: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)',
+    night: 'linear-gradient(135deg, #0d0d0d 0%, #070707 50%, #050505 100%)',
     sleep: 'linear-gradient(135deg, #050508 0%, #000000 100%)',
   }
   return previews[themeId] || 'linear-gradient(135deg, #1a1d2e 0%, #0f1220 100%)'

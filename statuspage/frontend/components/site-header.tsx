@@ -39,7 +39,7 @@ export function SiteHeader() {
         boxShadow: "var(--header-shadow)",
       }}
     >
-      <div className="statuspage-header-inner mx-auto max-w-5xl px-4 sm:px-5 lg:px-8 h-16 flex items-center gap-3 sm:gap-6">
+      <div className="statuspage-header-inner mx-auto max-w-6xl px-4 sm:px-5 lg:px-8 h-16 flex items-center gap-3 sm:gap-6">
         <Logo href={tenantPrefix ? `${tenantPrefix}/` : "/"} branding={brand ? {
           title: brand.title, mode: brand.header_brand_mode, logoUrl: brand.logo_url,
           logoDarkUrl: brand.logo_dark_url, mobileLogoUrl: brand.mobile_logo_url,

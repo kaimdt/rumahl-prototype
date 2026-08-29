@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#050505" />
+  <title>rumahl OS — Splash</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050505;
+      --fg: #ffffff;
+      --muted: rgba(255,255,255,.42);
+      --soft: rgba(255,255,255,.12);
+      --duration: 5200ms;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-width: 100%;
+      min-height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+
+    .splash {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      min-height: 420px;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(255,255,255,.035), transparent 28%),
+        var(--bg);
+      isolation: isolate;
+    }
+
+    .brand {
+      position: relative;
+      width: clamp(72px, 8.2vw, 116px);
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      transform: translateY(-6px);
+      animation: brand-enter 1.05s cubic-bezier(.16,1,.3,1) both;
+    }
+
+    .brand::before {
+      content: "";
+      position: absolute;
+      inset: -42%;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,.09), rgba(255,255,255,0) 67%);
+      opacity: 0;
+      filter: blur(10px);
+      animation: breathe 2.8s 700ms ease-in-out infinite;
+      z-index: -1;
+    }
+
+    .mark {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
+      filter: drop-shadow(0 8px 24px rgba(0,0,0,.28));
+    }
+
+    .mark-path {
+      fill: var(--fg);
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: mark-settle 1.15s cubic-bezier(.16,1,.3,1) both;
+    }
+
+    .status {
+      position: absolute;
+      left: 50%;
+      bottom: clamp(34px, 6vh, 68px);
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      opacity: 0;
+      animation: status-in .7s 800ms ease forwards;
+    }
+
+    .loader {
+      width: 44px;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--soft);
+      overflow: hidden;
+    }
+
+    .loader::after {
+      content: "";
+      display: block;
+      width: 42%;
+      height: 100%;
+      border-radius: inherit;
+      background: rgba(255,255,255,.82);
+      transform: translateX(-130%);
+      animation: loader 1.35s cubic-bezier(.65,0,.35,1) infinite;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: .04em;
+      user-select: none;
+    }
+
+    .ready .brand {
+      animation: brand-exit .58s cubic-bezier(.7,0,.84,0) forwards;
+    }
+
+    .ready .status {
+      animation: status-out .35s ease forwards;
+    }
+
+    .ready {
+      animation: splash-out .55s .18s ease forwards;
+    }
+
+    @keyframes brand-enter {
+      0% { opacity: 0; transform: translateY(6px) scale(.93); filter: blur(8px); }
+      55% { opacity: 1; }
+      100% { opacity: 1; transform: translateY(-6px) scale(1); filter: blur(0); }
+    }
+
+    @keyframes mark-settle {
+      0% { transform: scale(.9); }
+      70% { transform: scale(1.018); }
+      100% { transform: scale(1); }
+    }
+
+    @keyframes breathe {
+      0%, 100% { opacity: .12; transform: scale(.94); }
+      50% { opacity: .48; transform: scale(1.04); }
+    }
+
+    @keyframes loader {
+      0% { transform: translateX(-130%); }
+      55% { transform: translateX(115%); }
+      100% { transform: translateX(250%); }
+    }
+
+    @keyframes status-in { to { opacity: 1; } }
+    @keyframes status-out { to { opacity: 0; transform: translate(-50%, 5px); } }
+
+    @keyframes brand-exit {
+      to { opacity: 0; transform: translateY(-14px) scale(.985); filter: blur(4px); }
+    }
+
+    @keyframes splash-out { to { opacity: 0; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .brand, .mark-path, .brand::before, .status, .loader::after, .ready, .ready .brand, .ready .status {
+        animation: none !important;
+      }
+      .status { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <main class="splash" id="splash" aria-label="rumahl OS startet">
+    <div class="brand" aria-hidden="true">
+      <!-- Original rumahl "r" from the supplied SVG, normalized to a tight viewBox. -->
+      <svg class="mark" viewBox="0 0 251 472" role="img" aria-label="rumahl">
+        <path class="mark-path" d="M 9.47163 471.21342 Q 0 471.21342 0 461.74179 V 203.63996 C 0 80.50881 80.50883 0 201.27207 0 H 241.52649 Q 250.99811 0 250.99811 9.47163 V 94.71626 Q 250.99811 104.18789 241.52649 104.18789 H 210.74370 C 144.44231 104.18789 101.81999 144.44230 101.81999 210.74369 V 461.74179 Q 101.81999 471.21342 92.34836 471.21342 Z"/>
+      </svg>
+    </div>
+
+    <div class="status" aria-live="polite">
+      <div class="loader" aria-hidden="true"></div>
+      <div class="label">rumahl OS</div>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      const splash = document.getElementById('splash');
+      const autoFinish = true;
+      const finishAfter = 5200;
+
+      function finishSplash() {
+        if (!splash || splash.classList.contains('ready')) return;
+        splash.classList.add('ready');
+      }
+
+      // Hook this into the real OS boot process later:
+      // window.finishRumahlSplash();
+      window.finishRumahlSplash = finishSplash;
+
+      if (autoFinish) {
+        window.setTimeout(finishSplash, finishAfter);
+      }
+    })();
+  </script>
+</body>
+</html>

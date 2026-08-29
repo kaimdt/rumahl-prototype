@@ -51,6 +51,27 @@ export function startSystemEventListener(): void {
     // would double up.
     if (ev.origin === 'frontend') return
 
+    // Skip gateway/unavailable responses from the rumahl-home request
+    // middleware. These fire when a proxied upstream service (e.g.
+    // rumahl-control on :8091) is not running in a partial dev setup —
+    // every polled OS endpoint then re-broadcasts the same error as a
+    // toast, flooding the UI with "HTTP request returned a server error
+    // (×N)". The dashboard already handles these gracefully (system stats
+    // show "–", ConnectionStatus reflects reachability), so they are
+    // logged server-side but not surfaced as toasts.
+    //
+    // Note: these events come via the tracing capture, so `status_code` is
+    // never populated (EventMeta::default() leaves it None and the
+    // middleware logs the field as `status`). Matching on the message + origin is
+    // therefore the reliable discriminator; the status-code range check is
+    // kept as a secondary guard in case a future path sets it.
+    if (ev.message === 'HTTP request returned a server error') {
+      const status = ev.status_code ?? 0
+      if (status >= 500 && status <= 504) return
+      // Tracing-captured 5xx (status_code absent) → the graceful-skip above.
+      if (ev.origin === 'tracing') return
+    }
+
     const count = ev.group_count ?? 1
     const suffix = count > 1 ? ` (×${count})` : ''
     const message = `${ev.message}${suffix}`

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { useIdleTimer } from 'react-idle-timer'
 import { Warning, ShieldWarning, Siren, CloudWarning } from '@phosphor-icons/react'
 import { useActiveWarnings, type ActiveWarning } from '@/components/NotificationCenter'
+import { RumahlMark } from '@/components/RumahlMark'
 import { useLocalStorage } from '@/lib/storage'
 
 interface ScreensaverProps {
@@ -210,6 +211,16 @@ export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverPro
               transition={{ delay: 3, duration: 1.5 }}
             >
               Tippen zum Aufwecken
+            </motion.div>
+
+            {/* Brand signature — rumahl mark (splash design language) */}
+            <motion.div
+              className="mt-10 flex justify-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.16 }}
+              transition={{ delay: 4, duration: 1.5 }}
+            >
+              <RumahlMark className="h-6" />
             </motion.div>
           </div>
         </motion.div>

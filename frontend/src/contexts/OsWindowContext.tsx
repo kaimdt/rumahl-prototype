@@ -64,7 +64,41 @@ const OsWindowContext = createContext<OsWindowContextValue | null>(null)
 const DEFAULT_WINDOW_WIDTH = 880
 const DEFAULT_WINDOW_HEIGHT = 640
 const SESSION_STORAGE_KEY = 'rumahl-os-session-windows'
+/** Per-app remembered free-form geometry (localStorage), so re-opening an app
+ *  returns to the position/size the user last had it at. */
+const APP_GEOMETRY_KEY = 'rumahl-os-app-geometry'
 const SAVE_DEBOUNCE_MS = 800
+
+interface AppGeometry { x: number; y: number; width: number; height: number }
+
+function readAppGeometry(): Record<string, AppGeometry> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(APP_GEOMETRY_KEY) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeAppGeometry(map: Record<string, AppGeometry>): void {
+  try { localStorage.setItem(APP_GEOMETRY_KEY, JSON.stringify(map)) } catch { /* non-critical */ }
+}
+
+/** Clamp a remembered rect into the current viewport (with a small margin) so
+ *  a window restored from an old/other-sized screen never lands off-screen. */
+function clampToViewport(g: AppGeometry): AppGeometry {
+  const w = globalThis.innerWidth
+  const h = globalThis.innerHeight
+  const margin = 8
+  const width = Math.max(340, Math.min(g.width, w - 2 * margin))
+  const height = Math.max(220, Math.min(g.height, h - 2 * margin))
+  return {
+    width,
+    height,
+    x: Math.max(margin, Math.min(g.x, w - width - margin)),
+    y: Math.max(margin, Math.min(g.y, h - height - margin)),
+  }
+}
 
 /** Screen geometry (with a small inset so maximized/snapped windows keep a margin). */
 const SNAP_INSET = 8
@@ -101,9 +135,22 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const saveTimer = useRef<number | null>(null)
 
+  // Free-form geometry last seen before a window snapped/maximized, keyed by
+  // pageId. Lets "restore to window" return to the exact size/position the
+  // user had, instead of snapping back to fullscreen (which happened when the
+  // maximized bounds were kept as the free-form geometry).
+  const restoreRectsRef = useRef<Map<string, { x: number; y: number; width: number; height: number }>>(new Map())
+
   const nextZ = () => ++zCounter.current
 
   const makeDefaultWindow = useCallback((pageId: string | null, layout: OsWindowLayout): OsWindow => {
+    if (pageId) {
+      const remembered = readAppGeometry()[pageId]
+      if (remembered) {
+        const g = clampToViewport(remembered)
+        return { pageId, layout, ...g, z: nextZ(), minimized: false }
+      }
+    }
     const width = Math.min(DEFAULT_WINDOW_WIDTH, globalThis.innerWidth * 0.86)
     const height = Math.min(DEFAULT_WINDOW_HEIGHT, globalThis.innerHeight * 0.78)
     return {
@@ -155,6 +202,7 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
   }, [makeDefaultWindow])
 
   const closeWindow = useCallback((pageId: string | null) => {
+    restoreRectsRef.current.delete(pageId ?? '')
     setWindows((current) => {
       const target = current.find((w) => w.pageId === pageId)
       if (!target) return current
@@ -189,8 +237,22 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
       if (w.pageId !== pageId) return w
       const bounds = screenBounds(layout)
       if (!bounds) {
-        // Restoring to 'window': keep the free-form geometry.
-        return { ...w, layout, z: nextZ(), minimized: false }
+        // Restoring to 'window': give back the pre-snap geometry (stored when
+        // the window was snapped/maximized), if any — otherwise keep the
+        // current free-form geometry.
+        const saved = restoreRectsRef.current.get(pageId ?? '')
+        const restored = saved && w.layout !== 'window'
+          ? { ...w, layout, ...saved, z: nextZ(), minimized: false }
+          : { ...w, layout, z: nextZ(), minimized: false }
+        restoreRectsRef.current.delete(pageId ?? '')
+        return restored
+      }
+      // Snap/maximize: remember the starting free-form rect so it can be
+      // restored later. Only stash once — further snaps (e.g. left → right)
+      // must not overwrite the original free-form size.
+      const isFreeForm = w.layout === 'window'
+      if (isFreeForm) {
+        restoreRectsRef.current.set(pageId ?? '', { x: w.x, y: w.y, width: w.width, height: w.height })
       }
       return { ...w, layout, ...bounds, z: nextZ(), minimized: false }
     }))
@@ -200,17 +262,28 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
     setWindows((current) => current.map((w) => {
       if (w.pageId !== pageId) return w
       if (w.layout === 'maximized') {
-        return { ...w, layout: 'window', z: nextZ(), minimized: false }
+        // Restore from the stored pre-maximize rect, if present.
+        const saved = restoreRectsRef.current.get(pageId ?? '')
+        const restored = saved
+          ? { ...w, layout: 'window', ...saved, z: nextZ(), minimized: false }
+          : { ...w, layout: 'window', z: nextZ(), minimized: false }
+        restoreRectsRef.current.delete(pageId ?? '')
+        return restored
       }
-      if (SNAP_LAYOUTS.includes(w.layout as OsSnapLayout)) {
-        const bounds = screenBounds('maximized')
-        return bounds ? { ...w, layout: 'maximized', ...bounds, z: nextZ() } : w
+      // Maximize every non-maximized state, including restored legacy session
+      // values and split layouts. Restricting this branch to SNAP_LAYOUTS made
+      // the visible titlebar button silently do nothing for those windows.
+      const bounds = screenBounds('maximized')
+      if (!bounds) return w
+      if (w.layout === 'window') {
+        restoreRectsRef.current.set(pageId ?? '', { x: w.x, y: w.y, width: w.width, height: w.height })
       }
-      return w
+      return { ...w, layout: 'maximized', ...bounds, z: nextZ() }
     }))
   }, [])
 
   const resetWindows = useCallback(() => {
+    restoreRectsRef.current.clear()
     setWindows([])
   }, [])
 
@@ -249,6 +322,24 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
       alive = false
     }
   }, [user])
+
+  // ── Per-app geometry persist ─────────────────────────────────────────
+  // Remember each app's free-form window geometry (position + size) so that
+  // re-opening the same app returns to where the user last had it. Only free
+  // form (`window`) rects are stored; split/maximized/snapped are transient
+  // layouts. Written debounced alongside the session save.
+  useEffect(() => {
+    if (!user) return
+    const map = readAppGeometry()
+    let changed = false
+    for (const w of windows) {
+      if (w.pageId && w.layout === 'window') {
+        map[w.pageId] = { x: w.x, y: w.y, width: w.width, height: w.height }
+        changed = true
+      }
+    }
+    if (changed) writeAppGeometry(map)
+  }, [windows, user])
 
   // ── Session persist: debounced save of the window set ───────────────────
   useEffect(() => {

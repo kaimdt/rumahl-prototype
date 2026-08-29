@@ -25,13 +25,13 @@ import {
   UsersThree,
   LinkSimple,
   X,
- Rows, FilePlus, Info, Check } from '@phosphor-icons/react'
+  Rows, FilePlus, Info, Check, SquaresFour } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { authFetch, getAuthToken } from '@/lib/authHelpers'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { getBackendUrl } from '@/lib/config'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { createPortal } from 'react-dom'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
@@ -48,6 +48,15 @@ interface FileEntry {
   is_folder: boolean
   updated_at: string
   deleted_at?: string | null
+  /** For app shortcuts: the target app pageId. */
+  description?: string | null
+}
+
+/** Mime type used for desktop app shortcuts (real files entries). */
+export const APP_SHORTCUT_MIME = 'application/x-rumahl-app-shortcut'
+/** True for a desktop app shortcut entry. */
+export function isAppShortcut(entry: { mime_type?: string | null }): boolean {
+  return entry.mime_type === APP_SHORTCUT_MIME
 }
 
 interface Breadcrumb { id: string; name: string }
@@ -78,6 +87,7 @@ function formatBytes(value = 0) {
 /** System folders shown in the sidebar (created on first use, Windows-style). */
 interface SystemFolder { id: string; canonical: string; nameKey: string }
 const SYSTEM_FOLDERS: SystemFolder[] = [
+  { id: 'desktop', canonical: 'Desktop', nameKey: 'os.files.systemFolders.desktop' },
   { id: 'documents', canonical: 'Documents', nameKey: 'os.files.systemFolders.documents' },
   { id: 'downloads', canonical: 'Downloads', nameKey: 'os.files.systemFolders.downloads' },
   { id: 'photos', canonical: 'Photos', nameKey: 'os.files.systemFolders.photos' },
@@ -102,6 +112,14 @@ function fileIcon(entry: FileEntry, size: number) {
             <img src={badge} alt="" className="h-full w-full object-contain p-0.5" draggable={false} />
           </span>
         )}
+      </span>
+    )
+  }
+  // Desktop app shortcut: show a colored app tile instead of a file icon.
+  if (isAppShortcut(entry)) {
+    return (
+      <span className="rumahl-app-icon flex shrink-0 items-center justify-center overflow-hidden text-white" style={{ width: size, height: size }}>
+        <SquaresFour size={size * 0.5} weight="duotone" />
       </span>
     )
   }
@@ -182,7 +200,7 @@ export interface FilePickerConfig {
 
 export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig | null }) {
   const { t } = useTranslation()
-  const { currentSubPath } = usePageNavigation()
+  const { currentSubPath, setCurrentPageId } = usePageNavigation()
   const { can } = useOsPermissions()
   const [files, setFiles] = useState<FileEntry[]>([])
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([])
@@ -402,6 +420,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [historyIndex, setHistoryIndex] = useState(0)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
+  const [newFolderDraft, setNewFolderDraft] = useState(false)
   const [renameEntry, setRenameEntry] = useState<FileEntry | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextEntry, setContextEntry] = useState<FileEntry | null>(null)
@@ -472,6 +491,13 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   useEffect(() => { void load(false) }, [load])
   useEffect(() => { void loadTree() }, [loadTree])
+  // Real-time sync: reload when items are added/removed on the desktop or via
+  // an external "desktop" action, so the folder view always matches.
+  useEffect(() => {
+    const refresh = () => void load(true)
+    window.addEventListener('rumahl:desktop-refresh', refresh)
+    return () => window.removeEventListener('rumahl:desktop-refresh', refresh)
+  }, [load])
 
   // Deep links (/app/os-files/folder/<id> — e.g. from Spotlight): open the
   // targeted folder on mount with a proper breadcrumb.
@@ -546,6 +572,10 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   const openEntry = (entry: FileEntry) => {
     if (entry.is_folder) navigate(entry.id, [...breadcrumbs, { id: entry.id, name: entry.original_name }])
+    else if (isAppShortcut(entry)) {
+      // Desktop app shortcut: open the referenced app page.
+      if (entry.description) setCurrentPageId(entry.description)
+    }
     else if (pickerMode && !entry.is_folder) {
       // Windows-style: double-click picks the file right away (single mode).
       setSelected(new Set([entry.id]))
@@ -602,7 +632,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     try {
       const response = await authFetch('/api/files/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newFolderName.trim(), parent_folder_id: currentFolderId }) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setNewFolderName(''); setNewFolderOpen(false); await load(true)
+      setNewFolderName(''); setNewFolderOpen(false); setNewFolderDraft(false); await load(true)
     } catch (operationError) { setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '') }
     finally { setWorking(false) }
   }
@@ -922,21 +952,30 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const explorerFrame = (
     <>
     <section className={`rumahl-files-app ${pickerMode ? 'flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-[1.6rem] border border-white/12 bg-background/95 text-foreground shadow-2xl backdrop-blur-xl' : 'rumahl-app-frame'}`} onClick={() => setContextEntry(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
-      <header className="rumahl-app-navbar">
-        <div className="flex min-w-0 items-center gap-3"><button type="button" onClick={() => setSidebarOpen(true)} className="rumahl-icon-button sm:hidden" aria-label={t('os.files.sidebar')}><List size={20} /></button><span className="rumahl-app-mark rumahl-app-mark-files"><FolderOpen size={24} weight="duotone" /></span><div><p className="text-lg font-semibold">{t('os.apps.files.name')}</p><p className="hidden text-xs text-foreground/45 sm:block">{t('os.apps.files.description')}</p></div></div>
-        <div className="flex items-center gap-2">
-          <button type="button" disabled={historyIndex === 0} onClick={() => moveHistory(-1)} className="rumahl-icon-button" aria-label={t('os.files.back')}><ArrowLeft size={18} /></button>
-          <button type="button" disabled={historyIndex >= history.length - 1} onClick={() => moveHistory(1)} className="rumahl-icon-button" aria-label={t('os.files.forward')}><ArrowRight size={18} /></button>
-        </div>
-        <label className="rumahl-toolbar-search"><MagnifyingGlass size={17} /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('os.systemApps.searchFiles')} /></label>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('rumahl-files-view', next) }} className="rumahl-icon-button" aria-label={t('os.files.changeView')} data-tooltip={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
-          <label className="rumahl-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
-          {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="rumahl-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => setNewFolderOpen(true)} className="rumahl-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="rumahl-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><button type="button" onClick={() => setDownloadUrlOpen(true)} className="rumahl-secondary-button"><LinkSimple size={16} />{t('os.files.downloadFromUrl')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
-          <span className="mx-0.5 h-6 w-px bg-foreground/10" aria-hidden="true" />
-          <OsWindowActions pageId="os-files" />
-        </div>
-      </header>
+      <OsAppNavbar
+        pageId="os-files"
+        title={t('os.apps.files.name')}
+        description={t('os.apps.files.description')}
+        icon={<FolderOpen size={24} weight="duotone" />}
+        accent="oklch(0.72 0.17 220)"
+        leading={
+          <>
+            <button type="button" onClick={() => setSidebarOpen(true)} className="rumahl-icon-button sm:hidden" aria-label={t('os.files.sidebar')}><List size={20} /></button>
+            <button type="button" disabled={historyIndex === 0} onClick={() => moveHistory(-1)} className="rumahl-icon-button" aria-label={t('os.files.back')}><ArrowLeft size={18} /></button>
+            <button type="button" disabled={historyIndex >= history.length - 1} onClick={() => moveHistory(1)} className="rumahl-icon-button" aria-label={t('os.files.forward')}><ArrowRight size={18} /></button>
+          </>
+        }
+        search={
+          <label className="rumahl-toolbar-search"><MagnifyingGlass size={17} /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('os.systemApps.searchFiles')} /></label>
+        }
+        trailing={
+          <>
+            <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('rumahl-files-view', next) }} className="rumahl-icon-button" aria-label={t('os.files.changeView')} data-tooltip={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
+            <label className="rumahl-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
+            {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="rumahl-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => { setNewFolderDraft(true); setNewFolderName('Neuer Ordner'); setSelected(new Set()) }} className="rumahl-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="rumahl-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><button type="button" onClick={() => setDownloadUrlOpen(true)} className="rumahl-secondary-button"><LinkSimple size={16} />{t('os.files.downloadFromUrl')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
+          </>
+        }
+      />
 
       <div className="rumahl-files-layout">
         {sidebarOpen && <div className="fixed inset-0 z-[79] bg-black/50 backdrop-blur-sm sm:hidden" onClick={() => setSidebarOpen(false)} aria-label={t('common.close')} />}
@@ -1119,7 +1158,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   </div>
                 )}
               </div>
-            ) : initialLoading ? <div className="rumahl-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="rumahl-file-skeleton" />)}</div> : sortedFiles.length === 0 ? <div className="flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
+            ) : initialLoading ? <div className="rumahl-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="rumahl-file-skeleton" />)}</div> : (sortedFiles.length === 0 && !newFileDraft && !newFolderDraft) ? <div className="flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
               <div ref={gridRef} onMouseDown={beginMarquee} className="rumahl-file-grid relative">{
                 newFileDraft && (
                   <div className="rumahl-file-tile relative border border-accent/50 bg-accent/8">
@@ -1133,6 +1172,22 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                         if (event.key === 'Escape') setNewFileDraft(false)
                       }}
                       onBlur={() => { if (newFileName.trim()) void createFile(); else setNewFileDraft(false) }}
+                      className="mt-3 w-full truncate rounded-md border border-accent/50 bg-background px-2 py-1 text-center text-sm font-medium text-foreground outline-none"
+                    />
+                  </div>
+                )}
+                {newFolderDraft && (
+                  <div className="rumahl-file-tile relative border border-accent/50 bg-accent/8">
+                    <span className="rumahl-folder-icon text-sky-400"><Folder size={56} weight="duotone" /></span>
+                    <input
+                      autoFocus
+                      value={newFolderName}
+                      onChange={(event) => setNewFolderName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void createFolder()
+                        if (event.key === 'Escape') setNewFolderDraft(false)
+                      }}
+                      onBlur={() => { if (newFolderName.trim()) void createFolder(); else setNewFolderDraft(false) }}
                       className="mt-3 w-full truncate rounded-md border border-accent/50 bg-background px-2 py-1 text-center text-sm font-medium text-foreground outline-none"
                     />
                   </div>

@@ -44,11 +44,11 @@ function AppIcon({ app, compact = false }: { app: OsAppDefinition; compact?: boo
   return (
     <span
       className={`rumahl-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'} ${
-        app.iconUrl ? 'border-0 bg-transparent shadow-none' : 'border border-white/15 shadow-lg'
+        app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''
       }`}
       style={app.iconUrl
         ? { boxShadow: 'none' }
-        : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
+        : { '--app-accent': app.accent } as React.CSSProperties}
     >
       {!app.iconUrl && <span className="rumahl-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
@@ -76,6 +76,7 @@ export function LauncherAppGrid({
   onOpenApp,
   getAppName,
   onLaunch,
+  onAddToDesktop,
   installJobs = [],
 }: {
   items: LauncherItem[]
@@ -90,6 +91,8 @@ export function LauncherAppGrid({
   getAppName: (app: OsAppDefinition) => string
   /** Launches an app in a specific OS layout (fullscreen / window / split / immersive). */
   onLaunch: (app: OsAppDefinition, mode: OsLaunchMode) => void
+  /** Add the app as a desktop shortcut (from the right-click menu). */
+  onAddToDesktop?: (app: OsAppDefinition) => void
   installJobs?: InstallJobInfo[]
 }) {
   const { t } = useTranslation()
@@ -405,6 +408,16 @@ export function LauncherAppGrid({
               {busyAction === 'uninstall' ? <MenuSpinner /> : <TrashSimple size={16} className="text-red-400/80" />}
               {t('os.quickActions.uninstall')}
             </button>
+            {onAddToDesktop && (
+              <button
+                type="button"
+                onClick={() => { onAddToDesktop(quickMenu.app); setQuickMenu(null) }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              >
+                <PushPin size={16} className="text-foreground/60" />
+                {t('os.quickActions.addToDesktop')}
+              </button>
+            )}
             <div className="my-1 h-px bg-foreground/8" />
             {/* Remaining actions live in the "More" submenu */}
             <button
@@ -427,6 +440,16 @@ export function LauncherAppGrid({
               <ArrowSquareOut size={16} className="text-foreground/60" />
               {t('os.launcher.open')}
             </button>
+            {onAddToDesktop && (
+              <button
+                type="button"
+                onClick={() => { onAddToDesktop(quickMenu.app); setQuickMenu(null) }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              >
+                <PushPin size={16} className="text-foreground/60" />
+                {t('os.quickActions.addToDesktop')}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -468,7 +491,7 @@ export function LauncherAppGrid({
             initial={{ opacity: 0, x: -6, scale: 0.96 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -4, scale: 0.97 }}
-            className="fixed z-[88] w-48 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+            className="fixed z-[88] w-48 overflow-hidden rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
             style={{ left: Math.min((morePos?.x ?? quickMenu.x + 192) + 6, window.innerWidth - 200), top: Math.min(morePos?.y ?? quickMenu.y + 8, window.innerHeight - 340) }}
             onClick={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.stopPropagation()}

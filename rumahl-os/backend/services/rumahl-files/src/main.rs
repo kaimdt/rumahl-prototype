@@ -141,6 +141,16 @@ struct CreateFolderRequest {
     description: Option<String>,
 }
 
+/// Create an "app shortcut" entry in a folder (e.g. the Desktop). It is a
+/// normal `files` row with a dedicated mime type; `app_page_id` is stored in
+/// `description` so the frontend can resolve and open the target app.
+#[derive(Debug, Deserialize)]
+struct CreateAppShortcutRequest {
+    name: String,
+    app_page_id: String,
+    parent_folder_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct CreateShareLinkRequest {
     file_id: String,
@@ -299,6 +309,11 @@ async fn main() -> Result<()> {
                 .route("/:file_id/rename", put(rename_file))
                 .route("/:file_id/restore", post(restore_file))
                 .route("/:file_id/versions", get(list_versions))
+                // App shortcuts: lightweight file entries that represent an
+                // app on the desktop. Stored as a normal `files` row with a
+                // dedicated mime type; the target app pageId lives in
+                // `description`. Delete uses the regular DELETE /:file_id.
+                .route("/shortcuts", post(app_shortcut))
                 // Folder operations
                 .route("/folders", post(create_folder))
                 // Share links
@@ -1230,6 +1245,65 @@ async fn create_folder(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(folder))
+}
+
+/// POST /api/files/shortcuts — create an app-shortcut entry (e.g. on the
+/// Desktop). The entry is a real `files` row so both the desktop surface and
+/// the Files "Desktop" folder show exactly the same items; deleting it uses the
+/// regular DELETE /api/files/:file_id.
+async fn app_shortcut(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<CreateAppShortcutRequest>,
+) -> Result<Json<FileRecord>, (StatusCode, String)> {
+    let user_id = extract_user_id(&headers)?;
+
+    let safe_name = sanitize_filename(&body.name);
+    let app_page_id = body.app_page_id.trim().to_string();
+    if safe_name.is_empty() || app_page_id.is_empty() || app_page_id.len() > 128 {
+        return Err((StatusCode::BAD_REQUEST, "Invalid shortcut".to_string()));
+    }
+
+    if let Some(ref parent_folder_id) = body.parent_folder_id {
+        let parent_exists: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM files WHERE id = ? AND owner_id = ? AND is_folder = 1 AND deleted_at IS NULL",
+        )
+        .bind(parent_folder_id)
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if parent_exists.is_none() {
+            return Err((StatusCode::NOT_FOUND, "Parent folder not found".to_string()));
+        }
+    }
+
+    let shortcut_id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        "INSERT INTO files (id, owner_id, filename, original_name, mime_type, size_bytes, sha256_hash, storage_path, parent_folder_id, is_folder, description, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'application/x-rumahl-app-shortcut', 0, '', '', ?, 0, ?, ?, ?)"
+    )
+    .bind(&shortcut_id)
+    .bind(&user_id)
+    .bind(&safe_name)
+    .bind(&safe_name)
+    .bind(&body.parent_folder_id)
+    .bind(&app_page_id)
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let shortcut: FileRecord = sqlx::query_as("SELECT * FROM files WHERE id = ?")
+        .bind(&shortcut_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(shortcut))
 }
 
 // ─── Share Links ────────────────────────────────────────────────────────────

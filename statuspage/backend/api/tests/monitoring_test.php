@@ -28,4 +28,21 @@ assert_same(false, monitoring_validate_target('http://10.0.0.4:8080/health'), 'P
 assert_same(false, monitoring_validate_target('http://service.local/health'), 'Local hostname SSRF protection');
 assert_same(true, monitoring_validate_target('https://status.example.com/health'), 'Public hostname accepted');
 
+assert_same('operational', resolve_component_display_status('operational', []), 'Monitor state without incident override');
+assert_same('degraded', resolve_component_display_status('operational', ['degraded']), 'Single incident override');
+assert_same('major_outage', resolve_component_display_status('degraded', ['partial_outage', 'major_outage']), 'Worst active override wins');
+assert_same('maintenance', resolve_component_display_status('major_outage', ['maintenance']), 'Incident status overrides monitor state');
+assert_same('operational', resolve_component_display_status('major_outage', ['operational']), 'Manual operational override is authoritative');
+
+$normalized = normalize_incident_service_statuses([
+    ['service_id' => 'service-a', 'status' => 'partial_outage'],
+    ['component_id' => 'service-b', 'display_status' => 'major_outage'],
+    ['service_id' => 'service-a', 'status' => 'degraded'],
+    ['service_id' => 'service-invalid', 'status' => 'invalid'],
+]);
+assert_same([
+    ['service_id' => 'service-a', 'status' => 'degraded'],
+    ['service_id' => 'service-b', 'status' => 'major_outage'],
+], $normalized, 'Incident service status normalization and de-duplication');
+
 echo "monitoring tests passed\n";

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, History, Loader2 } from "lucide-react";
 import { publicApi } from "@/lib/api";
-import type { PublicStatusPageResponse, StatusResponse } from "@/lib/types";
+import type { Component, PublicStatusPageResponse, StatusResponse } from "@/lib/types";
 import { StatusBanner } from "@/components/status-banner";
 import { ComponentList } from "@/components/component-list";
 import { IncidentList, MaintenanceList } from "@/components/incident-list";
@@ -27,7 +27,9 @@ export default function StatusPage() {
     const load = async () => {
       try {
         const slug = window.location.pathname.match(/^\/s\/([a-z0-9]+(?:-[a-z0-9]+)*)/)?.[1];
-        const tenant = await publicApi.statusPage(slug);
+        const browserLocale = navigator.language || "unknown";
+        const region = browserLocale.includes("-") ? browserLocale.split("-")[1].toUpperCase() : Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const tenant = await publicApi.statusPage(slug, region);
         const status = normalizeTenantStatus(tenant);
         if (!cancelled) {
           setData(status);
@@ -52,7 +54,7 @@ export default function StatusPage() {
 
   if (error && !data) {
     return (
-      <div className="mx-auto max-w-5xl px-5 lg:px-8 py-24 text-center">
+      <div className="mx-auto max-w-6xl px-5 lg:px-8 py-24 text-center">
         <p className="text-lg font-semibold text-destructive mb-2">{t("page.unavailable")}</p>
         <p className="text-sm text-muted-foreground">
           {t("page.unavailableHint")}
@@ -71,10 +73,13 @@ export default function StatusPage() {
   }
 
   const pastIncidents = data.past_incidents ?? [];
+  const layoutOrder = branding?.layout_config?.order ?? ["maintenance", "components", "incidents", "history"];
+  const hiddenBlocks = new Set(branding?.layout_config?.hidden ?? []);
+  const blockOrder = (name: string) => layoutOrder.indexOf(name) === -1 ? 99 : layoutOrder.indexOf(name);
 
   return (
     <>
-      {branding?.header_brand_mode === "logo" && branding.logo_url && <div className="mx-auto max-w-5xl px-5 pt-7 lg:px-8">
+      {branding?.header_brand_mode === "logo" && branding.logo_url && <div className="mx-auto max-w-6xl px-5 pt-7 lg:px-8">
         <img src={branding.logo_url} alt={`${branding.title} logo`} className="max-h-12 max-w-[240px] object-contain dark:hidden" />
         <img src={branding.logo_dark_url || branding.logo_url} alt={`${branding.title} logo`} className="hidden max-h-12 max-w-[240px] object-contain dark:block" />
       </div>}
@@ -84,13 +89,13 @@ export default function StatusPage() {
         updatedAt={data.page.updated_at}
       />
 
-      <div className="mx-auto max-w-5xl px-5 lg:px-8 pb-10 space-y-8">
-        <MaintenanceList incidents={data.scheduled_maintenance} />
+      <div className="statuspage-main mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 pb-10 lg:px-8">
+        {!hiddenBlocks.has("maintenance") && <div style={{ order: blockOrder("maintenance") }}><MaintenanceList incidents={data.scheduled_maintenance} /></div>}
 
-        <ComponentList groups={data.groups} />
+        {!hiddenBlocks.has("components") && <div style={{ order: blockOrder("components") }}><ComponentList groups={data.groups} /></div>}
 
-        {data.active_incidents.length > 0 && (
-          <section className="space-y-3">
+        {!hiddenBlocks.has("incidents") && data.active_incidents.length > 0 && (
+          <section className="space-y-3" style={{ order: blockOrder("incidents") }}>
             <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
               {t("page.activeIncidents")}
             </h2>
@@ -98,8 +103,8 @@ export default function StatusPage() {
           </section>
         )}
 
-        {pastIncidents.length > 0 && (
-          <section className="space-y-3">
+        {!hiddenBlocks.has("history") && pastIncidents.length > 0 && (
+          <section className="space-y-3" style={{ order: blockOrder("history") }}>
             <div className="flex items-center justify-between">
               <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 {t("page.pastIncidents")}
@@ -115,8 +120,8 @@ export default function StatusPage() {
           </section>
         )}
 
-        {data.active_incidents.length === 0 && pastIncidents.length === 0 && (
-          <div className="surface-card p-8 text-center space-y-4">
+        {!hiddenBlocks.has("history") && data.active_incidents.length === 0 && pastIncidents.length === 0 && (
+          <div className="surface-card p-8 text-center space-y-4" style={{ order: blockOrder("history") }}>
             <p className="text-sm text-muted-foreground">
               No active incidents — all systems running normally.
             </p>
@@ -151,6 +156,7 @@ function normalizeTenantStatus(tenant: PublicStatusPageResponse): StatusResponse
       auto_expand: group.auto_expand,
       components: group.services.map((service, position) => ({
         id: String(service.component_id ?? service.id),
+        service_id: String(service.id),
         group_id: group.id,
         name: String(service.name ?? "Service"),
         description: String(service.description ?? ""),
@@ -167,6 +173,9 @@ function normalizeTenantStatus(tenant: PublicStatusPageResponse): StatusResponse
         position,
         enabled: service.monitoring_enabled !== false,
         status: service.status === "unknown" ? "operational" : service.status as StatusResponse["overall"],
+        monitor_status: service.monitor_status as StatusResponse["overall"] | undefined,
+        active_incidents: Array.isArray(service.active_incidents) ? service.active_incidents as Component["active_incidents"] : [],
+        community_report: service.community_report as Component["community_report"],
         changed_at: null,
         uptime_30: null,
         uptime_60: null,
@@ -177,6 +186,6 @@ function normalizeTenantStatus(tenant: PublicStatusPageResponse): StatusResponse
     })),
     active_incidents: tenant.incidents.filter((incident) => incident.type !== "maintenance"),
     scheduled_maintenance: tenant.incidents.filter((incident) => incident.type === "maintenance"),
-    past_incidents: [],
+    past_incidents: tenant.past_incidents ?? [],
   };
 }

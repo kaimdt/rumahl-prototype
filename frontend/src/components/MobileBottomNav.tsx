@@ -2,18 +2,21 @@ import { House, Gear, SquaresFour } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
+import { useShellMode } from '@/hooks/useShellMode'
 
 /**
- * MobileBottomNav — a compact iOS/Android-style bottom tab bar shown only on
- * phones. It provides the primary destinations (Home / Apps / Settings) so
- * one-thumb navigation works on small screens.
+ * MobileBottomNav — a compact bottom tab bar shown only on phones AND outside
+ * the iOS/Android-style launcher. In launcher mode the OS dock is the app rail
+ * instead, so this bar is suppressed there (it would otherwise duplicate/cover
+ * the dock). It provides Home / Apps / Settings for one-thumb navigation.
  */
 export function MobileBottomNav() {
   const { t } = useTranslation()
   const { currentPageId, setCurrentPageId } = usePageNavigation()
   const { isPhone } = useDeviceCapabilities()
+  const { resolvedMode } = useShellMode()
 
-  if (!isPhone) return null
+  if (!isPhone || resolvedMode === 'launcher') return null
 
   const tabs = [
     { id: 'home', label: t('os.apps.home.name'), icon: House },

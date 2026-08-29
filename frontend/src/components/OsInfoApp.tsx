@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Info, Cpu, Memory, HardDrive, Pulse, Clock } from '@phosphor-icons/react'
+import { RumahlMark } from '@/components/RumahlMark'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useRealtime } from '@/hooks/useRealtime'
@@ -101,7 +102,18 @@ export function OsInfoApp() {
             <span className="h-7 w-7 animate-spin rounded-full border-2 border-foreground/20 border-t-accent" />
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-foreground/8 bg-foreground/[0.03] divide-y divide-foreground/6">
+          <>
+            {/* Brand block — rumahl mark in the splash design language */}
+            <div className="mb-4 flex items-center gap-3 rounded-2xl border border-foreground/8 bg-foreground/[0.03] px-4 py-4">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/8 ring-1 ring-white/12">
+                <RumahlMark className="h-7 text-foreground" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">rumahl OS</p>
+                <p className="truncate text-xs text-foreground/45">Interface for Optimized Residential Autonomy</p>
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-foreground/8 bg-foreground/[0.03] divide-y divide-foreground/6">
             {rows.map((row) => {
               const Icon = row.icon
               return (
@@ -114,7 +126,8 @@ export function OsInfoApp() {
                 </div>
               )
             })}
-          </div>
+            </div>
+          </>
         )}
         <p className="mt-4 flex items-center gap-2 text-xs text-foreground/40">
           <HardDrive size={14} className="shrink-0" />

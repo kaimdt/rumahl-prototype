@@ -18,10 +18,12 @@ import { OsTooltipProvider } from '@/components/OsTooltip'
 import { appOpenUrl, appRuntimeUrls, installedAppIds, installedAppsCache, useInstalledApps } from '@/hooks/useInstalledApps'
 import { STORE_CATALOG } from '@/lib/storeCatalog'
 import { useOsWindows } from '@/contexts/OsWindowContext'
+import { useShellMode } from '@/hooks/useShellMode'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { isBuiltinPageId, renderBuiltinPage, renderBuiltinPageFullscreen, type PageRenderContext } from '@/lib/osPageRegistry'
 import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
+import { RumahlMark } from '@/components/RumahlMark'
 import { LoginPage } from '@/components/LoginPage'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
@@ -178,7 +180,8 @@ function DashboardContent() {
   const isOsAppPage = isBuiltinPageId(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
   const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
   const isNotFoundPage = !currentPage && !builtinPageIds.includes(currentPageId) && !appRuntimeUrls.has(currentPageId) && !isRuntimeAppPage(currentPageId)
-  const { windows, immersivePageId, setImmersive } = useOsWindows()
+  const { windows, immersivePageId, setImmersive, openWindow, focusWindow, closeWindow } = useOsWindows()
+  const { resolvedMode: shellMode } = useShellMode()
 
   // OS app lookup used by the window manager (icons/names for windows + dock).
   const osApps = useMemo(() => {
@@ -189,15 +192,69 @@ function DashboardContent() {
   }, [pages, user?.isAdmin, permissions])
   const osAppByPageId = useMemo(() => new Map(osApps.map((app) => [app.pageId, app])), [osApps])
   const getOsAppName = (pageId: string) => {
+    if (pageId === 'admin') return t('adminCenter.title')
     const app = osAppByPageId.get(pageId)
     return app ? (app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName) : pageId
   }
   const getOsAppIcon = (pageId: string) => {
+    if (pageId === 'admin') return <Wrench size={15} weight="duotone" />
     const app = osAppByPageId.get(pageId)
     if (!app) return undefined
     const Icon = app.icon
     return <Icon size={15} weight="duotone" />
   }
+
+  // ── Desktop: keep the URL and the focused window in sync ─────────────
+  // `currentPageId` (the URL) is the source of truth for the ACTIVE app. The
+  // effect below only mutates the window manager when needed and converges:
+  // it calls focusWindow ONLY when the target window is not already the
+  // front-most one. This avoids the z-order feedback loop (focusWindow always
+  // bumps z → windows change → effect re-runs → bump again).
+  const desktopAppPageIds = useMemo(() => {
+    const s = new Set([...SYSTEM_OS_APPS, ...createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])].map((app) => app.pageId))
+    s.add('admin')
+    return s
+  }, [pages])
+
+  const frontWindowPageId = useMemo(() => {
+    const front = windows
+      .filter((w) => w.pageId && !w.minimized)
+      .sort((a, b) => b.z - a.z)[0]
+    return front?.pageId ?? null
+  }, [windows])
+
+  const isDesktopApp = (id: string | null) => Boolean(id) && desktopAppPageIds.has(id as string) && (id as string) !== 'launcher'
+
+  // URL → window (single authoritative direction): when the URL points at a
+  // desktop app, ensure its window exists and is in front. Converges because we
+  // only raise when the target is not already the front-most window. The
+  // reverse (window → URL) is handled at the interaction site (window click),
+  // NOT reactively — a reactive two-way sync flips between two open windows.
+  useEffect(() => {
+    if (shellMode !== 'desktop' || immersivePageId) return
+    if (!isDesktopApp(currentPageId)) return
+    const win = windows.find((w) => w.pageId === currentPageId && !w.minimized)
+    if (!win) {
+      openWindow(currentPageId)
+      return
+    }
+    if (frontWindowPageId !== currentPageId) {
+      focusWindow(currentPageId)
+    }
+  }, [currentPageId, shellMode, immersivePageId, openWindow, focusWindow, windows, frontWindowPageId, desktopAppPageIds])
+
+  // window close → URL: if the URL points at an app whose window was closed,
+  // fall back to the launcher so the address bar doesn't reference a dead app.
+  useEffect(() => {
+    if (shellMode !== 'desktop' || immersivePageId) return
+    if (currentPageId === 'launcher') return
+    if (!isDesktopApp(currentPageId)) return
+    const stillOpen = windows.some((w) => w.pageId === currentPageId)
+    if (!stillOpen) {
+      setCurrentPageId('launcher')
+    }
+  }, [windows, currentPageId, shellMode, immersivePageId, desktopAppPageIds, setCurrentPageId])
+
 
 const renderSettings = (): React.ReactNode => (
   <SettingsPage
@@ -320,20 +377,18 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
   }, [setCurrentPageId])
   const userName = useMemo(() => user?.displayName || user?.username || 'Benutzer', [user])
 
-  // Skip splash screen when opening in a new tab or navigating directly to a page
+  // Show the boot splash on every full page load. Only skipped when the
+  // user deep-links directly to a specific page (not the dashboard home) —
+  // the document.referrer/window.opener heuristics used to hide the splash
+  // on same-tab navigations and reloads, so it almost never appeared.
   const [showSplash, setShowSplash] = useState(() => {
-    // Check if opened in a new tab from rumahl itself
-    const isNewTab = typeof window !== 'undefined' && (
-      window.opener !== null ||
-      document.referrer.includes(window.location.hostname)
-    )
     // Check if navigating directly to a specific page (not the dashboard home)
     const isDirectPage = typeof window !== 'undefined' && (
       window.location.pathname.startsWith('/settings/apps/') ||
       window.location.pathname.startsWith('/streaming') ||
       window.location.pathname.startsWith('/docs')
     )
-    return !isNewTab && !isDirectPage
+    return !isDirectPage
   })
   const [showPageDesigner, setShowPageDesigner] = useState(false)
   const {
@@ -406,9 +461,9 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-black/70" />
-        {/* Brand watermark */}
+        {/* Brand watermark — rumahl mark (splash design language) */}
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center">
-          <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">rumahl</p>
+          <RumahlMark className="mx-auto h-6 text-white/30" />
         </div>
         <LoginPage />
       </div>
@@ -589,7 +644,15 @@ const renderOsAppPage = (pageId: string): React.ReactNode => renderBuiltinPageFu
             const isNonHAPage = isBuiltinPageId(currentPageId) || appRuntimeUrls.has(currentPageId) || isRuntimeAppPage(currentPageId)
 
             // ── Non-HA pages: render immediately, never blocked by loading ──
+            // In desktop mode the page content lives in a window overlay
+            // (OsWindowOverlay), whether windows are already open or we landed
+            // directly on an OS-app URL (/settings). The launcher stays behind
+            // as the desktop workspace; the navigated-to page is drawn in its
+            // window and must never double-render full-screen.
             if (isNonHAPage) {
+              if (shellMode === 'desktop' && !immersivePageId && (windows.length > 0 || isDesktopApp(currentPageId))) {
+                return <Suspense fallback={null}>{renderOsAppPage('launcher')}</Suspense>
+              }
               return <Suspense fallback={null}>{renderOsAppPage(currentPageId)}</Suspense>
             }
 

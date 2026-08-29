@@ -927,6 +927,9 @@ function run_platform_checks(?string $onlyCheckId = null): array
                 [$check['service_id']]
             );
             db_exec('UPDATE monitoring_services SET status=?,updated_at=? WHERE id=?', [$serviceStatus['status'] ?? $status, $now, $check['service_id']]);
+            if ($status !== (string) $check['status'] && !empty($check['auto_incident_enabled'])) {
+                sync_monitor_incident($check, (string) $check['status'], $status, (string) ($result[3] ?? ''));
+            }
         }
         $results[] = [
             'check_id' => $check['id'], 'component_id' => null, 'name' => $check['name'],
@@ -936,4 +939,49 @@ function run_platform_checks(?string $onlyCheckId = null): array
         ];
     }
     return $results;
+}
+
+/** Create and resolve editable incidents for checks managed by Monitoring. */
+function sync_monitor_incident(array $check, string $from, string $to, string $error): void
+{
+    $serviceId = trim((string) ($check['service_id'] ?? ''));
+    if ($serviceId === '') return;
+    $open = db_row(
+        "SELECT * FROM incidents WHERE monitor_id=? AND source='monitor'
+          AND status NOT IN ('resolved','completed') ORDER BY starts_at DESC LIMIT 1",
+        [$check['id']]
+    );
+    if ($to === 'major_outage') {
+        $service = db_row('SELECT public_name,internal_name FROM monitoring_services WHERE id=?', [$serviceId]);
+        $name = trim((string) ($service['public_name'] ?? $service['internal_name'] ?? $check['name'] ?? 'Service'));
+        $message = $error !== ''
+            ? sprintf('Automatic monitoring detected a failure: %s', $error)
+            : sprintf('Automatic monitoring detected that %s is unavailable.', $name);
+        if ($open !== null) {
+            add_incident_update((string) $open['id'], (string) $open['status'], $message, 'Monitoring', [
+                ['service_id' => $serviceId, 'status' => 'major_outage'],
+            ]);
+            db_exec('UPDATE incidents SET updated_at=? WHERE id=?', [now_utc(), $open['id']]);
+            return;
+        }
+        $id = uuid4();
+        $now = now_utc();
+        db_exec(
+            'INSERT INTO incidents (id,type,source,title,description,status,impact,starts_at,monitor_id,created_at,updated_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [$id, 'incident', 'monitor', $name . ' is unavailable', $message, 'investigating', 'critical', $now, $check['id'], $now, $now]
+        );
+        replace_incident_services($id, [['service_id' => $serviceId, 'status' => 'major_outage']]);
+        add_incident_update($id, 'investigating', $message, 'Monitoring', [
+            ['service_id' => $serviceId, 'status' => 'major_outage'],
+        ]);
+        return;
+    }
+    if ($open !== null && $to === 'operational') {
+        $message = sprintf('Automatic monitoring confirmed recovery after the status changed from %s to operational.', str_replace('_', ' ', $from));
+        db_exec('UPDATE incidents SET status=?,resolves_at=?,actual_end=?,updated_at=? WHERE id=?', ['resolved', now_utc(), now_utc(), now_utc(), $open['id']]);
+        add_incident_update((string) $open['id'], 'resolved', $message, 'Monitoring', [
+            ['service_id' => $serviceId, 'status' => 'operational'],
+        ]);
+    }
 }

@@ -118,7 +118,7 @@ export function LoginPinSection() {
           </button>
         </div>
       )}
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="rumahl-settings-field-grid grid sm:grid-cols-2 gap-3">
         <div>
           <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">
             {hasLoginPin ? 'Neue Login-PIN (4–6 Ziffern)' : 'Login-PIN (4–6 Ziffern)'}
@@ -149,11 +149,11 @@ export function LoginPinSection() {
       <button
         onClick={saveLoginPin}
         disabled={saving}
-        className="rumahl-secondary-button w-full"
+        className="rumahl-settings-inline-action rumahl-secondary-button w-full"
       >
         {saving ? 'Wird gespeichert...' : 'Login-PIN speichern'}
       </button>
-      <p className="text-[10px] text-foreground/40 leading-relaxed">
+      <p className="rumahl-settings-helptext text-[10px] text-foreground/40 leading-relaxed">
         Mit einer Login-PIN können Sie sich auf gemeinsam genutzten Geräten (z.B. Wandtablets) schnell per PIN-Eingabe anmelden,
         ohne jedes Mal Benutzername und Passwort einzugeben.
       </p>
@@ -226,7 +226,7 @@ export function TwoFactorPasskeySection() {
           />
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3 mt-3">
+        <div className="rumahl-settings-action-row grid sm:grid-cols-2 gap-3 mt-3">
           <button
             type="button"
             onClick={openSetupModal}
@@ -258,7 +258,7 @@ export function TwoFactorPasskeySection() {
           </div>
         )}
 
-        <p className="text-[10px] text-foreground/40 leading-relaxed">
+        <p className="rumahl-settings-helptext text-[10px] text-foreground/40 leading-relaxed">
           Passkeys unterstützen sichere, passwortlose Anmeldungen. Wenn du sie als 2FA nutzt, bleibt dein Passwort als erster Faktor erhalten.
         </p>
       </SettingsSection>

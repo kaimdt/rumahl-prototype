@@ -434,14 +434,14 @@ function monitoring_save_status_page(): never
         json_error('Custom CSS is too large');
     }
     db_exec(
-        "INSERT INTO status_pages (id,slug,title,description,logo_url,logo_dark_url,mobile_logo_url,mobile_logo_dark_url,logo_mode,header_brand_mode,header_config,nav_links,footer_config,footer_links,favicon_url,custom_css_url,custom_css,theme,contact_links,canonical_domain,path_enabled,domain_enabled,show_disabled_components,default_language,enabled_locales,translations,enabled,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        "INSERT INTO status_pages (id,slug,title,description,logo_url,logo_dark_url,mobile_logo_url,mobile_logo_dark_url,logo_mode,header_brand_mode,header_config,nav_links,footer_config,footer_links,favicon_url,custom_css_url,custom_css,theme,contact_links,canonical_domain,path_enabled,domain_enabled,show_disabled_components,default_language,enabled_locales,translations,problem_reports_enabled,problem_report_threshold,problem_report_window_minutes,layout_config,enabled,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE slug=VALUES(slug),title=VALUES(title),description=VALUES(description),logo_url=VALUES(logo_url),
           logo_dark_url=VALUES(logo_dark_url),mobile_logo_url=VALUES(mobile_logo_url),mobile_logo_dark_url=VALUES(mobile_logo_dark_url),
           logo_mode=VALUES(logo_mode),header_brand_mode=VALUES(header_brand_mode),header_config=VALUES(header_config),nav_links=VALUES(nav_links),
           footer_config=VALUES(footer_config),footer_links=VALUES(footer_links),favicon_url=VALUES(favicon_url),
           custom_css_url=VALUES(custom_css_url),custom_css=VALUES(custom_css),theme=VALUES(theme),contact_links=VALUES(contact_links),canonical_domain=VALUES(canonical_domain),
-          path_enabled=VALUES(path_enabled),domain_enabled=VALUES(domain_enabled),show_disabled_components=VALUES(show_disabled_components),default_language=VALUES(default_language),enabled_locales=VALUES(enabled_locales),translations=VALUES(translations),enabled=VALUES(enabled),updated_at=VALUES(updated_at)",
+          path_enabled=VALUES(path_enabled),domain_enabled=VALUES(domain_enabled),show_disabled_components=VALUES(show_disabled_components),default_language=VALUES(default_language),enabled_locales=VALUES(enabled_locales),translations=VALUES(translations),problem_reports_enabled=VALUES(problem_reports_enabled),problem_report_threshold=VALUES(problem_report_threshold),problem_report_window_minutes=VALUES(problem_report_window_minutes),layout_config=VALUES(layout_config),enabled=VALUES(enabled),updated_at=VALUES(updated_at)",
         [$id, $slug, $title, $input['description'] ?? null, $input['logo_url'] ?? null,
          $input['logo_dark_url'] ?? null, $input['mobile_logo_url'] ?? null, $input['mobile_logo_dark_url'] ?? null,
          $logoMode, $headerBrandMode, json_encode($input['header_config'] ?? new stdClass()),
@@ -458,6 +458,10 @@ function monitoring_save_status_page(): never
          preg_match('/^[a-z]{2}(?:-[A-Z]{2})?$/', (string) ($input['default_language'] ?? 'en')) ? $input['default_language'] : 'en',
          json_encode(array_values(array_filter($input['enabled_locales'] ?? ['en'], static fn($locale): bool => is_string($locale) && preg_match('/^[a-z]{2}(?:-[A-Z]{2})?$/', $locale) === 1))),
          json_encode(is_array($input['translations'] ?? null) ? $input['translations'] : new stdClass()),
+         !isset($input['problem_reports_enabled']) || !empty($input['problem_reports_enabled']) ? 1 : 0,
+         max(2, min(100, (int) ($input['problem_report_threshold'] ?? 3))),
+         max(5, min(1440, (int) ($input['problem_report_window_minutes'] ?? 60))),
+         json_encode(is_array($input['layout_config'] ?? null) ? $input['layout_config'] : new stdClass()),
          !isset($input['enabled']) || !empty($input['enabled']) ? 1 : 0, now_utc(), now_utc()]
     );
     if (array_key_exists('sections', $input) && is_array($input['sections'])) {
@@ -625,7 +629,7 @@ function monitoring_agent_heartbeat(): never
     json_out(['ok' => true, 'server_time' => iso(now_utc())]);
 }
 
-function monitoring_public_page(?string $slug = null): never
+function monitoring_resolve_public_page(?string $slug = null): ?array
 {
     $host = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? '')));
     if ($slug !== null && $slug !== '') {
@@ -646,9 +650,13 @@ function monitoring_public_page(?string $slug = null): never
     if ($page === null && ($slug === null || $slug === '') && !$knownDomain) {
         $page = db_row("SELECT * FROM status_pages WHERE slug='default' AND enabled=1");
     }
-    if ($page === null) {
-        json_error('Status page not found', 404);
-    }
+    return $page;
+}
+
+function monitoring_public_page(?string $slug = null): never
+{
+    $page = monitoring_resolve_public_page($slug);
+    if ($page === null) json_error('Status page not found', 404);
     try {
         $services = db_all(
             "SELECT s.id,s.public_name name,s.public_description description,s.status,s.legacy_component_id,
@@ -670,6 +678,10 @@ function monitoring_public_page(?string $slug = null): never
     }
     $groups = [];
     $overallStatuses = [];
+    $reportRegion = mb_substr(trim((string) ($_GET['region'] ?? 'unknown')), 0, 80);
+    $reportWindow = max(5, min(1440, (int) ($page['problem_report_window_minutes'] ?? 60)));
+    $reportThreshold = max(2, min(100, (int) ($page['problem_report_threshold'] ?? 3)));
+    $incidentServiceMap = active_incident_service_map(array_values(array_column($services, 'id')));
     foreach ($services as $service) {
         try {
             if (!empty($service['legacy_component_id'])) {
@@ -691,9 +703,29 @@ function monitoring_public_page(?string $slug = null): never
         if (empty($page['show_disabled_components']) && !$service['monitoring_enabled']) {
             continue;
         }
-        if ($service['monitoring_enabled']) {
-            $overallStatuses[] = (string) $service['status'];
+        $service['monitor_status'] = (string) $service['status'];
+        $service['active_incidents'] = $incidentServiceMap[$service['id']] ?? [];
+        $service['community_report'] = null;
+        if (!empty($page['problem_reports_enabled']) && $reportRegion !== '' && $reportRegion !== 'unknown') {
+            $cluster = db_row(
+                'SELECT COUNT(DISTINCT visitor_hash) reports,MAX(created_at) last_report_at
+                   FROM status_page_problem_reports
+                  WHERE status_page_id=? AND service_id=? AND region=?
+                    AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL ? MINUTE)',
+                [$page['id'], $service['id'], $reportRegion, $reportWindow]
+            );
+            if ((int) ($cluster['reports'] ?? 0) >= $reportThreshold) {
+                $service['community_report'] = [
+                    'region' => $reportRegion, 'reports' => (int) $cluster['reports'],
+                    'window_minutes' => $reportWindow, 'last_report_at' => iso($cluster['last_report_at']),
+                ];
+            }
         }
+        $service['status'] = resolve_component_display_status(
+            $service['monitor_status'],
+            array_column($service['active_incidents'], 'display_status')
+        );
+        $overallStatuses[] = (string) $service['status'];
         $service['history_days'] = (int) $service['history_days'];
         $service['position'] = (int) $service['position'];
         $groupId = $service['group_id'] ?? 'ungrouped';
@@ -710,7 +742,7 @@ function monitoring_public_page(?string $slug = null): never
     }
     try {
         $incidents = db_all(
-            "SELECT i.id,i.type,i.title,i.description,i.status,i.impact,i.starts_at,i.resolves_at,i.created_at,i.updated_at
+            "SELECT i.id,i.type,i.source,i.title,i.description,i.status,i.impact,i.starts_at,i.resolves_at,i.scheduled_start,i.scheduled_end,i.actual_start,i.actual_end,i.created_at,i.updated_at
                FROM status_page_incidents pi JOIN incidents i ON i.id=pi.incident_id
               WHERE pi.status_page_id=? AND i.public_visible=1
                 AND i.status NOT IN ('resolved','completed','cancelled') ORDER BY i.starts_at DESC",
@@ -722,7 +754,7 @@ function monitoring_public_page(?string $slug = null): never
     }
     foreach ($incidents as &$incident) {
         $incident['updates'] = db_all(
-            "SELECT id,status,message,created_at FROM incident_updates
+            "SELECT id,status,message,author,created_at FROM incident_updates
               WHERE incident_id=? AND visibility='public' ORDER BY created_at ASC,id ASC",
             [$incident['id']]
         );
@@ -730,8 +762,30 @@ function monitoring_public_page(?string $slug = null): never
             db_all('SELECT component_id FROM incident_components WHERE incident_id=?', [$incident['id']]),
             'component_id'
         );
+        $incident['affected_components'] = db_all(
+            "SELECT linked.* FROM (
+                SELECT rel.service_id,rel.service_id component_id,rel.display_status status,s.public_name name,s.public_description description
+                  FROM incident_services rel JOIN monitoring_services s ON s.id=rel.service_id
+                 WHERE rel.incident_id=?
+                UNION ALL
+                SELECT s.id service_id,s.id component_id,
+                       CASE i.impact WHEN 'critical' THEN 'major_outage' WHEN 'major' THEN 'partial_outage' ELSE 'degraded' END status,
+                       s.public_name name,s.public_description description
+                  FROM incident_components legacy
+                  JOIN incidents i ON i.id=legacy.incident_id
+                  JOIN monitoring_services s ON s.legacy_component_id=legacy.component_id OR s.id=legacy.component_id
+                 WHERE legacy.incident_id=?
+                   AND NOT EXISTS (SELECT 1 FROM incident_services rel WHERE rel.incident_id=legacy.incident_id AND rel.service_id=s.id)
+            ) linked ORDER BY linked.name",
+            [$incident['id'], $incident['id']]
+        );
     }
     unset($incident);
+    $pastIncidents = incidents_full(
+        "status IN ('resolved','completed') AND id IN (SELECT incident_id FROM status_page_incidents WHERE status_page_id=?)",
+        [$page['id']],
+        5
+    );
     $overall = monitoring_worst_status($overallStatuses);
     json_out([
         'page' => [
@@ -751,6 +805,8 @@ function monitoring_public_page(?string $slug = null): never
             'canonical_domain' => $page['canonical_domain'],
             'path_enabled' => (bool) $page['path_enabled'], 'domain_enabled' => (bool) $page['domain_enabled'],
             'show_disabled_components' => (bool) $page['show_disabled_components'],
+            'problem_reports_enabled' => (bool) ($page['problem_reports_enabled'] ?? true),
+            'layout_config' => json_decode((string) ($page['layout_config'] ?? '{}'), true) ?: [],
             'default_language' => $page['default_language'] ?: 'en',
             'enabled_locales' => json_decode((string) ($page['enabled_locales'] ?? '["en"]'), true) ?: ['en'],
             'translations' => json_decode((string) ($page['translations'] ?? '{}'), true) ?: [],
@@ -758,8 +814,36 @@ function monitoring_public_page(?string $slug = null): never
         'overall' => $overall,
         'groups' => array_values($groups),
         'incidents' => $incidents,
+        'past_incidents' => $pastIncidents,
         'updated_at' => iso(now_utc()),
     ]);
+}
+
+function monitoring_submit_problem_report(): never
+{
+    $input = json_body();
+    $slug = isset($input['slug']) ? trim((string) $input['slug']) : null;
+    $page = monitoring_resolve_public_page($slug !== '' ? $slug : null);
+    if ($page === null || empty($page['problem_reports_enabled'])) json_error('Problem reporting is not available', 404);
+    $serviceId = trim((string) ($input['service_id'] ?? ''));
+    $exists = db_row('SELECT service_id FROM status_page_services WHERE status_page_id=? AND service_id=? AND enabled=1', [$page['id'], $serviceId]);
+    if ($exists === null) json_error('Service is not published on this status page', 404);
+    $region = mb_substr(trim((string) ($input['region'] ?? 'unknown')), 0, 80);
+    if ($region === '') $region = 'unknown';
+    $message = mb_substr(trim((string) ($input['message'] ?? '')), 0, 500);
+    $address = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $visitorHash = hash('sha256', $address . '|' . (string) $page['id'] . '|' . date('Y-m-d') . '|' . (string) statuspage_config()['admin_token']);
+    $duplicate = db_row(
+        'SELECT id FROM status_page_problem_reports WHERE status_page_id=? AND service_id=? AND visitor_hash=? AND created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 30 MINUTE)',
+        [$page['id'], $serviceId, $visitorHash]
+    );
+    if ($duplicate === null) {
+        db_exec(
+            'INSERT INTO status_page_problem_reports (status_page_id,service_id,region,visitor_hash,message,created_at) VALUES (?,?,?,?,?,?)',
+            [$page['id'], $serviceId, $region, $visitorHash, $message !== '' ? $message : null, now_utc()]
+        );
+    }
+    json_out(['ok' => true, 'recorded' => $duplicate === null]);
 }
 
 /**

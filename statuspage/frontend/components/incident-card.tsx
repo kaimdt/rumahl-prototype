@@ -10,6 +10,8 @@ import {
   formatDateTime,
 } from "@/lib/status-meta";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
+import "@/lib/public-i18n";
 
 /**
  * BetterStack-style incident card — the whole card links to the detail page
@@ -24,6 +26,7 @@ export function IncidentCard({
   /** detail view — no link, no inline previous-updates list (timeline below) */
   expanded?: boolean;
 }) {
+  const { t } = useTranslation();
   const [showPrevious, setShowPrevious] = useState(false);
   const updates = incident.updates;
   const latest = updates.length > 0 ? updates[updates.length - 1] : null;
@@ -33,6 +36,7 @@ export function IncidentCard({
 
   const latestTime =
     latest?.created_at ?? incident.resolves_at ?? incident.updated_at;
+  const severityLabel = incident.type === "maintenance" ? "Maintenance" : incident.impact === "critical" ? "Critical incident" : incident.impact === "major" ? "Major incident" : "Minor incident";
 
   const content = (
     <>
@@ -59,8 +63,7 @@ export function IncidentCard({
               {incident.title}
             </h3>
             <p className="text-[12.5px] text-muted-foreground mt-0.5">
-              {isResolved ? "Resolved " : "Started "}
-              {formatDateTime(isResolved ? latestTime : incident.starts_at)}
+              {severityLabel} · {INCIDENT_STATUS_LABEL[incident.status]}
             </p>
           </div>
         </div>
@@ -75,10 +78,9 @@ export function IncidentCard({
       </div>
 
       {latest && (
-        <p className="text-[13.5px] text-foreground/80 mt-3 leading-relaxed">
-          {latest.message}
-        </p>
+        <div className="mt-4 border-t border-border/25 pt-4"><p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{INCIDENT_STATUS_LABEL[latest.status]}</p><p className="mt-1 text-[13.5px] leading-relaxed text-foreground/80">{latest.message}</p><p className="mt-2 text-[11.5px] text-muted-foreground">{t("incident.updated", { date: formatDateTime(latestTime) })}</p></div>
       )}
+      {(incident.affected_components?.length ?? 0) > 0 && <div className="mt-4"><p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t("incident.affected")}</p><div className="mt-2 flex flex-wrap gap-2">{incident.affected_components.map((component) => <span key={component.service_id} className="rounded-full border border-border/40 bg-muted/20 px-2.5 py-1 text-[11.5px] font-semibold text-foreground/80">{component.name} · {component.status.replaceAll("_", " ")}</span>)}</div></div>}
     </>
   );
 
@@ -90,7 +92,7 @@ export function IncidentCard({
         <Link
           href={`/incidents/?id=${encodeURIComponent(incident.id)}`}
           className="block p-5 sm:p-6 transition-colors hover:bg-muted/15"
-          title="View the full update timeline"
+          title={t("incident.viewTimeline")}
         >
           {content}
         </Link>
@@ -105,7 +107,7 @@ export function IncidentCard({
             <ChevronDown
               className={cn("h-3.5 w-3.5 transition-transform", showPrevious && "rotate-180")}
             />
-            {previous.length} previous {previous.length === 1 ? "update" : "updates"}
+            {t("incident.previousUpdate", { count: previous.length })}
           </button>
           {showPrevious && (
             <ul className="mt-2.5 space-y-3">

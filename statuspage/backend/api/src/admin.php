@@ -311,18 +311,30 @@ function admin_incidents_save(): never
             $newStatus = $status;
         }
         $resolvesAt = $input['resolves_at'] ?? $existing['resolves_at'];
+        if (in_array($newStatus, ['resolved', 'completed'], true) && empty($resolvesAt)) {
+            $resolvesAt = now_utc();
+        }
         db_exec(
-            'UPDATE incidents SET title = ?, status = ?, impact = ?, resolves_at = ?, updated_at = ?
+            'UPDATE incidents SET title = ?, type=?, status = ?, impact = ?, resolves_at = ?, scheduled_start=?,scheduled_end=?,actual_start=?,actual_end=?,updated_at = ?
               WHERE id = ?',
             [
                 $title,
+                $type,
                 $newStatus,
                 $impact,
                 $resolvesAt ?: null,
+                $input['scheduled_start'] ?? $existing['scheduled_start'] ?? null,
+                $input['scheduled_end'] ?? $existing['scheduled_end'] ?? null,
+                $input['actual_start'] ?? $existing['actual_start'] ?? ($newStatus === 'in_progress' ? now_utc() : null),
+                $input['actual_end'] ?? $existing['actual_end'] ?? (in_array($newStatus, ['resolved','completed'], true) ? now_utc() : null),
                 now_utc(),
                 $input['id'],
             ]
         );
+        $serviceStatuses = $input['affected_components'] ?? $input['service_statuses'] ?? null;
+        if (is_array($serviceStatuses)) {
+            replace_incident_services((string) $input['id'], $serviceStatuses);
+        }
         // The affected components can be changed with EVERY update.
         if (isset($input['component_ids']) && is_array($input['component_ids'])) {
             db_exec('DELETE FROM incident_components WHERE incident_id = ?', [$input['id']]);
@@ -337,7 +349,7 @@ function admin_incidents_save(): never
             }
         }
         if (!empty($input['message'])) {
-            add_incident_update($input['id'], $newStatus, (string) $input['message']);
+            add_incident_update($input['id'], $newStatus, (string) $input['message'], $input['author'] ?? null, is_array($serviceStatuses) ? $serviceStatuses : []);
         }
         queue_incident_alert($existing, $newStatus, (string) ($input['message'] ?? ''));
         json_out(['ok' => true]);
@@ -353,9 +365,12 @@ function admin_incidents_save(): never
         : null;
 
     db_exec(
-        'INSERT INTO incidents (id, type, title, status, impact, starts_at, resolves_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [$id, $type, $title, $status, $impact, $startsAt, $resolvesAt, now_utc(), now_utc()]
+        'INSERT INTO incidents (id,type,source,title,status,impact,starts_at,resolves_at,scheduled_start,scheduled_end,actual_start,actual_end,monitor_id,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [$id, $type, in_array($input['source'] ?? '', ['manual','monitor','system'], true) ? $input['source'] : 'manual', $title, $status, $impact, $startsAt, $resolvesAt,
+         $input['scheduled_start'] ?? ($type === 'maintenance' ? $startsAt : null), $input['scheduled_end'] ?? $resolvesAt,
+         $input['actual_start'] ?? ($status === 'in_progress' ? $startsAt : null), $input['actual_end'] ?? null,
+         $input['monitor_id'] ?? null, now_utc(), now_utc()]
     );
     db_exec(
         "INSERT IGNORE INTO status_page_incidents (status_page_id, incident_id)
@@ -369,8 +384,12 @@ function admin_incidents_save(): never
             [$id, (string) $componentId]
         );
     }
+    $serviceStatuses = $input['affected_components'] ?? $input['service_statuses'] ?? [];
+    if (is_array($serviceStatuses)) {
+        replace_incident_services($id, $serviceStatuses);
+    }
     if (!empty($input['message'])) {
-        add_incident_update($id, $status, (string) $input['message']);
+        add_incident_update($id, $status, (string) $input['message'], $input['author'] ?? null, is_array($serviceStatuses) ? $serviceStatuses : []);
     }
 
     $row = db_row('SELECT * FROM incidents WHERE id = ?', [$id]);

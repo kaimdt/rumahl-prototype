@@ -14,7 +14,10 @@ import { CommandPalette } from '@/components/CommandPalette'
 import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { OsSessionLock } from '@/components/OsSessionLock'
 import { ORAAssistant } from '@/components/ORAAssistant'
+import { useOsWindows } from '@/contexts/OsWindowContext'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
+import { ShellModeSwitcher } from '@/components/ShellModeSwitcher'
+import { useShellMode } from '@/hooks/useShellMode'
 
 const CodingAgent = lazy(() => import('@/components/CodingAgent').then((m) => ({ default: m.CodingAgent })))
 
@@ -49,6 +52,8 @@ export function AppChrome({
   renderOsAppContent,
 }: AppChromeProps) {
   const { isPhone } = useDeviceCapabilities()
+  const { resolvedMode } = useShellMode()
+  const { windows } = useOsWindows()
   const [kioskMode, setKioskMode] = useLocalStorage<boolean>('rumahl-kiosk-mode', false)
   const { verifyPin } = useAppSettings()
   const { t } = useTranslation()
@@ -112,11 +117,21 @@ export function AppChrome({
     <>
       <NavigationMenu hidden={showPageDesigner || isOsAppPage || isNotFoundPage} />
       {!showPageDesigner && <OsSystemShell />}
-      {/* Dock only on launcher & OS pages — it must never cover the navbar in apps.
-         On phones the bottom tab bar replaces it. */}
-      {!isPhone && !showPageDesigner && !immersivePageId && (isOsAppPage || isNotFoundPage) && <OsDock />}
+      {!showPageDesigner && !immersivePageId && <ShellModeSwitcher />}
+      {/* Dock/launcher rail: on the iOS/Android-style launcher it is the app
+         rail on phones AND desktop; in desktop mode it is the Windows-style
+         taskbar. It must never cover the navbar inside apps. */}
+      {!showPageDesigner && !immersivePageId && (
+        (resolvedMode === 'launcher' || (!isPhone && (resolvedMode === 'desktop' || isOsAppPage || isNotFoundPage))) && <OsDock />
+      )}
       <MobileBottomNav />
-      {currentPageId === 'launcher' && !showPageDesigner && !immersivePageId && (
+      {/* Window overlay — visible whenever windows are open. In desktop mode
+         this is independent of `currentPageId` so that navigating within an
+         app (multiple pages) keeps the windows drawn on top instead of
+         collapsing them into a full-page render. In launcher mode the overlay
+         also stays while a window is open, but it is hidden by CSS whenever
+         launcher-mode layouts are active. */}
+      {windows.length > 0 && !showPageDesigner && !immersivePageId && (
         <OsWindowOverlay
           getApp={(pageId) => osAppByPageId.get(pageId)}
           getName={getOsAppName}

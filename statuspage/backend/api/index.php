@@ -66,6 +66,9 @@ function route(string $method, string $path): never
             throw $e;
         }
     }
+    if ($method === 'POST' && $path === '/public/problem-reports') {
+        monitoring_submit_problem_report();
+    }
     // ── Public ──────────────────────────────────────────────────
     if ($method === 'GET' && $path === '/status') {
         json_out(build_status_response());
@@ -504,8 +507,15 @@ function route_downtime_range(string $componentId, int $days): never
 
 function route_incidents(): never
 {
+    $slug = trim((string) ($_GET['slug'] ?? ''));
+    $statusPage = $slug !== '' || isset($_GET['tenant']) ? monitoring_resolve_public_page($slug !== '' ? $slug : null) : null;
+    if (($slug !== '' || isset($_GET['tenant'])) && $statusPage === null) json_error('Status page not found', 404);
+    $pageId = $statusPage['id'] ?? null;
     $id = (string) ($_GET['id'] ?? '');
     if ($id !== '') {
+        if ($pageId !== null && db_row('SELECT incident_id FROM status_page_incidents WHERE status_page_id=? AND incident_id=?', [$pageId, $id]) === null) {
+            json_error('Incident not found', 404);
+        }
         $list = incidents_full('id = ?', [$id], 1);
         if ($list === []) {
             json_error('Incident not found', 404);
@@ -516,10 +526,9 @@ function route_incidents(): never
     // Calendar: list of all months that have incidents (for the
     // previous-incidents month navigator).
     if (isset($_GET['months'])) {
-        $rows = db_all(
-            "SELECT DATE_FORMAT(starts_at, '%Y-%m') AS month, COUNT(*) AS n
-               FROM incidents GROUP BY month ORDER BY month ASC"
-        );
+        $rows = $pageId === null
+            ? db_all("SELECT DATE_FORMAT(starts_at, '%Y-%m') AS month, COUNT(*) AS n FROM incidents GROUP BY month ORDER BY month ASC")
+            : db_all("SELECT DATE_FORMAT(i.starts_at, '%Y-%m') AS month,COUNT(*) n FROM status_page_incidents pi JOIN incidents i ON i.id=pi.incident_id WHERE pi.status_page_id=? GROUP BY month ORDER BY month ASC", [$pageId]);
         json_out([
             'months' => array_map(fn (array $r) => ['month' => $r['month'], 'count' => (int) $r['n']], $rows),
         ]);
@@ -533,15 +542,13 @@ function route_incidents(): never
         }
         $start = $month . '-01 00:00:00';
         $end = gmdate('Y-m-d H:i:s', strtotime($start . ' +1 month'));
-        $incidents = incidents_full('starts_at >= ? AND starts_at < ?', [$start, $end], 500);
-        $dayRows = db_all(
-            "SELECT DATE_FORMAT(starts_at, '%Y-%m-%d') AS d, COUNT(*) AS n,
-                    SUM(type = 'maintenance') AS maintenance_count
-               FROM incidents
-              WHERE starts_at >= ? AND starts_at < ?
-              GROUP BY d",
-            [$start, $end]
-        );
+        $monthIds = $pageId === null
+            ? array_column(db_all('SELECT id FROM incidents WHERE starts_at>=? AND starts_at<?', [$start, $end]), 'id')
+            : array_column(db_all('SELECT i.id FROM status_page_incidents pi JOIN incidents i ON i.id=pi.incident_id WHERE pi.status_page_id=? AND i.starts_at>=? AND i.starts_at<?', [$pageId, $start, $end]), 'id');
+        $incidents = $monthIds === [] ? [] : incidents_full('id IN (' . implode(',', array_fill(0, count($monthIds), '?')) . ')', $monthIds, 500);
+        $dayRows = $pageId === null
+            ? db_all("SELECT DATE_FORMAT(starts_at,'%Y-%m-%d') d,COUNT(*) n,SUM(type='maintenance') maintenance_count FROM incidents WHERE starts_at>=? AND starts_at<? GROUP BY d", [$start,$end])
+            : db_all("SELECT DATE_FORMAT(i.starts_at,'%Y-%m-%d') d,COUNT(*) n,SUM(i.type='maintenance') maintenance_count FROM status_page_incidents pi JOIN incidents i ON i.id=pi.incident_id WHERE pi.status_page_id=? AND i.starts_at>=? AND i.starts_at<? GROUP BY d", [$pageId,$start,$end]);
         $days = [];
         foreach ($dayRows as $r) {
             $days[$r['d']] = [
@@ -556,11 +563,12 @@ function route_incidents(): never
     $perPage = max(1, min(100, (int) ($_GET['per_page'] ?? 25)));
     $offset = ($page - 1) * $perPage;
 
-    $total = (int) db_row('SELECT COUNT(*) AS n FROM incidents')['n'];
-    $incidents = db_all(
-        'SELECT * FROM incidents ORDER BY starts_at DESC, created_at DESC LIMIT ? OFFSET ?',
-        [$perPage, $offset]
-    );
+    $total = $pageId === null
+        ? (int) db_row('SELECT COUNT(*) AS n FROM incidents')['n']
+        : (int) db_row('SELECT COUNT(*) n FROM status_page_incidents WHERE status_page_id=?', [$pageId])['n'];
+    $incidents = $pageId === null
+        ? db_all('SELECT * FROM incidents ORDER BY starts_at DESC,created_at DESC LIMIT ? OFFSET ?', [$perPage,$offset])
+        : db_all('SELECT i.* FROM status_page_incidents pi JOIN incidents i ON i.id=pi.incident_id WHERE pi.status_page_id=? ORDER BY i.starts_at DESC,i.created_at DESC LIMIT ? OFFSET ?', [$pageId,$perPage,$offset]);
     $ids = array_column($incidents, 'id');
     $full = $ids === [] ? [] : incidents_full(
         'id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
@@ -578,12 +586,17 @@ function route_incidents(): never
 function route_feed(): never
 {
     $settings = settings_get();
-    $incidents = incidents_full("type IN ('incident','maintenance')", [], 20);
+    $slug = trim((string) ($_GET['slug'] ?? ''));
+    $page = monitoring_resolve_public_page($slug !== '' ? $slug : null);
+    $incidents = $page === null
+        ? incidents_full("type IN ('incident','maintenance')", [], 20)
+        : incidents_full("type IN ('incident','maintenance') AND id IN (SELECT incident_id FROM status_page_incidents WHERE status_page_id=?)", [$page['id']], 20);
 
+    $pageUrl = $page !== null && !empty($page['canonical_domain']) ? 'https://' . $page['canonical_domain'] : $settings['page_url'] . ($slug !== '' ? '/s/' . $slug : '');
     $items = '';
     foreach ($incidents as $incident) {
         $pubDate = gmdate('D, d M Y H:i:s', strtotime($incident['updated_at'])) . ' +0000';
-        $link = $settings['page_url'] . '/incidents/?id=' . urlencode($incident['id']);
+        $link = $pageUrl . '/incidents/?id=' . urlencode($incident['id']);
         $title = htmlspecialchars(
             ($incident['type'] === 'maintenance' ? '[Maintenance] ' : '') . $incident['title'],
             ENT_XML1
@@ -602,8 +615,8 @@ function route_feed(): never
     header('Content-Type: application/rss+xml; charset=utf-8');
     echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
     echo '<rss version="2.0"><channel>'
-        . '<title>' . htmlspecialchars($settings['page_name']) . ' — Incidents</title>'
-        . '<link>' . htmlspecialchars($settings['page_url']) . '</link>'
+        . '<title>' . htmlspecialchars((string) ($page['title'] ?? $settings['page_name'])) . ' — Incidents</title>'
+        . '<link>' . htmlspecialchars($pageUrl ?? $settings['page_url']) . '</link>'
         . '<description>Incident and maintenance history for the rumahl platform.</description>'
         . '<language>en</language>'
         . $items

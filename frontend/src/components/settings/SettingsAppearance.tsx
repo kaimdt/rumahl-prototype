@@ -39,7 +39,7 @@ export function ThemePickerSection() {
 
   return (
     <SettingsSection icon={Palette} title={t("settings.themeMode")} description={t("settings.themeModeDesc")} accentIcon>
-      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+      <div className="rumahl-theme-options grid grid-cols-4 sm:grid-cols-7 gap-2">
         {allThemeOptions.map(opt => {
           const Icon = opt.icon
           const isSelected = selectedTheme === opt.value
@@ -47,14 +47,14 @@ export function ThemePickerSection() {
             <button
               key={opt.value}
               onClick={() => setSelectedTheme(opt.value)}
-              className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all text-center ${
+              className={`rumahl-theme-option relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all text-center ${
                 isSelected
                   ? 'border-accent bg-accent/10 shadow-sm'
                   : 'border-foreground/8 bg-foreground/[0.03] hover:border-foreground/18 hover:bg-foreground/[0.06]'
               }`}
             >
               <div
-                className="w-10 h-10 rounded-lg border border-foreground/10 shadow-sm"
+                className="rumahl-theme-preview w-10 h-10 rounded-lg border border-foreground/10 shadow-sm"
                 style={{ background: opt.preview }}
               />
               <Icon size={16} weight="fill" className={isSelected ? 'text-accent' : 'text-foreground/50'} />
@@ -79,7 +79,7 @@ export function ThemePickerSection() {
       {/* Theme Editor Button */}
       <button
         onClick={() => setEditorOpen(true)}
-        className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 text-accent hover:bg-accent/10 transition-all"
+        className="rumahl-settings-inline-action mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 text-accent hover:bg-accent/10 transition-all"
       >
         <Palette size={14} weight="fill" />
         Theme-Editor öffnen

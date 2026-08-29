@@ -1,4 +1,6 @@
-const CACHE_VERSION = 'rumahl-shell-v2'
+// v3: new rumahl brand mark (icon/manifest are cache-first, so a version
+// bump is required to refresh them in browsers that already ran v2).
+const CACHE_VERSION = 'rumahl-shell-v3'
 const APP_SHELL = ['/', '/home', '/settings', '/manifest.webmanifest', '/rumahl-icon.svg']
 
 self.addEventListener('install', (event) => {

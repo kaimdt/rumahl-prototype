@@ -58,8 +58,13 @@ export function LatencyChart({
   const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (points.length < 2) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const fx = (e.clientX - rect.left) / rect.width;
-    const index = Math.max(0, Math.min(points.length - 1, Math.round(fx * (points.length - 1))));
+    // Convert the pointer into the SVG viewBox and then into the actual plot
+    // area. Using the full DOM width here made the crosshair drift because the
+    // plot has left/right padding while the pointer calculation did not.
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const plotX = Math.max(PAD.left, Math.min(W - PAD.right, svgX));
+    const plotRatio = (plotX - PAD.left) / (W - PAD.left - PAD.right);
+    const index = Math.max(0, Math.min(points.length - 1, Math.round(plotRatio * (points.length - 1))));
     setHover({ x: e.clientX, y: e.clientY, index });
   };
 

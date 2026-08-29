@@ -7,6 +7,7 @@ import { useClock } from '@/hooks/useClock'
 import { useLocalStorage, storage } from '@/lib/storage'
 import { getBackendUrl } from '@/lib/config'
 import { DUR_SLOW, EASE_SOFT } from '@/lib/motion'
+import { RumahlMark } from '@/components/RumahlMark'
 
 const LOCKED_KEY = 'rumahl-os-session-locked'
 const LAST_ACTIVITY_KEY = 'rumahl-os-last-activity'
@@ -112,6 +113,10 @@ export function OsSessionLock() {
       </AnimatePresence>
       {users.length > 1 && <div className="mt-10 w-full max-w-2xl"><p className="mb-4 flex items-center justify-center gap-2 text-xs font-medium text-foreground/40"><Users />{t('os.lock.chooseUser')}</p><div className="flex justify-center gap-4 overflow-x-auto pb-2">{users.map(entry => <button key={entry.id} onClick={() => chooseUser(entry)} aria-pressed={selected?.id === entry.id} className={`flex min-w-20 flex-col items-center rounded-2xl p-2 transition ${selected?.id === entry.id ? 'bg-foreground/10' : 'hover:bg-foreground/5'}`}><Avatar entry={entry} /><span className="mt-2 max-w-24 truncate text-xs">{entry.display_name || entry.username}</span></button>)}</div></div>}
     </section>
+    {/* Brand signature — rumahl mark in the splash design language */}
+    <footer className="relative flex justify-center pb-6">
+      <RumahlMark className="h-5 text-foreground/20" />
+    </footer>
   </motion.main>
 }
 

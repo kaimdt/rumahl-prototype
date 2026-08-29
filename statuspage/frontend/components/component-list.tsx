@@ -10,6 +10,7 @@ import {
   CircleAlert,
   History,
   Minus,
+  MessageSquareWarning,
   TriangleAlert,
   Wrench,
   XCircle,
@@ -27,6 +28,8 @@ import { cn } from "@/lib/utils";
 import { publicApi } from "@/lib/api";
 import { UptimeChart } from "./uptime-chart";
 import { LatencyChart } from "./latency-chart";
+import { useTranslation } from "react-i18next";
+import "@/lib/public-i18n";
 
 /* ── single component card ── */
 
@@ -40,6 +43,7 @@ const STATUS_BADGE_ICON: Record<ComponentStatus, typeof CheckCircle2> = {
 };
 
 function ComponentCard({ component }: { component: Component }) {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const tenantPrefix = pathname.match(/^\/s\/[a-z0-9]+(?:-[a-z0-9]+)*/)?.[0] ?? "";
   const meta = STATUS_META[component.status];
@@ -56,6 +60,17 @@ function ComponentCard({ component }: { component: Component }) {
   const [uptime, setUptime] = useState<UptimeResponse | null>(null);
   const [latency, setLatency] = useState<LatencyResponse | null>(null);
   const [downtime, setDowntime] = useState<DowntimeRangeResponse | null>(null);
+  const [reported, setReported] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const reportProblem = async () => {
+    if (!component.service_id || reporting || reported) return;
+    setReporting(true);
+    const slug = pathname.match(/^\/s\/([a-z0-9]+(?:-[a-z0-9]+)*)/)?.[1];
+    const locale = navigator.language || "unknown";
+    const region = locale.includes("-") ? locale.split("-")[1].toUpperCase() : Intl.DateTimeFormat().resolvedOptions().timeZone;
+    try { await publicApi.reportProblem({ slug, service_id: component.service_id, region }); setReported(true); }
+    finally { setReporting(false); }
+  };
 
   useEffect(() => {
     if (!showCharts) {
@@ -149,6 +164,11 @@ function ComponentCard({ component }: { component: Component }) {
           </span>
         )}
       </div>
+
+      {(component.active_incidents?.length ?? 0) > 0 && <div className="mt-3 rounded-xl border border-status-major/20 bg-status-major/[0.05] px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-wider text-status-major">Active incident</p>{component.active_incidents?.map((incident) => <Link key={incident.incident_id} href={`${tenantPrefix}/incidents/?id=${encodeURIComponent(incident.incident_id)}`} className="mt-1 flex items-center justify-between gap-3 text-xs font-semibold text-foreground/85 hover:text-foreground"><span className="truncate">{incident.title}</span><span className="shrink-0 uppercase text-status-major">{incident.display_status.replaceAll("_", " ")}</span></Link>)}</div>}
+
+      {component.community_report && <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/[0.07] px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300"><MessageSquareWarning className="mr-2 inline h-4 w-4" />{t("report.cluster", { count: component.community_report.reports })}</div>}
+      {component.service_id && <button type="button" disabled={reporting || reported} onClick={() => void reportProblem()} className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"><MessageSquareWarning className="h-3.5 w-3.5" />{reported ? t("report.thanks") : t("report.action")}</button>}
 
       {showCharts && (
         <div className="mt-3 space-y-3">

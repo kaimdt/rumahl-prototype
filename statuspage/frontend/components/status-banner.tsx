@@ -50,7 +50,7 @@ export function StatusBanner({
         }}
       />
 
-      <div className="statuspage-status-banner-inner relative mx-auto max-w-5xl px-5 lg:px-8 text-center">
+      <div className="statuspage-status-banner-inner relative mx-auto w-full max-w-6xl px-5 lg:px-8 text-center">
         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground mb-4">
           {pageName}
         </p>

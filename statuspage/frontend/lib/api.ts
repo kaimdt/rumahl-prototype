@@ -77,24 +77,26 @@ async function request<T>(
 /* ── Public API ── */
 
 export const publicApi = {
-  statusPage: (slug?: string) =>
+  statusPage: (slug?: string, region?: string) =>
     request<import("./types").PublicStatusPageResponse>(
-      slug ? `/public/status/${encodeURIComponent(slug)}` : "/public/status"
+      `${slug ? `/public/status/${encodeURIComponent(slug)}` : "/public/status"}${region ? `?region=${encodeURIComponent(region)}` : ""}`
     ),
   status: () => request<StatusResponse>("/status"),
-  incidents: (page = 1, perPage = 25) =>
+  incidents: (page = 1, perPage = 25, tenant?: string | null) =>
     request<{ incidents: Incident[]; total: number; page: number; pages: number }>(
-      `/incidents?page=${page}&per_page=${perPage}`
+      `/incidents?page=${page}&per_page=${perPage}${tenant === undefined ? "" : tenant ? `&slug=${encodeURIComponent(tenant)}` : "&tenant=1"}`
     ),
-  incident: (id: string) => request<Incident>(`/incidents?id=${encodeURIComponent(id)}`),
-  incidentMonths: () =>
-    request<{ months: { month: string; count: number }[] }>("/incidents?months=1"),
-  incidentsByMonth: (month: string) =>
+  incident: (id: string, tenant?: string | null) => request<Incident>(`/incidents?id=${encodeURIComponent(id)}${tenant === undefined ? "" : tenant ? `&slug=${encodeURIComponent(tenant)}` : "&tenant=1"}`),
+  incidentMonths: (tenant?: string | null) =>
+    request<{ months: { month: string; count: number }[] }>(`/incidents?months=1${tenant === undefined ? "" : tenant ? `&slug=${encodeURIComponent(tenant)}` : "&tenant=1"}`),
+  incidentsByMonth: (month: string, tenant?: string | null) =>
     request<{
       month: string;
       incidents: Incident[];
       days: Record<string, { count: number; maintenance: boolean }>;
-    }>(`/incidents?month=${encodeURIComponent(month)}`),
+    }>(`/incidents?month=${encodeURIComponent(month)}${tenant === undefined ? "" : tenant ? `&slug=${encodeURIComponent(tenant)}` : "&tenant=1"}`),
+  reportProblem: (input: { slug?: string; service_id: string; region: string; message?: string }) =>
+    request<{ ok: boolean; recorded: boolean }>("/public/problem-reports", { method: "POST", body: input }),
   uptime: (componentId: string, days = 90) =>
     request<UptimeResponse>(
       `/uptime?component=${encodeURIComponent(componentId)}&days=${days}`

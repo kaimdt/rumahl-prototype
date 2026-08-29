@@ -21,7 +21,7 @@ export function SiteFooter() {
   const links = page?.footer_links === null || page === null ? DEFAULT_LINKS : page.footer_links;
   if (config.enabled === false || pathname.startsWith("/admin")) return null;
   return <footer className="statuspage-footer mt-20 border-t border-border/40">
-    <div className="statuspage-footer-inner mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-5 py-8 lg:px-8 sm:flex-row">
+    <div className="statuspage-footer-inner mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 py-8 lg:px-8 sm:flex-row">
       <div className="statuspage-footer-links flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[13px] sm:justify-start">
         <Activity className="h-4 w-4 text-primary" strokeWidth={2} />
         {links.filter((link) => link.enabled !== false && link.label && link.href).map((link) => {
@@ -31,6 +31,6 @@ export function SiteFooter() {
       </div>
       {config.show_timezone !== false && <TimezonePicker />}
     </div>
-    {config.text && <div className="border-t border-border/30"><p className="mx-auto max-w-5xl px-5 py-4 text-center text-xs text-muted-foreground/60 lg:px-8 sm:text-left">{config.text}</p></div>}
+    {config.text && <div className="border-t border-border/30"><p className="mx-auto max-w-6xl px-5 py-4 text-center text-xs text-muted-foreground/60 lg:px-8 sm:text-left">{config.text}</p></div>}
   </footer>;
 }

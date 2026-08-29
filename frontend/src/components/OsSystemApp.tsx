@@ -11,6 +11,7 @@ import { authFetch } from '@/lib/authHelpers'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { OsFileExplorer } from '@/components/OsFileExplorer'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 interface NetworkInterface {
   name: string
@@ -73,6 +74,7 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
   const [system, setSystem] = useState<SystemData | null>(null)
   const [networkConfirmation, setNetworkConfirmation] = useState(false)
   const [working, setWorking] = useState(false)
+  const [cpuHistory, setCpuHistory] = useState(() => [52, 58, 47, 62, 70, 64, 76, 59, 67, 73, 61, 68].map((value, index) => ({ label: `${index + 1}`, value })))
   const { can } = useOsPermissions()
 
   const load = useCallback(async () => {
@@ -91,7 +93,9 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
           authFetch('/api/os/control/os/processes'),
         ])
         if (!systemResponse.ok) throw new Error(`HTTP ${systemResponse.status}`)
-        setSystem(await systemResponse.json())
+        const nextSystem = await systemResponse.json() as SystemData
+        setSystem(nextSystem)
+        setCpuHistory((current) => [...current.slice(-17), { label: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), value: nextSystem.cpu_usage_percent }])
         setDisks(disksResponse.ok ? (await disksResponse.json()).disks || [] : [])
         setProcesses(processesResponse.ok ? (await processesResponse.json()).processes || [] : [])
       }
@@ -133,7 +137,7 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
   const subtitle = t(`os.apps.${kind}.description`)
 
   return (
-    <section className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-system-monitor-app rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
       <OsAppNavbar
         pageId={pageId}
         title={title}
@@ -181,6 +185,23 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
             <div className="rumahl-card rounded-2xl p-4"><Cpu size={20} className="mb-2 text-accent" /><p className="text-xl font-semibold">{Math.round(system?.cpu_usage_percent || 0)}%</p><p className="text-xs text-foreground/40">CPU</p></div>
             <div className="rumahl-card rounded-2xl p-4"><HardDrive size={20} className="mb-2 text-accent" /><p className="text-xl font-semibold">{formatBytes(system?.memory_used_bytes)}</p><p className="text-xs text-foreground/40">{t('os.shell.memory')}</p></div>
             <div className="rumahl-card rounded-2xl p-4"><Network size={20} className="mb-2 text-accent" /><p className="truncate text-xl font-semibold">{system?.hostname || '–'}</p><p className="text-xs text-foreground/40">{system ? `${system.os_name} ${system.os_version}` : '–'}</p></div>
+          </div>
+          <div className="rumahl-system-performance rumahl-card rounded-3xl p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div><h2 className="text-sm font-semibold">{t('adminCenter.desktop.performance')}</h2><p className="text-[10px] text-foreground/35">{t('adminCenter.desktop.cpuUsage')}</p></div>
+              <span className="rounded-md bg-foreground/5 px-2 py-1 text-[9px] text-foreground/45">1H</span>
+            </div>
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={cpuHistory} margin={{ top: 4, right: 4, bottom: 0, left: -24 }}>
+                  <defs><linearGradient id="rumahlSystemCpu" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7467ff" stopOpacity={0.25} /><stop offset="100%" stopColor="#7467ff" stopOpacity={0.01} /></linearGradient></defs>
+                  <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,.32)', fontSize: 9 }} unit="%" />
+                  <XAxis dataKey="label" interval="preserveStartEnd" axisLine={false} tickLine={false} tick={{ fill: 'rgba(255,255,255,.28)', fontSize: 9 }} />
+                  <Tooltip contentStyle={{ background: '#17171f', border: '1px solid rgba(255,255,255,.1)', borderRadius: 7, fontSize: 10 }} />
+                  <Area type="linear" dataKey="value" stroke="#7668ff" strokeWidth={2} fill="url(#rumahlSystemCpu)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
           <div className="rumahl-card rounded-3xl p-5"><h2 className="mb-3 text-sm font-semibold">{t('os.systemApps.storage')}</h2>{disks.map((disk) => <div key={disk.mount_point} className="mb-3 last:mb-0"><div className="mb-1 flex justify-between text-xs"><span>{disk.mount_point}</span><span>{Math.round(disk.usage_percent)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-foreground/10"><div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(disk.usage_percent, 100)}%` }} /></div></div>)}</div>
           <div className="rumahl-card rounded-3xl p-5"><h2 className="mb-3 text-sm font-semibold">{t('os.systemApps.processes')}</h2>{processes.slice(0, 10).map((process) => <div key={process.pid} className="flex items-center gap-3 border-b border-foreground/7 py-2 text-xs last:border-0"><span className="w-12 text-foreground/35">{process.pid}</span><span className="min-w-0 flex-1 truncate font-medium">{process.name}</span><span>{process.cpu_percent.toFixed(1)}%</span><span className="w-20 text-right text-foreground/45">{formatBytes(process.memory_bytes)}</span></div>)}</div>

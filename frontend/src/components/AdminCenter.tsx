@@ -27,6 +27,8 @@ import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { authFetch } from '@/lib/authHelpers'
 import { useCallback, useEffect } from 'react'
 import { OsTerminal } from '@/components/OsTerminal'
+import { useShellMode } from '@/hooks/useShellMode'
+import { DesktopAdminCenter } from '@/components/DesktopAdminCenter'
 
 /**
  * AdminCenter — Windows 11 Settings-style admin shell.
@@ -57,6 +59,7 @@ const NATIVE_APPS: Array<{ pageId: string; nameKey: string; icon: typeof Cube }>
 ]
 
 export function AdminCenter() {
+  const { resolvedMode } = useShellMode()
   const { t } = useTranslation()
   const { token } = useAuth()
   const { setCurrentPageId } = usePageNavigation()
@@ -112,6 +115,17 @@ export function AdminCenter() {
 
   const backToOverview = () => {
     setDetailTab(null)
+  }
+
+  if (resolvedMode === 'desktop') {
+    return (
+      <DesktopAdminCenter
+        healthStatus={health?.status}
+        version={health?.version}
+        servicesUp={servicesUp}
+        onOpenApp={openApp}
+      />
+    )
   }
 
   // ── Home overview ─────────────────────────────────────────────────────────

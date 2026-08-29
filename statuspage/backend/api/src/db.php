@@ -61,6 +61,7 @@ function db(bool $ensureSchema = true): PDO
  *  v15 per-status-page visibility of disabled monitoring components
  *  v16 per-status-page languages and translated public content
  *  v17 persisted monitor check history and SMTP monitor support
+ *  v18 incident-to-monitoring-service statuses and maintenance scheduling
  */
 function schema_migrations(): array
 {
@@ -140,6 +141,19 @@ function schema_migrations(): array
             ['status_pages', 'default_language', "VARCHAR(10) NOT NULL DEFAULT 'en'"],
             ['status_pages', 'enabled_locales', 'JSON NULL'],
             ['status_pages', 'translations', 'JSON NULL'],
+        ],
+        'v18' => [
+            ['incidents', 'scheduled_start', 'DATETIME NULL'],
+            ['incidents', 'scheduled_end', 'DATETIME NULL'],
+            ['incidents', 'actual_start', 'DATETIME NULL'],
+            ['incidents', 'actual_end', 'DATETIME NULL'],
+            ['incidents', 'monitor_id', 'CHAR(36) NULL'],
+        ],
+        'v19' => [
+            ['status_pages', 'problem_reports_enabled', 'TINYINT(1) NOT NULL DEFAULT 1'],
+            ['status_pages', 'problem_report_threshold', 'INT NOT NULL DEFAULT 3'],
+            ['status_pages', 'problem_report_window_minutes', 'INT NOT NULL DEFAULT 60'],
+            ['status_pages', 'layout_config', 'JSON NULL'],
         ],
     ];
 }
@@ -264,6 +278,29 @@ function db_migrate(PDO $pdo): array
         if (!in_array('v17', $applied, true)) {
             $applied[] = 'v17';
         }
+    }
+    $incidentServicesExist = (int) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('incident_services','incident_update_services')"
+    )->fetchColumn() === 2;
+    if (!$incidentServicesExist) {
+        $sql = file_get_contents(__DIR__ . '/../migrations/018_incident_service_statuses.sql');
+        if ($sql === false) {
+            throw new RuntimeException('Unable to read incident service migration');
+        }
+        $statements = preg_split('/\n(?=(?:CREATE TABLE|INSERT IGNORE)\b)/', trim($sql)) ?: [];
+        foreach ($statements as $statement) {
+            if (trim($statement) !== '') $pdo->exec($statement);
+        }
+        if (!in_array('v18', $applied, true)) $applied[] = 'v18';
+    }
+    $problemReportsExist = (int) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='status_page_problem_reports'"
+    )->fetchColumn() === 1;
+    if (!$problemReportsExist) {
+        $sql = file_get_contents(__DIR__ . '/../migrations/019_problem_reports_and_layout.sql');
+        if ($sql === false) throw new RuntimeException('Unable to read problem reports migration');
+        $pdo->exec($sql);
+        if (!in_array('v19', $applied, true)) $applied[] = 'v19';
     }
     foreach ([
         'path_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',

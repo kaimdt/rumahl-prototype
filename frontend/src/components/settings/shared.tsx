@@ -8,12 +8,9 @@
 //
 // IMPORTANT: this module must never import from SettingsPage (or any settings
 // section), otherwise the cycle would be re-introduced.
-import { useState } from 'react'
 import * as React from 'react'
-import { motion, AnimatePresence } from 'motion/react'
 import {
   ArrowsClockwise,
-  CaretDown,
   CloudSun,
   Eye,
   Lightbulb,
@@ -107,7 +104,6 @@ export function SettingsSection({
   title,
   description,
   children,
-  defaultOpen = true,
   accentIcon = false,
 }: {
   icon: React.ElementType
@@ -117,44 +113,21 @@ export function SettingsSection({
   defaultOpen?: boolean
   accentIcon?: boolean
 }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen)
-
   return (
-    <div className="rumahl-settings-section-card overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-3.5 p-5 text-left transition-colors hover:bg-foreground/[0.02]"
-        aria-expanded={isOpen}
-      >
-        <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.85rem] transition-all duration-200 ${isOpen ? (accentIcon ? 'bg-accent/18 text-accent shadow-[0_4px_18px_-4px_color-mix(in_oklch,var(--accent)_55%,transparent)]' : 'bg-foreground/10 text-foreground/80') : (accentIcon ? 'bg-accent/8 text-accent/65' : 'bg-foreground/6 text-foreground/45')}`}>
-          {accentIcon && <span className="absolute inset-0 rounded-[0.85rem] bg-gradient-to-br from-accent/25 via-transparent to-transparent" />}
-          <Icon size={19} weight="fill" className="relative" />
+    <section className="rumahl-settings-section-card">
+      <header className="rumahl-settings-section-heading">
+        <div className={`rumahl-settings-section-icon ${accentIcon ? 'text-accent' : ''}`}>
+          <Icon size={15} weight={accentIcon ? 'fill' : 'regular'} />
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="text-[0.92rem] font-semibold tracking-tight text-foreground">{title}</h4>
-          {description && <p className="text-xs text-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">{description}</p>}
+          <h4 className="text-[0.78rem] font-medium text-foreground">{title}</h4>
+          {description && <p className="mt-0.5 line-clamp-1 text-[0.65rem] leading-relaxed text-foreground/42">{description}</p>}
         </div>
-        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/5 text-foreground/45 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>
-          <CaretDown size={15} weight="bold" />
-        </span>
-      </button>
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden border-t border-foreground/[0.06]"
-          >
-            <div className="px-5 py-5 space-y-3">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+      </header>
+      <div className="rumahl-settings-section-content space-y-3">
+        {children}
+      </div>
+    </section>
   )
 }
 
@@ -214,7 +187,7 @@ export function ToggleRow({
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-[1rem] border border-foreground/[0.06] bg-foreground/[0.03] px-4 py-3.5 transition-colors hover:bg-foreground/[0.045]">
+    <div className="rumahl-settings-control-row flex items-center justify-between gap-4 px-4 py-3.5 transition-colors">
       <div className="min-w-0">
         <p className="text-[13px] font-medium text-foreground/90">{label}</p>
         {description && <p className="text-[11px] leading-relaxed text-foreground/50 mt-0.5">{description}</p>}

@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { publicApi } from "@/lib/api";
 import type { Incident } from "@/lib/types";
@@ -34,6 +35,9 @@ export default function PastPage() {
 }
 
 function PastContent() {
+  const pathname = usePathname();
+  const slug = pathname.match(/^\/s\/([a-z0-9]+(?:-[a-z0-9]+)*)/)?.[1] ?? null;
+  const tenantPrefix = slug ? `/s/${slug}` : "";
   const [months, setMonths] = useState<string[]>([]);
   const [month, setMonth] = useState<string | null>(null);
   const [data, setData] = useState<{
@@ -46,7 +50,7 @@ function PastContent() {
   useEffect(() => {
     let cancelled = false;
     publicApi
-      .incidentMonths()
+      .incidentMonths(slug)
       .then((res) => {
         if (cancelled) return;
         const list = res.months.map((m) => m.month);
@@ -62,7 +66,7 @@ function PastContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [slug]);
 
   // Load the selected month.
   useEffect(() => {
@@ -70,13 +74,13 @@ function PastContent() {
     let cancelled = false;
     setData(null);
     publicApi
-      .incidentsByMonth(month)
+      .incidentsByMonth(month, slug)
       .then((d) => !cancelled && setData(d))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed"));
     return () => {
       cancelled = true;
     };
-  }, [month]);
+  }, [month, slug]);
 
   const index = month ? months.indexOf(month) : -1;
 
@@ -95,7 +99,7 @@ function PastContent() {
   return (
     <div className="mx-auto max-w-5xl px-5 lg:px-8 py-12">
       <Link
-        href="/"
+        href={`${tenantPrefix}/`}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-4"
       >
         <ChevronLeft className="h-4 w-4" />

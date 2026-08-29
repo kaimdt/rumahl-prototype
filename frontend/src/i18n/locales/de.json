@@ -132,6 +132,8 @@
       "openHome": "rumahl Home",
       "openApp": "App öffnen",
       "open": "Öffnen",
+      "addedToDesktop": "{{name}} wurde zum Desktop hinzugefügt",
+      "failedToAddDesktop": "Konnte nicht zum Desktop hinzufügen",
       "closeApp": "App schließen",
       "customize": "Launcher anpassen",
       "choose": "Launcher auswählen",
@@ -141,6 +143,8 @@
       "intelligent": "Intelligenter Zugriff",
       "whatToDo": "Was möchtest du tun?",
       "commandPlaceholder": "App, Gerät oder Aktion suchen",
+      "recent": "Zuletzt verwendet",
+      "clearRecent": "Verlauf leeren",
       "pages": "Homescreen-Seiten",
       "page": "Seite {{page}}",
       "edit": "Homescreen bearbeiten",
@@ -189,6 +193,17 @@
       "appLogsEmpty": "Keine Logs verfügbar.",
       "appExternalHint": "Diese App ist dafür konfiguriert, außerhalb des rumahl Desktops zu öffnen.",
       "appExternalOpen": "App extern öffnen"
+    },
+    "shellMode": {
+      "title": "Shell-Modus",
+      "auto": "Automatisch",
+      "autoDescription": "Nach Gerät und Eingabemethode wechseln",
+      "desktop": "Desktop",
+      "desktopDescription": "Für Maus, Tastatur und große Bildschirme",
+      "launcher": "Launcher",
+      "launcherDescription": "Für Touch und kleine Bildschirme",
+      "desktopWorkspace": "rumahl OS Desktop",
+      "search": "Apps, Dateien und Einstellungen suchen…"
     },
     "shell": {
       "openQuickSettings": "Schnelleinstellungen öffnen",
@@ -515,6 +530,7 @@
       "familyShareRemoved": "Familienfreigabe aufgehoben",
       "familyShareFailed": "Familienfreigabe konnte nicht aktualisiert werden",
       "systemFolders": {
+        "desktop": "Desktop",
         "documents": "Dokumente",
         "downloads": "Downloads",
         "photos": "Fotos",
@@ -538,6 +554,7 @@
     },
     "quickActions": {
       "arrange": "Apps anordnen",
+      "addToDesktop": "Zum Desktop hinzufügen",
       "pin": "An Dock anheften",
       "unpin": "Vom Dock entfernen",
       "start": "Starten",
@@ -559,7 +576,10 @@
       "appearance": "Erscheinungsbild",
       "appStore": "App-Store",
       "lock": "Session sperren",
-      "refresh": "Aktualisieren"
+      "refresh": "Aktualisieren",
+      "addToDesktop": "Zum Desktop hinzufügen",
+      "removeFromDesktop": "Vom Desktop entfernen",
+      "manageDesktop": "Desktop anpassen"
     },
     "window": {
       "asWindow": "Als Fenster öffnen",
@@ -568,13 +588,15 @@
       "splitRight": "Rechts teilen",
       "immersive": "Ohne Leiste öffnen",
       "minimize": "Minimieren",
+      "minimized": "Minimiert",
       "fullscreen": "Vollbild",
       "close": "Schließen",
       "emptyPane": "Leerer Bereich",
       "splitHint": "Öffne eine App im Dock, um diese Seite zu füllen.",
       "open": "Fenster offen",
       "maximize": "Maximieren",
-      "restore": "Wiederherstellen"
+      "restore": "Wiederherstellen",
+      "launchModes": "Startmodi"
     },
     "images": {
       "dropHint": "Bilder hierher ziehen, um sie in diesen Ordner zu kopieren",
@@ -1984,7 +2006,31 @@
     "categories": "Kategorien",
     "items": "Einträge",
     "back": "Zurück",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "desktop": {
+      "overview": "Übersicht",
+      "system": "System",
+      "preferences": "Einstellungen",
+      "users": "Benutzer",
+      "support": "Support",
+      "search": "Admin Center durchsuchen",
+      "healthy": "System ist fehlerfrei",
+      "attention": "System benötigt Aufmerksamkeit",
+      "release": "rumahl OS {{version}} · Midnight Hearth",
+      "lastChecked": "Zuletzt geprüft: Heute, 00:18",
+      "diagnostics": "Diagnose ausführen",
+      "performance": "Leistung",
+      "cpuUsage": "CPU-Auslastung",
+      "services": "Dienste",
+      "runningCount": "{{count}} aktiv",
+      "name": "Name",
+      "status": "Status",
+      "memory": "Speicher",
+      "uptime": "Laufzeit",
+      "running": "Aktiv",
+      "serviceSummary": "5 von 27 Diensten",
+      "viewAll": "Alle Dienste anzeigen"
+    }
   },
   "appearanceStandards": {
     "loading": "Wird geladen…",

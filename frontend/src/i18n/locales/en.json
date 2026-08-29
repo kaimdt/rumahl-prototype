@@ -132,6 +132,8 @@
       "openHome": "rumahl Home",
       "openApp": "Open app",
       "open": "Open",
+      "addedToDesktop": "{{name}} added to desktop",
+      "failedToAddDesktop": "Could not add to desktop",
       "closeApp": "Close app",
       "customize": "Customize launcher",
       "choose": "Choose launcher",
@@ -141,6 +143,8 @@
       "intelligent": "Intelligent access",
       "whatToDo": "What would you like to do?",
       "commandPlaceholder": "Search for an app, device, or action",
+      "recent": "Recent",
+      "clearRecent": "Clear",
       "pages": "Homescreen pages",
       "page": "Page {{page}}",
       "edit": "Edit homescreen",
@@ -189,6 +193,17 @@
       "appLogsEmpty": "No logs available.",
       "appExternalHint": "This app is configured to open outside the rumahl desktop.",
       "appExternalOpen": "Open app externally"
+    },
+    "shellMode": {
+      "title": "Shell mode",
+      "auto": "Automatic",
+      "autoDescription": "Switch based on device and input",
+      "desktop": "Desktop",
+      "desktopDescription": "Optimized for mouse, keyboard, and large screens",
+      "launcher": "Launcher",
+      "launcherDescription": "Optimized for touch and small screens",
+      "desktopWorkspace": "rumahl OS desktop",
+      "search": "Search apps, files, settings…"
     },
     "shell": {
       "openQuickSettings": "Open quick settings",
@@ -515,6 +530,7 @@
       "familyShareRemoved": "Family share removed",
       "familyShareFailed": "Could not update family share",
       "systemFolders": {
+        "desktop": "Desktop",
         "documents": "Documents",
         "downloads": "Downloads",
         "photos": "Photos",
@@ -538,6 +554,7 @@
     },
     "quickActions": {
       "arrange": "Arrange apps",
+      "addToDesktop": "Add to desktop",
       "pin": "Pin to Dock",
       "unpin": "Remove from Dock",
       "start": "Start",
@@ -559,7 +576,10 @@
       "appearance": "Appearance",
       "appStore": "App Store",
       "lock": "Lock Session",
-      "refresh": "Refresh"
+      "refresh": "Refresh",
+      "addToDesktop": "Add to desktop",
+      "removeFromDesktop": "Remove from desktop",
+      "manageDesktop": "Customize desktop"
     },
     "window": {
       "asWindow": "Open as window",
@@ -568,13 +588,15 @@
       "splitRight": "Split right",
       "immersive": "Immersive mode",
       "minimize": "Minimize",
+      "minimized": "Minimized",
       "fullscreen": "Fullscreen",
       "close": "Close",
       "emptyPane": "Empty pane",
       "splitHint": "Open an app from the dock to fill this side.",
       "open": "Window open",
       "maximize": "Maximize",
-      "restore": "Restore"
+      "restore": "Restore",
+      "launchModes": "Launch modes"
     },
     "images": {
       "dropHint": "Drop images here to copy them into this folder",
@@ -1983,7 +2005,31 @@
     "categories": "Categories",
     "items": "items",
     "back": "Back",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "desktop": {
+      "overview": "Overview",
+      "system": "System",
+      "preferences": "Preferences",
+      "users": "Users",
+      "support": "Support",
+      "search": "Search Admin Center",
+      "healthy": "System is healthy",
+      "attention": "System needs attention",
+      "release": "rumahl OS {{version}} · Midnight Hearth",
+      "lastChecked": "Last checked: Today, 00:18",
+      "diagnostics": "Run Diagnostics",
+      "performance": "Performance",
+      "cpuUsage": "CPU Usage",
+      "services": "Services",
+      "runningCount": "{{count}} active",
+      "name": "Name",
+      "status": "Status",
+      "memory": "Memory",
+      "uptime": "Uptime",
+      "running": "Running",
+      "serviceSummary": "5 of 27 services",
+      "viewAll": "View all services"
+    }
   },
   "appearanceStandards": {
     "loading": "Loading…",

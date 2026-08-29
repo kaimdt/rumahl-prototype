@@ -108,7 +108,8 @@ export function UptimeChart({
       }
     });
     const stride = out.length > 8 ? 3 : out.length > 5 ? 2 : 1;
-    return out.filter((_, index) => index % stride === 0 || index === out.length - 1);
+    const candidates = out.filter((_, index) => index % stride === 0 || index === out.length - 1);
+    return candidates.filter((marker, index) => index === 0 || marker.index - candidates[index - 1].index >= 14);
   }, [uptime]);
 
   const compact = density === "compact";
@@ -133,7 +134,7 @@ export function UptimeChart({
       </div>
 
       <div ref={scrollRef} className="overflow-x-auto pb-1">
-      <div className="relative ml-auto w-max min-w-full" style={{ minWidth: `${Math.max(100, uptime.length * (barW + 3))}px` }}>
+      <div className="relative ml-auto w-full" style={{ minWidth: many ? `${Math.max(100, uptime.length * (barW + 3))}px` : "100%" }}>
       <div className="statuspage-uptime-bars flex flex-nowrap justify-end gap-[3px]">
         {uptime.map((u) => {
           const segments = daySegments(u);
@@ -163,7 +164,7 @@ export function UptimeChart({
                   compact ? "h-6" : "h-8",
                   "bg-muted/40"
                 )}
-                style={{ width: barW }}
+                style={many ? { width: barW } : { flex: "1 1 0", minWidth: 3 }}
               />
             );
           }
@@ -179,7 +180,7 @@ export function UptimeChart({
                 "relative overflow-hidden rounded-[2px] transition-transform hover:scale-125",
                 compact ? "h-6" : "h-8"
               )}
-              style={{ width: barW }}
+              style={many ? { width: barW } : { flex: "1 1 0", minWidth: 3 }}
             >
               {segments.map((s) => {
                 const height = (s.min / totalMin) * 100;
@@ -202,7 +203,7 @@ export function UptimeChart({
         {months.map((m) => (
           <span
             key={m.index}
-            className="absolute -translate-x-1/2 whitespace-nowrap"
+            className={cn("absolute whitespace-nowrap", m.index === 0 ? "" : m.index >= uptime.length - 2 ? "-translate-x-full" : "-translate-x-1/2")}
             style={{ left: `${(m.index / Math.max(uptime.length, 1)) * 100}%` }}
           >
             {m.label}

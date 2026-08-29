@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import { OsWindowFrame } from '@/components/OsWindowFrame'
@@ -40,7 +41,7 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
     return <Icon size={15} weight="duotone" />
   }
 
-  return (
+  return createPortal(
     <div className="rumahl-os-window-layer" aria-label="Open app windows">
       {/* Split view */}
       {hasSplit && (
@@ -85,6 +86,7 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
           </motion.div>
         ))}
       </AnimatePresence>
-    </div>
+    </div>,
+    document.body,
   )
 }

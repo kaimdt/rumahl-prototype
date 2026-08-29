@@ -61,7 +61,7 @@ export default function RootLayout({
           <TenantBranding />
           <div className="statuspage-shell flex flex-col min-h-screen">
             <SiteHeader />
-            <main className="statuspage-main flex-1">{children}</main>
+            <main className="statuspage-content w-full flex-1">{children}</main>
             <SiteFooter />
           </div>
         </ThemeProvider>

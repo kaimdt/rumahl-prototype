@@ -569,11 +569,21 @@ async function savePagesToBackend(profileId: string, pages: DashboardPage[]) {
   })
 }
 
-/** Ensure all default pages exist in the array (backend might not have them yet) */
+/** Ensure all default pages exist in the array (backend might not have them yet).
+ *  Also dedupes by id — stale localStorage/config copies can contain the same
+ *  page twice (e.g. `home`), which breaks React list keys and renders
+ *  duplicate nav/dock entries. */
 function ensureDefaultPages(backendPages: DashboardPage[]): DashboardPage[] {
-  const merged = [...backendPages]
+  const seen = new Set<string>()
+  const merged: DashboardPage[] = []
+  for (const page of backendPages) {
+    if (seen.has(page.id)) continue
+    seen.add(page.id)
+    merged.push(page)
+  }
   for (const dp of defaultPages) {
-    if (!merged.find(p => p.id === dp.id)) {
+    if (!seen.has(dp.id)) {
+      seen.add(dp.id)
       merged.push(dp)
     }
   }
@@ -594,6 +604,14 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     }
   }
   const [pages, setLocalPages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
+
+  // Sanitize legacy localStorage state once: stale copies can contain the
+  // same page id twice (e.g. `home`), which breaks React list keys and
+  // renders duplicate nav/dock entries. ensureDefaultPages dedupes and
+  // re-adds missing built-in pages.
+  useEffect(() => {
+    setLocalPages(ensureDefaultPages(pages))
+  }, [])
   const [currentPageId, setCurrentPageIdState] = useState<string>(() => {
     // Deep link from the store: `?install-app=<id>` opens the app store tab
     // directly so the install handoff can run there.

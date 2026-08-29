@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
+import { RumahlMark } from '@/components/RumahlMark'
 
 // ── Zod schemas ──────────────────────────────────────────
 const loginSchema = z.object({
@@ -333,9 +334,9 @@ export function LoginPage() {
         />
       </div>
 
-      {/* Brand watermark */}
+      {/* Brand watermark — rumahl mark in the splash design language */}
       <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">
-        <p className="text-sm font-light tracking-[0.3em] uppercase text-white/25">rumahl OS</p>
+        <RumahlMark className="mx-auto h-6 text-white/25" />
       </div>
 
       {/* Auth card */}
@@ -351,8 +352,8 @@ export function LoginPage() {
             <div className="absolute inset-0 bg-gradient-to-br from-accent/15 via-accent/6 to-transparent" />
             <div className="relative p-6 pb-5">
               <div className="flex flex-col items-center gap-2 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-accent/30 via-accent/15 to-accent/5 ring-1 ring-accent/25 shadow-lg shadow-accent/10">
-                  <span className="text-lg font-bold text-accent">I</span>
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/8 ring-1 ring-white/15 shadow-lg">
+                  <RumahlMark className="h-7 text-white" />
                 </div>
                 <div>
                   <span className="block text-xl font-semibold text-white">rumahl OS</span>

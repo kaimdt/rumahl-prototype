@@ -1,381 +1,66 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, Megaphone, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, CalendarClock, Megaphone, Plus, Save, Trash2 } from "lucide-react";
 import { adminApi, publicApi } from "@/lib/api";
-import type {
-  Component,
-  Incident,
-  IncidentImpact,
-  IncidentStatus,
-  IncidentType,
-} from "@/lib/types";
-import {
-  INCIDENT_STATUS_LABEL,
-  formatDate,
-} from "@/lib/status-meta";
-import { Button, Field, Input, SectionCard, Select, Textarea } from "@/components/admin/ui";
-import { cn } from "@/lib/utils";
+import type { ComponentStatus, Incident, IncidentImpact, IncidentStatus, IncidentType } from "@/lib/types";
+import { INCIDENT_STATUS_LABEL, formatDateTime } from "@/lib/status-meta";
+import { useAdminTranslation } from "@/lib/admin-i18n";
 
-const STATUSES: IncidentStatus[] = [
-  "investigating",
-  "identified",
-  "monitoring",
-  "resolved",
-  "scheduled",
-  "in_progress",
-  "completed",
-];
-
-const EMPTY = {
-  type: "incident" as IncidentType,
-  title: "",
-  impact: "minor" as IncidentImpact,
-  status: "investigating" as IncidentStatus,
-  starts_at: "",
-  resolves_at: null as string | null,
-  component_ids: [] as string[],
-  message: "",
-};
+type MonitorChoice = { id: string; name: string; target: string };
+type Affected = Record<string, ComponentStatus>;
+const INCIDENT_STATUSES: IncidentStatus[] = ["investigating", "identified", "monitoring", "resolved"];
+const MAINTENANCE_STATUSES: IncidentStatus[] = ["scheduled", "in_progress", "completed"];
+const DISPLAY_STATUSES: ComponentStatus[] = ["operational", "degraded", "partial_outage", "major_outage", "maintenance"];
+const EMPTY = { type: "incident" as IncidentType, title: "", impact: "minor" as IncidentImpact, status: "investigating" as IncidentStatus, starts_at: "", resolves_at: "", message: "", author: "", affected: {} as Affected };
 
 export function IncidentsTab() {
+  const t = useAdminTranslation();
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [components, setComponents] = useState<Component[]>([]);
-  const [form, setForm] = useState({ ...EMPTY });
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [updateMessage, setUpdateMessage] = useState("");
+  const [monitors, setMonitors] = useState<MonitorChoice[]>([]);
+  const [form, setForm] = useState(EMPTY);
+  const [selected, setSelected] = useState<Incident | null>(null);
+  const [affected, setAffected] = useState<Affected>({});
   const [updateStatus, setUpdateStatus] = useState<IncidentStatus>("monitoring");
-  // affected components of the expanded incident — editable with every update
-  const [updateComponents, setUpdateComponents] = useState<string[]>([]);
-
+  const [updateMessage, setUpdateMessage] = useState("");
+  const [updateAuthor, setUpdateAuthor] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
-      const [inc, comps] = await Promise.all([
-        publicApi.incidents(1, 100),
-        adminApi.groups(),
-      ]);
-      setIncidents(inc.incidents);
-      setComponents(comps.flatMap((g) => g.components));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    }
-  }, []);
+      const [incidentResponse, services] = await Promise.all([publicApi.incidents(1, 100), adminApi.monitoringList<Record<string, unknown>>("services")]);
+      setIncidents(incidentResponse.incidents);
+      setMonitors(services.items.map((service) => ({
+        id: String(service.id),
+        name: String(service.public_name ?? service.internal_name ?? service.name ?? service.id),
+        target: String(service.public_description ?? service.internal_description ?? ""),
+      })));
+      setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : t("incidents.loadFailed")); }
+  }, [t]);
+  useEffect(() => { void load(); }, [load]);
+  const payload = (values: Affected) => Object.entries(values).map(([service_id, status]) => ({ service_id, status }));
+  const open = (incident: Incident) => { setSelected(incident); setAffected(Object.fromEntries((incident.affected_components ?? []).map((component) => [component.service_id, component.status]))); setUpdateStatus(incident.type === "maintenance" ? "in_progress" : "monitoring"); setUpdateMessage(""); };
+  const toggle = (values: Affected, id: string, defaultStatus: ComponentStatus, commit: (next: Affected) => void) => { const next = { ...values }; if (next[id]) delete next[id]; else next[id] = defaultStatus; commit(next); };
+  const create = async (event: React.FormEvent) => { event.preventDefault(); if (!form.title.trim()) return; setBusy(true); try { await adminApi.saveIncident({ type: form.type, title: form.title.trim(), impact: form.impact, status: form.status, starts_at: form.starts_at || new Date().toISOString(), resolves_at: form.resolves_at || null, scheduled_start: form.type === "maintenance" ? form.starts_at || null : null, scheduled_end: form.type === "maintenance" ? form.resolves_at || null : null, affected_components: payload(form.affected), message: form.message || undefined, author: form.author || undefined }); setForm(EMPTY); await load(); } catch (reason) { setError(reason instanceof Error ? reason.message : t("incidents.createFailed")); } finally { setBusy(false); } };
+  const refreshSelected = async (id: string) => { await load(); open(await publicApi.incident(id)); };
+  const saveAffected = async () => { if (!selected) return; await adminApi.saveIncident({ id: selected.id, type: selected.type, title: selected.title, impact: selected.impact, status: selected.status, affected_components: payload(affected) }); await refreshSelected(selected.id); };
+  const addUpdate = async (resolve = false) => { if (!selected || (!resolve && !updateMessage.trim())) return; const status: IncidentStatus = resolve ? (selected.type === "maintenance" ? "completed" : "resolved") : updateStatus; await adminApi.saveIncident({ id: selected.id, type: selected.type, title: selected.title, impact: selected.impact, status, affected_components: payload(affected), message: updateMessage.trim() || (resolve ? t("incidents.resolvedMessage") : undefined), author: updateAuthor || undefined }); setUpdateMessage(""); await refreshSelected(selected.id); };
+  const remove = async () => { if (!selected || !window.confirm(t("incidents.deleteConfirm"))) return; await adminApi.deleteIncident(selected.id); setSelected(null); await load(); };
+  const active = useMemo(() => incidents.filter((incident) => !["resolved", "completed"].includes(incident.status)), [incidents]);
+  const past = useMemo(() => incidents.filter((incident) => ["resolved", "completed"].includes(incident.status)), [incidents]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  if (selected) return <div className="space-y-5">
+    <button type="button" onClick={() => setSelected(null)} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-400 hover:text-white"><ArrowLeft className="h-4 w-4" />{t("incidents.back")}</button>
+    <section className="rounded-2xl border border-white/[0.08] bg-[#0f1422] p-5"><div className="flex flex-col justify-between gap-4 lg:flex-row"><div className="min-w-0 flex-1"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">{selected.type === "maintenance" ? <CalendarClock className="h-4 w-4" /> : <Megaphone className="h-4 w-4" />}{selected.impact} · {INCIDENT_STATUS_LABEL[selected.status]}</div><input aria-label={t("incidents.title")} value={selected.title} onChange={(event) => setSelected({ ...selected, title: event.target.value })} className="mt-2 w-full max-w-3xl rounded-xl border border-transparent bg-transparent px-0 text-2xl font-bold outline-none transition-colors focus:border-white/10 focus:bg-[#090c15] focus:px-3" /><p className="mt-1 text-sm text-slate-400">{t("incidents.started")} {formatDateTime(selected.starts_at)}</p></div><div className="flex gap-2"><button type="button" onClick={() => void saveAffected()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-sm font-bold"><Save className="h-4 w-4" />{t("monitoring.save")}</button>{!["resolved", "completed"].includes(selected.status) && <button type="button" onClick={() => void addUpdate(true)} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950">{t("incidents.resolve")}</button>}<button type="button" onClick={() => void remove()} className="rounded-xl border border-rose-400/20 px-3 py-2 text-rose-300"><Trash2 className="h-4 w-4" /></button></div></div></section>
+    <section className="rounded-2xl border border-white/[0.08] bg-[#0f1422] p-5"><div className="flex items-center justify-between"><h3 className="font-bold">{t("incidents.affected")}</h3><button type="button" onClick={() => void saveAffected()} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-bold"><Save className="h-3.5 w-3.5" />{t("monitoring.save")}</button></div><AffectedEditor monitors={monitors} values={affected} onToggle={(id) => toggle(affected, id, selected.type === "maintenance" ? "maintenance" : "degraded", setAffected)} onStatus={(id, status) => setAffected((current) => ({ ...current, [id]: status }))} /></section>
+    <section className="rounded-2xl border border-white/[0.08] bg-[#0f1422] p-5"><h3 className="font-bold">{t("incidents.addUpdate")}</h3><div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr_180px_auto]"><select value={updateStatus} onChange={(event) => setUpdateStatus(event.target.value as IncidentStatus)} className="rounded-xl border border-white/10 bg-[#090c15] px-3 py-2 text-sm">{(selected.type === "maintenance" ? MAINTENANCE_STATUSES : INCIDENT_STATUSES).map((status) => <option key={status} value={status}>{INCIDENT_STATUS_LABEL[status]}</option>)}</select><input value={updateMessage} onChange={(event) => setUpdateMessage(event.target.value)} placeholder={t("incidents.updatePlaceholder")} className="rounded-xl border border-white/10 bg-[#090c15] px-3 py-2 text-sm" /><input value={updateAuthor} onChange={(event) => setUpdateAuthor(event.target.value)} placeholder={t("incidents.author")} className="rounded-xl border border-white/10 bg-[#090c15] px-3 py-2 text-sm" /><button type="button" onClick={() => void addUpdate()} className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-bold">{t("incidents.publish")}</button></div></section>
+    <section className="rounded-2xl border border-white/[0.08] bg-[#0f1422] p-5"><h3 className="font-bold">{t("incidents.timeline")}</h3><ol className="relative mt-5 space-y-5 before:absolute before:bottom-2 before:left-[5px] before:top-2 before:w-px before:bg-white/10">{[...selected.updates].reverse().map((update) => <li key={update.id} className="relative pl-7"><span className="absolute left-0 top-1 h-3 w-3 rounded-full border-2 border-[#0f1422] bg-indigo-400" /><div className="flex flex-wrap gap-2"><span className="text-sm font-bold">{INCIDENT_STATUS_LABEL[update.status]}</span><span className="text-xs text-slate-500">{formatDateTime(update.created_at)}</span>{update.author && <span className="text-xs text-slate-500">· {update.author}</span>}</div><p className="mt-1 text-sm text-slate-300">{update.message}</p></li>)}</ol></section>
+  </div>;
 
-  const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
-    setForm((f) => ({ ...f, [key]: value }));
-
-  const now = () => new Date().toISOString().slice(0, 16);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.title.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await adminApi.saveIncident({
-        type: form.type,
-        title: form.title.trim(),
-        impact: form.impact,
-        status: form.status,
-        starts_at: form.starts_at || now(),
-        resolves_at: form.resolves_at,
-        component_ids: form.component_ids,
-        message: form.message || undefined,
-      });
-      setForm({ ...EMPTY });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Create failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleComponent = (id: string) =>
-    setForm((f) => ({
-      ...f,
-      component_ids: f.component_ids.includes(id)
-        ? f.component_ids.filter((c) => c !== id)
-        : [...f.component_ids, id],
-    }));
-
-  const addUpdate = async (incident: Incident) => {
-    if (!updateMessage.trim()) return;
-    try {
-      await adminApi.saveIncident({
-        id: incident.id,
-        type: incident.type,
-        title: incident.title,
-        impact: incident.impact,
-        status: updateStatus,
-        message: updateMessage.trim(),
-        component_ids: updateComponents,
-      });
-      setUpdateMessage("");
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Update failed");
-    }
-  };
-
-  const resolveNow = async (incident: Incident) => {
-    try {
-      await adminApi.saveIncident({
-        id: incident.id,
-        type: incident.type,
-        title: incident.title,
-        impact: incident.impact,
-        status: "resolved",
-        message: "Incident has been resolved.",
-        component_ids: updateComponents,
-      });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Resolve failed");
-    }
-  };
-
-  const remove = async (incident: Incident) => {
-    if (!window.confirm(`Delete incident "${incident.title}"?`)) return;
-    try {
-      await adminApi.deleteIncident(incident.id);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
-    }
-  };
-
-  const statusColor = (s: IncidentStatus) =>
-    ({
-      investigating: "text-status-major",
-      identified: "text-status-degraded",
-      monitoring: "text-info",
-      resolved: "text-status-operational",
-      scheduled: "text-muted-foreground",
-      in_progress: "text-status-degraded",
-      completed: "text-status-operational",
-    })[s];
-
-  return (
-    <div className="space-y-6">
-      <SectionCard title="New incident" description="Incidents are shown publicly; updates build the timeline.">
-        <form onSubmit={submit} className="grid sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
-            <Field label="Title *">
-              <Input
-                value={form.title}
-                onChange={(e) => set("title", e.target.value)}
-                placeholder="Database connection issues"
-                required
-              />
-            </Field>
-          </div>
-          <Field label="Type">
-            <Select value={form.type} onChange={(e) => set("type", e.target.value as IncidentType)}>
-              <option value="incident">Incident</option>
-              <option value="maintenance">Scheduled maintenance</option>
-            </Select>
-          </Field>
-          <Field label="Impact">
-            <Select value={form.impact} onChange={(e) => set("impact", e.target.value as IncidentImpact)}>
-              {["none", "minor", "major", "critical"].map((i) => (
-                <option key={i} value={i}>
-                  {i}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Status">
-            <Select value={form.status} onChange={(e) => set("status", e.target.value as IncidentStatus)}>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {INCIDENT_STATUS_LABEL[s]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Start (local)">
-            <Input type="datetime-local" value={form.starts_at} onChange={(e) => set("starts_at", e.target.value)} />
-          </Field>
-          {form.type === "maintenance" && (
-            <Field label="Expected end (local)">
-              <Input
-                type="datetime-local"
-                value={form.resolves_at ?? ""}
-                onChange={(e) => set("resolves_at", e.target.value || null)}
-              />
-            </Field>
-          )}
-          <div className="sm:col-span-2">
-            <Field label="Affected components">
-              <div className="flex flex-wrap gap-1.5">
-                {components.length === 0 && (
-                  <span className="text-xs text-muted-foreground/60">No components yet.</span>
-                )}
-                {components.map((component) => (
-                  <button
-                    key={component.id}
-                    type="button"
-                    onClick={() => toggleComponent(component.id)}
-                    className={cn(
-                      "rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors",
-                      form.component_ids.includes(component.id)
-                        ? "border-primary/50 bg-primary/12 text-primary"
-                        : "border-border/50 text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {component.name}
-                  </button>
-                ))}
-              </div>
-            </Field>
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="Initial message" hint="Shown as the first update on the public page">
-              <Textarea
-                value={form.message}
-                onChange={(e) => set("message", e.target.value)}
-                placeholder="We are investigating…"
-              />
-            </Field>
-          </div>
-          <div className="sm:col-span-2 flex items-center gap-3">
-            <Button type="submit" disabled={busy}>
-              <Plus className="h-4 w-4" />
-              Create
-            </Button>
-            {error && <span className="text-xs text-status-major">{error}</span>}
-          </div>
-        </form>
-      </SectionCard>
-
-      <SectionCard title={`Incidents & maintenance (${incidents.length})`}>
-        <div className="space-y-3">
-          {incidents.length === 0 && (
-            <p className="text-sm text-muted-foreground/70">Nothing recorded yet.</p>
-          )}
-          {incidents.map((incident) => (
-            <div key={incident.id} className="rounded-xl border border-border/25 bg-muted/10 overflow-hidden">
-              <button
-                onClick={() => setExpanded(expanded === incident.id ? null : incident.id)}
-                className="w-full flex items-center gap-3 px-4 py-3 text-left"
-              >
-                <span className="text-muted-foreground/50">
-                  {incident.type === "maintenance" ? (
-                    <CalendarClock className="h-4 w-4" />
-                  ) : (
-                    <Megaphone className="h-4 w-4" />
-                  )}
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[13px] font-semibold text-foreground truncate">
-                    {incident.title}
-                  </span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    {formatDate(incident.starts_at)} · {incident.updates.length} updates
-                  </span>
-                </span>
-                <span className={cn("text-[11px] font-bold uppercase", statusColor(incident.status))}>
-                  {INCIDENT_STATUS_LABEL[incident.status]}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    remove(incident);
-                  }}
-                  className="p-1 text-muted-foreground/50 hover:text-status-major transition-colors"
-                  title="Delete incident"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </button>
-
-              {expanded === incident.id && (
-                <div className="border-t border-border/25 px-4 py-4 space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select
-                      value={updateStatus}
-                      onChange={(e) => setUpdateStatus(e.target.value as IncidentStatus)}
-                      className="w-auto"
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {INCIDENT_STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </Select>
-                    <Input
-                      value={updateMessage}
-                      onChange={(e) => setUpdateMessage(e.target.value)}
-                      placeholder="New update message…"
-                      className="flex-1 min-w-[200px]"
-                    />
-                    <Button type="button" onClick={() => addUpdate(incident)}>
-                      Post update
-                    </Button>
-                    {incident.status !== "resolved" && incident.status !== "completed" && (
-                      <Button type="button" variant="ghost" onClick={() => resolveNow(incident)}>
-                        Resolve
-                      </Button>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                      Affected components (changed with this update)
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {components.length === 0 && (
-                        <span className="text-xs text-muted-foreground/60">No components yet.</span>
-                      )}
-                      {components.map((component) => (
-                        <button
-                          key={component.id}
-                          type="button"
-                          onClick={() =>
-                            setUpdateComponents((ids) =>
-                              ids.includes(component.id)
-                                ? ids.filter((c) => c !== component.id)
-                                : [...ids, component.id]
-                            )
-                          }
-                          className={cn(
-                            "rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors",
-                            updateComponents.includes(component.id)
-                              ? "border-primary/50 bg-primary/12 text-primary"
-                              : "border-border/50 text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          {component.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <ul className="space-y-2">
-                    {[...incident.updates].reverse().map((update) => (
-                      <li key={update.id} className="text-[12.5px] text-foreground/75 leading-relaxed">
-                        <span className={cn("font-bold", statusColor(update.status))}>
-                          {INCIDENT_STATUS_LABEL[update.status]}
-                        </span>{" "}
-                        <span className="text-muted-foreground text-[11px]">
-                          {formatDate(update.created_at)}
-                        </span>
-                        <br />
-                        {update.message}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-    </div>
-  );
+  return <div className="space-y-6"><section className="rounded-2xl border border-white/[0.08] bg-[#0f1422] p-5"><h2 className="text-lg font-bold">{t("incidents.new")}</h2><form onSubmit={create} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4"><label className="xl:col-span-2"><span className="mb-1 block text-xs font-bold">{t("incidents.title")}</span><input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[#090c15] px-3 py-2" required /></label><SelectBox label={t("incidents.type")} value={form.type} options={["incident", "maintenance"]} onChange={(type) => setForm({ ...form, type: type as IncidentType, status: type === "maintenance" ? "scheduled" : "investigating" })} /><SelectBox label={t("incidents.impact")} value={form.impact} options={["minor", "major", "critical"]} onChange={(impact) => setForm({ ...form, impact: impact as IncidentImpact })} /><SelectBox label={t("incidents.status")} value={form.status} options={form.type === "maintenance" ? MAINTENANCE_STATUSES : INCIDENT_STATUSES} onChange={(status) => setForm({ ...form, status: status as IncidentStatus })} /><label><span className="mb-1 block text-xs font-bold">{t("incidents.startTime")}</span><input type="datetime-local" value={form.starts_at} onChange={(event) => setForm({ ...form, starts_at: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[#090c15] px-3 py-2" /></label>{form.type === "maintenance" && <label><span className="mb-1 block text-xs font-bold">{t("incidents.endTime")}</span><input type="datetime-local" value={form.resolves_at} onChange={(event) => setForm({ ...form, resolves_at: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[#090c15] px-3 py-2" /></label>}<div className="md:col-span-2 xl:col-span-4"><h3 className="text-xs font-bold">{t("incidents.affected")}</h3><AffectedEditor monitors={monitors} values={form.affected} onToggle={(id) => toggle(form.affected, id, form.type === "maintenance" ? "maintenance" : "degraded", (next) => setForm({ ...form, affected: next }))} onStatus={(id, status) => setForm({ ...form, affected: { ...form.affected, [id]: status } })} /></div><label className="md:col-span-2 xl:col-span-3"><span className="mb-1 block text-xs font-bold">{t("incidents.initialUpdate")}</span><textarea rows={3} value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[#090c15] px-3 py-2" /></label><label><span className="mb-1 block text-xs font-bold">{t("incidents.author")}</span><input value={form.author} onChange={(event) => setForm({ ...form, author: event.target.value })} className="w-full rounded-xl border border-white/10 bg-[#090c15] px-3 py-2" /></label><div className="md:col-span-2 xl:col-span-4"><button type="submit" disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-bold disabled:opacity-40"><Plus className="h-4 w-4" />{t("incidents.create")}</button>{error && <span className="ml-3 text-sm text-rose-300">{error}</span>}</div></form></section><IncidentSection title={t("incidents.active")} incidents={active} onOpen={open} empty={t("incidents.noActive")} /><IncidentSection title={t("incidents.past")} incidents={past} onOpen={open} empty={t("incidents.noPast")} /></div>;
 }
+
+function AffectedEditor({ monitors, values, onToggle, onStatus }: { monitors: MonitorChoice[]; values: Affected; onToggle: (id: string) => void; onStatus: (id: string, status: ComponentStatus) => void }) { return <div className="mt-3 grid gap-2 md:grid-cols-2">{monitors.map((monitor) => <div key={monitor.id} className={`rounded-xl border p-3 ${values[monitor.id] ? "border-indigo-400/30 bg-indigo-400/[0.06]" : "border-white/[0.07]"}`}><label className="flex items-start gap-3"><input type="checkbox" checked={Boolean(values[monitor.id])} onChange={() => onToggle(monitor.id)} className="mt-1" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{monitor.name}</span><span className="block truncate text-xs text-slate-500">{monitor.target}</span></span></label>{values[monitor.id] && <select value={values[monitor.id]} onChange={(event) => onStatus(monitor.id, event.target.value as ComponentStatus)} className="mt-3 w-full rounded-lg border border-white/10 bg-[#090c15] px-2 py-2 text-xs">{DISPLAY_STATUSES.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select>}</div>)}</div>; }
+function IncidentSection({ title, incidents, onOpen, empty }: { title: string; incidents: Incident[]; onOpen: (incident: Incident) => void; empty: string }) { return <section className="rounded-2xl border border-white/[0.08] bg-[#0f1422] p-5"><h2 className="font-bold">{title}</h2><div className="mt-4 space-y-2">{incidents.length === 0 ? <p className="text-sm text-slate-500">{empty}</p> : incidents.map((incident) => <button type="button" key={incident.id} onClick={() => onOpen(incident)} className="flex w-full items-center gap-3 rounded-xl border border-white/[0.06] p-4 text-left hover:bg-white/[0.025]"><span className={`h-2.5 w-2.5 rounded-full ${incident.impact === "critical" ? "bg-rose-500" : incident.impact === "major" ? "bg-orange-400" : "bg-amber-300"}`} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{incident.title}</span><span className="text-xs text-slate-500">{formatDateTime(incident.starts_at)} · {incident.affected_components?.length ?? 0}</span></span><span className="text-xs font-bold uppercase text-slate-400">{INCIDENT_STATUS_LABEL[incident.status]}</span></button>)}</div></section>; }
+function SelectBox({ label, value, options, onChange }: { label: string; value: string; options: readonly string[]; onChange: (value: string) => void }) { return <label><span className="mb-1 block text-xs font-bold">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#090c15] px-3 py-2">{options.map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}</select></label>; }

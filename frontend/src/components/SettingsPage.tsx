@@ -52,7 +52,8 @@ import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
 import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
+import { OsAppFrame } from '@/components/OsAppFrame'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useRealtime } from '@/hooks/useRealtime'
@@ -406,20 +407,31 @@ export function SettingsPage(props: SettingsPageProps) {
   }
   const [yamlEditorOpen, setYamlEditorOpen] = useState(false)
   const { stats, haInfo, osInfo, loading: statsLoading, refresh: refreshStats } = useSystemStats(settingsTab === 'system')
+  const settingsHeading = {
+    general: { title: t('settings.general'), description: t('settings.tabGeneralDesc') },
+    appearance: { title: t('settings.appearance'), description: t('settings.tabAppearanceDesc') },
+    dashboard: { title: t('settings.dashboard'), description: t('settings.tabDashboardDesc') },
+    system: { title: t('settings.system'), description: t('settings.tabSystemDesc') },
+    apps: { title: t('settings.apps'), description: t('settings.tabAppsDesc') },
+  }[settingsTab]
 
   return (
-    <section className="rumahl-settings-app">
-      <header className="rumahl-settings-navbar">
-        <div className="flex items-center gap-3.5"><span className="rumahl-app-mark rumahl-app-mark-settings"><GearSix size={26} weight="duotone" /></span><div><h1 className="text-[1.35rem] font-semibold leading-tight tracking-tight text-foreground">{t('navigation.settings')}</h1><p className="text-xs text-foreground/45">{t('os.apps.settings.description')}</p></div></div>
-        <div className="flex items-center gap-2">
-          <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium text-foreground/60 sm:flex"><User size={12} />{userName}</span>
-          <span className="hidden items-center gap-1.5 rounded-full border border-foreground/8 bg-foreground/5 px-3 py-1.5 text-[11px] font-medium capitalize text-foreground/60 md:flex"><Palette size={12} />{theme}</span>
-          <OsWindowActions pageId="settings" />
-        </div>
-      </header>
-
-      <Tabs value={settingsTab} onValueChange={(v) => changeTab(v as typeof settingsTab)} className="rumahl-settings-layout">
-        <TabsList className="rumahl-settings-sidebar">
+    <Tabs value={settingsTab} onValueChange={(v) => changeTab(v as typeof settingsTab)} className="rumahl-settings-tabs">
+      <OsAppFrame
+        className="rumahl-settings-app"
+        navbar={(
+          <OsAppNavbar
+            pageId="settings"
+            title={t('navigation.settings')}
+            description={t('os.apps.settings.description')}
+            icon={<GearSix size={18} weight="regular" />}
+            trailing={
+              <span className="rumahl-settings-user"><User size={12} />{userName}</span>
+            }
+          />
+        )}
+        sidebar={(
+          <TabsList className="rumahl-settings-sidebar">
           <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <User size={15} weight="fill" />
@@ -465,14 +477,21 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabAppsDesc')}</span>
             </span>
           </TabsTrigger>
-        </TabsList>
+          </TabsList>
+        )}
+      >
+        <div className="rumahl-settings-content">
+          <header className="rumahl-settings-content-header">
+            <h2>{settingsHeading.title}</h2>
+            <p>{settingsHeading.description}</p>
+          </header>
 
         {/* ─── TAB: Allgemein ──────────────────────────────────────── */}
         <TabsContent value="general" className="space-y-5">
 
           {/* Profile */}
           <SettingsSection icon={User} title={t("settings.profile")} description={t("settings.profileDesc")} accentIcon>
-            <div className="flex items-center gap-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+            <div className="rumahl-settings-profile-summary flex items-center gap-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
               <div className="w-12 h-12 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
                 <User size={22} weight="fill" className="text-accent" />
               </div>
@@ -484,7 +503,7 @@ export function SettingsPage(props: SettingsPageProps) {
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="rumahl-settings-field-grid grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="rumahl-field-label">Benutzername</label>
                 <input
@@ -509,7 +528,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <button
               onClick={saveUserProfile}
               disabled={isSavingProfile}
-              className="w-full px-4 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-medium transition-colors hover:bg-accent/90 disabled:opacity-60"
+              className="rumahl-settings-primary-action w-full px-4 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-medium transition-colors hover:bg-accent/90 disabled:opacity-60"
             >
               {isSavingProfile ? 'Wird gespeichert...' : 'Profil speichern'}
             </button>
@@ -930,7 +949,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <SettingsSection icon={Layout} title="Seiten-Designer" description="Dashboard-Seiten anpassen und organisieren" accentIcon>
               <button
                 onClick={() => setShowPageDesigner(true)}
-                className="w-full px-4 py-3.5 rounded-xl bg-accent/10 hover:bg-accent/18 text-accent transition-colors flex items-center justify-between group border border-accent/15"
+                className="rumahl-settings-tool-row w-full px-4 py-3.5 rounded-xl bg-accent/10 hover:bg-accent/18 text-accent transition-colors flex items-center justify-between group border border-accent/15"
               >
                 <div className="flex items-center gap-3">
                   <Sparkle size={20} weight="fill" />
@@ -944,7 +963,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
               <button
                 onClick={() => setYamlEditorOpen(true)}
-                className="w-full px-4 py-3.5 rounded-xl bg-foreground/[0.04] hover:bg-foreground/[0.08] text-foreground/70 transition-colors flex items-center justify-between group border border-foreground/10"
+                className="rumahl-settings-tool-row w-full px-4 py-3.5 rounded-xl bg-foreground/[0.04] hover:bg-foreground/[0.08] text-foreground/70 transition-colors flex items-center justify-between group border border-foreground/10"
               >
                 <div className="flex items-center gap-3">
                   <BracketsCurly size={20} weight="fill" />
@@ -984,9 +1003,9 @@ export function SettingsPage(props: SettingsPageProps) {
             <SettingsSection icon={Cpu} title={t("settings.backendUsage")} description={t("settings.backendUsageDesc")} accentIcon>
               {stats ? (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rumahl-settings-resource-grid grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* CPU */}
-                    <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 space-y-2">
+                    <div className="rumahl-settings-resource-row p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Cpu size={14} className="text-foreground/50" />
@@ -998,7 +1017,7 @@ export function SettingsPage(props: SettingsPageProps) {
                       <p className="text-[10px] text-foreground/40">{stats.cpu.cores} Kerne</p>
                     </div>
                     {/* Memory */}
-                    <div className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 space-y-2">
+                    <div className="rumahl-settings-resource-row p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <HardDrives size={14} className="text-foreground/50" />
@@ -1010,34 +1029,34 @@ export function SettingsPage(props: SettingsPageProps) {
                       <p className="text-[10px] text-foreground/40">{formatBytes(stats.memory.used_bytes)} / {formatBytes(stats.memory.total_bytes)}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                  <div className="rumahl-settings-facts grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Uptime</p>
                       <p className="text-xs font-semibold text-foreground">{formatUptime(stats.uptime_seconds)}</p>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Version</p>
                       <p className="text-xs font-semibold text-foreground">v{stats.backend.version}</p>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">DB Größe</p>
                       <p className="text-xs font-semibold text-foreground">{formatBytes(stats.database.size_bytes)}</p>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">History</p>
                       <p className="text-xs font-semibold text-foreground">{stats.database.history_rows.toLocaleString()}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                  <div className="rumahl-settings-facts grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Clients</p>
                       <p className="text-xs font-semibold text-foreground">{stats.backend.connected_clients}</p>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Cache Hits</p>
                       <p className="text-xs font-semibold text-foreground">{stats.backend.cache_metrics.cache_hits.toLocaleString()}</p>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Updates</p>
                       <p className="text-xs font-semibold text-foreground">{stats.backend.cache_metrics.update_count.toLocaleString()}</p>
                     </div>
@@ -1045,7 +1064,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <button
                     onClick={refreshStats}
                     disabled={statsLoading}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-foreground/[0.04] hover:bg-foreground/8 border border-foreground/8 text-xs text-foreground/60 transition-colors"
+                    className="rumahl-settings-inline-action flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-foreground/[0.04] hover:bg-foreground/8 border border-foreground/8 text-xs text-foreground/60 transition-colors"
                   >
                     <ArrowsClockwise size={14} className={statsLoading ? 'animate-spin' : ''} />
                     Aktualisieren
@@ -1062,32 +1081,32 @@ export function SettingsPage(props: SettingsPageProps) {
             <SettingsSection icon={WifiHigh} title={t("settings.homeAssistant")} description={t("settings.homeAssistantDesc")} accentIcon>
               {haInfo ? (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                  <div className="rumahl-settings-facts grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Status</p>
                       <div className="flex items-center justify-center gap-1.5">
                         <div className={`w-2 h-2 rounded-full ${haInfo.ha_connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
                         <p className="text-xs font-semibold text-foreground">{haInfo.ha_connected ? 'Verbunden' : 'Getrennt'}</p>
                       </div>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">WebSocket</p>
                       <div className="flex items-center justify-center gap-1.5">
                         <div className={`w-2 h-2 rounded-full ${haInfo.ha_ws_connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
                         <p className="text-xs font-semibold text-foreground">{haInfo.ha_ws_connected ? 'Aktiv' : 'Inaktiv'}</p>
                       </div>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">Entitäten</p>
                       <p className="text-xs font-semibold text-foreground">{haInfo.entity_count}</p>
                     </div>
-                    <div className="p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
+                    <div className="rumahl-settings-fact p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-center">
                       <p className="text-[10px] font-medium text-foreground/45 uppercase tracking-wider mb-1">History 24h</p>
                       <p className="text-xs font-semibold text-foreground">{haInfo.history_entries_24h.toLocaleString()}</p>
                     </div>
                   </div>
                   {haInfo.ha_version && (
-                    <div className="flex items-center gap-2 p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+                    <div className="rumahl-settings-info-row flex items-center gap-2 p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8">
                       <Info size={14} className="text-foreground/50 shrink-0" />
                       <p className="text-xs text-foreground/60">Home Assistant Version: <span className="font-semibold text-foreground">{haInfo.ha_version}</span></p>
                     </div>
@@ -1096,9 +1115,9 @@ export function SettingsPage(props: SettingsPageProps) {
                   {haInfo.domains.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-[11px] font-medium text-foreground/55">Domänen-Übersicht</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                      <div className="rumahl-settings-domain-list grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
                         {haInfo.domains.slice(0, 15).map((d) => (
-                          <div key={d.domain} className="flex items-center justify-between px-3 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/6">
+                          <div key={d.domain} className="rumahl-settings-domain-row flex items-center justify-between px-3 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/6">
                             <span className="text-[11px] text-foreground/70 font-mono">{d.domain}</span>
                             <span className="text-[11px] font-semibold text-foreground tabular-nums">{d.count}</span>
                           </div>
@@ -1241,9 +1260,9 @@ export function SettingsPage(props: SettingsPageProps) {
             />
           </Suspense>
         </TabsContent>
-      </Tabs>
+        </div>
 
-      {yamlEditorOpen && (
+        {yamlEditorOpen && (
         <YamlPageEditor
           onClose={() => setYamlEditorOpen(false)}
           onSave={(yaml, page) => {
@@ -1252,7 +1271,8 @@ export function SettingsPage(props: SettingsPageProps) {
             setYamlEditorOpen(false)
           }}
         />
-      )}
-    </section>
+        )}
+      </OsAppFrame>
+    </Tabs>
   )
 }

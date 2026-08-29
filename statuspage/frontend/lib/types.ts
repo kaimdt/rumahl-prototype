@@ -38,6 +38,7 @@ export interface ComponentGroup {
 
 export interface Component {
   id: string;
+  service_id?: string;
   group_id: string | null;
   name: string;
   description: string;
@@ -59,6 +60,9 @@ export interface Component {
   enabled: boolean;
   /** current status — derived (auto) or manually set (manual) */
   status: ComponentStatus;
+  monitor_status?: ComponentStatus;
+  active_incidents?: Array<{ incident_id: string; title: string; display_status: ComponentStatus; incident_status: IncidentStatus; impact: IncidentImpact; type: IncidentType }>;
+  community_report?: { region: string; reports: number; window_minutes: number; last_report_at: string } | null;
   changed_at: string | null;
   /** uptime percentages (null when no data yet) */
   uptime_30: number | null;
@@ -72,7 +76,16 @@ export interface IncidentUpdate {
   id: number;
   status: IncidentStatus;
   message: string;
+  author?: string | null;
   created_at: string;
+}
+
+export interface IncidentAffectedComponent {
+  service_id: string;
+  component_id: string;
+  name: string;
+  description?: string | null;
+  status: ComponentStatus;
 }
 
 export interface Incident {
@@ -81,12 +94,18 @@ export interface Incident {
   title: string;
   status: IncidentStatus;
   impact: IncidentImpact;
+  source?: "manual" | "monitor" | "system";
   starts_at: string;
   resolves_at: string | null;
   created_at: string;
   updated_at: string;
   /** component ids affected by this incident */
   components: string[];
+  affected_components: IncidentAffectedComponent[];
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  actual_start?: string | null;
+  actual_end?: string | null;
   updates: IncidentUpdate[];
 }
 
@@ -117,6 +136,8 @@ export interface PublicStatusPageResponse {
     favicon_url: string | null; custom_css_url: string | null; custom_css: string | null;
     theme: { primary?: string; background?: string; surface?: string; text?: string; muted?: string; border?: string; max_width?: string; radius?: string } | null;
     canonical_domain: string | null; path_enabled: boolean; domain_enabled: boolean; show_disabled_components: boolean;
+    problem_reports_enabled?: boolean;
+    layout_config?: { order?: string[]; hidden?: string[] };
     default_language: string; enabled_locales: string[];
     translations: Record<string, {
       title?: string; description?: string; footer_text?: string;
@@ -127,6 +148,7 @@ export interface PublicStatusPageResponse {
   overall: ComponentStatus | "unknown";
   groups: Array<{ id: string; name: string; collapsed: boolean; auto_expand: boolean; services: Array<Record<string, unknown>> }>;
   incidents: Incident[];
+  past_incidents?: Incident[];
   updated_at: string;
 }
 
@@ -259,6 +281,12 @@ export interface AdminIncidentInput {
   starts_at?: string;
   resolves_at?: string | null;
   component_ids?: string[];
+  affected_components?: Array<{ service_id: string; status: ComponentStatus }>;
+  author?: string;
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  actual_start?: string | null;
+  actual_end?: string | null;
   message?: string; // initial update message
 }
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppFrame } from '@/components/OsAppFrame'
 
 /**
  * OS-style app window: a rounded Liquid-Glass frame with a slim title bar
@@ -23,14 +24,19 @@ export function OsAppWindow({
   const { t } = useTranslation()
 
   return (
-    <div className={`rumahl-app-frame flex flex-col ${noClip ? 'rumahl-app-frame-no-clip' : ''}`}>
-      <div className="flex min-h-12 shrink-0 items-center gap-3 border-b border-foreground/8 px-4 sm:px-5">
-        {icon && <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white shadow-md" style={{ background: 'linear-gradient(145deg, oklch(0.62 0.14 265), oklch(0.45 0.12 280))' }}>{icon}</span>}
-        <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.16em] text-foreground/50">{title}</span>
-        <span className="flex-1" />
-        <OsWindowActions pageId={pageId} />
-      </div>
-      <div className="min-w-0 flex-1 p-4 sm:p-6">{children}</div>
-    </div>
+    <OsAppFrame
+      className={`rumahl-app-frame ${noClip ? 'rumahl-app-frame-no-clip' : ''}`}
+      navbar={(
+        <div className="rumahl-os-window-titlebar">
+          {icon && <span className="rumahl-os-window-app-icon">{icon}</span>}
+          <span className="rumahl-os-window-title">{title}</span>
+          <span className="flex-1" />
+          <OsWindowActions pageId={pageId} />
+        </div>
+      )}
+      contentClassName="rumahl-os-app-content-padded"
+    >
+      {children}
+    </OsAppFrame>
   )
 }

@@ -28,13 +28,22 @@ $path = rawurldecode($path);
 // Tolerate an accidental /httpdocs/ prefix (people copy the server path
 // into the URL, e.g. status.rumahl.com/httpdocs/src/cron.php → /cron.php).
 $path = preg_replace('#^/httpdocs(?=/|$)#i', '', $path) ?? $path;
+$tenantBackend = null;
+if (preg_match('#^/s/([a-z0-9]+(?:-[a-z0-9]+)*)/(rss|feed|favicon\.svg|status\.json)/?$#', $path, $tenantBackendMatch)) {
+    $tenantBackend = ['slug' => $tenantBackendMatch[1], 'route' => '/' . $tenantBackendMatch[2]];
+}
 
 /* ── Backend routes ─────────────────────────────────────────────── */
 $isBackend =
     str_starts_with($path, '/api') ||
-    in_array($path, ['/rss', '/feed', '/favicon.svg', '/status.json', '/cron.php', '/upgrade.php', '/install.php'], true);
+    in_array($path, ['/rss', '/feed', '/favicon.svg', '/status.json', '/cron.php', '/upgrade.php', '/install.php'], true) || $tenantBackend !== null;
 
 if ($isBackend) {
+    if ($tenantBackend !== null) {
+        $_GET['slug'] = $tenantBackend['slug'];
+        $_SERVER['REQUEST_URI'] = $tenantBackend['route'];
+        $path = $tenantBackend['route'];
+    }
     // api.php/cron.php/… live in ./src — not directly reachable (see .htaccess).
     if (str_starts_with($path, '/api')) {
         require __DIR__ . '/src/api.php';

@@ -11,9 +11,11 @@ import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { DOCK_PINS_EVENT_NAME, isDockPinned, readDockPins, toggleDockPin } from '@/lib/dockPrefs'
-import { isAppOpenExternal } from '@/lib/appOpenPrefs'
 import { getPreferredLaunchMode, setPreferredLaunchMode } from '@/lib/launchModes'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
+import { useShellMode } from '@/hooks/useShellMode'
+import { DesktopLauncherOverlay } from '@/components/DesktopLauncherOverlay'
+import { RumahlMark } from '@/components/RumahlMark'
 
 const RECENT_APPS_KEY = 'rumahl-os-recent-apps'
 const MAX_RECENT_IN_DOCK = 3
@@ -31,16 +33,25 @@ export function OsDock() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
-  const { windows, openWindow, openSplit, setImmersive, focusWindow } = useOsWindows()
+  const { windows, openWindow, openSplit, setImmersive, focusWindow, immersivePageId } = useOsWindows()
   const { installedApps } = useInstalledApps()
   const { can } = useOsPermissions()
+  const { resolvedMode } = useShellMode()
   const [pinnedIds, setPinnedIds] = useState<string[]>(readDockPins)
   const [recentIds, setRecentIds] = useState<string[]>(readRecentIds)
   const [menuId, setMenuId] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [hoverId, setHoverId] = useState<string | null>(null)
   const reducedMotion = useReducedMotion()
+  const [launcherOpen, setLauncherOpen] = useState(false)
   useCloseOnOtherMenu(() => setMenuId(null))
+  // Close the launcher overlay on Escape.
+  useEffect(() => {
+    if (!launcherOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setLauncherOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [launcherOpen])
 
   const apps = useMemo(() => {
     const pageApps = createPageApps(pages, (name) => iconMap[name as keyof typeof iconMap])
@@ -53,6 +64,11 @@ export function OsDock() {
   }, [can, pages, user?.isAdmin, installedApps, user])
 
   const appById = useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps])
+  const appByPageId = useMemo(() => {
+    const m = new Map<string, OsAppDefinition>()
+    for (const app of apps) m.set(app.pageId, app)
+    return m
+  }, [apps])
 
   // Keep pins + recents fresh when quick actions or the shell update them.
   useEffect(() => {
@@ -85,16 +101,44 @@ export function OsDock() {
     .filter((app) => !pinned.some((item) => item.id === app.id))
     .slice(0, MAX_RECENT_IN_DOCK)
 
+  // All open OS windows (floating + split panes), so the taskbar always shows
+  // every running app — not just pinned/recent ones.
+  const openApps = useMemo(() => {
+    const seen = new Set<string>()
+    const result: OsAppDefinition[] = []
+    for (const w of windows) {
+      if (!w.pageId || seen.has(w.pageId)) continue
+      const app = appByPageId.get(w.pageId)
+      if (app) { seen.add(w.pageId); result.push(app) }
+    }
+    return result
+  }, [windows, appByPageId])
+
+  // Taskbar order: launcher, then pinned, then the open apps — pinned and open
+  // are never duplicated (open apps that are already pinned stay pinned).
+  const taskbarApps = useMemo(() => {
+    const known = new Set(pinned.map((app) => app.id))
+    const rest: OsAppDefinition[] = []
+    for (const app of openApps) {
+      if (known.has(app.id)) continue
+      known.add(app.id)
+      rest.push(app)
+    }
+    return [...pinned, ...rest]
+  }, [pinned, openApps])
+
   // Flat dock order for the macOS-style neighbor magnification: the
   // hovered icon grows, its direct neighbors grow slightly less, the rest
-  // stay at rest. Index 0 = launcher, then pinned, then recents.
+  // stay at rest. Index 0 = launcher, then pinned, then open/recent.
   const dockIds = useMemo(
-    () => ['launcher', ...pinned.map((app) => app.id), ...recents.map((app) => app.id)],
-    [pinned, recents]
+    () => ['launcher', ...taskbarApps.map((app) => app.id), ...recents.filter((app) => !taskbarApps.some((x) => x.id === app.id)).map((app) => app.id)],
+    [taskbarApps, recents]
   )
   const hoverIdx = hoverId ? dockIds.indexOf(hoverId) : -1
+  // Magnification is a launcher (macOS dock) affordance only. In desktop mode
+  // the dock behaves like a Windows taskbar: no scaling, always a flat row.
   const magnification = (index: number) => {
-    if (reducedMotion || hoverIdx < 0) return 1
+    if (resolvedMode !== 'launcher' || reducedMotion || hoverIdx < 0) return 1
     if (index === hoverIdx) return 1.22
     if (Math.abs(index - hoverIdx) === 1) return 1.08
     return 1
@@ -107,50 +151,27 @@ export function OsDock() {
 
   const handleItemClick = (app: OsAppDefinition) => {
     setMenuId(null)
-    // Per-app user preference: open the web UI directly via its port.
-    if (app.openUrl && isAppOpenExternal(app.pageId)) {
-      if (app.runtimeStatus === 'running') {
-        window.open(app.openUrl, '_blank', 'noopener,noreferrer')
-        return
-      }
-      // Not running yet — fall through so the runner shows the state page
-      // with a start action.
-    }
-    if (app.openUrl) {
+    // Launcher mode (iOS/Android): always fullscreen, no windows.
+    if (resolvedMode === 'launcher') {
+      if (app.pageId === 'launcher') { setLauncherOpen(true); return }
       setCurrentPageId(app.pageId)
       return
     }
+    // Desktop mode (Windows-style taskbar): the URL is the source of truth for
+    // the focused app. Setting the URL drives the window manager (App syncs
+    // openWindow/focusWindow), so a click opens / focuses / un-minimizes the
+    // app and keeps the address bar in sync.
     if (app.pageId === 'launcher') {
-      setCurrentPageId('launcher')
+      setLauncherOpen(true)
       return
     }
-    // Focus an already open window (desktop stays visible behind it).
-    if (windows.some((w) => w.pageId === app.pageId)) {
+    if (app.pageId === currentPageId) {
+      // Already the focused app — ensure its window is raised/restored.
+      if (immersivePageId === app.pageId) return
       focusWindow(app.pageId)
-      setCurrentPageId('launcher')
       return
     }
-    // Fill an empty split pane when a split layout is active.
-    const emptyPane = windows.find((w) => w.layout !== 'window' && !w.pageId)
-    if (emptyPane) {
-      openSplit(app.pageId, emptyPane.layout as 'split-left' | 'split-right')
-      setCurrentPageId('launcher')
-      return
-    }
-    // Launch in the user's preferred mode for this app.
-    const mode = getPreferredLaunchMode(app.pageId)
-    if (mode === 'window') {
-      openWindow(app.pageId)
-      setCurrentPageId('launcher')
-    } else if (mode === 'split-left' || mode === 'split-right') {
-      openSplit(app.pageId, mode)
-      setCurrentPageId('launcher')
-    } else if (mode === 'immersive') {
-      setImmersive(app.pageId)
-      setCurrentPageId(app.pageId)
-    } else {
-      setCurrentPageId(app.pageId)
-    }
+    setCurrentPageId(app.pageId)
   }
 
   const getName = (app: OsAppDefinition) => (app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName)
@@ -162,6 +183,8 @@ export function OsDock() {
     const menuOpen = menuId === app.id
     const isHovered = hoverId === app.id
     const scale = magnification(index)
+    const openWin = windows.find((w) => w.pageId === app.pageId)
+    const isMinimized = Boolean(openWin?.minimized)
     return (
       <motion.div
         key={app.id}
@@ -185,20 +208,20 @@ export function OsDock() {
           aria-label={name}
         >
           <span
-            className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-[1.1rem] text-white transition-transform duration-200 will-change-transform sm:h-12 sm:w-12 ${
-              app.iconUrl
-                ? 'border-0 bg-transparent shadow-none'
-                : `border shadow-lg ${active ? 'border-white/30 bg-white/10' : 'border-white/12 bg-transparent'}`
-            }`}
+            className={`rumahl-app-icon flex h-11 w-11 items-center justify-center overflow-hidden text-white transition-transform duration-200 will-change-transform sm:h-12 sm:w-12 ${app.id === 'launcher' ? 'border-0 bg-transparent shadow-none' : app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''}`}
             style={app.iconUrl
-              ? { transform: `translateY(${isHovered ? -4 : 0}px) scale(${scale})` }
-              : {
-                  background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 70%, black))`,
-                  transform: `translateY(${isHovered ? -4 : 0}px) scale(${scale})`,
-                }}
+              ? { transform: `translateY(${resolvedMode === 'launcher' && isHovered ? -4 : 0}px) scale(${scale})` }
+              : app.id === 'launcher'
+                ? { transform: `translateY(${resolvedMode === 'launcher' && isHovered ? -4 : 0}px) scale(${scale})` }
+                : {
+                    '--app-accent': app.accent,
+                    transform: `translateY(${resolvedMode === 'launcher' && isHovered ? -4 : 0}px) scale(${scale})`,
+                  } as React.CSSProperties}
           >
             {app.iconUrl ? (
               <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain p-0.5" />
+            ) : app.id === 'launcher' ? (
+              <RumahlMark className="h-6 w-6 text-foreground" />
             ) : (
               <Icon size={24} weight="duotone" />
             )}
@@ -216,8 +239,11 @@ export function OsDock() {
               />
             )}
           </AnimatePresence>
-          {windows.some((w) => w.pageId === app.pageId) && (
-            <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]" aria-label={t('os.window.open')} />
+          {openWin && (
+            <span
+              className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full ${isMinimized ? 'bg-foreground/40' : 'bg-accent shadow-[0_0_8px_var(--accent)]'}`}
+              aria-label={isMinimized ? t('os.window.minimized') : t('os.window.open')}
+            />
           )}
         </button>
 
@@ -298,7 +324,7 @@ export function OsDock() {
   }
 
   return (
-    <div className="fixed bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-1/2 z-[60] -translate-x-1/2 select-none">
+    <div className="rumahl-dock-shell fixed bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-1/2 z-[60] -translate-x-1/2 select-none">
       <motion.div
         initial={reducedMotion ? false : { y: 28, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -306,14 +332,23 @@ export function OsDock() {
         className="flex items-end gap-1.5 rounded-[1.35rem] border border-foreground/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl"
       >
         {renderItem(launcherApp, false, 0)}
-        {pinned.map((app, index) => renderItem(app, true, index + 1))}
-        {recents.length > 0 && (
+        {taskbarApps.map((app, index) => renderItem(app, pinned.some((p) => p.id === app.id), index + 1))}
+        {recents.filter((app) => !taskbarApps.some((x) => x.id === app.id)).length > 0 && (
           <>
             <span className="mx-1 h-9 w-px self-center bg-foreground/12" aria-hidden="true" />
-            <div className="hidden gap-1.5 sm:flex">{recents.map((app, index) => renderItem(app, false, index + 1 + pinned.length))}</div>
+            <div className="hidden gap-1.5 sm:flex">{recents.filter((app) => !taskbarApps.some((x) => x.id === app.id)).map((app, index) => renderItem(app, false, index + 1 + taskbarApps.length))}</div>
           </>
         )}
       </motion.div>
+
+      <DesktopLauncherOverlay
+        open={launcherOpen}
+        apps={apps}
+        recent={recentIds}
+        onOpenApp={(app) => { setLauncherOpen(false); handleItemClick(app) }}
+        onOpenSettings={() => { setLauncherOpen(false); setCurrentPageId('settings') }}
+        onClose={() => setLauncherOpen(false)}
+      />
     </div>
   )
 }

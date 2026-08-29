@@ -175,6 +175,7 @@ function incidents_full(string $where, array $params, int $limit = 100): array
             'id' => (int) $update['id'],
             'status' => $update['status'],
             'message' => $update['message'],
+            'author' => $update['author'] ?? null,
             'created_at' => iso($update['created_at']),
         ];
     }
@@ -187,6 +188,30 @@ function incidents_full(string $where, array $params, int $limit = 100): array
     foreach ($links as $link) {
         $componentsByIncident[$link['incident_id']][] = $link['component_id'];
     }
+    $serviceLinks = db_all(
+        "SELECT linked.* FROM (
+            SELECT rel.incident_id,rel.service_id,rel.display_status,s.public_name name,s.public_description description
+              FROM incident_services rel JOIN monitoring_services s ON s.id=rel.service_id
+             WHERE rel.incident_id IN ($placeholders)
+            UNION ALL
+            SELECT legacy.incident_id,s.id service_id,
+                   CASE i.impact WHEN 'critical' THEN 'major_outage' WHEN 'major' THEN 'partial_outage' ELSE 'degraded' END display_status,
+                   s.public_name name,s.public_description description
+              FROM incident_components legacy
+              JOIN incidents i ON i.id=legacy.incident_id
+              JOIN monitoring_services s ON s.legacy_component_id=legacy.component_id OR s.id=legacy.component_id
+             WHERE legacy.incident_id IN ($placeholders)
+               AND NOT EXISTS (SELECT 1 FROM incident_services rel WHERE rel.incident_id=legacy.incident_id AND rel.service_id=s.id)
+        ) linked ORDER BY linked.name",
+        array_merge($ids, $ids)
+    );
+    $servicesByIncident = [];
+    foreach ($serviceLinks as $link) {
+        $servicesByIncident[$link['incident_id']][] = [
+            'service_id' => $link['service_id'], 'component_id' => $link['service_id'],
+            'name' => $link['name'], 'description' => $link['description'], 'status' => $link['display_status'],
+        ];
+    }
 
     $out = [];
     foreach ($incidents as $incident) {
@@ -196,11 +221,17 @@ function incidents_full(string $where, array $params, int $limit = 100): array
             'title' => $incident['title'],
             'status' => $incident['status'],
             'impact' => $incident['impact'],
+            'source' => $incident['source'] ?? 'manual',
             'starts_at' => iso($incident['starts_at']),
             'resolves_at' => $incident['resolves_at'] !== null ? iso($incident['resolves_at']) : null,
             'created_at' => iso($incident['created_at']),
             'updated_at' => iso($incident['updated_at']),
             'components' => $componentsByIncident[$incident['id']] ?? [],
+            'affected_components' => $servicesByIncident[$incident['id']] ?? [],
+            'scheduled_start' => isset($incident['scheduled_start']) && $incident['scheduled_start'] !== null ? iso($incident['scheduled_start']) : null,
+            'scheduled_end' => isset($incident['scheduled_end']) && $incident['scheduled_end'] !== null ? iso($incident['scheduled_end']) : null,
+            'actual_start' => isset($incident['actual_start']) && $incident['actual_start'] !== null ? iso($incident['actual_start']) : null,
+            'actual_end' => isset($incident['actual_end']) && $incident['actual_end'] !== null ? iso($incident['actual_end']) : null,
             'updates' => $updatesByIncident[$incident['id']] ?? [],
         ];
     }

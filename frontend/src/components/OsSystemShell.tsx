@@ -35,6 +35,7 @@ import { useClock } from '@/hooks/useClock'
 import { JobCenterPanel, useActiveSystemJobCount } from '@/components/JobCenterPanel'
 import { ClipboardManager, useClipboardCapture } from '@/components/ClipboardManager'
 import { useOsWindows } from '@/contexts/OsWindowContext'
+import { RumahlMark } from '@/components/RumahlMark'
 import { comboMatches, getCombo } from '@/lib/shortcutRegistry'
 
 interface SystemStats {
@@ -313,7 +314,7 @@ export function OsSystemShell() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -40, opacity: 0 }}
             transition={{ duration: DUR_PAGE, ease: EASE_OS }}
-            className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3"
+            className="rumahl-system-bar pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3"
             style={{ height: 'var(--topbar-height, 2rem)' }}
           >
         <div className="rumahl-topbar-mix pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium">
@@ -323,7 +324,12 @@ export function OsSystemShell() {
               <button type="button" onClick={() => { closeWindow(immersivePageId); setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center hover:!bg-red-500/15 hover:!text-red-400" title={t('os.window.close')}><X size={15} weight="bold" /></button>
             </>
           ) : (
-            <span className="hidden font-semibold tracking-[0.1em] sm:inline">rumahl OS</span>
+            <>
+            <span className="hidden items-center gap-1.5 font-semibold tracking-[0.1em] sm:inline-flex">
+              <RumahlMark className="h-3.5 text-foreground/85" />
+              rumahl OS
+            </span>
+            </>
           )}
         </div>
         <div className="rumahl-topbar-actions rumahl-topbar-mix pointer-events-auto flex shrink-0 items-center gap-0.5">
@@ -365,11 +371,12 @@ export function OsSystemShell() {
           <button
             type="button"
             onClick={() => setShowClock((value) => !value)}
-            className="rumahl-topbar-action flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums focus-ring"
+            className="rumahl-clock-button rumahl-topbar-action flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums focus-ring"
             aria-expanded={showClock}
             title={t('os.shell.showDate')}
           >
-            {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            <span>{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="rumahl-clock-date">{now.toLocaleDateString(i18n.language, { day: '2-digit', month: 'short', year: 'numeric' })}</span>
           </button>
         </div>
           </motion.div>
@@ -402,7 +409,7 @@ export function OsSystemShell() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
               transition={MOTION_PANEL}
-              className="glass-card fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[57] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-white/15 p-4 shadow-2xl sm:right-6 sm:top-[3.5rem]"
+              className="rumahl-quick-settings glass-card fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[57] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-white/15 p-4 shadow-2xl sm:right-6 sm:top-[3.5rem]"
             >
               <div className="mb-4 flex items-center justify-between">
                 <div>

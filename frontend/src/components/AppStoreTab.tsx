@@ -131,9 +131,9 @@ export function AppStoreTab({ token }: { token: string }) {
   }, [handoff])
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="rumahl-store-app flex h-full w-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
+      <div className="rumahl-store-toolbar flex items-center justify-between border-b border-border px-4 py-2">
         <span className="text-xs font-semibold text-fg">
           {t('os.apps.appStore.name', 'App Store')}
           <span className="ml-2 text-muted-fg font-normal">store.rumahl.com</span>
@@ -158,12 +158,12 @@ export function AppStoreTab({ token }: { token: string }) {
       </div>
 
       {/* Storefront iframe */}
-      <div className="relative flex-1 min-h-0">
+      <div className="rumahl-store-viewport relative flex-1 min-h-0">
         <iframe
           ref={iframeRef}
           src={STORE_URL}
           title="rumahl App Store"
-          className="h-full w-full border-0 bg-white"
+          className="h-full w-full border-0 bg-[#090a0f]"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
           onLoad={() => setLoadError(false)}
         />

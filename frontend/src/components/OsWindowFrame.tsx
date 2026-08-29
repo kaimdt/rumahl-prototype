@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Minus, SquaresFour, X } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useOsWindows, type OsSnapLayout, type OsWindow } from '@/contexts/OsWindowContext'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
 
 interface Props {
   window: OsWindow
@@ -14,6 +15,13 @@ interface Props {
 const SNAP_INSET = 8
 const SNAP_GAP = 6
 const EDGE_MARGIN = 28
+
+/** Resize direction bit flags (CSS-style). */
+type ResizeDir = 'n' | 'e' | 's' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+/** Minimum window size so a window can never be resized into oblivion. */
+const MIN_W = 340
+const MIN_H = 220
 
 /** Screen-relative bounds for a snap layout (mirrors the context math). */
 function snapBounds(layout: OsSnapLayout) {
@@ -65,8 +73,32 @@ function snapTargetFromPointer(clientX: number, clientY: number): OsSnapLayout |
 export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
   const { t } = useTranslation()
   const { focusWindow, minimizeWindow, updateWindow, closeWindow, snapWindow, toggleMaximize } = useOsWindows()
+
+  useEffect(() => {
+    const toggleFromAppChrome = (event: Event) => {
+      const requestedPageId = (event as CustomEvent<{ pageId?: string }>).detail?.pageId
+      if (requestedPageId === window.pageId) toggleMaximize(window.pageId)
+    }
+    globalThis.addEventListener('rumahl:window-toggle-maximize', toggleFromAppChrome)
+    return () => globalThis.removeEventListener('rumahl:window-toggle-maximize', toggleFromAppChrome)
+  }, [toggleMaximize, window.pageId])
+  const { setCurrentPageId } = usePageNavigation()
   const drag = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null)
   const [snapPreview, setSnapPreview] = useState<OsSnapLayout | null>(null)
+
+  // Direct user click on a window (content or title): focus it AND sync the
+  // URL to its app. This is the explicit interaction that drives the address
+  // bar — the reactive App-side effect only goes URL → window, so the two
+  // never race (no /admin ↔ /files loop).
+  const onWindowPointerDown = (event: React.PointerEvent) => {
+    if (window.pageId) {
+      setCurrentPageId(window.pageId)
+    }
+    onTitlePointerDown(event)
+  }
+
+  // Active resize (direction + snapshot of start geometry).
+  const resize = useRef<{ dir: ResizeDir; startX: number; startY: number; x: number; y: number; width: number; height: number } | null>(null)
 
   const isFloating = window.layout !== 'split-left' && window.layout !== 'split-right'
 
@@ -78,8 +110,21 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
 
   const previewBounds = useMemo(() => (snapPreview ? snapBounds(snapPreview) : null), [snapPreview])
 
+  // Drag is centralised on the window root so it works both from the (hidden)
+  // chrome bar and from the app navbar (OsAppNavbar), which replaces the
+  // chrome bar in desktop windows. The drag only starts when the pointer goes
+  // down on a non-interactive header region (navbar or chrome bar); clicks on
+  // buttons/inputs/handles behave normally.
+  const canDraggable = (event: React.PointerEvent) => {
+    const el = event.target as HTMLElement
+    if (!el || typeof el.closest !== 'function') return false
+    return Boolean(el.closest('.rumahl-app-navbar, .rumahl-os-window-bar'))
+  }
+
   const onTitlePointerDown = (event: React.PointerEvent) => {
     if (window.layout !== 'window' || event.button !== 0) return
+    if (!canDraggable(event)) return
+    if ((event.target as HTMLElement).closest('.rumahl-window-action, button, input, select, a, .rumahl-resize-handle')) return
     focusWindow(window.pageId)
     drag.current = {
       startX: event.clientX,
@@ -110,7 +155,11 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
     }
   }
 
-  const onTitleDoubleClick = () => {
+  const onTitleDoubleClick = (event: React.MouseEvent) => {
+    // Only the app navbar / chrome bar toggles maximize on double-click — never
+    // the window content. Content double-clicks must behave normally (select
+    // text, rename, etc.).
+    if (!canDraggable(event as unknown as React.PointerEvent)) return
     if (window.layout !== 'window') {
       snapWindow(window.pageId, 'window')
     } else {
@@ -118,19 +167,64 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
     }
   }
 
+  const onResizeStart = (dir: ResizeDir) => (event: React.PointerEvent) => {
+    if (window.layout !== 'window' || event.button !== 0) return
+    event.stopPropagation()
+    event.preventDefault()
+    focusWindow(window.pageId)
+    resize.current = {
+      dir,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const onResizeMove = (event: React.PointerEvent) => {
+    const r = resize.current
+    if (!r || window.layout !== 'window') return
+    const dx = event.clientX - r.startX
+    const dy = event.clientY - r.startY
+
+    let nextX = r.x
+    let nextY = r.y
+    let nextW = r.width
+    let nextH = r.height
+
+    if (r.dir.includes('e')) nextW = Math.max(MIN_W, r.width + dx)
+    if (r.dir.includes('s')) nextH = Math.max(MIN_H, r.height + dy)
+    if (r.dir.includes('w')) {
+      nextW = Math.max(MIN_W, r.width - dx)
+      nextX = r.x + (r.width - nextW)
+    }
+    if (r.dir.includes('n')) {
+      nextH = Math.max(MIN_H, r.height - dy)
+      nextY = Math.max(8, r.y + (r.height - nextH))
+    }
+
+    updateWindow(window.pageId, { x: nextX, y: nextY, width: nextW, height: nextH })
+  }
+
+  const onResizeEnd = () => {
+    resize.current = null
+  }
+
   return (
     <>
       <div
         className="rumahl-os-window"
         style={{ zIndex: window.z, left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}
-        onPointerDown={() => focusWindow(window.pageId)}
+        onPointerDown={onWindowPointerDown}
+        onPointerMove={onTitlePointerMove}
+        onPointerUp={onTitlePointerUp}
+        onDoubleClick={onTitleDoubleClick}
       >
         <div
           className={`rumahl-os-window-bar ${window.layout === 'window' ? 'cursor-grab active:cursor-grabbing' : ''}`}
-          onPointerDown={onTitlePointerDown}
-          onPointerMove={onTitlePointerMove}
-          onPointerUp={onTitlePointerUp}
-          onDoubleClick={onTitleDoubleClick}
         >
           {icon}
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-normal text-foreground/75">
@@ -165,6 +259,22 @@ export function OsWindowFrame({ window, name, icon, renderContent }: Props) {
             </div>
           )}
         </div>
+
+        {/* Resize handles — only for free-form (unsnapped) windows so the
+            corner/edge zones never fight the snap-drag or maximize behavior. */}
+        {window.layout === 'window' && (
+          <>
+            {(['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeDir[]).map((dir) => (
+              <div
+                key={dir}
+                className={`rumahl-resize-handle rumahl-resize-${dir}`}
+                onPointerDown={onResizeStart(dir)}
+                onPointerMove={onResizeMove}
+                onPointerUp={onResizeEnd}
+              />
+            ))}
+          </>
+        )}
       </div>
 
       {/* Snap preview while dragging near a screen edge */}

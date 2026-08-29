@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlignLeft, AlignRight, ArrowSquareOut, CornersOut, Minus, SquaresFour, X } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
@@ -6,25 +6,48 @@ import { useOsWindows } from '@/contexts/OsWindowContext'
 import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
 
 /**
- * OsWindowActions – the three window actions (minimize / fullscreen / close)
- * shown in the title bar of regular (embedded) apps, top-right.
+ * OsWindowActions – the three window actions shown at the right of the app
+ * navbar. They are always shown and never clip, so they work at any size.
  *
- *  - minimize:   keeps the app running, returns to the launcher
- *  - fullscreen: hover shows a macOS-style dropdown (fullscreen / window /
- *                split left / split right); click enters fullscreen
- *  - close:      quits the app (closes any open window), returns to launcher
+ *  - minimize: keeps the app running, returns to the launcher
+ *  - fullscreen: opens a hover menu (fullscreen / window / split). A small
+ *                hover-intent delay keeps the menu open while the pointer
+ *                travels through the gap between button and menu — it never
+ *                closes prematurely, which reliably lets the user reach it.
+ *  - close: quits the app (closes any open window), returns to launcher
  */
 export function OsWindowActions({ pageId }: { pageId: string }) {
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
-  const { openWindow, closeWindow, minimizeWindow, openSplit, setImmersive } = useOsWindows()
+  const { windows, openWindow, closeWindow, minimizeWindow, openSplit, setImmersive } = useOsWindows()
   const { hasHover } = useDeviceCapabilities()
   const [menuOpen, setMenuOpen] = useState(false)
+  const hoverTimer = useRef<number | undefined>(undefined)
+
+  // Hover-intent: delay closing so the pointer can cross the gap between the
+  // trigger and the menu without the dropdown collapsing first.
+  const closeSoon = () => {
+    if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
+    hoverTimer.current = window.setTimeout(() => setMenuOpen(false), 220)
+  }
+  const cancelClose = () => {
+    if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
+  }
+  useEffect(() => () => { if (hoverTimer.current) window.clearTimeout(hoverTimer.current) }, [])
 
   const actionButton =
-    'flex h-7 w-7 items-center justify-center rounded-lg text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring'
+    'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-foreground/55 transition-colors hover:bg-foreground/10 hover:text-foreground focus-ring'
 
+  const windowState = windows.find((entry) => entry.pageId === pageId)
   const goFullscreen = () => { setImmersive(pageId); setCurrentPageId(pageId); setMenuOpen(false) }
+  const toggleWindowMaximize = () => {
+    if (windowState) {
+      window.dispatchEvent(new CustomEvent('rumahl:window-toggle-maximize', { detail: { pageId } }))
+      setMenuOpen(false)
+      return
+    }
+    goFullscreen()
+  }
   const goWindow = () => { openWindow(pageId); setCurrentPageId('launcher'); setMenuOpen(false) }
   const goSplit = (side: 'split-left' | 'split-right') => { openSplit(pageId, side); setCurrentPageId('launcher'); setMenuOpen(false) }
 
@@ -32,9 +55,14 @@ export function OsWindowActions({ pageId }: { pageId: string }) {
     'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground/80 transition-colors hover:bg-foreground/8 hover:text-foreground'
 
   return (
-    <div className="flex shrink-0 items-center gap-1">
+    <div
+      className="rumahl-window-actions flex shrink-0 items-center gap-1"
+      onMouseEnter={cancelClose}
+      onMouseLeave={closeSoon}
+    >
       <button
         type="button"
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={() => { minimizeWindow(pageId); setCurrentPageId('launcher') }}
         className={actionButton}
         aria-label={t('os.window.minimize')}
@@ -43,20 +71,26 @@ export function OsWindowActions({ pageId }: { pageId: string }) {
         <Minus size={15} weight="bold" />
       </button>
 
-      <div className="relative" onMouseEnter={() => setMenuOpen(true)} onMouseLeave={() => setMenuOpen(false)}>
+      <div className="relative" onMouseEnter={() => { cancelClose(); setMenuOpen(true) }}>
         <button
           type="button"
-          onClick={() => { if (hasHover) goFullscreen(); else setMenuOpen((v) => !v) }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => { if (windowState) toggleWindowMaximize(); else if (hasHover) goFullscreen(); else setMenuOpen((v) => !v) }}
           className={actionButton}
-          aria-label={t('os.window.fullscreen')}
+          aria-label={windowState ? t('os.window.maximize') : t('os.window.launchModes')}
           aria-expanded={menuOpen}
-          title={t('os.window.fullscreen')}
+          title={windowState?.layout === 'maximized' ? t('os.window.restore') : windowState ? t('os.window.maximize') : t('os.window.launchModes')}
         >
           <ArrowSquareOut size={14} weight="bold" />
         </button>
 
         {menuOpen && (
-          <div className="absolute right-0 top-full z-[90] mt-1 w-44 overflow-hidden rounded-xl border border-foreground/10 bg-background/95 p-1.5 text-foreground shadow-xl backdrop-blur-xl">
+          <div
+            className="absolute right-0 top-full z-[90] mt-1 w-44 overflow-hidden rounded-xl border border-foreground/10 bg-background/95 p-1.5 text-foreground shadow-xl backdrop-blur-xl"
+            onMouseEnter={cancelClose}
+            onMouseLeave={closeSoon}
+            onClick={() => setMenuOpen(false)}
+          >
             <button type="button" onClick={goFullscreen} className={menuItem}>
               <CornersOut size={14} className="text-foreground/50" /> {t('os.window.fullscreen')}
             </button>
@@ -75,6 +109,7 @@ export function OsWindowActions({ pageId }: { pageId: string }) {
 
       <button
         type="button"
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={() => { closeWindow(pageId); setCurrentPageId('launcher') }}
         className={`${actionButton} hover:!bg-red-500/15 hover:!text-red-400`}
         aria-label={t('os.window.close')}
