@@ -11,7 +11,7 @@ import {
 import { Tip } from '@/components/ui/tip'
 import { useTranslation } from 'react-i18next'
 import { StreamWidget } from '@/components/widgets/StreamWidget'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 
 type StreamMode = 'av' | 'video' | 'audio'

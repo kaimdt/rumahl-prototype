@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { wsOnMessage } from '@/lib/wsConnection'
+import { readNotifications, subscribeNotifications, markNotificationRead, removeNotification, clearNotifications as clearStoredNotifications, type StoredNotification } from '@/lib/notificationStore'
 
 export interface Notification {
   id: string
@@ -46,6 +47,25 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [emergencyAlert, setEmergencyAlert] = useState<EmergencyAlert | null>(null)
   const [latestNotification, setLatestNotification] = useState<Notification | null>(null)
   const latestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Merge OS toasts (journaled in the notification store) into the notification
+  // center. Toasts become first-class notifications and survive reloads.
+  useEffect(() => {
+    const merge = () => {
+      const stored = readNotifications()
+      if (stored.length === 0) return
+      setNotifications((prev) => {
+        const known = new Set(prev.map((n) => n.id))
+        const newOnes = stored
+          .filter((n) => !known.has(n.id))
+          .map((n) => ({ ...n, icon: n.icon || 'bell' } as Notification))
+        return [...newOnes, ...prev]
+      })
+    }
+    merge()
+    const unsub = subscribeNotifications(merge)
+    return unsub
+  }, [])
 
   // Fetch initial state
   useEffect(() => {
@@ -155,6 +175,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const markAsRead = useCallback(async (id: string) => {
+    markNotificationRead(id)
     if (!token) return
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
     try {
@@ -166,6 +187,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   const dismissNotification = useCallback(async (id: string) => {
+    removeNotification(id)
     if (!token) return
     setNotifications(prev => prev.filter(n => n.id !== id))
     try {
@@ -196,6 +218,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const clearAll = useCallback(async () => {
+    clearStoredNotifications()
     if (!token) return
     setNotifications([])
     try {

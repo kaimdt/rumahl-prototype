@@ -10,43 +10,51 @@
 # (/home/ora/ora) with the Win32 OpenSSH `scp` client (proven reliable). Vite
 # HMR inside the VM reloads on the next write, so the mirror stays live.
 #
-# It mirrors the repository to the VM with `--delete`-like semantics by
-# tracking the set of files it has already sent: deleted host files are
-# removed from the VM, and the mirror path /<repo> maps to /home/ora/ora.
-# node_modules/.git/.cache/target/build artifacts are never sent.
+# It is EVENT-DRIVEN (a FileSystemWatcher), not a full mirror: the VM is
+# seeded during provisioning, so this only ships the files you edit. Only the
+# source trees the VM mirrors are watched (frontend/src, frontend/public,
+# rumahl-os/backend, apps, sdks, docs, custom_components) - huge artifact
+# dirs (node_modules, target, .cache, images) are never enumerated.
 #
 # Usage:
-#   .\dev-sync.ps1 --vm-host 127.0.0.1 --vm-port 2222 --ssh-key <key>
-#   .\dev-sync.ps1 --once                              (single push, then exit)
-#   .\dev-sync.ps1 --help
+#   pwsh -File dev-sync.ps1 -vm-host 127.0.0.1 -vm-port 2222 -ssh-key <key>
+#   pwsh -File dev-sync.ps1 ... -once      (push tracked-changed files once)
+#   pwsh -File dev-sync.ps1 ... -help
 # ============================================================================
-[CmdletBinding()]
-param(
-    [string]$VmHost = "127.0.0.1",
-    [int]$VmPort = 2222,
-    [string]$SshKey,
-    [switch]$Once,
-    [int]$IntervalMs = 800,
-    [switch]$Quiet,
-    [switch]$Help
-)
+# Manual argument parsing (robust across `pwsh -File` and direct invocation;
+# avoids an environment-specific typed-param parser quirk). Accepts both
+# `-vm-host X` and `--vm-host X` forms.
+param()
+$VmHost = "127.0.0.1"; $VmPort = 2222; $SshKey = $null
+$Once = $false; $Quiet = $false; $Help = $false; $IntervalMs = 800
+$raw = @($args)
+for ($i = 0; $i -lt $raw.Count; $i++) {
+    $a = [string]$raw[$i]
+    switch -Regex ($a) {
+        '^--?vm-(host|Host)$'   { if ($i + 1 -lt $raw.Count) { $VmHost = [string]$raw[++$i] } }
+        '^--?vm-(port|Port)$'   { if ($i + 1 -lt $raw.Count) { $VmPort = [int]$raw[++$i] } }
+        '^--?ssh-(key|Key)$'    { if ($i + 1 -lt $raw.Count) { $SshKey = [string]$raw[++$i] } }
+        '^--?interval-ms$'      { if ($i + 1 -lt $raw.Count) { $IntervalMs = [int]$raw[++$i] } }
+        '^--?once$'             { $Once = $true }
+        '^--?quiet$'            { $Quiet = $true }
+        '^--?help$'             { $Help = $true }
+    }
+}
 
 $ErrorActionPreference = "Continue"
-
-# Note: parameters below use PowerShell's native single-dash convention
-# (e.g. -vm-host 127.0.0.1). Callers inside this repo pass them that way.
 
 if ($Help) {
     @"
 rumahl Dev VM continuous source sync (Windows native)
 
-The VM mirrors the repo at /home/ora/ora. This script watches the host repo and
-pushes changed files into the mirror via Windows-native scp (works under WSL2
-NAT where the bash mirror does not).
+The VM mirrors the repo at /home/ora/ora (seeded during provisioning). This
+watcher ships the source files you edit into the mirror via Windows-native scp
+(works under WSL2 NAT where the bash mirror does not). It is event-driven, so
+it never walks the whole repo - only the edited files are transferred.
 
 Usage:
-  .\dev-sync.ps1 -vm-host 127.0.0.1 -vm-port 2222 -ssh-key <key>
-  .\dev-sync.ps1 -once
+  pwsh -File dev-sync.ps1 -vm-host 127.0.0.1 -vm-port 2222 -ssh-key <key>
+  pwsh -File dev-sync.ps1 ... -once      (transfer tracked changed files once)
 "@ | ForEach-Object { Write-Host $_ }
     exit 0
 }
@@ -79,121 +87,160 @@ $SshOpts = @(
     "-o", "AddressFamily=inet",
     "-o", "LogLevel=ERROR"
 )
-$Ssh = "ssh.exe"; $Scp = "scp.exe"
 
-function Invoke-Ssh { param([string]$Cmd)
-    & $Ssh @SshOpts -i $SshKey -p $VmPort "root@$VmHost" $Cmd 2>$null
-    return $LASTEXITCODE
-}
+# --- Watched source subtrees (relative to the repo root) ---------------------
+# The VM mirrors these. Huge artifact dirs are never watched.
+$WatchedRoots = @('frontend\src', 'frontend\public', 'frontend\index.html', 'rumahl-os\backend', 'apps', 'sdks', 'docs', 'custom_components')
+$ExcludedDirs = @('.git', 'node_modules', '.cache', 'target', '.rumahl-dev', 'dist', 'build', '.venv', 'releases', 'output', 'vendor')
 
-# --- Watch state: files we have already pushed ------------------------------
-$sent = @{}
-$statePath = Join-Path $ScriptDir ".cache\dev-sync-sent.json"
-if (Test-Path $statePath) {
-    try { $sent = @(Get-Content $statePath -Raw | ConvertFrom-Json) } catch {}
-}
-# { } from ConvertFrom-Json of an object; normalise to a set of keys
-$sentSet = @{}
-foreach ($k in $sent) { if ($k -is [string]) { $sentSet[$k] = $true } }
-
-$ExcludedDirs = @('.git', 'node_modules', '.cache', 'target', '.rumahl-dev', 'dist', 'buildroot-*', 'releases', '.venv')
 function Test-Excluded { param([string]$Rel)
     $parts = $Rel -split '[\\/]'
     foreach ($p in $parts) {
         if ($ExcludedDirs -contains $p) { return $true }
-        if ($p -like 'buildroot-*' -or $p -eq '.ghq' -or $p -eq 'releases') { return $true }
-        if ($p -like '*.img' -or $p -like '*.gcow2' -or $p -like '*.iso' -or $p -like '*.tar.gz') { return $true }
+        if ($p -like 'buildroot-*' -or $p -eq '.ghq') { return $true }
+        if ($p -like '*.img' -or $p -like '*.qcow2' -or $p -like '*.iso' -or $p -like '*.tar.gz') { return $true }
+    }
+    return $false
+}
+
+# Is a path inside one of the watched subtrees?
+function Test-Watched { param([string]$Rel)
+    foreach ($root in $WatchedRoots) {
+        $norm = $Rel -replace '/', '\'
+        if ($norm -eq $root -or $norm.StartsWith("$root\")) { return $true }
     }
     return $false
 }
 
 # --- Push a batch of changed files -------------------------------------------
 function Push-Batch {
-    param([string[]]$Changes)
-    foreach ($rel in $Changes) {
-        $src = Join-Path $RepoRoot $rel
-        if (-not (Test-Path $src)) {
+    param([int[]]$Indexes, [hashtable]$ByRel)
+    foreach ($relKey in $ByRel.Keys) {
+        $src = Join-Path $RepoRoot $relKey
+        $remoteRel = $relKey -replace '\\', '/'
+        if (-not $src -or -not (Test-Path $src)) {
             # Deleted on the host -> remove from the mirror
-            $remoteRel = $rel -replace '\\', '/'
-            $remote = "root@$($VmHost):/home/ora/ora/$remoteRel"
-            & $Ssh @SshOpts -i $SshKey -p $VmPort "root@$VmHost" "rm -f '/home/ora/ora/$remoteRel'" 2>$null | Out-Null
+            & ssh.exe @SshOpts -i $SshKey -p $VmPort "root@$VmHost" "rm -f '/home/ora/ora/$remoteRel'" 2>$null | Out-Null
             continue
         }
-        $remoteRel = $rel -replace '\\', '/'
         $remote = "root@$($VmHost):/home/ora/ora/$remoteRel"
         if (-not $Quiet) { Write-Host ("  + {0}" -f $remoteRel) }
-        & $Scp @SshOpts -i $SshKey -P $VmPort "$src" $remote 2>$null
-        if ($LASTEXITCODE -eq 0) { $sentSet[$rel] = $true }
+        & scp.exe @SshOpts -i $SshKey -P $VmPort "$src" $remote 2>$null
     }
 }
 
-# --- One full mirror (push everything the first time or on --once) -----------
-function Invoke-FullSync {
-    $files = @(Get-ChildItem -Path $RepoRoot -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object {
-            $rel = $_.FullName.Substring($RepoRoot.Length + 1)
-            (-not (Test-Excluded $rel)) -and (-not $_.FullName.Contains("\.cache\")) -and (-not $_.FullName.Contains("\node_modules\"))
-        } | ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) })
-    # Only send files we haven't already sent (incremental)
-    $toSend = @($files | Where-Object { -not $sentSet.ContainsKey($_) })
-    if ($toSend.Count -gt 0) {
-        Write-Host ("Mirror: {0} new/changed files" -f $toSend.Count)
-        Push-Batch -Changes $toSend
-    } else {
-        if (-not $Quiet) { Write-Host "Mirror: no changes" }
-    }
-    # Persist sent-set
-    $sentSet.Keys | ConvertTo-Json | Set-Content $statePath -Encoding UTF8
-}
-
-# --- Watch loop --------------------------------------------------------------
+# --- Reachability ------------------------------------------------------------
 function Test-Reachable {
-    $out = & $Ssh @SshOpts -i $SshKey -p $VmPort "root@$VmHost" "true" 2>$null
+    & ssh.exe @SshOpts -i $SshKey -p $VmPort "root@$VmHost" "true" 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
+# --- Persisted last-sync snapshot (relative path -> last write time) ---------
+# Used so `-once`/startup only transfers files edited since the last run,
+# instead of enumerating the whole mirror.
+$statePath = Join-Path $ScriptDir ".cache\dev-sync-state.json"
+$lastSeen = @{}
+if (Test-Path $statePath) {
+    try { $loaded = Get-Content $statePath -Raw | ConvertFrom-Json -AsHashtable; $lastSeen = $loaded } catch {}
+}
+function Save-State {
+    $lastSeen | ConvertTo-Json -Depth 1 | Set-Content $statePath -Encoding UTF8
+}
+
+# --- Collect changed files since last-seen (only in watched trees) -----------
+function Get-ChangedFiles {
+    $changed = @{}
+    foreach ($root in $WatchedRoots) {
+        $full = Join-Path $RepoRoot $root
+        if (-not (Test-Path $full)) { continue }
+        if (Test-Path $full -PathType Leaf) {
+            # A single file (e.g. frontend/index.html)
+            $rel = $root -replace '[\\/]+', '\'
+            $mtime = (Get-Item $full).LastWriteTimeUtc.Ticks
+            if ($lastSeen.ContainsKey($rel)) { if ($lastSeen[$rel] -ne $mtime) { $changed[$rel] = $mtime } }
+            else { $changed[$rel] = $mtime }
+            continue
+        }
+        Get-ChildItem -Path $full -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $rel = $_.FullName.Substring($RepoRoot.Length + 1) -replace '\\', '\'
+            if (Test-Excluded $rel) { return }
+            $mtime = $_.LastWriteTimeUtc.Ticks
+            if ($lastSeen.ContainsKey($rel)) { if ($lastSeen[$rel] -ne $mtime) { $changed[$rel] = $mtime } }
+            else { $changed[$rel] = $mtime }
+        }
+    }
+    return $changed
+}
+
+# --- Initial sync (no full walk; only files changed since the last run) ------
 if (-not (Test-Reachable)) {
-    Write-Warn "VM not reachable at root@${VmHost}:${VmPort} - waiting for it to come up..."
+    Write-Warn "VM not reachable at root@${VmHost}:${VmPort} - waiting..."
+    # Wait up to ~60s for the VM
+    $deadline = (Get-Date).AddSeconds(60)
+    while (-not (Test-Reachable) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+    if (-not (Test-Reachable)) { Write-Warn "VM still unreachable - watching anyway (pushes will resume when it returns)." }
+}
+
+if (Test-Reachable) {
+    $initial = Get-ChangedFiles
+    if ($initial.Count -gt 0) {
+        if (-not $Quiet) { Write-Host ("Initial: {0} changed file(s) since last sync" -f $initial.Count) }
+        Push-Batch -ByRel $initial
+        foreach ($k in $initial.Keys) { $lastSeen[$k] = $initial[$k] }
+        Save-State
+    } elseif (-not $Quiet) {
+        Write-Host "Initial: no changes since last sync"
+    }
 }
 if ($Once) {
-    Invoke-FullSync
     exit 0
 }
 
-Invoke-FullSync
-
+# --- Watch loop --------------------------------------------------------------
 $watcher = New-Object System.IO.FileSystemWatcher
 $watcher.Path = $RepoRoot
 $watcher.IncludeSubdirectories = $true
-# Send changed, created, renamed and deleted events
 $watcher.NotifyFilter = [IO.NotifyFilters]::LastWrite -bor [IO.NotifyFilters]::FileName -bor [IO.NotifyFilters]::DirectoryName -bor [IO.NotifyFilters]::Size
 $queued = New-Object System.Collections.Generic.HashSet[string]
 $queueLock = New-Object System.Threading.Mutex($false)
-$debounce = [int]$IntervalMs
 
 $handler = {
     param($Source, $EventArgs)
     $full = $EventArgs.FullPath
     if (-not $full) { return }
-    $rel = $full.Substring($RepoRoot.Length + 1)
-    if ($null -eq $rel -or "" -eq $rel) { return }
+    if ($EventArgs.ChangeType -eq [IO.WatcherChangeTypes]::Directory) { return }
+    $rel = $full.Substring($RepoRoot.Length + 1) -replace '\\', '\'
+    if (-not (Test-Watched $rel)) { return }
     if (Test-Excluded $rel) { return }
-    if ($null -ne $EventArgs.ChangeType -and $EventArgs.ChangeType -eq [IO.WatcherChangeTypes]::Directory) { return }
     $null = $queueLock.WaitOne(2000)
     try { [void]$queued.Add($rel) } finally { $queueLock.ReleaseMutex() }
 }
-
-$events = Register-ObjectEvent -InputObject $watcher -EventName Changed -Action $handler
-$events = Register-ObjectEvent -InputObject $watcher -EventName Created -Action $handler
-$events = Register-ObjectEvent -InputObject $watcher -EventName Renamed -Action $handler
-$events = Register-ObjectEvent -InputObject $watcher -EventName Deleted -Action $handler
+$null = Register-ObjectEvent -InputObject $watcher -EventName Changed -Action $handler
+$null = Register-ObjectEvent -InputObject $watcher -EventName Created -Action $handler
+$null = Register-ObjectEvent -InputObject $watcher -EventName Renamed -Action $handler
+$null = Register-ObjectEvent -InputObject $watcher -EventName Deleted -Action $handler
 $watcher.EnableRaisingEvents = $true
 
-Write-Host ("Watching {0} -> root@{1}:{2}:/home/ora/ora (Ctrl+C to stop)" -f $RepoRoot, $VmHost, $VmPort)
+Write-Host ("Watching source trees -> root@{0}:{1}:/home/ora/ora (Ctrl+C to stop)" -f $VmHost, $VmPort)
+
+# Seed state so we never re-push unchanged files on the next startup.
+foreach ($root in $WatchedRoots) {
+    $full = Join-Path $RepoRoot $root
+    if (Test-Path $full -PathType Leaf) {
+        $rel = $root -replace '[\\/]+', '\'
+        $lastSeen[$rel] = (Get-Item $full).LastWriteTimeUtc.Ticks
+    } elseif (Test-Path $full) {
+        Get-ChildItem -Path $full -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $rel = $_.FullName.Substring($RepoRoot.Length + 1) -replace '\\', '\'
+            if (-not (Test-Excluded $rel)) { $lastSeen[$rel] = $_.LastWriteTimeUtc.Ticks }
+        }
+    }
+}
+Save-State
 
 try {
     while ($true) {
-        Start-Sleep -Milliseconds $debounce
+        Start-Sleep -Milliseconds ([int]$IntervalMs)
         $toPush = @()
         $null = $queueLock.WaitOne(5000)
         try {
@@ -207,8 +254,18 @@ try {
                 if (-not $Quiet) { Write-Warn "VM unreachable - skipping push" }
                 continue
             }
-            Push-Batch -Changes $toPush
-            $sentSet.Keys | ConvertTo-Json | Set-Content $statePath -Encoding UTF8
+            $byRel = @{}
+            foreach ($rel in $toPush) {
+                $full = Join-Path $RepoRoot $rel
+                if (Test-Path $full) { $byRel[$rel] = (Get-Item $full).LastWriteTimeUtc.Ticks }
+                else { $byRel[$rel] = 0 }
+            }
+            Push-Batch -ByRel $byRel
+            foreach ($rel in $byRel.Keys) {
+                if (Test-Path (Join-Path $RepoRoot $rel)) { $lastSeen[$rel] = $byRel[$rel] }
+                else { $lastSeen.Remove($rel) }
+            }
+            Save-State
         }
     }
 } finally {

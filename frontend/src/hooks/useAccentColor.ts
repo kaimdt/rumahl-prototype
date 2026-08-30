@@ -23,6 +23,7 @@ const THEME_DEFAULT_ACCENTS: Record<string, string> = {
   evening: '#f5a623',
   night: '#f5a623',
   sleep: '#f5a623',
+  midnight: '#f5f5f5',
 }
 
 /** Max chroma per theme group — keeps accents rich but never neon-garish. */
@@ -34,6 +35,7 @@ function getMaxChroma(currentTheme: string): number {
     case 'evening':
     case 'night':
     case 'sleep':
+    case 'midnight':
     case 'day-classic':
       return 0.30
     default:
@@ -195,6 +197,14 @@ export function useAccentColor() {
   }
 
   const updateCSSVariable = (color: string, currentTheme: string) => {
+    if (currentTheme === 'midnight') {
+      document.documentElement.style.setProperty('--accent', 'oklch(0.96 0 0)')
+      document.documentElement.style.setProperty('--ring', 'oklch(0.96 0 0)')
+      document.documentElement.style.setProperty('--accent-hue', '0')
+      document.documentElement.style.setProperty('--accent-hue-rot', '0deg')
+      document.documentElement.style.setProperty('--accent-rgb', '245 245 245')
+      return
+    }
     const rgb = hexToRgb(color)
     if (!rgb) return
     const oklch = rgbToOklch(rgb.r, rgb.g, rgb.b)
@@ -360,7 +370,7 @@ function themeIsDark(): boolean {
   const match = /oklch\(\s*([\d.]+)/.exec(bg)
   if (match) return parseFloat(match[1]) < 0.5
   const theme = document.documentElement.getAttribute('data-theme')
-  return theme === 'night' || theme === 'sleep' || theme === 'evening' || theme === 'day-classic'
+  return theme === 'night' || theme === 'sleep' || theme === 'midnight' || theme === 'evening' || theme === 'day-classic'
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {

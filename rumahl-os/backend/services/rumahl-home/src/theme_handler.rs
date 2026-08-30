@@ -971,6 +971,13 @@ fn builtin_themes() -> Vec<rumahl_shared::theme::ThemeDefinition> {
         t!("evening", "Abend", "Warme Töne", "SunDim", 30),
         t!("night", "Nacht", "Dunkles Design", "MoonStars", 40),
         t!("sleep", "Schlaf", "OLED Schwarz", "Moon", 50),
+        t!(
+            "midnight",
+            "rumahl Midnight UI",
+            "Pure black with white accents",
+            "CircleHalfTilt",
+            60
+        ),
     ]
 }
 

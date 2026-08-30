@@ -5,20 +5,22 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme="light"
       className="toaster group"
-      position="top-center"
-      offset={16}
+      position="bottom-right"
+      offset={44}
+      mobileOffset={10}
       toastOptions={{
         classNames: {
-          toast: "glass-toast",
-          title: "text-foreground font-medium",
-          description: "text-muted-foreground",
-          actionButton: "bg-primary text-primary-foreground",
-          cancelButton: "bg-muted text-muted-foreground",
+          toast: "glass-toast rumahl-system-toast",
+          title: "rumahl-system-toast-title text-foreground font-medium",
+          description: "rumahl-system-toast-description text-muted-foreground",
+          actionButton: "rumahl-system-toast-action bg-primary text-primary-foreground",
+          cancelButton: "rumahl-system-toast-cancel bg-muted text-muted-foreground",
           error: "glass-toast-error",
           success: "glass-toast-success",
           warning: "glass-toast-warning",
           info: "glass-toast-info",
         },
+        style: { bottom: "max(0.5rem, env(safe-area-inset-bottom))" },
       }}
       {...props}
     />

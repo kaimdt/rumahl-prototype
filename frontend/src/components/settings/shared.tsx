@@ -12,6 +12,7 @@ import * as React from 'react'
 import {
   ArrowsClockwise,
   CloudSun,
+  CircleHalfTilt,
   Eye,
   Lightbulb,
   Monitor,
@@ -30,7 +31,7 @@ import type { InstalledTheme } from '@/contexts/ThemeContext'
 /** Map icon name string to Phosphor icon component */
 export function MapThemeIcon(iconName?: string | null): React.ElementType {
   const iconMap: Record<string, React.ElementType> = {
-    Sun, Moon, Monitor, CloudSun, SunDim, MoonStars,
+    Sun, Moon, Monitor, CloudSun, SunDim, MoonStars, CircleHalfTilt,
     ArrowsClockwise, Palette, PaintBrush, Sparkle, Eye,
     Lightbulb, Star: Sparkle,
   }
@@ -114,7 +115,7 @@ export function SettingsSection({
   accentIcon?: boolean
 }) {
   return (
-    <section className="rumahl-settings-section-card">
+    <section className="appr-panel rumahl-settings-section-card">
       <header className="rumahl-settings-section-heading">
         <div className={`rumahl-settings-section-icon ${accentIcon ? 'text-accent' : ''}`}>
           <Icon size={15} weight={accentIcon ? 'fill' : 'regular'} />
@@ -206,6 +207,7 @@ export const THEME_OPTIONS: { value: string; label: string; description: string;
   { value: 'evening', label: 'Abend', description: 'Warme Töne', icon: SunDim, preview: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)' },
   { value: 'night', label: 'Nacht', description: 'Dunkles Design', icon: MoonStars, preview: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)' },
   { value: 'sleep', label: 'Schlaf', description: 'OLED Schwarz', icon: Moon, preview: 'linear-gradient(135deg, #050508 0%, #000000 100%)' },
+  { value: 'midnight', label: 'rumahl Midnight UI', description: 'Pure black with white accents', icon: CircleHalfTilt, preview: 'linear-gradient(135deg, #242424 0%, #080808 42%, #000000 100%)' },
 ]
 
 export const DAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']

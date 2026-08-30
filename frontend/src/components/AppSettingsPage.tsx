@@ -6,7 +6,7 @@ import {
   ArrowSquareOut, Cube, Warning, CaretDown, Info,
   UploadSimple, File, DownloadSimple, Code,
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 import { adminFetch, InlineSpinner, LoadingSpinner, AdminCard } from './AdminPanel'
 

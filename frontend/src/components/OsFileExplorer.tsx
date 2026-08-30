@@ -27,7 +27,7 @@ import {
   X,
   Rows, FilePlus, Info, Check, SquaresFour } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { authFetch, getAuthToken } from '@/lib/authHelpers'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { getBackendUrl } from '@/lib/config'
@@ -1074,7 +1074,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   </button>
                 </div>
                 {mounts.length === 0 ? (
-                  <div className="flex min-h-72 flex-col items-center justify-center text-center">
+                  <div className="rumahl-file-empty-state flex min-h-72 flex-col items-center justify-center text-center">
                     <img src="/icons/nas.png" alt="" width={64} height={64} className="object-contain opacity-40" draggable={false} />
                     <p className="mt-4 text-sm font-medium text-foreground/50">{t('os.files.noDrives')}</p>
                     <button type="button" onClick={() => void startScan()} className="mt-3 rounded-full bg-accent/12 px-4 py-2 text-xs font-semibold text-accent hover:bg-accent/20">
@@ -1133,7 +1133,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   <p className="text-xs text-foreground/60">{t('os.files.trashHint')}</p>
                 </div>
                 {sortedFiles.length === 0 ? (
-                  <div className="flex min-h-72 flex-col items-center justify-center text-center">
+                  <div className="rumahl-file-empty-state flex min-h-72 flex-col items-center justify-center text-center">
                     <img src="/icons/paperbin.png" alt="" width={64} height={64} className="object-contain opacity-40" draggable={false} />
                     <p className="mt-4 text-sm font-medium text-foreground/50">{t('os.files.trashEmpty')}</p>
                   </div>
@@ -1158,7 +1158,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   </div>
                 )}
               </div>
-            ) : initialLoading ? <div className="rumahl-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="rumahl-file-skeleton" />)}</div> : (sortedFiles.length === 0 && !newFileDraft && !newFolderDraft) ? <div className="flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
+            ) : initialLoading ? <div className="rumahl-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="rumahl-file-skeleton" />)}</div> : (sortedFiles.length === 0 && !newFileDraft && !newFolderDraft) ? <div className="rumahl-file-empty-state flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
               <div ref={gridRef} onMouseDown={beginMarquee} className="rumahl-file-grid relative">{
                 newFileDraft && (
                   <div className="rumahl-file-tile relative border border-accent/50 bg-accent/8">

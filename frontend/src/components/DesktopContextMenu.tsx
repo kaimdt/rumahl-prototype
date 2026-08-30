@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 import { ArrowClockwise, CaretRight, Gear, LockKey, PushPin, Storefront, Trash } from '@phosphor-icons/react'
@@ -36,6 +37,24 @@ interface Props {
  */
 export function DesktopContextMenu({ menu, onClose, onOpenApp, onOpenSettings, onRefresh, onToggleDesktopApp, isRightClickedAppOnDesktop, onManageDesktop, onDelete }: Props) {
   const { t } = useTranslation()
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menu) return
+    const id = window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus())
+    return () => window.cancelAnimationFrame(id)
+  }, [menu])
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
+    if (!items.length) return
+    event.preventDefault()
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : event.key === 'ArrowDown' ? (current + 1) % items.length : (current - 1 + items.length) % items.length
+    items[next]?.focus()
+  }
 
   return (
     <AnimatePresence>
@@ -52,14 +71,16 @@ export function DesktopContextMenu({ menu, onClose, onOpenApp, onOpenSettings, o
             aria-label={t('common.close')}
           />
           <motion.div
+            ref={menuRef}
             initial={{ opacity: 0, y: 6, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.97 }}
             transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            className="pointer-events-auto fixed z-[87] w-56 overflow-hidden rounded-xl border border-foreground/12 bg-background/90 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+            className="rumahl-desktop-context-menu pointer-events-auto fixed z-[87] w-56 overflow-hidden rounded-xl border border-foreground/12 bg-background/90 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
             style={{ left: Math.min(menu.x, window.innerWidth - 240), top: Math.min(menu.y + 6, window.innerHeight - 380) }}
             onClick={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.stopPropagation()}
+            onKeyDown={handleMenuKeyDown}
             role="menu"
             aria-label={t('os.desktopMenu.settings')}
           >

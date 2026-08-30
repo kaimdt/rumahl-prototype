@@ -34,7 +34,7 @@ import {
   Download, Upload, Copy, X, FloppyDisk, FileText,
   BracketsCurly, Play, Pause,
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 // ─── Types ──────────────────────────────────────────────────────────
 

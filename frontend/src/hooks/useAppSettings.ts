@@ -4,7 +4,7 @@ import { useConfiguration } from '@/contexts/ConfigurationContext'
 import { useLocalStorage } from '@/lib/storage'
 import { getBackendUrl } from '@/lib/config'
 import { wsOnMessage } from '@/lib/wsConnection'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 async function hashPin(pin: string): Promise<string> {
   const encoded = new TextEncoder().encode(pin)

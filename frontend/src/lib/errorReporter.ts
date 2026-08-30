@@ -16,7 +16,7 @@
 //   try { await fetch(...) }
 //   catch (e) { reportError('weather-widget', 'Could not load forecast', e) }
 
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 
 const DEDUP_WINDOW_MS = 5_000

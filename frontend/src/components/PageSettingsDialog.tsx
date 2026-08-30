@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { usePageNavigation, type PageSettings } from '@/contexts/PageNavigationContext'
 import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS } from '@/lib/defaults'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 
 const apiBase = () => getBackendUrl() || ''

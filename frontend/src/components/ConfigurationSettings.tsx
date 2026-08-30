@@ -22,7 +22,7 @@ import {
  FolderOpen } from '@phosphor-icons/react'
 import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS, DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { useLocalStorage } from '@/lib/storage'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { OsFileExplorer } from '@/components/OsFileExplorer'
 import { authFetch, getAuthToken } from '@/lib/authHelpers'
 

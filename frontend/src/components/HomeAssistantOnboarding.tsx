@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowClockwise, CheckCircle, HouseLine, MagnifyingGlass, Plug, ShieldCheck } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { authFetch } from '@/lib/authHelpers'
 
 interface Candidate {

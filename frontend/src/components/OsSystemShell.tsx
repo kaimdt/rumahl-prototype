@@ -39,6 +39,8 @@ import { useOsWindows } from '@/contexts/OsWindowContext'
 import { RumahlMark } from '@/components/RumahlMark'
 import { comboMatches, getCombo } from '@/lib/shortcutRegistry'
 import { useShellMode } from '@/hooks/useShellMode'
+import { DockClock } from '@/components/DockClock'
+import { ShellModeSwitcher } from '@/components/ShellModeSwitcher'
 
 interface SystemStats {
   cpu_usage_percent: number
@@ -84,10 +86,10 @@ export function OsSystemShell() {
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [systemReachable, setSystemReachable] = useState<boolean | null>(null)
   const [online, setOnline] = useState(() => navigator.onLine)
-  const now = useClock()
-  const [showClock, setShowClock] = useState(false)
   const [powerConfirmation, setPowerConfirmation] = useState<'reboot' | null>(null)
   const [powerPending, setPowerPending] = useState(false)
+  const quickSettingsTriggerRef = useRef<HTMLButtonElement>(null)
+  const quickSettingsPanelRef = useRef<HTMLElement>(null)
   const { can } = useOsPermissions()
   const { user, logout } = useAuth()
   const activeJobCount = useActiveSystemJobCount()
@@ -116,6 +118,19 @@ export function OsSystemShell() {
   const { entities } = useEntityStore()
   const [activeDownloads, setActiveDownloads] = useState<Array<{ id: string; name: string; progress: number }>>([])
   useClipboardCapture()
+
+  const closeQuickSettings = useCallback(() => {
+    setOpen(false)
+    window.requestAnimationFrame(() => quickSettingsTriggerRef.current?.focus())
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const frame = window.requestAnimationFrame(() => {
+      quickSettingsPanelRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [open])
 
   // Active download jobs for the Control Center (Package 8).
   useEffect(() => {
@@ -393,6 +408,7 @@ export function OsSystemShell() {
         </div>
         <div className="rumahl-topbar-actions rumahl-topbar-mix pointer-events-auto flex shrink-0 items-center gap-0.5">
           <button
+            ref={quickSettingsTriggerRef}
             type="button"
             onClick={() => { setShowClipboard((value) => !value); setOpen(false); setShowJobCenter(false) }}
             className={`rumahl-topbar-action flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${showClipboard ? 'is-active' : ''}`}
@@ -427,16 +443,15 @@ export function OsSystemShell() {
           >
             {online ? <WifiHigh size={15} weight="bold" /> : <WifiSlash size={15} weight="bold" />}
           </button>
-          <button
-            type="button"
-            onClick={() => setShowClock((value) => !value)}
-            className="rumahl-clock-button rumahl-topbar-action flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium tabular-nums focus-ring"
-            aria-expanded={showClock}
-            title={t('os.shell.showDate')}
-          >
-            <span>{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            <span className="rumahl-clock-date">{now.toLocaleDateString(i18n.language, { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-          </button>
+
+          {/* Desktop: shell-mode switcher + clock join the bottom system bar
+              (to the right of the system icons) — the same row as the dock. */}
+          {resolvedMode === 'desktop' && !immersivePageId && (
+            <>
+              <ShellModeSwitcher />
+              <DockClock />
+            </>
+          )}
         </div>
           </motion.div>
         )}
@@ -467,15 +482,6 @@ export function OsSystemShell() {
         </nav>
       )}
 
-      {showClock && (
-        <>
-          <button type="button" aria-label={t('common.close')} className="fixed inset-0 z-[73] cursor-default" onClick={() => setShowClock(false)} />
-          <div className="pointer-events-auto fixed right-3 top-[calc(var(--topbar-height)+0.5rem)] z-[75] w-72 rounded-2xl border border-foreground/10 bg-background/90 p-4 shadow-xl backdrop-blur-xl text-foreground">
-            <p className="text-2xl font-semibold tabular-nums">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-            <p className="mt-1 text-sm text-foreground/60">{now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          </div>
-        </>
-      )}
       <AnimatePresence>
         {open && (
           <>
@@ -486,14 +492,43 @@ export function OsSystemShell() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setOpen(false)}
+              onClick={closeQuickSettings}
             />
             <motion.aside
+              ref={quickSettingsPanelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('os.shell.quickSettings')}
+              tabIndex={-1}
               initial={{ opacity: 0, y: -14, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
               transition={MOTION_PANEL}
-              className="rumahl-quick-settings glass-card fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[57] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-white/15 p-4 shadow-2xl sm:right-6 sm:top-[3.5rem]"
+              className="rumahl-quick-settings glass-card fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[65] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-white/15 p-4 shadow-2xl sm:right-6 sm:top-[3.5rem]"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  closeQuickSettings()
+                  return
+                }
+                const controls = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+                if (!controls.length) return
+                const currentIndex = controls.indexOf(document.activeElement as HTMLButtonElement)
+                if (event.key === 'Tab') {
+                  const nextIndex = event.shiftKey
+                    ? (currentIndex <= 0 ? controls.length - 1 : currentIndex - 1)
+                    : (currentIndex >= controls.length - 1 ? 0 : currentIndex + 1)
+                  event.preventDefault()
+                  controls[nextIndex].focus()
+                } else if (event.key === 'ArrowDown' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+                  event.preventDefault()
+                  const direction = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+                  controls[(Math.max(0, currentIndex) + direction + controls.length) % controls.length].focus()
+                } else if (event.key === 'Home' || event.key === 'End') {
+                  event.preventDefault()
+                  controls[event.key === 'Home' ? 0 : controls.length - 1].focus()
+                }
+              }}
             >
               <div className="mb-4 flex items-center justify-between">
                 <div>

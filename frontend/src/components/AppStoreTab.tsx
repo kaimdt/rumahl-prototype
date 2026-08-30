@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { ArrowSquareOut, SpinnerGap } from '@phosphor-icons/react'
 import { adminFetch } from './AdminPanel'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { buildAppZip } from '@/lib/storeCatalog'
 
 // Store base URL — override via VITE_STORE_URL for local development.

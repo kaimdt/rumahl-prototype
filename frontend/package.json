@@ -6,6 +6,7 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "dev:demo": "vite --config vite.demo.ts --mode demo --port 5174",
         "dev:full": "node ../scripts/dev/start-full.mjs",
         "dev:all": "node ../scripts/dev/rumahl-dev.mjs",
         "dev:start": "node ../scripts/dev/rumahl-dev.mjs start all",
@@ -70,6 +71,7 @@
         "date-fns": "^3.6.0",
         "dompurify": "^3.4.5",
         "embla-carousel-react": "^8.5.2",
+        "html-to-image": "^1.11.13",
         "i18next": "^26.0.8",
         "i18next-browser-languagedetector": "^8.2.1",
         "input-otp": "^1.4.2",

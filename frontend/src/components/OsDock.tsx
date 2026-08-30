@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { DUR_SLOW, EASE_SOFT, SPRING_SOFT } from '@/lib/motion'
 import { ArrowSquareOut, Check, Minus, PushPin, SquaresFour, X } from '@phosphor-icons/react'
@@ -16,6 +16,7 @@ import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 import { useShellMode } from '@/hooks/useShellMode'
 import { DesktopLauncherOverlay } from '@/components/DesktopLauncherOverlay'
 import { RumahlMark } from '@/components/RumahlMark'
+import { getWindowPreview } from '@/lib/windowPreview'
 
 const RECENT_APPS_KEY = 'rumahl-os-recent-apps'
 const MAX_RECENT_IN_DOCK = 3
@@ -42,8 +43,17 @@ export function OsDock() {
   const [menuId, setMenuId] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [hoverId, setHoverId] = useState<string | null>(null)
+  const [focusId, setFocusId] = useState<string | null>(null)
   const reducedMotion = useReducedMotion()
   const [launcherOpen, setLauncherOpen] = useState(false)
+  // Re-render the preview thumbnails whenever a window preview is captured.
+  const [previewTick, setPreviewTick] = useState(0)
+  useEffect(() => {
+    const bump = () => setPreviewTick((v) => v + 1)
+    window.addEventListener('rumahl:window-preview-updated', bump)
+    return () => window.removeEventListener('rumahl:window-preview-updated', bump)
+  }, [])
+  const dockRef = useRef<HTMLDivElement>(null)
   useCloseOnOtherMenu(() => setMenuId(null))
   // Close the launcher overlay on Escape.
   useEffect(() => {
@@ -189,28 +199,37 @@ export function OsDock() {
     const name = getName(app)
     const menuOpen = menuId === app.id
     const isHovered = hoverId === app.id
+    const isFocused = focusId === app.id
     const scale = magnification(index)
     const openWin = windows.find((w) => w.workspaceId === activeWorkspaceId && w.pageId === app.pageId)
     const isMinimized = Boolean(openWin?.minimized)
+    // Reactive read: previewTick only forces a re-render when a capture lands.
+    void previewTick
+    const previewUrl = getWindowPreview(app.pageId)
     return (
       <motion.div
         key={app.id}
         className="relative"
         onMouseEnter={() => setHoverId(app.id)}
         onMouseLeave={() => setHoverId(null)}
+        onFocusCapture={() => setFocusId(app.id)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusId(null)
+        }}
         initial={reducedMotion ? false : { opacity: 0, y: 18, scale: 0.88 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ delay: 0.3 + index * 0.05, ...SPRING_SOFT }}
       >
         <AnimatePresence>
-          {resolvedMode === 'desktop' && openWin && isHovered && !menuOpen && (
+          {resolvedMode === 'desktop' && openWin && (isHovered || isFocused) && !menuOpen && (
             <motion.div
               initial={{ opacity: 0, y: 8, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 6, scale: 0.98 }}
               transition={{ duration: 0.14, ease: EASE_SOFT }}
               className="rumahl-taskbar-preview"
-              role="status"
+              role="group"
+              aria-label={`${name} — ${t('os.dock.preview')}`}
             >
               <div className="rumahl-taskbar-preview-head">
                 <span className="rumahl-taskbar-preview-icon" style={{ '--app-accent': app.accent } as React.CSSProperties}>
@@ -221,10 +240,14 @@ export function OsDock() {
                 <button type="button" onClick={(event) => { event.stopPropagation(); closeWindow(app.pageId); if (currentPageId === app.pageId) setCurrentPageId('launcher') }} aria-label={t('os.window.close')} title={t('os.window.close')}><X size={12} /></button>
               </div>
               <button type="button" className="rumahl-taskbar-preview-body" onClick={() => handleItemClick(app)}>
-                <span className="rumahl-taskbar-preview-app" style={{ '--app-accent': app.accent } as React.CSSProperties}>
-                  {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={26} weight="duotone" />}
-                </span>
-                <span>
+                {previewUrl !== null ? (
+                  <img className="rumahl-taskbar-preview-thumb" src={previewUrl} alt={name} loading="lazy" />
+                ) : (
+                  <span className="rumahl-taskbar-preview-app" style={{ '--app-accent': app.accent } as React.CSSProperties}>
+                    {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={44} weight="duotone" />}
+                  </span>
+                )}
+                <span className="rumahl-taskbar-preview-caption">
                   <strong>{isMinimized ? t('os.window.minimized') : t('os.dock.preview')}</strong>
                   <small>{Math.round(openWin.width)} × {Math.round(openWin.height)}</small>
                 </span>
@@ -243,6 +266,8 @@ export function OsDock() {
           }}
           className="rumahl-dock-item group relative flex touch-manipulation flex-col items-center rounded-2xl p-0.5 focus-ring"
           aria-label={name}
+          data-dock-item
+          aria-pressed={active}
         >
           <span
             className={`rumahl-app-icon flex h-11 w-11 items-center justify-center overflow-hidden text-white transition-transform duration-200 will-change-transform sm:h-12 sm:w-12 ${app.id === 'launcher' ? 'border-0 bg-transparent shadow-none' : app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''}`}
@@ -379,10 +404,27 @@ export function OsDock() {
   return (
     <div className="rumahl-dock-shell fixed bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-1/2 z-[60] -translate-x-1/2 select-none">
       <motion.div
+        ref={dockRef}
         initial={reducedMotion ? false : { y: 28, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: DUR_SLOW, ease: EASE_SOFT, delay: 0.2 }}
         className="flex items-end gap-1.5 rounded-[1.35rem] border border-foreground/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl"
+        role="toolbar"
+        aria-label={t('os.dock.taskbarLabel')}
+        onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          const items = Array.from(dockRef.current?.querySelectorAll<HTMLButtonElement>('[data-dock-item]') || [])
+          if (!items.length) return
+          const activeIndex = items.indexOf(document.activeElement as HTMLButtonElement)
+          if (activeIndex < 0) return
+          event.preventDefault()
+          if (event.key === 'Home') items[0].focus()
+          else if (event.key === 'End') items[items.length - 1].focus()
+          else {
+            const direction = event.key === 'ArrowRight' ? 1 : -1
+            items[(activeIndex + direction + items.length) % items.length].focus()
+          }
+        }}
       >
         {renderItem(launcherApp, false, 0)}
         {taskbarApps.map((app, index) => renderItem(app, pinned.some((p) => p.id === app.id), index + 1))}

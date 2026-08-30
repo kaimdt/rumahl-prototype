@@ -21,7 +21,7 @@ import {
   Storefront, CloudSlash, Star, DownloadSimple
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
 import { AgentTab } from './AgentTab'
 import { InfrastructureVisualization } from './InfrastructureVisualization'
@@ -1085,15 +1085,15 @@ export function ConfigModal({ open, onClose, title, icon: Icon, children }: {
 export function LoadingSpinner() {
   const { t } = useTranslation()
   return (
-    <div className="rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-12 flex flex-col items-center justify-center gap-3">
-      <div className="w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin" />
-      <p className="text-xs text-foreground/40">{t('common.loading')}</p>
+    <div className="rumahl-system-loading rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-12 flex flex-col items-center justify-center gap-3" role="status" aria-live="polite">
+      <div className="rumahl-system-spinner w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin" aria-hidden="true" />
+      <p className="rumahl-system-loading-label text-xs text-foreground/40">{t('common.loading')}</p>
     </div>
   )
 }
 
 export function InlineSpinner({ size = 14, className = '' }: { size?: number; className?: string }) {
-  return <div style={{ width: size, height: size }} className={`border-2 border-current/30 border-t-current rounded-full animate-spin shrink-0 ${className}`} />
+  return <div style={{ width: size, height: size }} className={`rumahl-system-spinner border-2 border-current/30 border-t-current rounded-full animate-spin shrink-0 ${className}`} aria-hidden="true" />
 }
 
 export function ErrorMessage({ children }: { children: React.ReactNode }) {

@@ -3,6 +3,27 @@
     "name": "rumahl",
     "tagline": "Smart Home Dashboard"
   },
+  "calendar": {
+    "today": "Heute",
+    "weekday": {
+      "mo": "Mo", "tu": "Di", "we": "Mi", "th": "Do", "fr": "Fr", "sa": "Sa", "su": "So"
+    }
+  },
+  "connection": {
+    "backendUnavailable": "Backend nicht erreichbar – Apps derzeit nicht verfügbar",
+    "backendUnavailableTitle": "Backend nicht erreichbar",
+    "backendUnavailableDesc": "Die Verbindung zum rumahl Backend konnte nicht hergestellt werden. Alle Funktionen sind vorübergehend nicht verfügbar.",
+    "backend": "rumahl Backend",
+    "homeAssistant": "Home Assistant",
+    "online": "Online",
+    "offline": "Offline",
+    "troubleshoot": "Zur Fehlerbehebung",
+    "troubleService": "Prüfe, ob der rumahl Dienst läuft",
+    "troubleNetwork": "Netzwerkverbindung ist aktiv",
+    "troubleBackend": "Backend-Konfiguration ist korrekt",
+    "retry": "Erneut verbinden",
+    "autoReconnect": "Automatische Neuverbindung…"
+  },
   "common": {
     "save": "Speichern",
     "create": "Erstellen",
@@ -548,6 +569,7 @@
       "shareLinkFailed": "Externer Link konnte nicht erstellt werden"
     },
     "dock": {
+      "taskbarLabel": "Anwendungen in der Taskleiste",
       "open": "Öffnen",
       "preview": "Aktives Fenster",
       "pin": "An Dock anheften",
@@ -667,6 +689,16 @@
     "setPin": "PIN festlegen",
     "languageDesc": "Wähle deine bevorzugte Sprache",
     "themeModeDesc": "Wähle zwischen hell, dunkel oder automatisch",
+    "themeOptions": {
+      "auto": { "label": "Automatisch", "description": "Passt sich der Tageszeit an" },
+      "light": { "label": "Hell", "description": "Maximale Helligkeit" },
+      "day-classic": { "label": "Klassisch", "description": "Zeitlos und zurückhaltend" },
+      "day": { "label": "Modern", "description": "Klar mit weichen Akzenten" },
+      "evening": { "label": "Abend", "description": "Warme Töne" },
+      "night": { "label": "Dunkel", "description": "Tief und kontrastreich" },
+      "sleep": { "label": "OLED Schwarz", "description": "Gedimmtes reines Schwarz" },
+      "midnight": { "label": "rumahl Midnight UI", "description": "Reines Schwarz mit weißen Akzenten" }
+    },
     "accentColorDesc": "Wähle deine Akzentfarbe",
     "pageDesigner": "Seiten-Designer",
     "pageDesignerDesc": "Dashboard-Seiten anpassen und organisieren",
@@ -701,6 +733,12 @@
     "passkeyLoginDesc": "Direkte Anmeldung mit biometrischen oder Hardware-Passkeys",
     "passkey2FADesc": "Verwendet deinen Passkey zusätzlich als zweiten Faktor",
     "profileDesc": "Name und Anmeldedaten verwalten",
+    "profileName": "Benutzername",
+    "profileNameDesc": "Dein Anmeldename für rumahl OS",
+    "saveHint": "Speichert die Änderungen an deinem Profil.",
+    "pin": "PIN-Code",
+    "pinDesc": "Lege eine 4–8-stellige PIN fest, um Einstellungen zu schützen.",
+    "pinSave": "PIN speichern",
     "securityDesc": "PIN-Schutz und Gerätesperre",
     "deviceLockDesc": "Sperrt Einstellungen auf diesem Gerät – PIN zum Entsperren",
     "aiDisableDesc": "Schaltet rumahl AI, Pi.dev Agent und alle KI-Funktionen aus",
@@ -1104,7 +1142,8 @@
   "themes": {
     "title": "Themes",
     "installed": "Installed Themes",
-    "builtin": "Built-in Themes",
+    "builtin": "Integrierte Themes",
+    "builtinDesc": "Die sieben integrierten Farbschemas von rumahl",
     "marketplace": "Theme Marketplace",
     "upload": "Upload Theme",
     "editor": "Theme Editor",
@@ -1579,6 +1618,7 @@
     "unknownDevice": "Unbekanntes Gerät"
   },
   "cmd": {
+    "title": "rumahl Befehlszentrale",
     "apps": "Apps",
     "actions": "Aktionen",
     "goHome": "Zum Launcher",
@@ -1586,6 +1626,7 @@
     "sleepOff": "Schlafmodus beenden",
     "lock": "Sperren",
     "themeNight": "Nacht-Theme aktivieren",
+    "themeMidnight": "rumahl Midnight UI aktivieren",
     "placeholder": "Apps, Dateien, Geräte, Einstellungen und Aktionen durchsuchen…",
     "noResults": "Keine Ergebnisse",
     "files": "Dateien",
@@ -1594,7 +1635,10 @@
     "folder": "Ordner",
     "online": "Online",
     "offline": "Offline",
-    "searching": "Suche…"
+    "searching": "Suche…",
+    "shortcutHint": "Öffnen mit {{shortcut}}",
+    "navigate": "Navigieren",
+    "open": "Öffnen"
   },
   "notifications": {
     "title": "Benachrichtigungen",

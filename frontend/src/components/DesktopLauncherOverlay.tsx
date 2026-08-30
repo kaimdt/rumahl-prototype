@@ -22,7 +22,8 @@ function LauncherAppRow({ app, name, onOpen }: { app: OsAppDefinition; name: str
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-left transition-colors hover:bg-foreground/6 focus-ring"
+      data-launcher-app
+      className="rumahl-start-recent-item flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-left transition-colors hover:bg-foreground/6 focus-ring"
     >
       <span
         className={`rumahl-app-icon flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden text-white ${app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''}`}
@@ -45,7 +46,8 @@ function LauncherAppTile({ app, name, onOpen }: { app: OsAppDefinition; name: st
     <button
       type="button"
       onClick={onOpen}
-      className="group flex min-w-0 flex-col items-center gap-1.5 rounded-2xl px-1 py-2 text-center focus-ring"
+      data-launcher-app
+      className="rumahl-start-app-tile group flex min-w-0 flex-col items-center gap-1.5 rounded-2xl px-1 py-2 text-center focus-ring"
     >
       <span
         className={`rumahl-app-icon flex h-14 w-14 items-center justify-center overflow-hidden text-white transition-transform duration-200 group-hover:scale-105 ${app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''}`}
@@ -68,15 +70,48 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null
+      return
+    }
+    previousFocusRef.current?.focus()
+  }, [open])
 
   useEffect(() => {
     if (!open) return
     setQuery('')
     // Focus the search once the panel opens.
     const id = window.setTimeout(() => inputRef.current?.focus(), 60)
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if (e.key === 'Escape') { onClose(); return }
+      if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+      const buttons = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('[data-launcher-app]') || [])
+      if (!buttons.length) return
+      const activeIndex = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      if (document.activeElement === inputRef.current && (e.key === 'ArrowDown' || e.key === 'ArrowRight')) {
+        e.preventDefault()
+        buttons[0].focus()
+        return
+      }
+      if (activeIndex < 0) return
+      e.preventDefault()
+      if (e.key === 'Home') buttons[0].focus()
+      else if (e.key === 'End') buttons[buttons.length - 1].focus()
+      else {
+        const direction = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1
+        buttons[(activeIndex + direction + buttons.length) % buttons.length].focus()
+      }
+    }
     window.addEventListener('keydown', onKey)
-    return () => { window.clearTimeout(id); window.removeEventListener('keydown', onKey) }
+    return () => {
+      window.clearTimeout(id)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [open, onClose])
 
   const visibleApps = useMemo(() => {
@@ -107,27 +142,34 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
             className="fixed inset-0 z-[90] cursor-default bg-black/30 backdrop-blur-[2px]"
           />
           <motion.div
+            ref={panelRef}
             initial={{ opacity: 0, scale: 0.97, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 8 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed inset-x-0 top-[12dvh] z-[91] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden rounded-3xl border border-foreground/12 bg-background/92 text-foreground shadow-2xl backdrop-blur-2xl"
+            className="rumahl-start-menu fixed inset-x-0 top-[12dvh] z-[91] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden rounded-3xl border border-foreground/12 bg-background/92 text-foreground shadow-2xl backdrop-blur-2xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
+            aria-modal="true"
             aria-label={t('os.launcher.label')}
           >
             {/* Header: brand + search */}
-            <div className="flex items-center gap-3 border-b border-foreground/8 px-5 py-4">
+            <div className="rumahl-start-menu-header flex items-center gap-3 border-b border-foreground/8 px-5 py-4">
               <span className="flex shrink-0 items-center gap-2 font-semibold tracking-[0.08em] text-foreground/85">
                 <RumahlMark className="h-4 text-foreground/85" />
                 rumahl OS
               </span>
-              <label className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-foreground/12 bg-foreground/4 px-3.5 py-2.5 text-foreground/80 backdrop-blur focus-within:border-accent/40">
+              <label className="rumahl-start-search flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-foreground/12 bg-foreground/4 px-3.5 py-2.5 text-foreground/80 backdrop-blur focus-within:border-accent/40">
                 <MagnifyingGlass size={17} className="shrink-0 text-foreground/45" />
                 <input
                   ref={inputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowDown') return
+                    const firstApp = panelRef.current?.querySelector<HTMLButtonElement>('[data-launcher-app]')
+                    if (firstApp) { e.preventDefault(); firstApp.focus() }
+                  }}
                   placeholder={t('os.launcher.commandPlaceholder')}
                   className="w-full bg-transparent text-sm outline-none placeholder:text-foreground/35"
                 />
@@ -143,7 +185,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="rumahl-start-menu-content min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {hasRecent && (
                 <>
                   <div className="mb-2 flex items-center justify-between">

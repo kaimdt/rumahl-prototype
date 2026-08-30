@@ -1921,14 +1921,13 @@ incremental = false
 
     Write-Info "Seeding cargo registry from the host (faster first builds)..."
     $cargoRegHost = Join-Path $env:USERPROFILE ".cargo\registry"
-    if ((Test-Path $cargoRegHost) -and $wslHost) {
-        $cargoRegWsl = ConvertTo-WslPath $cargoRegHost
-        $seedOut = wsl bash -c "rsync -az -e 'ssh $syncSsh' '$cargoRegWsl/' root@${wslHost}:/home/ora/.cargo/registry/ 2>&1"
+    if (Test-Path $cargoRegHost) {
+        Invoke-SSH 'mkdir -p /home/ora/.cargo/registry' | Out-Null
+        & scp.exe @SSH_OPTS -i $SSH_KEY -P $VM_SSH_PORT -r "$cargoRegHost/." "root@${VM_HOST}:/home/ora/.cargo/registry/" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Cargo registry seeded from host"
         } else {
             Write-Warn "Cargo seeding failed - the first build will download crates"
-            ($seedOut | Select-Object -Last 5) | ForEach-Object { Write-Dim "  $_" }
         }
     } else {
         Write-Dim "  (no host cargo registry found - skipping seeding)"

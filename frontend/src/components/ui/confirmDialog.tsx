@@ -65,7 +65,7 @@ export function ConfirmDialogHost() {
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) close(false) }}>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent className="rumahl-confirm-dialog sm:max-w-[400px]">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${options?.danger ? 'bg-red-500/15 text-red-400' : 'bg-accent/15 text-accent'}`}>
@@ -75,7 +75,7 @@ export function ConfirmDialogHost() {
           </div>
           <DialogDescription className="whitespace-pre-line pt-2 text-left">{options?.message}</DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="rumahl-confirm-actions flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={() => close(false)}

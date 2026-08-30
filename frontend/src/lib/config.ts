@@ -21,6 +21,15 @@
 const DEV_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ''
 const DEV_ASSIST_URL = import.meta.env.VITE_rumahl_ASSIST_URL || ''
 
+/** Demo mode: runs the frontend with NO real backend (see mock/demoServer.mjs).
+ *  All /api + /ws calls go to the same origin, which the Vite demo middleware
+ *  answers. Never enable in production. */
+const IS_DEMO =
+  import.meta.env.VITE_DEMO === '1' ||
+  import.meta.env.VITE_DEMO === 'true' ||
+  import.meta.env.MODE === 'demo'
+export { IS_DEMO }
+
 let _backendUrl = DEV_BACKEND_URL
 let _assistUrl = DEV_ASSIST_URL
 
@@ -48,6 +57,9 @@ function browserSafeBaseUrl(url: string): string {
 
 /** Returns the current backend URL. Safe to call from anywhere. */
 export function getBackendUrl(): string {
+  // Demo mode: no backend — everything is served by the Vite demo middleware
+  // on the same origin, so API/WS calls use relative URLs.
+  if (IS_DEMO) return ''
   let url = _backendUrl;
   // Development fallback: Only when running on the Vite dev server (port 5173)
   // do we default to localhost:3001. In production / rumahl OS / remote dev VM
@@ -76,8 +88,8 @@ export function getBackendUrl(): string {
 
 /** Returns the current assist/AI URL. Safe to call from anywhere. */
 export function getAssistUrl(): string {
+  if (IS_DEMO) return ''
   // In production/desktop: assist URL may not be set separately.
-  // Fall back to backend URL, which rumahl-home proxies to rumahl-assist.
   let url = _assistUrl;
   if (!url) {
     url = _backendUrl;

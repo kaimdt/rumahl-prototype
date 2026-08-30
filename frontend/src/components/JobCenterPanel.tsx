@@ -92,6 +92,33 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
   const [jobs, setJobs] = useState<SystemJob[]>([])
   const [loading, setLoading] = useState(false)
   const pollRef = useRef<number | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (!open) return
+    previousFocusRef.current = document.activeElement as HTMLElement | null
+    const frame = window.requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    })
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.removeEventListener('keydown', onKeyDown)
+      window.requestAnimationFrame(() => previousFocusRef.current?.focus())
+    }
+  }, [open])
 
   const refresh = useCallback(async () => {
     try {
@@ -166,10 +193,26 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
             onClick={onClose}
           />
           <motion.aside
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('notifications.title')}
+            tabIndex={-1}
             initial={{ opacity: 0, y: -14, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            className="glass-card fixed right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[57] flex max-h-[min(32rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-white/15 shadow-2xl sm:right-6 sm:top-[4.5rem]"
+            className="rumahl-notification-center glass-card fixed right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[65] flex max-h-[min(32rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-white/15 shadow-2xl sm:right-6 sm:top-[4.5rem]"
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') return
+              const controls = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+              if (!controls.length) return
+              const currentIndex = controls.indexOf(document.activeElement as HTMLButtonElement)
+              const nextIndex = event.shiftKey
+                ? (currentIndex <= 0 ? controls.length - 1 : currentIndex - 1)
+                : (currentIndex >= controls.length - 1 ? 0 : currentIndex + 1)
+              event.preventDefault()
+              controls[nextIndex].focus()
+            }}
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">

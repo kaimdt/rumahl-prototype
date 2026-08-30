@@ -177,7 +177,7 @@ pub struct ThemeDefinition {
     pub preview_image: Option<String>,
 
     /// Parent theme to extend. Built-in: "day", "night", "light",
-    /// "evening", "day-classic", "sleep".
+    /// "evening", "day-classic", "sleep", "midnight".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_theme: Option<String>,
 

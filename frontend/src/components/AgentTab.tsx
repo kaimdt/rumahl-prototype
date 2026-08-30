@@ -17,7 +17,7 @@ import {
 import { MessageContent } from '@/components/MessageContent'
 import { adminFetch } from '@/components/AdminPanel'
 import { confirmDialog } from '@/components/ui/confirmDialog'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Tip } from '@/components/ui/tip'
 
 // ─── Types ────────────────────────────────────────────────────────────────────

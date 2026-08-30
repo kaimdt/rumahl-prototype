@@ -10,7 +10,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { adminFetch, InlineSpinner } from './AdminPanel'
 import { startAppAndWatch } from '@/lib/appLifecycle'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
 import { STORE_CATALOG } from '@/lib/storeCatalog'

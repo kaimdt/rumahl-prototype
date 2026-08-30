@@ -18,7 +18,7 @@ import {
   Sparkle,
   Gauge,
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 export function OverviewConfiguration() {
   const { enabled, setEnabled, variants, currentVariant, setActiveVariantId, activeVariantId } =

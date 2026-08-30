@@ -1,4 +1,4 @@
-import { Suspense, lazy, type ReactNode } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { OsSystemShell } from '@/components/OsSystemShell'
 import { OsDock } from '@/components/OsDock'
@@ -13,13 +13,9 @@ import { useTranslation } from 'react-i18next'
 import { CommandPalette } from '@/components/CommandPalette'
 import { PermissionRequestDialog } from '@/components/PermissionRequestDialog'
 import { OsSessionLock } from '@/components/OsSessionLock'
-import { ORAAssistant } from '@/components/ORAAssistant'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
-import { ShellModeSwitcher } from '@/components/ShellModeSwitcher'
 import { useShellMode } from '@/hooks/useShellMode'
-
-const CodingAgent = lazy(() => import('@/components/CodingAgent').then((m) => ({ default: m.CodingAgent })))
 
 export interface AppChromeProps {
   showPageDesigner: boolean
@@ -117,7 +113,6 @@ export function AppChrome({
     <>
       <NavigationMenu hidden={showPageDesigner || isOsAppPage || isNotFoundPage} />
       {!showPageDesigner && <OsSystemShell />}
-      {!showPageDesigner && !immersivePageId && <ShellModeSwitcher />}
       {/* Dock/launcher rail: on the iOS/Android-style launcher it is the app
          rail on phones AND desktop; in desktop mode it is the Windows-style
          taskbar. It must never cover the navbar inside apps. */}
@@ -141,8 +136,6 @@ export function AppChrome({
       <CommandPalette />
       <PermissionRequestDialog />
       <OsSessionLock />
-      <ORAAssistant />
-      {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}
     </>
   )
 }

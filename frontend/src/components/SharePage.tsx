@@ -5,7 +5,7 @@ import {
   Globe, CloudArrowUp,
   Shield, Info, Clock, Users
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Tip } from '@/components/ui/tip'
 import { NativeShare } from '@/components/NativeShare'
 

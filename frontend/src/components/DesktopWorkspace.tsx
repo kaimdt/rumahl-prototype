@@ -153,6 +153,7 @@ export function DesktopWorkspace() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null)
   const marqueeStart = useRef<{ x: number; y: number } | null>(null)
+  const marqueeBaseSelection = useRef<Set<string>>(new Set())
   const workspaceRef = useRef<HTMLElement>(null)
   const [menu, setMenu] = useState<DesktopMenuState | null>(null)
   useCloseOnOtherMenu(() => setMenu(null))
@@ -335,6 +336,7 @@ export function DesktopWorkspace() {
     if (target.closest('.rumahl-desktop-icon, .rumahl-desktop-search')) return
     event.preventDefault()
     marqueeStart.current = { x: event.clientX, y: event.clientY }
+    marqueeBaseSelection.current = event.shiftKey || event.metaKey || event.ctrlKey ? new Set(selectedKeys) : new Set()
     setMarquee({ x: event.clientX, y: event.clientY, width: 0, height: 0 })
     if (!event.shiftKey && !event.metaKey && !event.ctrlKey) setSelectedKeys(new Set())
   }
@@ -348,8 +350,8 @@ export function DesktopWorkspace() {
     const height = Math.abs(event.clientY - start.y)
     setMarquee({ x: left - workspaceRef.current.getBoundingClientRect().left, y: top - workspaceRef.current.getBoundingClientRect().top, width, height })
     if (width > 4 || height > 4) {
-      setSelectedKeys((prev) => {
-        const next = new Set(prev)
+      setSelectedKeys(() => {
+        const next = new Set(marqueeBaseSelection.current)
         workspaceRef.current?.querySelectorAll<HTMLElement>('.rumahl-desktop-icon').forEach((el) => {
           const key = el.getAttribute('data-item-key')
           if (!key) return
@@ -399,7 +401,7 @@ export function DesktopWorkspace() {
 
   const iconContextMenu = useCallback((event: React.MouseEvent, key: string, fileId?: string) => {
     event.preventDefault(); closeAllContextMenus()
-    setSelectedKeys((prev) => { const next = new Set(prev); next.add(key); return next })
+    setSelectedKeys((prev) => prev.has(key) ? prev : new Set([key]))
     const appPageId = key.startsWith('app:') ? key.slice(4) : undefined
     setMenu({ x: event.clientX, y: event.clientY, appPageId, fileId })
   }, [])

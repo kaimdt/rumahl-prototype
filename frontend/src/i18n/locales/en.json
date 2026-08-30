@@ -3,6 +3,27 @@
     "name": "rumahl",
     "tagline": "Smart Home Dashboard"
   },
+  "calendar": {
+    "today": "Today",
+    "weekday": {
+      "mo": "Mo", "tu": "Tu", "we": "We", "th": "Th", "fr": "Fr", "sa": "Sa", "su": "Su"
+    }
+  },
+  "connection": {
+    "backendUnavailable": "Backend unreachable – apps currently unavailable",
+    "backendUnavailableTitle": "Backend unreachable",
+    "backendUnavailableDesc": "The connection to the rumahl backend could not be established. All features are temporarily unavailable.",
+    "backend": "rumahl Backend",
+    "homeAssistant": "Home Assistant",
+    "online": "Online",
+    "offline": "Offline",
+    "troubleshoot": "Troubleshooting",
+    "troubleService": "Check that the rumahl service is running",
+    "troubleNetwork": "Network connection is active",
+    "troubleBackend": "Backend configuration is correct",
+    "retry": "Reconnect",
+    "autoReconnect": "Auto-reconnecting…"
+  },
   "common": {
     "save": "Save",
     "create": "Create",
@@ -548,6 +569,7 @@
       "shareLinkFailed": "Could not create external link"
     },
     "dock": {
+      "taskbarLabel": "Taskbar applications",
       "open": "Open",
       "preview": "Live window",
       "pin": "Pin to Dock",
@@ -667,6 +689,16 @@
     "setPin": "Set PIN",
     "languageDesc": "Select your preferred language",
     "themeModeDesc": "Choose between light, dark, or automatic",
+    "themeOptions": {
+      "auto": { "label": "Automatic", "description": "Adapts to the time of day" },
+      "light": { "label": "Light", "description": "Maximum brightness" },
+      "day-classic": { "label": "Classic", "description": "Timeless and understated" },
+      "day": { "label": "Modern", "description": "Clear with soft accents" },
+      "evening": { "label": "Evening", "description": "Warm tones" },
+      "night": { "label": "Dark", "description": "Deep and high-contrast" },
+      "sleep": { "label": "OLED Black", "description": "Dimmed pure black" },
+      "midnight": { "label": "rumahl Midnight UI", "description": "Pure black with white accents" }
+    },
     "accentColorDesc": "Pick your accent color",
     "pageDesigner": "Page Designer",
     "pageDesignerDesc": "Customize and organize dashboard pages",
@@ -701,6 +733,12 @@
     "passkeyLoginDesc": "Direct login with biometric or hardware passkeys",
     "passkey2FADesc": "Uses your passkey as an additional second factor",
     "profileDesc": "Manage name and credentials",
+    "profileName": "Username",
+    "profileNameDesc": "Your login name for rumahl OS",
+    "saveHint": "Saves changes to your profile.",
+    "pin": "PIN code",
+    "pinDesc": "Set a 4-8 digit PIN to protect settings.",
+    "pinSave": "Save PIN",
     "securityDesc": "PIN protection and device lock",
     "deviceLockDesc": "Locks settings on this device – PIN to unlock",
     "aiDisableDesc": "Disables rumahl AI, Pi.dev Agent and all AI features",
@@ -1104,6 +1142,7 @@
     "title": "Themes",
     "installed": "Installed Themes",
     "builtin": "Built-in Themes",
+    "builtinDesc": "The seven built-in rumahl color schemes",
     "marketplace": "Theme Marketplace",
     "upload": "Upload Theme",
     "editor": "Theme Editor",
@@ -1578,6 +1617,7 @@
     "unknownDevice": "Unknown device"
   },
   "cmd": {
+    "title": "rumahl Command Center",
     "apps": "Apps",
     "actions": "Actions",
     "goHome": "Go to launcher",
@@ -1585,6 +1625,7 @@
     "sleepOff": "Disable sleep mode",
     "lock": "Lock",
     "themeNight": "Activate night theme",
+    "themeMidnight": "Activate rumahl Midnight UI",
     "placeholder": "Search apps, files, devices, settings and actions…",
     "noResults": "No results",
     "files": "Files",
@@ -1593,7 +1634,10 @@
     "folder": "Folder",
     "online": "Online",
     "offline": "Offline",
-    "searching": "Searching…"
+    "searching": "Searching…",
+    "shortcutHint": "Open with {{shortcut}}",
+    "navigate": "Navigate",
+    "open": "Open"
   },
   "notifications": {
     "title": "Notifications",

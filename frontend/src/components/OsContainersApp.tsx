@@ -12,7 +12,7 @@ import {
 import { authFetch } from '@/lib/authHelpers'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 interface SupervisorApp {
   id: string

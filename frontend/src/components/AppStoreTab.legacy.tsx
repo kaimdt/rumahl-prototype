@@ -11,7 +11,7 @@ import {
   Bell, Star, ArrowRight, CaretLeft, CaretRight, LockKey, Cloud, Globe, Briefcase, BookOpen, VideoCamera as VideoIcon, Copy, ArrowSquareOut, GameController
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { AppDetailDialog } from './AppDetailDialog'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
 import { STORE_CATALOG } from '@/lib/storeCatalog'

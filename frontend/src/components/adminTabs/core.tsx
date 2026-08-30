@@ -1600,7 +1600,7 @@ export function ThemesTab({ token }: { token: string }) {
 
   const allThemeOptions = [
     { id: 'auto', name: 'Automatisch (Tageszeit)', preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
-    ...builtin.filter(t => t.id !== 'auto').map(t => ({ id: t.id, name: t.name, preview: getThemePreview(t.id) })),
+    ...builtin.filter(t => t.id !== 'auto').map(t => ({ id: t.id, name: tr(`settings.themeOptions.${t.id}.label`, { defaultValue: t.name }), preview: getThemePreview(t.id) })),
     ...installed.filter(t => t.enabled).map(t => {
       let cssVars: Record<string, string> = {}
       try { cssVars = JSON.parse((t as any).css_variables || '{}') } catch {}
@@ -1779,13 +1779,13 @@ export function ThemesTab({ token }: { token: string }) {
       </AdminCard>
 
       {/* Built-in themes */}
-      <AdminCard icon={Swatches} title="Integrierte Farbschemas">
-        <p className="text-xs text-foreground/50 mb-4">Die sechs Standard-Farbschemas von rumahl</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <AdminCard icon={Swatches} title={tr('themes.builtin')}>
+        <p className="text-xs text-foreground/50 mb-4">{tr('themes.builtinDesc')}</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
           {builtin.filter(t => t.id !== 'auto').sort((a: ThemeDef, b: ThemeDef) => (a.order || 50) - (b.order || 50)).map((t) => (
             <div key={t.id} className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-foreground/[0.04] bg-foreground/[0.02]">
               <div className="w-10 h-10 rounded-xl border border-foreground/10" style={{ background: getThemePreview(t.id) }} />
-              <p className="text-[10px] font-medium text-foreground truncate w-full text-center">{t.name}</p>
+              <p className="text-[10px] font-medium text-foreground truncate w-full text-center">{tr(`settings.themeOptions.${t.id}.label`, { defaultValue: t.name })}</p>
               <p className="text-[8px] text-foreground/30">{t.id}</p>
             </div>
           ))}
@@ -1806,6 +1806,7 @@ export function getThemePreview(themeId: string): string {
     evening: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)',
     night: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)',
     sleep: 'linear-gradient(135deg, #050508 0%, #000000 100%)',
+    midnight: 'linear-gradient(135deg, #242424 0%, #080808 42%, #000000 100%)',
   }
   return previews[themeId] || 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
 }

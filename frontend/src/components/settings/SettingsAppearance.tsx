@@ -41,6 +41,8 @@ export function ThemePickerSection() {
       <div className="rumahl-theme-options grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
         {allThemeOptions.map(opt => {
           const isSelected = selectedTheme === opt.value
+          const label = t(`settings.themeOptions.${opt.value}.label`, { defaultValue: opt.label })
+          const description = t(`settings.themeOptions.${opt.value}.description`, { defaultValue: opt.description })
           return (
             <button
               key={opt.value}
@@ -56,8 +58,8 @@ export function ThemePickerSection() {
                 style={{ background: opt.preview }}
               />
               <div>
-                <p className="text-[13px] font-medium leading-tight">{opt.label}</p>
-                <p className="mt-0.5 text-[11px] leading-tight text-foreground/45">{opt.description}</p>
+                <p className="text-[13px] font-medium leading-tight">{label}</p>
+                <p className="mt-0.5 text-[11px] leading-tight text-foreground/45">{description}</p>
               </div>
             </button>
           )

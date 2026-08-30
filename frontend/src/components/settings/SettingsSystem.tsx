@@ -829,11 +829,11 @@ export function MediaHubConfigSection() {
       <div className="space-y-4 px-5 pb-5">
         {/* Detection status */}
         <div className="flex flex-wrap gap-2">
-          <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${hub?.jellyfin.reachable ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/7 text-foreground/45'}`}>
-            Jellyfin {hub?.jellyfin.reachable ? `· ${hub.jellyfin.name || t('settings.mediaDetected')}` : t('settings.mediaNotDetected')}
+          <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${hub?.jellyfin?.reachable ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/7 text-foreground/45'}`}>
+            Jellyfin {hub?.jellyfin?.reachable ? `· ${hub.jellyfin.name || t('settings.mediaDetected')}` : t('settings.mediaNotDetected')}
           </span>
-          <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${hub?.plex.reachable ? 'bg-amber-500/10 text-amber-300' : 'bg-foreground/7 text-foreground/45'}`}>
-            Plex {hub?.plex.reachable ? `· ${hub.plex.name || t('settings.mediaDetected')}` : t('settings.mediaNotDetected')}
+          <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${hub?.plex?.reachable ? 'bg-amber-500/10 text-amber-300' : 'bg-foreground/7 text-foreground/45'}`}>
+            Plex {hub?.plex?.reachable ? `· ${hub.plex.name || t('settings.mediaDetected')}` : t('settings.mediaNotDetected')}
           </span>
         </div>
 
@@ -939,34 +939,34 @@ export function RemoteAccessSection() {
         <div className="rumahl-card p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground/90">Tailscale</p>
-            {status?.tailscale.installed ? (
-              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${status.tailscale.online ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
-                {status.tailscale.online ? t('settings.remoteOnline') : t('settings.remoteOffline')}
+            {status?.tailscale?.installed ? (
+              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${status.tailscale?.online ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
+                {status.tailscale?.online ? t('settings.remoteOnline') : t('settings.remoteOffline')}
               </span>
             ) : (
               <span className="rounded-full bg-foreground/7 px-2 py-1 text-[10px] text-foreground/45">{t('settings.remoteNotInstalled')}</span>
             )}
           </div>
-          {status?.tailscale.installed && (
+          {status?.tailscale?.installed && (
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-foreground/55">
-              {status.tailscale.hostname && <span>{t('settings.remoteHostname')}: <strong className="text-foreground/80">{status.tailscale.hostname}</strong></span>}
-              {status.tailscale.ip && <span>IP: <strong className="text-foreground/80">{status.tailscale.ip}</strong></span>}
+              {status.tailscale?.hostname && <span>{t('settings.remoteHostname')}: <strong className="text-foreground/80">{status.tailscale.hostname}</strong></span>}
+              {status.tailscale?.ip && <span>IP: <strong className="text-foreground/80">{status.tailscale.ip}</strong></span>}
             </div>
           )}
-          {!status?.tailscale.installed && <p className="mt-2 text-[11px] text-foreground/40">{t('settings.remoteTailscaleHint')}</p>}
+          {!status?.tailscale?.installed && <p className="mt-2 text-[11px] text-foreground/40">{t('settings.remoteTailscaleHint')}</p>}
         </div>
 
         {/* WireGuard */}
         <div className="rumahl-card p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground/90">WireGuard</p>
-            {status?.wireguard.installed ? (
+            {status?.wireguard?.installed ? (
               <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300">{t('settings.remoteConfigured')}</span>
             ) : (
               <span className="rounded-full bg-foreground/7 px-2 py-1 text-[10px] text-foreground/45">{t('settings.remoteNotConfigured')}</span>
             )}
           </div>
-          {status?.wireguard.interfaces?.length ? (
+          {status?.wireguard?.interfaces?.length ? (
             <p className="mt-2 text-[11px] text-foreground/45">{status.wireguard.interfaces.join(', ')}</p>
           ) : (
             <p className="mt-2 text-[11px] text-foreground/40">{t('settings.remoteWireguardHint')}</p>

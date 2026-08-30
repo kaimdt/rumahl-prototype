@@ -499,6 +499,7 @@ const DEFAULT_BUILTIN_THEMES: ThemeDefinition[] = [
   { id: 'evening', name: 'Abend', version: '1.0.0', developer: 'rumahl', description: 'Warme Töne', icon: 'SunDim', system: true, order: 30, css_variables: {} },
   { id: 'night', name: 'Nacht', version: '1.0.0', developer: 'rumahl', description: 'Dunkles Design', icon: 'MoonStars', system: true, order: 40, css_variables: {} },
   { id: 'sleep', name: 'Schlaf', version: '1.0.0', developer: 'rumahl', description: 'OLED Schwarz', icon: 'Moon', system: true, order: 50, css_variables: {} },
+  { id: 'midnight', name: 'rumahl Midnight UI', version: '1.0.0', developer: 'rumahl', description: 'Pure black with white accents', icon: 'CircleHalfTilt', system: true, order: 60, css_variables: {} },
 ]
 
 function getThemePreview(themeId: string): string {
@@ -510,6 +511,7 @@ function getThemePreview(themeId: string): string {
     evening: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)',
     night: 'linear-gradient(135deg, #0d0d0d 0%, #070707 50%, #050505 100%)',
     sleep: 'linear-gradient(135deg, #050508 0%, #000000 100%)',
+    midnight: 'linear-gradient(135deg, #242424 0%, #080808 42%, #000000 100%)',
   }
   return previews[themeId] || 'linear-gradient(135deg, #1a1d2e 0%, #0f1220 100%)'
 }
@@ -923,7 +925,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const root = document.documentElement
     root.setAttribute('data-theme', theme)
 
-    const isBuiltin = ['day', 'day-classic', 'light', 'evening', 'night', 'sleep', 'auto'].includes(theme)
+    const isBuiltin = ['day', 'day-classic', 'light', 'evening', 'night', 'sleep', 'midnight', 'auto'].includes(theme)
 
     if (!isBuiltin && profileId) {
       fetchThemeData(profileId)

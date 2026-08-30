@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Minus, SquaresFour, X } from '@phosphor-icons/react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { SquaresFour } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useOsWindows, type OsSnapLayout, type OsWindow } from '@/contexts/OsWindowContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { OsWindowActions } from '@/components/OsWindowActions'
+import { captureWindowPreview, setWindowPreview } from '@/lib/windowPreview'
 
 interface Props {
   window: OsWindow
@@ -73,7 +75,8 @@ function snapTargetFromPointer(clientX: number, clientY: number): OsSnapLayout |
  */
 export function OsWindowFrame({ window, active = false, name, icon, renderContent }: Props) {
   const { t } = useTranslation()
-  const { focusWindow, minimizeWindow, updateWindow, closeWindow, snapWindow, toggleMaximize } = useOsWindows()
+  const titleId = useId()
+  const { focusWindow, updateWindow, snapWindow, toggleMaximize } = useOsWindows()
 
   useEffect(() => {
     const toggleFromAppChrome = (event: Event) => {
@@ -84,8 +87,40 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
     return () => globalThis.removeEventListener('rumahl:window-toggle-maximize', toggleFromAppChrome)
   }, [toggleMaximize, window.pageId])
   const { setCurrentPageId } = usePageNavigation()
+
+  // Capture a REAL preview thumbnail of this window's rendered content so the
+  // taskbar preview shows a screenshot instead of a bare icon. Captures when
+  // the window opens and (debounced) whenever its size/geometry changes.
+  useEffect(() => {
+    if (!window.pageId) return
+    let cancelled = false
+    let timer: number | undefined
+    const capture = async () => {
+      const node = contentRef.current
+      if (!node) return
+      const dataUrl = await captureWindowPreview(node)
+      if (cancelled || !dataUrl) return
+      setWindowPreview(window.pageId, dataUrl)
+      globalThis.dispatchEvent(new CustomEvent('rumahl:window-preview-updated'))
+    }
+    const schedule = () => {
+      if (timer) globalThis.clearTimeout(timer)
+      timer = globalThis.setTimeout(() => void capture(), 600)
+    }
+    // Capture after the content has painted.
+    const raf = globalThis.requestAnimationFrame(() => schedule())
+    return () => {
+      cancelled = true
+      globalThis.cancelAnimationFrame(raf)
+      if (timer) globalThis.clearTimeout(timer)
+    }
+  }, [window.pageId, window.width, window.height, window.x, window.y])
+
   const drag = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
   const [snapPreview, setSnapPreview] = useState<OsSnapLayout | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
 
   // Direct user click on a window (content or title): focus it AND sync the
   // URL to its app. This is the explicit interaction that drives the address
@@ -133,6 +168,7 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
       originX: window.x,
       originY: window.y,
     }
+    setIsDragging(true)
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
@@ -150,10 +186,17 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
   const onTitlePointerUp = (event: React.PointerEvent) => {
     const preview = snapPreview
     drag.current = null
+    setIsDragging(false)
     setSnapPreview(null)
     if (preview && window.layout === 'window') {
       snapWindow(window.pageId, preview)
     }
+  }
+
+  const onTitlePointerCancel = () => {
+    drag.current = null
+    setIsDragging(false)
+    setSnapPreview(null)
   }
 
   const onTitleDoubleClick = (event: React.MouseEvent) => {
@@ -182,6 +225,7 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
       width: window.width,
       height: window.height,
     }
+    setIsResizing(true)
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
@@ -212,48 +256,42 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
 
   const onResizeEnd = () => {
     resize.current = null
+    setIsResizing(false)
   }
 
   return (
     <>
       <div
         className="rumahl-os-window"
+        role="dialog"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         data-active={active ? 'true' : 'false'}
+        data-dragging={isDragging ? 'true' : 'false'}
+        data-resizing={isResizing ? 'true' : 'false'}
         style={{ zIndex: window.z, left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}
         onPointerDown={onWindowPointerDown}
         onPointerMove={onTitlePointerMove}
         onPointerUp={onTitlePointerUp}
+        onPointerCancel={onTitlePointerCancel}
         onDoubleClick={onTitleDoubleClick}
+        onFocusCapture={() => {
+          if (!active && window.pageId) {
+            focusWindow(window.pageId)
+            setCurrentPageId(window.pageId)
+          }
+        }}
       >
         <div
           className={`rumahl-os-window-bar ${window.layout === 'window' ? 'cursor-grab active:cursor-grabbing' : ''}`}
         >
           {icon}
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-normal text-foreground/75">
+          <span id={titleId} className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-normal text-foreground/75">
             {window.pageId ? name : t('os.window.emptyPane')}
           </span>
-          <div className="flex shrink-0 items-center gap-0.5">
-            {isFloating && (
-              <button type="button" className="rumahl-window-action" onPointerDown={(e) => e.stopPropagation()} onClick={() => minimizeWindow(window.pageId)} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}>
-                <Minus size={14} />
-              </button>
-            )}
-            <button
-              type="button"
-              className="rumahl-window-action"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => (window.layout === 'maximized' ? snapWindow(window.pageId, 'window') : toggleMaximize(window.pageId))}
-              aria-label={t('os.window.maximize')}
-              title={window.layout === 'maximized' ? t('os.window.restore') : t('os.window.maximize')}
-            >
-              <SquaresFour size={13} />
-            </button>
-            <button type="button" className="rumahl-window-action hover:!bg-red-500/20 hover:!text-red-400" onPointerDown={(e) => e.stopPropagation()} onClick={() => closeWindow(window.pageId)} aria-label={t('os.window.close')} title={t('os.window.close')}>
-              <X size={14} />
-            </button>
-          </div>
+          <OsWindowActions pageId={window.pageId} showMinimize={isFloating} />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {window.pageId ? renderContent(window.pageId) : (
             <div className="flex min-h-full flex-col items-center justify-center gap-3 p-6 text-center">
               <SquaresFour size={40} weight="duotone" className="text-foreground/15" />
@@ -273,6 +311,7 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
                 onPointerDown={onResizeStart(dir)}
                 onPointerMove={onResizeMove}
                 onPointerUp={onResizeEnd}
+                onPointerCancel={onResizeEnd}
               />
             ))}
           </>
@@ -282,7 +321,8 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
       {/* Snap preview while dragging near a screen edge */}
       {previewBounds && (
         <div
-          className="pointer-events-none fixed z-[59] rounded-2xl border-2 border-accent/70 bg-accent/10 backdrop-blur-[2px]"
+          className="rumahl-snap-preview pointer-events-none fixed z-[59] rounded-2xl border-2 border-accent/70 bg-accent/10 backdrop-blur-[2px]"
+          data-layout={snapPreview}
           style={{ left: previewBounds.x, top: previewBounds.y, width: previewBounds.width, height: previewBounds.height }}
         />
       )}

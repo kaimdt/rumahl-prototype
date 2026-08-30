@@ -9,7 +9,7 @@ import { AuthImage } from '@/components/AuthImage'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { registerFileTypeApp } from '@/lib/fileTypeRegistry'
 import { readFileDragData } from '@/lib/fileDrop'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 interface ImageEntry {
   id: string

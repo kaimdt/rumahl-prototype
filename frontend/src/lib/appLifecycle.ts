@@ -9,7 +9,7 @@
  */
 import { authFetch } from '@/lib/authHelpers'
 import i18n from '@/i18n'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 const START_POLL_INTERVAL_MS = 2500
 /** ~60 s of polling before we give up (start may legitimately take a while). */

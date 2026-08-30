@@ -4,10 +4,18 @@ import { ErrorBoundary } from "react-error-boundary";
 import App from './App.tsx'
 import { ErrorFallback } from './ErrorFallback.tsx'
 import { initAutoContrast } from './lib/autoContrast'
+import { IS_DEMO } from './lib/config'
+import { persistAuthSession } from './lib/authHelpers'
 
 import "./index.css"
 
 initAutoContrast()
+// Demo mode: seed a demo admin session so the app boots straight into the OS
+// (no login screen, no backend). The mock middleware answers /api/auth/verify.
+if (IS_DEMO && typeof localStorage !== 'undefined') {
+  persistAuthSession('demo-access-token', 'demo-refresh-token')
+  try { localStorage.setItem('ha-username', 'demo') } catch { /* ignore */ }
+}
 // Restore accent-tinted icons preference
 import('./lib/accentIcons').then(({ readAccentIcons, applyAccentIcons }) => applyAccentIcons(readAccentIcons()))
 

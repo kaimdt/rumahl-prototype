@@ -3,6 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 import XIcon from "lucide-react/dist/esm/icons/x"
 import { ArrowsOutSimple, ArrowsInSimple } from "@phosphor-icons/react"
+import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 
@@ -57,6 +58,7 @@ function DialogContent({
   hideExpandButton?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useTranslation()
 
   const toggleExpand = useCallback(() => {
     setExpanded((prev) => !prev)
@@ -101,7 +103,8 @@ function DialogContent({
               type="button"
               onClick={toggleExpand}
               className="hidden sm:flex items-center justify-center w-8 h-8 rounded-xl bg-black/20 backdrop-blur-md text-foreground/80 transition-all duration-200 hover:bg-accent/20 hover:text-accent hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden shadow-sm"
-              title={expanded ? 'Verkleinern' : 'Vergrößern'}
+              title={expanded ? t('os.window.restore') : t('os.window.maximize')}
+              aria-label={expanded ? t('os.window.restore') : t('os.window.maximize')}
             >
               {expanded ? <ArrowsInSimple size={15} weight="bold" /> : <ArrowsOutSimple size={15} weight="bold" />}
             </button>
@@ -109,7 +112,7 @@ function DialogContent({
           {!hideCloseButton && (
             <DialogPrimitive.Close className="flex items-center justify-center w-8 h-8 rounded-xl bg-black/20 backdrop-blur-md text-foreground/80 transition-all duration-200 hover:bg-destructive/20 hover:text-destructive hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 shadow-sm">
               <XIcon />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">{t('common.close')}</span>
             </DialogPrimitive.Close>
           )}
         </div>

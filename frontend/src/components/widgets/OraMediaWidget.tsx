@@ -54,8 +54,8 @@ export function OraMediaWidget() {
   }, [load])
 
   const servers = [
-    ...(hub?.jellyfin.reachable ? [hub.jellyfin] : []),
-    ...(hub?.plex.reachable ? [hub.plex] : []),
+    ...(hub?.jellyfin?.reachable ? [hub.jellyfin] : []),
+    ...(hub?.plex?.reachable ? [hub.plex] : []),
   ]
 
   return (

@@ -95,7 +95,7 @@ function ThemeSettingsPanelWrapper() {
     </div>
   )
 }
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Tip } from '@/components/ui/tip'
 import {
   apiBase,
@@ -112,6 +112,7 @@ import {
   THEME_OPTIONS,
   ToggleRow,
 } from './settings/shared'
+import { ApprButton, ApprDivider, ApprPanel, ApprRow, ApprSelect, ApprToggle } from './settings/appr'
 
 // Lazy-loaded settings sections — split into separate chunks to keep the initial
 // SettingsPage bundle small. Each section loads on demand when its tab is opened.
@@ -529,129 +530,136 @@ export function SettingsPage(props: SettingsPageProps) {
         <TabsContent value="general" className="space-y-5">
 
           {/* Profile */}
-          <SettingsSection icon={User} title={t("settings.profile")} description={t("settings.profileDesc")} accentIcon>
-            <div className="rumahl-settings-profile-summary flex items-center gap-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-              <div className="w-12 h-12 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
-                <User size={22} weight="fill" className="text-accent" />
+          <section className="appr-panel appr-pad">
+            <h2>{t("settings.profile")}</h2>
+            <div className="appr-setting-row" style={{ marginTop: 16 }}>
+              <div>
+                <h3>{t("settings.profile")}</h3>
+                <p>{user?.displayName || user?.username || 'Benutzer'}{user?.displayName && user?.username ? ` · @${user.username}` : ''}</p>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{user?.displayName || user?.username || 'Benutzer'}</p>
-                {user?.displayName && user?.username && (
-                  <p className="text-xs text-foreground/50 truncate">@{user.username}</p>
-                )}
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent/15">
+                <User size={22} weight="fill" className="text-accent" />
               </div>
             </div>
 
-            <div className="rumahl-settings-field-grid grid sm:grid-cols-2 gap-3">
+            <div className="appr-divider" />
+
+            <div className="appr-setting-row">
               <div>
-                <label className="rumahl-field-label">Benutzername</label>
+                <h3>{t("settings.profileName")}</h3>
+                <p>{t("settings.profileNameDesc")}</p>
+              </div>
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={profileUsername}
                   onChange={(e) => setProfileUsername(e.target.value)}
-                  className="rumahl-field"
-                  disabled={isSavingProfile}
-                />
-              </div>
-              <div>
-                <label className="rumahl-field-label">Anzeigename</label>
-                <input
-                  type="text"
-                  value={profileDisplayName}
-                  onChange={(e) => setProfileDisplayName(e.target.value)}
-                  className="rumahl-field"
+                  className="rumahl-field w-40"
                   disabled={isSavingProfile}
                 />
               </div>
             </div>
-            <button
-              onClick={saveUserProfile}
-              disabled={isSavingProfile}
-              className="rumahl-settings-primary-action w-full px-4 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-medium transition-colors hover:bg-accent/90 disabled:opacity-60"
-            >
-              {isSavingProfile ? 'Wird gespeichert...' : 'Profil speichern'}
-            </button>
-          </SettingsSection>
+
+            <div className="appr-setting-row">
+              <div>
+                <h3>Anzeigename</h3>
+                <p>{t("settings.profileDesc")}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={profileDisplayName}
+                  onChange={(e) => setProfileDisplayName(e.target.value)}
+                  className="rumahl-field w-40"
+                  disabled={isSavingProfile}
+                />
+              </div>
+            </div>
+
+            <div className="appr-divider" />
+
+            <div className="appr-setting-row">
+              <div>
+                <h3>{t("common.save")}</h3>
+                <p>{t("settings.saveHint")}</p>
+              </div>
+              <ApprButton onClick={saveUserProfile} disabled={isSavingProfile}>
+                {isSavingProfile ? t("common.saving") : t("common.save")}
+              </ApprButton>
+            </div>
+          </section>
 
           {/* Security */}
-          <SettingsSection icon={Shield} title={t("settings.security")} description={t("settings.securityDesc")}>
-            <div className="grid sm:grid-cols-2 gap-3">
+          <section className="appr-panel appr-pad">
+            <h2>{t("settings.security")}</h2>
+
+            <div className="appr-setting-row" style={{ marginTop: 16 }}>
               <div>
-                <label className="rumahl-field-label">
-                  Neue PIN (4–8 Ziffern)
-                </label>
+                <h3>{t("settings.pin")}</h3>
+                <p>{t("settings.pinDesc")}</p>
+              </div>
+              <div className="flex items-center gap-2">
                 <input
                   type="password"
                   inputMode="numeric"
                   value={pinCode}
                   onChange={(e) => setPinCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  className="rumahl-field"
+                  className="rumahl-field w-32"
                   placeholder="••••"
+                  aria-label="Neue PIN"
                 />
-              </div>
-              <div>
-                <label className="rumahl-field-label">
-                  PIN bestätigen
-                </label>
                 <input
                   type="password"
                   inputMode="numeric"
                   value={pinConfirm}
                   onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  className="rumahl-field"
+                  className="rumahl-field w-32"
                   placeholder="••••"
+                  aria-label="PIN bestätigen"
                 />
+                <ApprButton onClick={savePin}>{t("settings.pinSave")}</ApprButton>
               </div>
             </div>
-            {pinHash && (
-              <div className="flex items-center gap-2 text-xs text-emerald-400">
-                <CheckCircle size={14} weight="fill" />
-                <span>PIN ist aktiv</span>
-              </div>
-            )}
-            <button
-              onClick={savePin}
-              className="rumahl-secondary-button w-full"
-            >
-              PIN speichern
-            </button>
 
-            <div className="border-t border-foreground/8 pt-3">
-              <ToggleRow
-                label="Geräte-Modus"
-                description={t("settings.deviceLockDesc")}
-                checked={deviceLockMode}
-                onCheckedChange={updateDeviceLockMode}
-                disabled={lockLoading}
-              />
-              <SliderRow
-                label={t("settings.autoLock")}
-                value={autoLockMinutes}
-                min={0}
-                max={60}
-                unit="min"
-                onChange={setAutoLockMinutes}
-              />
-              <ToggleRow
-                label={t("settings.kioskMode")}
-                description={t("settings.kioskModeDesc")}
-                checked={kioskMode}
-                onCheckedChange={setKioskMode}
-              />
-              <ToggleRow
-                label={t("settings.autoScreensaver")}
-                description={t("settings.autoScreensaverDesc")}
-                checked={screensaverSettings.enabled}
-                onCheckedChange={screensaverSettings.setEnabled}
-              />
-              <ToggleRow
-                label="AI & Agent deaktivieren"
-                description={t("settings.aiDisableDesc")}
-                checked={!props.aiEnabled}
-                onCheckedChange={(v) => props.setAiEnabled(!v)}
-              />
-            </div>
-          </SettingsSection>
+            {pinHash && (
+              <p className="appr-hint" style={{ color: 'color-mix(in oklch, #34d399 80%, var(--foreground))' }}>
+                <CheckCircle size={14} weight="fill" /> PIN ist aktiv
+              </p>
+            )}
+
+            <div className="appr-divider" />
+
+            <ApprToggle
+              label="Geräte-Modus"
+              description={t("settings.deviceLockDesc")}
+              checked={deviceLockMode}
+              onCheckedChange={updateDeviceLockMode}
+              disabled={lockLoading}
+            />
+            <ApprRow label={t("settings.autoLock")} description={t("settings.autoLockDesc")}>
+              <div className="w-44">
+                <SliderRow label="" value={autoLockMinutes} min={0} max={60} unit=" min" onChange={setAutoLockMinutes} />
+              </div>
+            </ApprRow>
+            <ApprToggle
+              label={t("settings.kioskMode")}
+              description={t("settings.kioskModeDesc")}
+              checked={kioskMode}
+              onCheckedChange={setKioskMode}
+            />
+            <ApprToggle
+              label={t("settings.autoScreensaver")}
+              description={t("settings.autoScreensaverDesc")}
+              checked={screensaverSettings.enabled}
+              onCheckedChange={screensaverSettings.setEnabled}
+            />
+            <ApprToggle
+              label="AI & Agent deaktivieren"
+              description={t("settings.aiDisableDesc")}
+              checked={!props.aiEnabled}
+              onCheckedChange={(v) => props.setAiEnabled(!v)}
+            />
+          </section>
 
           {/* Quick Login PIN */}
           <Suspense fallback={null}><LoginPinSection /></Suspense>
@@ -746,11 +754,12 @@ export function SettingsPage(props: SettingsPageProps) {
                 <p>{t('settings.themeModeDesc')}</p>
                 <div className="appr-mode-grid">
                   {[
-                    { id: 'auto', label: 'Automatisch', sub: 'Passt sich dem System an', cls: 'preview-auto' },
-                    { id: 'day-classic', label: 'Klassisch', sub: 'Zeitlos und schlicht', cls: 'preview-classic' },
-                    { id: 'day', label: 'Modern', sub: 'Klare und weiche Akzente', cls: 'preview-modern' },
-                    { id: 'night', label: 'Dunkel', sub: 'Tief und kontrastreich', cls: 'preview-dark' },
-                    { id: 'sleep', label: 'OLED Schwarz', sub: 'Reines Schwarz', cls: 'preview-oled' },
+                    { id: 'auto', cls: 'preview-auto' },
+                    { id: 'day-classic', cls: 'preview-classic' },
+                    { id: 'day', cls: 'preview-modern' },
+                    { id: 'night', cls: 'preview-dark' },
+                    { id: 'sleep', cls: 'preview-oled' },
+                    { id: 'midnight', cls: 'preview-midnight' },
                   ].map((mode) => {
                     const selected = selectedTheme === mode.id
                     return (
@@ -761,8 +770,8 @@ export function SettingsPage(props: SettingsPageProps) {
                         className={`appr-mode-card ${selected ? 'selected' : ''}`}
                       >
                         <span className={`appr-preview ${mode.cls}`} aria-hidden="true" />
-                        <strong>{mode.label}</strong>
-                        <small>{mode.sub}</small>
+                        <strong>{t(`settings.themeOptions.${mode.id}.label`)}</strong>
+                        <small>{t(`settings.themeOptions.${mode.id}.description`)}</small>
                       </button>
                     )
                   })}
