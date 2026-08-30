@@ -1,10 +1,19 @@
 import { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { storage, useLocalStorage } from '@/lib/storage'
+import { readTimeThemePalette } from '@/lib/timeThemePalette'
 import { authFetch } from '@/lib/authHelpers'
 import { getBackendUrl } from '@/lib/config'
 import type { ThemeMode } from '@/lib/types'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
+
+function readableForeground(background: string) {
+  const hex = background.replace('#', '')
+  if (!/^[\da-f]{6}$/i.test(hex)) return undefined
+  const [r, g, b] = [0, 2, 4].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  return luminance > 0.58 ? '#171922' : '#f3f4f8'
+}
 
 // ─── Type definitions ──────────────────────────────────────────────
 
@@ -462,6 +471,7 @@ export function readTimeThemeConfig(): TimeThemeConfig {
 
 export function writeTimeThemeConfig(config: TimeThemeConfig): void {
   storage.set(TIME_THEME_KEY, config)
+  window.dispatchEvent(new CustomEvent('rumahl:time-theme-change'))
 }
 
 /** Get the design mode for the current time based on theme capabilities */
@@ -916,11 +926,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       }
     }
     update()
+    window.addEventListener('rumahl:time-theme-change', update)
     const interval = setInterval(update, 60000)
-    return () => clearInterval(interval)
+    return () => { clearInterval(interval); window.removeEventListener('rumahl:time-theme-change', update) }
   }, [sleepMode, autoTheme, selectedTheme, capabilities])
 
   // Fetch theme data when theme changes
+  useEffect(() => {
+    const applyTimePalette = () => {
+      if (!['day', 'evening', 'night'].includes(theme)) return
+      const colors = readTimeThemePalette()[theme as 'day' | 'evening' | 'night']
+      document.documentElement.style.setProperty('--background', colors.background)
+      document.documentElement.style.setProperty('--accent', colors.accent)
+      const foreground = readableForeground(colors.background)
+      if (foreground) document.documentElement.style.setProperty('--foreground', foreground)
+    }
+    applyTimePalette()
+    window.addEventListener('rumahl:time-theme-palette-change', applyTimePalette)
+    return () => window.removeEventListener('rumahl:time-theme-palette-change', applyTimePalette)
+  }, [theme])
+
   useEffect(() => {
     const root = document.documentElement
     root.setAttribute('data-theme', theme)
@@ -933,6 +958,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       // Builtin theme: the stylesheet is authoritative — drop any FOUC-cache
       // inline vars that came from a different (custom) theme.
       clearStaleFoucVars(root, theme)
+      if (['day', 'evening', 'night'].includes(theme)) {
+        const colors = readTimeThemePalette()[theme as 'day' | 'evening' | 'night']
+        root.style.setProperty('--background', colors.background)
+        root.style.setProperty('--accent', colors.accent)
+        const foreground = readableForeground(colors.background)
+        if (foreground) root.style.setProperty('--foreground', foreground)
+      }
       setThemeResponse(null)
       setActiveCssVariables({})
     }

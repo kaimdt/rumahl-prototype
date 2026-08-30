@@ -102,6 +102,51 @@
 
 final result: blocked
 
+## Admin Center integration and window snap-menu repair — 2026-08-30
+
+**Evidence**
+- Source visual truth: `C:/Users/kaima/AppData/Local/Temp/codex-clipboard-c49dc24e-0f32-4990-94bc-c404a53d9fed.png` (1048 × 560 px), Midnight desktop with Files and a visibly collapsed snap-layout menu.
+- Implementation target: `http://localhost:5174/`, authenticated frontend demo, Midnight desktop with Files and Admin Center windows.
+- Browser-rendered evidence: in-app browser capture at 1912 × 1080 CSS px, device scale 1, showing the redesigned Admin Center overview; the browser surface did not provide a persistent screenshot file path.
+- State: Admin Center overview and integrated Services page. The source and implementation states differ because the source documents the snap-menu defect while the implementation screenshot documents the Admin Center result.
+- Primary interactions tested: Admin Center overview rendering, Services sidenav selection, embedded Services search and refresh controls, preservation of outer minimize/maximize/close controls.
+- Console errors checked: blocked after the browser URL policy rejected subsequent local-page inspection.
+- Focused comparison: the broken menu width was traced to the descendant selector `.rumahl-window-actions button`; it forced every snap-menu action to the 28 px titlebar-button width. The selector now targets only direct window-control buttons.
+
+**Findings**
+- [Fixed P0] Snap-layout action labels collapsed to one word/character per line because menu descendants inherited the 28 px window-control width.
+- [Fixed P1] Desktop Admin Center navigation opened separate applications rather than switching content inside the Admin Center.
+- [Fixed P1] Admin overview displayed static sample services and treated a missing health response as healthy.
+- [Fixed P1] Hiding embedded app navbars also hid the Admin Center's outer window controls via the existing `:has(.rumahl-app-navbar)` chrome rule.
+- [Fixed P2] Admin sidebar and embedded app surfaces used hard-coded dark gradients rather than shared theme tokens.
+- [Blocked] The browser URL policy interrupted the multi-page visual pass before Storage, Network, Devices, Containers, Logs, System, Updates, Backups, Users, and the repaired open snap menu could be captured and compared.
+
+**Required fidelity surfaces**
+- Typography: Admin Center and embedded apps use the shared Segoe desktop scale; the captured overview shows stable title, caption, table, and sidebar hierarchy.
+- Spacing/layout: the captured overview preserves the reference's compact sidebar and content density; embedded Services retains its functional toolbar under the Admin shell.
+- Colors/tokens: Admin shell, sidebar, content, cards, borders, focus states, and embedded frames now derive from `--background`, `--card`, `--foreground`, `--border`, and semantic status tokens.
+- Image quality: existing Phosphor icons and application assets are preserved; no raster assets were added or approximated.
+- Copy/content: new health, check-time, service-state, empty-state, and summary copy is localized in German and English.
+
+**Comparison history**
+- Initial source: Files window snap menu visibly collapsed and overlapping.
+- Iteration 1: narrowed titlebar sizing selectors to direct controls; centralized Admin Center routing and replaced static service data with API responses.
+- Iteration 2: browser capture exposed missing outer controls on the integrated Services page; the Admin Center now always retains its outer titlebar while embedded toolbars keep app-specific controls without duplicate window actions.
+- Post-fix evidence: DOM snapshot confirms Admin Center minimize/maximize/close plus Services search, refresh, filters, and empty state coexist in one window.
+
+**Implementation checklist**
+- [x] Repair snap-menu descendant sizing.
+- [x] Integrate administrative system surfaces into one Admin Center shell.
+- [x] Preserve legacy page IDs as Admin Center deep links.
+- [x] Remove administrative surfaces from independent launcher/taskbar app registration.
+- [x] Replace static overview service rows with live API data.
+- [x] Correct health checking and localized timestamps.
+- [x] Preserve embedded app operations and outer window controls.
+- [x] Pass TypeScript, ESLint, production build, and diff checks.
+- [ ] Complete browser captures for every integrated section and the open repaired snap menu when the local URL policy permits it.
+
+final result: blocked
+
 ## Command center and keyboard-focus pass — 2026-08-29
 
 **Evidence**

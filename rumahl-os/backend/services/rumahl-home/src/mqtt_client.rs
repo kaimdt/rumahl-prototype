@@ -22,7 +22,10 @@ impl Default for MqttConfig {
             port: 1883,
             username: None,
             password: None,
-            client_id: format!("rumahl-dashboard-{}", &uuid::Uuid::new_v4().to_string()[..8]),
+            client_id: format!(
+                "rumahl-dashboard-{}",
+                &uuid::Uuid::new_v4().to_string()[..8]
+            ),
             use_tls: false,
         }
     }

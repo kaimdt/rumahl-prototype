@@ -8,6 +8,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       position="bottom-right"
       offset={44}
       mobileOffset={10}
+      visibleToasts={5}
+      expand
+      gap={8}
       toastOptions={{
         classNames: {
           toast: "glass-toast rumahl-system-toast",

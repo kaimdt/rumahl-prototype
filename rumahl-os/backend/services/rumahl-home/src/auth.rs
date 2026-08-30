@@ -1,7 +1,7 @@
 use bcrypt::{hash, verify, DEFAULT_COST};
-use rumahl_shared_config::system_config;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use rand::Rng;
+use rumahl_shared_config::system_config;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;

@@ -266,6 +266,7 @@ export function DeveloperModeTab({ token }: { token: string }) {
       } else {
         localStorage.removeItem('rumahl-developer-mode')
       }
+      window.dispatchEvent(new CustomEvent('rumahl:developer-mode', { detail: { enabled: next } }))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

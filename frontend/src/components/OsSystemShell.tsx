@@ -257,7 +257,8 @@ export function OsSystemShell() {
         return
       }
       // Task switcher (Alt+Tab)
-      if (comboMatches(getCombo('task-switcher'), event)) {
+      const portableTaskSwitcher = event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && event.code === 'Space'
+      if (comboMatches(getCombo('task-switcher'), event) || portableTaskSwitcher) {
         event.preventDefault()
         if (showRecents) {
           setSwitcherIndex((current) => switcherApps.length ? (current + 1) % switcherApps.length : 0)
@@ -320,7 +321,9 @@ export function OsSystemShell() {
       }
     }
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (!showRecents || (event.key !== 'Alt' && event.key !== 'Meta')) return
+      const releasedNativeModifier = event.key === 'Alt' || event.key === 'Meta'
+      const releasedPortableTrigger = event.code === 'Space' && event.ctrlKey && event.shiftKey
+      if (!showRecents || (!releasedNativeModifier && !releasedPortableTrigger)) return
       const selected = switcherApps[switcherIndex]
       if (!selected) return
       setCurrentPageId(selected.pageId)

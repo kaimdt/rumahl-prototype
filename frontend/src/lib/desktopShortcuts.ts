@@ -43,3 +43,32 @@ export async function deleteFileEntry(fileId: string): Promise<boolean> {
     return false
   }
 }
+
+/** Create an empty text file inside the given parent folder (e.g. the Desktop). */
+export async function createDesktopFile(name: string, parentFolderId: string | null): Promise<boolean> {
+  try {
+    const blob = new Blob([''], { type: 'text/plain' })
+    const file = new File([blob], name.trim(), { type: 'text/plain' })
+    const form = new FormData()
+    form.append('file', file)
+    if (parentFolderId) form.append('folder_id', parentFolderId)
+    const res = await authFetch('/api/files/upload', { method: 'POST', body: form })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** Create a folder inside the given parent folder (e.g. the Desktop). */
+export async function createDesktopFolder(name: string, parentFolderId: string | null): Promise<boolean> {
+  try {
+    const res = await authFetch('/api/files/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), parent_folder_id: parentFolderId }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}

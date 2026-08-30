@@ -273,8 +273,9 @@ impl ThemeState {
                 root.insert(key.clone(), value.clone());
             }
         }
-        let mut def: rumahl_shared::theme::ThemeDefinition = serde_json::from_value(merged_manifest)
-            .map_err(|e| anyhow::anyhow!("Invalid manifest.json: {}", e))?;
+        let mut def: rumahl_shared::theme::ThemeDefinition =
+            serde_json::from_value(merged_manifest)
+                .map_err(|e| anyhow::anyhow!("Invalid manifest.json: {}", e))?;
         def.source = "file".to_string();
 
         // Extract
@@ -1076,8 +1077,8 @@ pub async fn handle_install_theme_inline(
     }
 
     // Deserialize from the (possibly merged) flat format
-    let def: rumahl_shared::theme::ThemeDefinition =
-        serde_json::from_value(merged.clone()).map_err(|e| {
+    let def: rumahl_shared::theme::ThemeDefinition = serde_json::from_value(merged.clone())
+        .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
                 format!("Invalid theme manifest: {}", e),

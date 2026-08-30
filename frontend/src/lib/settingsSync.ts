@@ -8,6 +8,7 @@
  */
 
 import { authFetch } from '@/lib/authHelpers'
+import { queueOfflineMutation } from '@/lib/offlineMutationQueue'
 
 // Keys that should be synced to backend for cross-device use
 const SYNCED_KEYS = [
@@ -21,6 +22,7 @@ const SYNCED_KEYS = [
   'screensaver-enabled',
   'screensaver-timeout',
   'screensaver-schedules',
+  'rumahl-screensaver-style',
   'color-scenes',
   'glass-settings',
   'ha-haptic-feedback',
@@ -35,10 +37,26 @@ const SYNCED_KEYS = [
   'rumahl-os-launcher-widgets',
   'rumahl-os-launcher-folders',
   'rumahl-time-theme-boundaries',
+  'rumahl-time-theme-palette',
   'rumahl-ui-scale',
   'rumahl-os-session-locked',
   'rumahl-auto-lock-minutes',
+  'rumahl-lock-screen-style',
+  'rumahl-lock-screen-custom-image',
+  'rumahl-session-screen-settings',
   'rumahl-kiosk-mode',
+  'rumahl-shell-mode',
+  'rumahl-accent-icons',
+  'rumahl-auto-contrast',
+  'rumahl-app-open-external',
+  'rumahl-interface-style',
+  'rumahl-accessibility',
+  'rumahl-files-view',
+  'rumahl-launcher-layout',
+  'rumahl-os-workspaces',
+  'rumahl-os-active-workspace',
+  'rumahl-os-app-geometry',
+  'i18nextLng',
 ]
 
 let syncUserId: string | null = null
@@ -47,6 +65,11 @@ const saveTimers = new Map<string, number>()
 
 async function getUserId(): Promise<string | null> {
   if (syncUserId) return syncUserId
+  const cachedUserId = localStorage.getItem('ha-user-id')
+  if (cachedUserId) {
+    syncUserId = cachedUserId
+    return cachedUserId
+  }
 
   const username = localStorage.getItem('ha-username') || 'default'
   try {
@@ -54,6 +77,7 @@ async function getUserId(): Promise<string | null> {
     if (res.ok) {
       const u = await res.json()
       syncUserId = u.id
+      localStorage.setItem('ha-user-id', u.id)
       return u.id
     }
   } catch {
@@ -119,6 +143,12 @@ export async function loadSettingsFromBackend() {
     if (!res.ok) return
 
     const prefs: Array<{ preference_key: string; preference_value: unknown }> = await res.json()
+    const deviceId = localStorage.getItem('ha-device-id')
+    let devicePrefs: Array<{ preference_key: string; preference_value: unknown }> = []
+    if (deviceId) {
+      const deviceRes = await authFetch(`/api/config/devices/${encodeURIComponent(deviceId)}/preferences/${encodeURIComponent(userId)}`)
+      if (deviceRes.ok) devicePrefs = await deviceRes.json()
+    }
     const userKeys = new Set<string>()
 
     for (const pref of prefs) {
@@ -126,19 +156,18 @@ export async function loadSettingsFromBackend() {
 
       userKeys.add(pref.preference_key)
       const backendVal = toLocalStorageValue(pref.preference_value)
-      const localVal = localStorage.getItem(pref.preference_key)
+      // rumahl OS is the source of truth. Browser storage is only a local
+      // runtime cache and is replaced by the persisted OS value at startup.
+      localStorage.setItem(pref.preference_key, backendVal)
+    }
 
-      // Restore from the backend ONLY when the key is missing locally.
-      // Backend values must never clobber a fresh local value on every load:
-      // a stale backend preference (e.g. an old light theme id, or a launcher
-      // manifest from before a local edit) would otherwise force itself onto
-      // every page load system-wide. Local changes still propagate to the
-      // backend via scheduleSyncToBackend, so other devices keep receiving
-      // updates whenever a key is missing (first run / cleared storage).
-      if (localVal === null) {
-        localStorage.setItem(pref.preference_key, backendVal)
-        console.log('[SettingsSync] Restored', pref.preference_key, 'from backend')
-      }
+    // Device snapshots are authoritative for this installation. This makes an
+    // administrator-initiated configuration transfer take effect on its next
+    // settings load, while ordinary local edits keep the snapshot current.
+    for (const pref of devicePrefs) {
+      if (!SYNCED_KEYS.includes(pref.preference_key)) continue
+      userKeys.add(pref.preference_key)
+      localStorage.setItem(pref.preference_key, toLocalStorageValue(pref.preference_value))
     }
 
     // Fall back to admin global defaults for appearance keys the user hasn't set.
@@ -182,16 +211,52 @@ async function pushSetting(key: string, value: string) {
       return
     }
 
-    const res = await authFetch(`/api/config/preferences/${userId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    })
+    const userPath = `/api/config/preferences/${encodeURIComponent(userId)}`
+    let res: Response
+    try {
+      res = await authFetch(userPath, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    } catch {
+      await queueOfflineMutation(`user:${userId}:${key}`, userPath, body)
+      const deviceId = localStorage.getItem('ha-device-id')
+      if (deviceId) {
+        const devicePath = `/api/config/devices/${encodeURIComponent(deviceId)}/preferences/${encodeURIComponent(userId)}`
+        await queueOfflineMutation(`device:${deviceId}:${userId}:${key}`, devicePath, body)
+      }
+      return
+    }
     if (!res.ok) {
       // Non-OK (e.g. 413) should not spam the console/error reporter.
       if (!oversizedWarned.has(key)) {
         oversizedWarned.add(key)
         console.warn(`[SettingsSync] Failed to sync '${key}': HTTP ${res.status}`)
+      }
+      if ([408, 425, 429].includes(res.status) || res.status >= 500) {
+        await queueOfflineMutation(`user:${userId}:${key}`, userPath, body)
+        const pendingDeviceId = localStorage.getItem('ha-device-id')
+        if (pendingDeviceId) {
+          const pendingDevicePath = `/api/config/devices/${encodeURIComponent(pendingDeviceId)}/preferences/${encodeURIComponent(userId)}`
+          await queueOfflineMutation(`device:${pendingDeviceId}:${userId}:${key}`, pendingDevicePath, body)
+        }
+      }
+    }
+
+
+    const deviceId = localStorage.getItem('ha-device-id')
+    if (res.ok && deviceId) {
+      const devicePath = `/api/config/devices/${encodeURIComponent(deviceId)}/preferences/${encodeURIComponent(userId)}`
+      let deviceRes: Response
+      try {
+        deviceRes = await authFetch(devicePath, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+      } catch {
+        await queueOfflineMutation(`device:${deviceId}:${userId}:${key}`, devicePath, body)
+        return
+      }
+      if (!deviceRes.ok && !oversizedWarned.has(`${deviceId}:${key}`)) {
+        oversizedWarned.add(`${deviceId}:${key}`)
+        console.warn(`[SettingsSync] Failed to save device snapshot '${key}': HTTP ${deviceRes.status}`)
+      }
+      if (!deviceRes.ok && ([408, 425, 429].includes(deviceRes.status) || deviceRes.status >= 500)) {
+        await queueOfflineMutation(`device:${deviceId}:${userId}:${key}`, devicePath, body)
       }
     }
   } catch {

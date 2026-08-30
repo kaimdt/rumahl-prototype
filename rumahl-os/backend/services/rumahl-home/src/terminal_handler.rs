@@ -29,6 +29,17 @@ pub async fn terminal_ws(
     State(state): State<AppState>,
     Extension(identity): Extension<AuthIdentity>,
 ) -> Response {
+    let developer_mode = state
+        .config_repo
+        .get_system_preference("developer.mode")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|preference| serde_json::from_str::<bool>(&preference.preference_value).ok())
+        .unwrap_or(false);
+    if !developer_mode {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     match user_has_os_permission(&state, identity.user_id(), "os.terminal").await {
         Ok(true) => ws.on_upgrade(terminal_session),
         Ok(false) => StatusCode::FORBIDDEN.into_response(),
@@ -41,7 +52,9 @@ async fn terminal_session(socket: WebSocket) {
     // `script -qec bash /dev/null` runs bash inside a pseudo terminal and
     // mirrors the terminal stream (ANSI included) to stdout.
     let mut child = match tokio::process::Command::new("script")
-        .args(["-qec", "bash", "/dev/null"])
+        .args(["-qec", "exec bash --login", "/dev/null"])
+        .env("TERM", "xterm-256color")
+        .env("COLORTERM", "truecolor")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

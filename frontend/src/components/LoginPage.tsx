@@ -25,6 +25,16 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
 import { RumahlMark } from '@/components/RumahlMark'
+import { useClock } from '@/hooks/useClock'
+import { useLocalStorage } from '@/lib/storage'
+import { DEFAULT_SESSION_SCREEN_SETTINGS, normalizeSessionScreenSettings, SESSION_CLOCK_FONT_STACKS, type SessionScreenSettings } from '@/lib/sessionScreenSettings'
+
+async function runAuthTransition(action: () => Promise<void>) {
+  const documentWithTransitions = document as Document & { startViewTransition?: (callback: () => Promise<void>) => { finished: Promise<void> } }
+  if (!documentWithTransitions.startViewTransition) { await action(); return }
+  const transition = documentWithTransitions.startViewTransition(action)
+  await transition.finished
+}
 
 // ── Zod schemas ──────────────────────────────────────────
 const loginSchema = z.object({
@@ -191,8 +201,11 @@ interface AuthModeOption {
 
 // ── LoginPage ────────────────────────────────────────────
 export function LoginPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { login, loginAsGuest, loginWithPin, register } = useAuth()
+  const now = useClock()
+  const [storedSessionScreen] = useLocalStorage<SessionScreenSettings>('rumahl-session-screen-settings', DEFAULT_SESSION_SCREEN_SETTINGS)
+  const sessionScreen = normalizeSessionScreenSettings(storedSessionScreen)
 
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [isLoading, setIsLoading] = useState(false)
@@ -209,7 +222,7 @@ export function LoginPage() {
   const onGuestLogin = async () => {
     setIsLoading(true)
     try {
-      await loginAsGuest()
+      await runAuthTransition(loginAsGuest)
       toast.success(t('auth.guestSuccess'))
     } catch (error) {
       const message = error instanceof Error ? error.message : t('auth.guestFailed')
@@ -247,7 +260,7 @@ export function LoginPage() {
   const onLogin = async (data: LoginFormData) => {
     setIsLoading(true)
     try {
-      await login(data.username, data.password, data.rememberMe)
+      await runAuthTransition(() => login(data.username, data.password, data.rememberMe))
       toast.success(t('auth.loginSuccess'))
     } catch (error) {
       const message = error instanceof Error ? error.message : t('auth.loginFailed')
@@ -267,7 +280,7 @@ export function LoginPage() {
   const onRegister = async (data: RegisterFormData) => {
     setIsLoading(true)
     try {
-      await register(data.username, data.password, data.displayName || undefined)
+      await runAuthTransition(() => register(data.username, data.password, data.displayName || undefined))
       toast.success(t('auth.registerSuccess'))
     } catch (error) {
       const message = error instanceof Error ? error.message : t('auth.registerFailed')
@@ -283,7 +296,7 @@ export function LoginPage() {
       if (!selectedUser) return
       setIsLoading(true)
       try {
-        await loginWithPin(selectedUser.id, pin)
+        await runAuthTransition(() => loginWithPin(selectedUser.id, pin))
         toast.success(`${t('auth.welcomeBack')}, ${selectedUser.display_name || selectedUser.username}!`)
         setSelectedUser(null)
       } catch (error) {
@@ -308,7 +321,7 @@ export function LoginPage() {
   ]
 
   return (
-    <div className="min-h-screen relative overflow-hidden flex items-center justify-center">
+    <div data-clock-position={sessionScreen.clockPosition} data-clock-font={sessionScreen.clockFont} className="rumahl-auth-screen min-h-screen relative overflow-hidden flex items-center justify-center" style={{ '--session-clock-scale': sessionScreen.clockScale / 100, '--session-text-scale': sessionScreen.textScale / 100, '--session-clock-font': SESSION_CLOCK_FONT_STACKS[sessionScreen.clockFont] } as React.CSSProperties}>
       {/* Background */}
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
@@ -335,18 +348,22 @@ export function LoginPage() {
       </div>
 
       {/* Brand watermark — rumahl mark in the splash design language */}
-      <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">
+      {sessionScreen.showBrand && <div className="rumahl-session-positioned z-10 text-center pointer-events-none" style={{ left: `${sessionScreen.positions.brand.x}%`, top: `${sessionScreen.positions.brand.y}%` }}>
         <RumahlMark className="mx-auto h-6 text-white/25" />
-      </div>
+      </div>}
+
+      <p className="rumahl-session-clock rumahl-session-positioned pointer-events-none z-10 font-semibold tabular-nums tracking-tight text-white" style={{ left: `${sessionScreen.positions.clock.x}%`, top: `${sessionScreen.positions.clock.y}%` }}>{now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}</p>
+      {sessionScreen.showDate && <p className="rumahl-session-date rumahl-session-positioned pointer-events-none z-10 font-medium text-white/55" style={{ left: `${sessionScreen.positions.date.x}%`, top: `${sessionScreen.positions.date.y}%` }}>{now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}</p>}
+      {sessionScreen.showStatusWidget && <span className="rumahl-session-status-widget rumahl-session-positioned pointer-events-none z-10" style={{ left: `${sessionScreen.positions.status.x}%`, top: `${sessionScreen.positions.status.y}%` }}><Lock size={13} />rumahl OS</span>}
 
       {/* Auth card */}
       <motion.div
         initial={{ opacity: 0, y: 24, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={MOTION_HERO}
-        className="relative z-10 w-full max-w-[420px] mx-4"
+        className="relative z-10 mt-[18vh] w-full max-w-[390px] mx-4"
       >
-        <div className="backdrop-blur-2xl bg-white/5 border border-white/12 rounded-[1.9rem] shadow-2xl shadow-black/40 ring-1 ring-white/5 overflow-hidden">
+        <div className="backdrop-blur-2xl bg-black/20 border border-white/10 rounded-[1.9rem] shadow-2xl shadow-black/35 ring-1 ring-white/5 overflow-hidden">
           {/* Header */}
           <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-accent/15 via-accent/6 to-transparent" />

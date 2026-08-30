@@ -12,7 +12,7 @@ import { isAppAllowed } from '@/lib/userRestrictions'
 import { DesktopContextMenu, type DesktopMenuState } from '@/components/DesktopContextMenu'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 import { authFetch } from '@/lib/authHelpers'
-import { deleteFileEntry, resolveDesktopFolder, createDesktopShortcut } from '@/lib/desktopShortcuts'
+import { deleteFileEntry, resolveDesktopFolder, createDesktopShortcut, createDesktopFile, createDesktopFolder } from '@/lib/desktopShortcuts'
 import { fileTypeIcon } from '@/lib/fileTypeRegistry'
 import { GearSix, MagnifyingGlass, FolderSimple, X } from '@phosphor-icons/react'
 
@@ -43,6 +43,11 @@ type DesktopItemKey = `app:${string}` | `file:${string}`
 
 /** Persisted free-grid position of a desktop item. */
 interface ItemPos { col: number; row: number }
+
+interface DesktopCreateDraft {
+  kind: 'file' | 'folder'
+  name: string
+}
 
 const POS_KEY = 'rumahl-os-desktop-positions'
 const CURRENT_FOLDER_KEY = 'rumahl-os-desktop-folder'
@@ -154,7 +159,10 @@ export function DesktopWorkspace() {
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null)
   const marqueeStart = useRef<{ x: number; y: number } | null>(null)
   const marqueeBaseSelection = useRef<Set<string>>(new Set())
+  const marqueeActive = useRef(false)
+  const marqueePointerId = useRef<number | null>(null)
   const workspaceRef = useRef<HTMLElement>(null)
+  const creatingEntryRef = useRef(false)
   const [menu, setMenu] = useState<DesktopMenuState | null>(null)
   useCloseOnOtherMenu(() => setMenu(null))
 
@@ -164,7 +172,7 @@ export function DesktopWorkspace() {
   const [positions, setPositions] = useState<Record<string, ItemPos>>(readPositions)
   const [dropHighlight, setDropHighlight] = useState(false)
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
-  const [manageOpen, setManageOpen] = useState(false)
+  const [createDraft, setCreateDraft] = useState<DesktopCreateDraft | null>(null)
   const [desktopMetrics, setDesktopMetrics] = useState(() => desktopMetricsForViewport(window.innerWidth, window.innerHeight))
 
   useEffect(() => {
@@ -325,6 +333,32 @@ export function DesktopWorkspace() {
     setCurrentPageId('launcher')
   }
 
+  const beginCreate = useCallback((kind: DesktopCreateDraft['kind']) => {
+    setSelectedKeys(new Set())
+    setCreateDraft({
+      kind,
+      name: kind === 'file' ? t('os.files.defaultNewFileName') : t('os.files.defaultNewFolderName'),
+    })
+  }, [t])
+
+  // Commit the inline desktop editor to the same Desktop folder Files uses.
+  const commitCreate = useCallback(async () => {
+    if (!createDraft || creatingEntryRef.current) return
+    const name = createDraft.name.trim()
+    if (!name) { setCreateDraft(null); return }
+    creatingEntryRef.current = true
+    setCreateDraft(null)
+    try {
+      const folderId = await resolveDesktopFolder()
+      const created = createDraft.kind === 'file'
+        ? await createDesktopFile(name, folderId)
+        : await createDesktopFolder(name, folderId)
+      if (created) window.dispatchEvent(new Event('rumahl:desktop-refresh'))
+    } finally {
+      creatingEntryRef.current = false
+    }
+  }, [createDraft])
+
   // ── Desktop icons = the Desktop folder's entries (1:1 with Files) ────
   // App shortcuts (real entries with the shortcut mime) resolve to their app;
   // files/folders render as file icons. Both the desktop and the Files
@@ -335,9 +369,11 @@ export function DesktopWorkspace() {
     const target = event.target as HTMLElement
     if (target.closest('.rumahl-desktop-icon, .rumahl-desktop-search')) return
     event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    marqueePointerId.current = event.pointerId
     marqueeStart.current = { x: event.clientX, y: event.clientY }
+    marqueeActive.current = false
     marqueeBaseSelection.current = event.shiftKey || event.metaKey || event.ctrlKey ? new Set(selectedKeys) : new Set()
-    setMarquee({ x: event.clientX, y: event.clientY, width: 0, height: 0 })
     if (!event.shiftKey && !event.metaKey && !event.ctrlKey) setSelectedKeys(new Set())
   }
 
@@ -348,23 +384,29 @@ export function DesktopWorkspace() {
     const top = Math.min(start.y, event.clientY)
     const width = Math.abs(event.clientX - start.x)
     const height = Math.abs(event.clientY - start.y)
+    if (!marqueeActive.current && Math.hypot(width, height) <= 5) return
+    marqueeActive.current = true
     setMarquee({ x: left - workspaceRef.current.getBoundingClientRect().left, y: top - workspaceRef.current.getBoundingClientRect().top, width, height })
-    if (width > 4 || height > 4) {
-      setSelectedKeys(() => {
-        const next = new Set(marqueeBaseSelection.current)
-        workspaceRef.current?.querySelectorAll<HTMLElement>('.rumahl-desktop-icon').forEach((el) => {
-          const key = el.getAttribute('data-item-key')
-          if (!key) return
-          const rect = el.getBoundingClientRect()
-          const overlap = rect.left < left + width && rect.right > left && rect.top < top + height && rect.bottom > top
-          if (overlap) next.add(key)
-        })
-        return next
+    setSelectedKeys(() => {
+      const next = new Set(marqueeBaseSelection.current)
+      workspaceRef.current?.querySelectorAll<HTMLElement>('.rumahl-desktop-icon-slot').forEach((el) => {
+        const key = el.getAttribute('data-item-key')
+        if (!key) return
+        const rect = el.getBoundingClientRect()
+        const overlap = rect.left < left + width && rect.right > left && rect.top < top + height && rect.bottom > top
+        if (overlap) next.add(key)
       })
-    }
+      return next
+    })
   }
 
-  const endMarquee = () => { marqueeStart.current = null; setMarquee(null) }
+  const endMarquee = () => {
+    if (marqueePointerId.current !== null && workspaceRef.current?.hasPointerCapture(marqueePointerId.current)) workspaceRef.current.releasePointerCapture(marqueePointerId.current)
+    marqueePointerId.current = null
+    marqueeStart.current = null
+    marqueeActive.current = false
+    setMarquee(null)
+  }
 
   const toggleSelected = useCallback((key: string) => {
     setSelectedKeys((prev) => {
@@ -440,6 +482,19 @@ export function DesktopWorkspace() {
   }, [fileItems])
 
   const posFor = (key: DesktopItemKey, index: number): ItemPos => positions[key] ?? { col: index % 6, row: Math.floor(index / 6) }
+  const createDraftPosition = useMemo(() => {
+    const occupied = new Set(fileItems.map((item, index) => {
+      const position = posFor(item.key, index)
+      return `${position.col}:${position.row}`
+    }))
+    let row = 0
+    let col = 0
+    while (occupied.has(`${col}:${row}`)) {
+      row += 1
+      if (row > 40) { row = 0; col += 1 }
+    }
+    return { col, row }
+  }, [fileItems, positions])
   // Dropping a shortcut/file onto a cell places it there via absolute
   // positioning. If another item already occupies that cell, the two SWAP so
   // nothing stacks on top of anything (the collision the user saw).
@@ -500,6 +555,39 @@ export function DesktopWorkspace() {
       onDrop={handleDrop}
     >
       <div className="rumahl-desktop-icons">
+        {createDraft && (
+          <div
+            className="rumahl-desktop-icon-slot"
+            style={{ left: createDraftPosition.col * desktopMetrics.cellWidth, top: createDraftPosition.row * desktopMetrics.cellHeight }}
+          >
+            <div className="rumahl-desktop-icon is-selected">
+              <span className={`rumahl-desktop-icon-art ${createDraft.kind === 'folder' ? 'rumahl-desktop-icon-folder' : 'is-image'}`}>
+                {createDraft.kind === 'folder'
+                  ? <FolderSimple size={27} weight="duotone" />
+                  : <img src="/icons/file.png" alt="" />}
+              </span>
+              <input
+                autoFocus
+                value={createDraft.name}
+                onChange={(event) => setCreateDraft((draft) => draft ? { ...draft, name: event.target.value } : null)}
+                onFocus={(event) => {
+                  const extensionStart = createDraft.kind === 'file' ? event.target.value.lastIndexOf('.') : -1
+                  event.target.setSelectionRange(0, extensionStart > 0 ? extensionStart : event.target.value.length)
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') { event.preventDefault(); void commitCreate() }
+                  if (event.key === 'Escape') { event.preventDefault(); setCreateDraft(null) }
+                  event.stopPropagation()
+                }}
+                onBlur={() => { if (createDraft.name.trim()) void commitCreate(); else setCreateDraft(null) }}
+                className="rumahl-desktop-inline-name"
+                aria-label={createDraft.kind === 'file' ? t('os.desktopMenu.newFile') : t('os.desktopMenu.newFolder')}
+              />
+            </div>
+          </div>
+        )}
         {fileItems.map((item, index) => {
           const pos = posFor(item.key, index)
           const isAppShortcut = Boolean(item.app)
@@ -558,8 +646,9 @@ export function DesktopWorkspace() {
         }}
         onOpenSettings={() => { setCurrentPageId('settings'); setMenu(null) }}
         onRefresh={() => window.location.reload()}
-        onManageDesktop={() => setManageOpen(true)}
         onToggleDesktopApp={(pageId) => { toggleDesktopApp(idMapByPageId[pageId] ?? pageId) }}
+        onNewFile={() => beginCreate('file')}
+        onNewFolder={() => beginCreate('folder')}
         onDelete={async (fileId) => {
           const ok = await deleteFileEntry(fileId)
           if (ok) {
@@ -569,58 +658,6 @@ export function DesktopWorkspace() {
         }}
         isRightClickedAppOnDesktop={Boolean(menu?.appPageId && desktopApps.some((a) => a.pageId === menu.appPageId))}
       />
-
-      {/* Manage desktop shortcuts: pick which apps appear on the desktop. */}
-      <AnimatePresence>
-        {manageOpen && (
-          <>
-            <motion.button
-              type="button"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setManageOpen(false)}
-              aria-label={t('common.close')}
-              className="fixed inset-0 z-[94] cursor-default bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.97, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 8 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className="fixed inset-x-0 top-[14dvh] z-[95] mx-auto flex max-h-[74dvh] w-[min(46rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#101016]/95 text-foreground shadow-2xl backdrop-blur-2xl"
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-label={t('os.desktopMenu.manageDesktop')}
-            >
-              <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
-                <h2 className="text-base font-semibold">{t('os.desktopMenu.manageDesktop')}</h2>
-                <button type="button" onClick={() => setManageOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground/55 transition-colors hover:bg-white/6 hover:text-foreground" aria-label={t('common.close')}><X size={16} /></button>
-              </div>
-              <div className="grid gap-1.5 overflow-y-auto p-4 sm:grid-cols-2">
-                {apps.map((app) => {
-                  const name = app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
-                  const isOn = app.pageId ? shortcutAppPageIds.has(app.pageId) : false
-                  return (
-                    <button
-                      key={app.id}
-                      type="button"
-                      onClick={() => void toggleDesktopApp(app.id)}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${isOn ? 'border-accent/40 bg-accent/10' : 'border-white/8 bg-white/3 hover:bg-white/6'}`}
-                    >
-                      <span className={`rumahl-app-icon flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden text-white ${app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''}`} style={app.iconUrl ? undefined : { '--app-accent': app.accent } as CSSProperties}>
-                        {app.iconUrl ? <img src={app.iconUrl} alt="" className="h-full w-full object-contain p-0.5" /> : <app.icon size={22} weight="duotone" />}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
-                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${isOn ? 'bg-accent text-white' : 'bg-white/10 text-transparent'}`}>{isOn ? '✓' : ''}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
     </section>,
     document.body,
   )

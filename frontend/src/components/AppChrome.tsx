@@ -16,6 +16,7 @@ import { OsSessionLock } from '@/components/OsSessionLock'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
 import { useShellMode } from '@/hooks/useShellMode'
+import { RunDialog } from '@/components/RunDialog'
 
 export interface AppChromeProps {
   showPageDesigner: boolean
@@ -134,6 +135,7 @@ export function AppChrome({
         />
       )}
       <CommandPalette />
+      {resolvedMode === 'desktop' && <RunDialog />}
       <PermissionRequestDialog />
       <OsSessionLock />
     </>

@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { authFetch } from '@/lib/authHelpers'
 import {
@@ -47,6 +46,7 @@ import {
   Power,
   ArrowClockwise,
   AppWindow,
+  Play,
 } from '@phosphor-icons/react'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
@@ -54,6 +54,7 @@ import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { OsAppFrame } from '@/components/OsAppFrame'
+import { SessionScreenEditor } from '@/components/SessionScreenEditor'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useRealtime } from '@/hooks/useRealtime'
@@ -69,7 +70,7 @@ import {
   subscribeAutoContrast,
   type AutoContrastMode,
 } from '@/lib/autoContrast'
-import { useTheme } from '@/contexts/ThemeContext'
+import { readTimeThemeConfig, writeTimeThemeConfig, useTheme, type TimeThemeConfig } from '@/contexts/ThemeContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { useUiScale } from '@/hooks/useUiScale'
 import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
@@ -79,6 +80,9 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { AiInstructionsSettings } from '@/components/AiInstructionsSettings'
 import type { ThemeMode } from '@/lib/types'
 import type { ThemeDefinition } from '@/contexts/ThemeContext'
+import { SCREENSAVER_STYLES, type ScreensaverStyle } from '@/lib/screensaverStyles'
+import { DEFAULT_SESSION_SCREEN_SETTINGS, type SessionScreenSettings } from '@/lib/sessionScreenSettings'
+import { DEFAULT_TIME_THEME_PALETTE, readTimeThemePalette, writeTimeThemePalette, type TimeThemeId, type TimeThemePalette } from '@/lib/timeThemePalette'
 
 function ThemeSettingsPanelWrapper() {
   const { capabilities } = useTheme()
@@ -360,6 +364,11 @@ export function SettingsPage(props: SettingsPageProps) {
   const { selectedTheme, setSelectedTheme } = useTheme()
   // Per-user auto-lock timeout (minutes, 0 = disabled).
   const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('rumahl-auto-lock-minutes', 15)
+  const [screensaverStyle, setScreensaverStyle] = useLocalStorage<ScreensaverStyle>('rumahl-screensaver-style', 'clock')
+  const [sessionScreen, setSessionScreen] = useLocalStorage<SessionScreenSettings>('rumahl-session-screen-settings', DEFAULT_SESSION_SCREEN_SETTINGS)
+  const [sessionEditorOpen, setSessionEditorOpen] = useState(false)
+  const [timeThemeConfig, setTimeThemeConfig] = useState<TimeThemeConfig>(() => readTimeThemeConfig())
+  const [timeThemePalette, setTimeThemePalette] = useState<TimeThemePalette>(() => readTimeThemePalette())
   const [kioskMode, setKioskMode] = useLocalStorage<boolean>('rumahl-kiosk-mode', false)
   // Reduce-motion (animations) toggle — persisted under the same key the OS
   // accessibility flow reads (rumahl-accessibility.reduceMotion) so this toggle
@@ -440,6 +449,23 @@ export function SettingsPage(props: SettingsPageProps) {
     apps: { title: t('settings.apps'), description: t('settings.tabAppsDesc') },
   }[settingsTab]
 
+  const updateTimeThemeBoundary = (key: keyof TimeThemeConfig, value: number) => {
+    setTimeThemeConfig((current) => {
+      const next = { ...current, [key]: value }
+      writeTimeThemeConfig(next)
+      return next
+    })
+  }
+  const updateTimeThemeColor = (themeId: TimeThemeId, key: 'background' | 'accent', value: string) => {
+    const next = { ...timeThemePalette, [themeId]: { ...timeThemePalette[themeId], [key]: value } }
+    setTimeThemePalette(next)
+    writeTimeThemePalette(next)
+  }
+  const resetTimeThemePalette = () => {
+    setTimeThemePalette(DEFAULT_TIME_THEME_PALETTE)
+    writeTimeThemePalette(DEFAULT_TIME_THEME_PALETTE)
+  }
+
   return (
     <Tabs value={settingsTab} onValueChange={(v) => changeTab(v as typeof settingsTab)} className="rumahl-settings-tabs">
       <OsAppFrame
@@ -519,15 +545,40 @@ export function SettingsPage(props: SettingsPageProps) {
                 <p>{settingsHeading.description}</p>
               </div>
               <div className="rumahl-settings-top-actions">
-                <button type="button" onClick={() => setCurrentPageId('settings')} aria-label={t('common.reset')} title={t('common.reset')} className="rumahl-settings-icon-btn"><ArrowClockwise size={17} /></button>
-                <button type="button" onClick={() => setCurrentPageId('launcher')} aria-label={t('os.window.close')} title={t('os.window.close')} className="rumahl-settings-icon-btn"><X size={18} /></button>
+                <button type="button" onClick={() => navigateToPage('settings')} aria-label={t('common.reset')} title={t('common.reset')} className="rumahl-settings-icon-btn"><ArrowClockwise size={17} /></button>
+                <button type="button" onClick={() => navigateToPage('launcher')} aria-label={t('os.window.close')} title={t('os.window.close')} className="rumahl-settings-icon-btn"><X size={18} /></button>
               </div>
             </header>
           )}
 
 
         {/* ─── TAB: Allgemein ──────────────────────────────────────── */}
-        <TabsContent value="general" className="space-y-5">
+        <TabsContent value="general" className="rumahl-settings-page space-y-5">
+
+          <section className="appr-panel appr-pad rumahl-lock-style-panel">
+            <div className="rumahl-settings-panel-intro"><div><h2>{t('settings.sessionEditor')}</h2><p>{t('settings.sessionEditorOnly')}</p></div></div>
+            <button type="button" className="rumahl-session-editor-entry" onClick={() => setSessionEditorOpen(true)}><SlidersHorizontal size={20} /><span><strong>{t('settings.sessionEditorOpen')}</strong><small>{t('settings.sessionEditorHint')}</small></span><ArrowSquareOut size={17} /></button>
+          </section>
+
+          <section className="appr-panel appr-pad rumahl-screensaver-settings">
+            <div className="rumahl-settings-panel-intro">
+              <div><h2>{t('settings.screensaver')}</h2><p>{t('settings.screensaverDesc')}</p></div>
+              <ApprToggle label={t('settings.screensaverEnable')} checked={screensaverSettings.enabled} onCheckedChange={screensaverSettings.setEnabled} />
+            </div>
+            <div className="rumahl-screensaver-style-grid" role="radiogroup" aria-label={t('settings.screensaverStyle')}>
+              {SCREENSAVER_STYLES.map((style) => (
+                <button key={style} type="button" role="radio" aria-checked={screensaverStyle === style} data-style={style} className={`rumahl-screensaver-style-option ${screensaverStyle === style ? 'is-selected' : ''}`} onClick={() => setScreensaverStyle(style)}>
+                  <span aria-hidden="true"><i /></span><strong>{t(`settings.screensaverStyles.${style}`)}</strong>
+                </button>
+              ))}
+            </div>
+            <ApprDivider />
+            <ApprRow label={t('settings.screensaverTimeout')} description={t('settings.screensaverTimeoutDesc')}>
+              <div className="w-52"><SliderRow label="" value={screensaverSettings.timeout / 60000} min={1} max={30} unit=" min" onChange={(v) => screensaverSettings.setTimeout(v * 60000)} /></div>
+            </ApprRow>
+            <div className="rumahl-settings-preview-actions"><ApprButton onClick={() => window.dispatchEvent(new CustomEvent('rumahl:screensaver-preview'))}><Play size={15} />{t('settings.preview')}</ApprButton></div>
+            <Suspense fallback={null}><ScreensaverScheduleEditor schedules={screensaverSettings.schedules} setSchedules={screensaverSettings.setSchedules} /></Suspense>
+          </section>
 
           {/* Profile */}
           <section className="appr-panel appr-pad">
@@ -696,8 +747,8 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Top actions (reset + close) as in the reference mockup */}
             <div className="appr-top-actions" role="group" aria-label="Aktionen">
-              <button type="button" onClick={() => setCurrentPageId('settings')} aria-label={t('common.reset')} title={t('common.reset')} className="appr-icon-btn">↻</button>
-              <button type="button" onClick={() => setCurrentPageId('launcher')} aria-label={t('os.window.close')} title={t('os.window.close')} className="appr-icon-btn">×</button>
+              <button type="button" onClick={() => navigateToPage('settings')} aria-label={t('common.reset')} title={t('common.reset')} className="appr-icon-btn"><ArrowClockwise size={17} /></button>
+              <button type="button" onClick={() => navigateToPage('launcher')} aria-label={t('os.window.close')} title={t('os.window.close')} className="appr-icon-btn"><X size={18} /></button>
             </div>
 
             {/* Page header */}
@@ -787,7 +838,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <p>{t('settings.hintergrundDesc')}</p>
                 </div>
                 <div className="appr-wallpaper-actions">
-                  <button type="button" className="appr-soft-btn" onClick={() => setCurrentPageId('settings')}>{t('settings.hintergrundAnpassen')}</button>
+                  <button type="button" className="appr-soft-btn" onClick={() => navigateToPage('settings')}>{t('settings.hintergrundAnpassen')}</button>
                   <div className="appr-wallpaper-thumb" aria-label={t('settings.hintergrund')} />
                 </div>
               </div>
@@ -841,19 +892,25 @@ export function SettingsPage(props: SettingsPageProps) {
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={nightModeSettings.scheduleEnabled}
-                      onClick={() => nightModeSettings.setScheduleEnabled(!nightModeSettings.scheduleEnabled)}
-                      className={`appr-switch ${nightModeSettings.scheduleEnabled ? 'on' : ''}`}
+                      aria-checked={selectedTheme === 'auto'}
+                      onClick={() => setSelectedTheme(selectedTheme === 'auto' ? 'night' : 'auto')}
+                      className={`appr-switch ${selectedTheme === 'auto' ? 'on' : ''}`}
                       aria-label={t('settings.autoTheme')}
                     />
                   </div>
 
-                  <div className="appr-schedule-controls">
-                    <button type="button" className="appr-pill-btn">Tag (Hell)</button>
-                    <button type="button" className="appr-pill-btn">06:00 <span aria-hidden="true">⌄</span></button>
-                    <button type="button" className="appr-pill-btn">Nacht (Dunkel)</button>
-                    <button type="button" className="appr-pill-btn">18:00 <span aria-hidden="true">⌄</span></button>
+                  <div className="appr-schedule-controls rumahl-time-theme-controls">
+                    {([
+                      { key: 'dayStart' as const, label: t('settings.dayFrom'), start: 0, end: 12 },
+                      { key: 'eveningStart' as const, label: t('settings.eveningFrom'), start: 12, end: 22 },
+                      { key: 'nightStart' as const, label: t('settings.nightFrom'), start: 18, end: 23 },
+                    ]).map(({ key, label, start, end }) => <label key={key}><span>{label}</span><select value={timeThemeConfig[key]} onChange={(event) => updateTimeThemeBoundary(key, Number(event.target.value))}>{Array.from({ length: end - start + 1 }, (_, index) => start + index).map((hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label>)}
                   </div>
+
+                  <div className="rumahl-time-palette-grid">
+                    {(['day', 'evening', 'night'] as const).map((themeId) => <article key={themeId} style={{ background: `linear-gradient(145deg, ${timeThemePalette[themeId].background}, color-mix(in srgb, ${timeThemePalette[themeId].accent} 24%, ${timeThemePalette[themeId].background}))` }}><strong>{t(`settings.themeOptions.${themeId}.label`)}</strong><div><label title={t('settings.timeThemeBackground')}><input type="color" value={timeThemePalette[themeId].background} onChange={(event) => updateTimeThemeColor(themeId, 'background', event.target.value)} /><span>{t('settings.timeThemeBackground')}</span></label><label title={t('settings.timeThemeAccent')}><input type="color" value={timeThemePalette[themeId].accent} onChange={(event) => updateTimeThemeColor(themeId, 'accent', event.target.value)} /><span>{t('settings.timeThemeAccent')}</span></label></div></article>)}
+                  </div>
+                  <button type="button" className="rumahl-time-palette-reset" onClick={resetTimeThemePalette}>{t('settings.timeThemeReset')}</button>
 
                   <p className="appr-hint">Das Design wechselt automatisch zur angegebenen Zeit.</p>
                 </section>
@@ -956,7 +1013,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
 
         {/* ─── TAB: Dashboard ──────────────────────────────────────── */}
-        <TabsContent value="dashboard" className="space-y-5">
+        <TabsContent value="dashboard" className="rumahl-settings-page space-y-5">
           {deviceLockMode && (
             <div className="rounded-xl p-3.5 border border-amber-500/25 bg-amber-500/8 text-xs text-foreground/70 flex items-center gap-2">
               <Shield size={14} className="text-amber-400 shrink-0" />
@@ -1013,7 +1070,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabsContent>
 
         {/* ─── TAB: System ─────────────────────────────────────────── */}
-        <TabsContent value="system" className="space-y-5">
+        <TabsContent value="system" className="rumahl-settings-page space-y-5">
           {deviceLockMode && (
             <div className="rounded-xl p-3.5 border border-amber-500/25 bg-amber-500/8 text-xs text-foreground/70 flex items-center gap-2">
               <Shield size={14} className="text-amber-400 shrink-0" />
@@ -1275,7 +1332,7 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabsContent>
 
         {/* ─── TAB: Apps (Apple-style per-app settings) ─────────────── */}
-        <TabsContent value="apps" className="space-y-5">
+        <TabsContent value="apps" className="rumahl-settings-page space-y-5">
           <Suspense fallback={<div className="flex items-center justify-center py-14"><span className="h-7 w-7 animate-spin rounded-full border-2 border-foreground/20 border-t-accent" /></div>}>
             <SettingsAppsSection
               initialSelectedId={settingsAppId}
@@ -1295,6 +1352,7 @@ export function SettingsPage(props: SettingsPageProps) {
           }}
         />
         )}
+        <SessionScreenEditor open={sessionEditorOpen} onClose={() => setSessionEditorOpen(false)} value={sessionScreen} onChange={setSessionScreen} />
       </OsAppFrame>
     </Tabs>
   )

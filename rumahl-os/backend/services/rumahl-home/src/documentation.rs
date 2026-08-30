@@ -44,7 +44,7 @@ pub async fn get_docs_config() -> Json<DocsConfig> {
     // Check multiple locations for docs-config.json
     let search_paths = vec![
         PathBuf::from("/opt/rumahl/docs/docs-config.json"), // rumahl OS production
-        PathBuf::from("docs/docs-config.json"),           // Development / fallback
+        PathBuf::from("docs/docs-config.json"),             // Development / fallback
     ];
 
     for docs_path in &search_paths {

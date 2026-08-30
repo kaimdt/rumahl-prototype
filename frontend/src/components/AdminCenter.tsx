@@ -82,19 +82,61 @@ export function AdminCenter({ initialSection = 'overview' }: { initialSection?: 
   const [health, setHealth] = useState<{ status: string; ha_connected?: boolean; version?: string } | null>(null)
   const [services, setServices] = useState<DesktopServiceSummary[]>([])
   const [checkedAt, setCheckedAt] = useState<Date | null>(null)
+  const [performanceHistory, setPerformanceHistory] = useState<Array<{ time: string; value: number }>>([])
+  const [developerMode, setDeveloperMode] = useState(false)
 
   useEffect(() => setDesktopSection(initialSection), [initialSection])
 
+  useEffect(() => {
+    let cancelled = false
+    const refreshDeveloperMode = async () => {
+      try {
+        const response = await authFetch('/api/admin/settings')
+        if (!response.ok) return
+        const payload = await response.json()
+        const settings = (payload?.settings ?? payload ?? []) as Array<{ key: string; value: unknown }>
+        const enabled = settings.some((setting) => setting.key === 'developer.mode' && setting.value === true)
+        if (!cancelled) setDeveloperMode(enabled)
+      } catch { /* Admin Center remains usable without this optional capability. */ }
+    }
+    void refreshDeveloperMode()
+    const interval = window.setInterval(refreshDeveloperMode, 10_000)
+    return () => { cancelled = true; window.clearInterval(interval) }
+  }, [token])
+
+  useEffect(() => {
+    const update = (event: Event) => setDeveloperMode(Boolean((event as CustomEvent<{ enabled: boolean }>).detail?.enabled))
+    window.addEventListener('rumahl:developer-mode', update)
+    return () => window.removeEventListener('rumahl:developer-mode', update)
+  }, [])
+
+  useEffect(() => {
+    if (!developerMode && categoryId === 'terminal') setCategoryId('home')
+  }, [categoryId, developerMode])
+
   const refreshHealth = useCallback(async () => {
     try {
-      const [healthResponse, servicesResponse] = await Promise.all([
+      const [healthResult, servicesResult, systemResult] = await Promise.allSettled([
         fetch('/health'),
         can('os.system.read') ? authFetch('/api/os/control/os/services') : Promise.resolve(null),
+        can('os.system.read') ? authFetch('/api/os/control/system') : Promise.resolve(null),
       ])
-      if (healthResponse.ok) setHealth(await healthResponse.json())
+      if (healthResult.status === 'fulfilled' && healthResult.value.ok) setHealth(await healthResult.value.json())
+      const servicesResponse = servicesResult.status === 'fulfilled' ? servicesResult.value : null
       if (servicesResponse?.ok) {
         const data = await servicesResponse.json()
         setServices(data.services || [])
+      }
+      const systemResponse = systemResult.status === 'fulfilled' ? systemResult.value : null
+      if (systemResponse?.ok) {
+        const data = await systemResponse.json() as { cpu_usage_percent?: number }
+        if (typeof data.cpu_usage_percent === 'number' && Number.isFinite(data.cpu_usage_percent)) {
+          const point = {
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            value: Math.max(0, Math.min(100, data.cpu_usage_percent)),
+          }
+          setPerformanceHistory((current) => [...current, point].slice(-60))
+        }
       }
       setCheckedAt(new Date())
     } catch {
@@ -111,9 +153,9 @@ export function AdminCenter({ initialSection = 'overview' }: { initialSection?: 
   // Category structure: home + the existing admin groups.
   const categories: Category[] = useMemo(() => [
     { id: 'home', title: t('adminCenter.home'), icon: House, items: [] },
-    { id: 'terminal', title: t('adminCenter.terminal'), icon: Terminal, items: [] },
+    ...(developerMode ? [{ id: 'terminal', title: t('adminCenter.terminal'), icon: Terminal, items: [] as Tab[] }] : []),
     ...tabGroups.map((group) => ({ id: group.id, title: group.title, icon: group.icon as typeof Cpu, items: group.items as Tab[] })),
-  ], [t])
+  ], [developerMode, t])
 
   const activeCategory = categories.find((category) => category.id === categoryId) || categories[0]
 
@@ -141,6 +183,8 @@ export function AdminCenter({ initialSection = 'overview' }: { initialSection?: 
       case 'updates': return <OsMaintenanceApp kind="updates" />
       case 'backups': return <OsMaintenanceApp kind="backups" />
       case 'users': return renderAdminTabContent('users', token || '')
+      case 'developer': return renderAdminTabContent('developer-mode', token || '')
+      case 'terminal': return developerMode ? <OsTerminal /> : null
       default: return null
     }
   }
@@ -152,7 +196,9 @@ export function AdminCenter({ initialSection = 'overview' }: { initialSection?: 
         healthStatus={health?.status}
         version={health?.version}
         services={services}
+        performanceData={performanceHistory}
         checkedAt={checkedAt}
+        developerMode={developerMode}
         content={renderDesktopSection(desktopSection)}
         onSelectSection={setDesktopSection}
         onRefresh={() => void refreshHealth()}

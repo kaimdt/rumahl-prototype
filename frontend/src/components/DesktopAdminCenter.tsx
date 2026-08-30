@@ -1,8 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { ArrowClockwise, CheckCircle, CirclesFour, Cube, Database, Desktop, GearSix, HardDrives, Heartbeat, ListBullets, MagnifyingGlass, ShieldCheck, Users, WifiHigh } from '@phosphor-icons/react'
+import { ArrowClockwise, CheckCircle, CirclesFour, Cube, Database, Desktop, GearSix, HardDrives, Heartbeat, ListBullets, MagnifyingGlass, ShieldCheck, Terminal, Users, WifiHigh, Wrench } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-export type DesktopAdminSection = 'overview' | 'services' | 'storage' | 'network' | 'devices' | 'containers' | 'logs' | 'system' | 'updates' | 'backups' | 'users'
+export type DesktopAdminSection = 'overview' | 'services' | 'storage' | 'network' | 'devices' | 'containers' | 'logs' | 'system' | 'updates' | 'backups' | 'users' | 'developer' | 'terminal'
 
 export interface DesktopServiceSummary {
   name: string
@@ -16,13 +17,15 @@ interface DesktopAdminCenterProps {
   healthStatus?: string
   version?: string
   services: DesktopServiceSummary[]
+  performanceData: Array<{ time: string; value: number }>
   checkedAt?: Date | null
+  developerMode: boolean
   content?: ReactNode
   onSelectSection: (section: DesktopAdminSection) => void
   onRefresh: () => void
 }
 
-const navGroups: Array<{ label: string; items: Array<{ section: DesktopAdminSection; label: string; icon: typeof GearSix }> }> = [
+const navGroups: Array<{ label: string; items: Array<{ section: DesktopAdminSection; label: string; icon: typeof GearSix; requiresDeveloperMode?: boolean }> }> = [
   {
     label: 'adminCenter.desktop.system',
     items: [
@@ -41,11 +44,13 @@ const navGroups: Array<{ label: string; items: Array<{ section: DesktopAdminSect
       { section: 'backups', label: 'os.apps.backups.name', icon: Database },
       { section: 'logs', label: 'os.apps.logs.name', icon: ListBullets },
       { section: 'users', label: 'adminCenter.desktop.users', icon: Users },
+      { section: 'developer', label: 'admin.developerMode', icon: Wrench },
+      { section: 'terminal', label: 'adminCenter.terminal', icon: Terminal, requiresDeveloperMode: true },
     ],
   },
 ]
 
-export function DesktopAdminCenter({ activeSection, healthStatus, version, services, checkedAt, content, onSelectSection, onRefresh }: DesktopAdminCenterProps) {
+export function DesktopAdminCenter({ activeSection, healthStatus, version, services, performanceData, checkedAt, developerMode, content, onSelectSection, onRefresh }: DesktopAdminCenterProps) {
   const { t, i18n } = useTranslation()
   const [query, setQuery] = useState('')
   const runningServices = services.filter((service) => service.active === 'active' && service.sub === 'running')
@@ -55,8 +60,8 @@ export function DesktopAdminCenter({ activeSection, healthStatus, version, servi
   const normalizedQuery = query.trim().toLocaleLowerCase(i18n.language)
   const visibleGroups = useMemo(() => navGroups.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !normalizedQuery || t(item.label).toLocaleLowerCase(i18n.language).includes(normalizedQuery)),
-  })).filter((group) => group.items.length > 0), [i18n.language, normalizedQuery, t])
+    items: group.items.filter((item) => (!item.requiresDeveloperMode || developerMode) && (!normalizedQuery || t(item.label).toLocaleLowerCase(i18n.language).includes(normalizedQuery))),
+  })).filter((group) => group.items.length > 0), [developerMode, i18n.language, normalizedQuery, t])
 
   return (
     <div className="rumahl-desktop-admin" data-admin-section={activeSection}>
@@ -99,6 +104,32 @@ export function DesktopAdminCenter({ activeSection, healthStatus, version, servi
               <article><strong>{runningServices.length}</strong><span>{t('adminCenter.desktop.running')}</span></article>
               <article data-warning={failedServices.length > 0 ? 'true' : 'false'}><strong>{failedServices.length}</strong><span>{t('adminCenter.desktop.failed')}</span></article>
             </div>
+
+            <section className="rumahl-desktop-panel rumahl-performance-panel">
+              <div className="rumahl-desktop-panel-head">
+                <strong>{t('adminCenter.desktop.performance')}</strong>
+                <span>{performanceData.length ? `${performanceData[performanceData.length - 1]?.value.toFixed(1)}%` : t('adminCenter.checking')}</span>
+              </div>
+              <div className="rumahl-performance-chart" aria-label={t('adminCenter.desktop.cpuUsage')}>
+                {performanceData.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={performanceData} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
+                      <defs>
+                        <linearGradient id="rumahlAdminCpuLive" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.3} />
+                          <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.01} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke="color-mix(in oklch, var(--foreground) 7%, transparent)" />
+                      <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} axisLine={false} tickLine={false} tick={{ fill: 'currentColor', opacity: 0.38, fontSize: 10 }} unit="%" />
+                      <XAxis dataKey="time" minTickGap={48} axisLine={false} tickLine={false} tick={{ fill: 'currentColor', opacity: 0.38, fontSize: 10 }} />
+                      <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, t('adminCenter.desktop.cpuUsage')]} contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--foreground)', fontSize: 11 }} />
+                      <Area type="monotone" dataKey="value" stroke="var(--accent)" strokeWidth={2} fill="url(#rumahlAdminCpuLive)" dot={performanceData.length === 1} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : <p className="rumahl-admin-chart-empty">{t('adminCenter.desktop.noPerformanceData')}</p>}
+              </div>
+            </section>
 
             <div className="rumahl-services-heading"><strong>{t('adminCenter.desktop.services')}</strong><span>{t('adminCenter.desktop.runningCount', { count: runningServices.length })}</span></div>
             <section className="rumahl-desktop-panel rumahl-services-table">

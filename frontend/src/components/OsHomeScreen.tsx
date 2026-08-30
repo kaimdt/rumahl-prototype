@@ -97,15 +97,6 @@ export function OsHomeScreen() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // Desktop context menu (right-click on the wallpaper): one menu at a time,
-  // coordinated with every other OS menu via the global close event.
-  const [desktopMenu, setDesktopMenu] = useState<{ x: number; y: number } | null>(null)
-  useCloseOnOtherMenu(() => setDesktopMenu(null))
-  const openDesktopMenu = (event: React.MouseEvent) => {
-    event.preventDefault()
-    closeAllContextMenus()
-    setDesktopMenu({ x: event.clientX, y: event.clientY })
-  }
   const [customLaunchers, setCustomLaunchers] = useLocalStorage<LauncherManifest[]>(CUSTOM_LAUNCHERS_KEY, [])
   const [launcherId, setLauncherId] = useLocalStorage<string>(LAUNCHER_KEY, localStorage.getItem(LAUNCHER_KEY)?.replace(/^"|"$/g, '') || 'default')
   const [widgetIds, setWidgetIds] = useLocalStorage<string[]>(LAUNCHER_WIDGETS_KEY, ['home', 'clock'])
@@ -430,7 +421,6 @@ export function OsHomeScreen() {
       style={launcher?.accent ? { '--accent': launcher.accent } as React.CSSProperties : undefined}
       aria-label={t('os.launcher.label')}
       onWheel={onWheelPage}
-      onContextMenu={openDesktopMenu}
       {...swipeHandlers}
     >
       {layout === 'default' && (
@@ -581,61 +571,6 @@ export function OsHomeScreen() {
           {storeWidgets.some((widget) => widgetIds.includes(widget.id)) && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{storeWidgets.filter((widget) => widgetIds.includes(widget.id)).map((widget) => <article key={widget.id} className="glass-card min-h-40 overflow-hidden rounded-4xl border border-foreground/10"><header className="flex items-center justify-between gap-2 border-b border-foreground/8 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{widget.name}</p><p className="truncate text-[10px] text-foreground/40">{widget.sourceAppId} · {widget.version}</p></div><SquaresFour size={18} className="shrink-0 text-accent" /></header>{widget.componentUrl ? <iframe title={widget.name} src={widget.componentUrl} sandbox="allow-scripts allow-forms" loading="lazy" className="h-48 w-full border-0 bg-transparent" /> : <div className="flex min-h-28 items-center justify-center p-4 text-center text-xs text-foreground/45">{widget.description || t('os.launcher.widgetReady')}</div>}</article>)}</div>}
         </div>
       )}
-
-      {/* Desktop context menu (right-click on the wallpaper) */}
-      <AnimatePresence>
-        {desktopMenu && (
-          <>
-            <motion.button
-              type="button"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setDesktopMenu(null)}
-              onContextMenu={(event) => { event.preventDefault(); setDesktopMenu(null) }}
-              className="fixed inset-0 z-[86] cursor-default"
-              aria-label={t('common.close')}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 6, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 4, scale: 0.97 }}
-              transition={{ duration: DUR_BASE, ease: EASE_OS }}
-              className="fixed z-[87] w-56 overflow-hidden rounded-xl border border-foreground/12 bg-background/90 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
-              style={{ left: Math.min(desktopMenu.x, window.innerWidth - 240), top: Math.min(desktopMenu.y + 6, window.innerHeight - 320) }}
-              onClick={(event) => event.stopPropagation()}
-              onContextMenu={(event) => event.stopPropagation()}
-              role="menu"
-              aria-label={t('os.desktopMenu.settings')}
-            >
-              <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/35">rumahl OS</div>
-              <div className="mx-1.5 my-1 h-px bg-foreground/8" />
-              <button type="button" role="menuitem" onClick={() => { setCurrentPageId('settings'); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
-                <Gear size={16} className="text-foreground/55" />
-                {t('os.desktopMenu.settings')}
-              </button>
-              <button type="button" role="menuitem" onClick={() => { navigateToPage('settings', 'appearance'); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
-                <Palette size={16} className="text-foreground/55" />
-                {t('os.desktopMenu.appearance')}
-              </button>
-              <div className="mx-1.5 my-1 h-px bg-foreground/8" />
-              <button type="button" role="menuitem" onClick={() => { setCurrentPageId('app-store'); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
-                <Storefront size={16} className="text-foreground/55" />
-                {t('os.desktopMenu.appStore')}
-              </button>
-              <div className="mx-1.5 my-1 h-px bg-foreground/8" />
-              <button type="button" role="menuitem" onClick={() => { window.dispatchEvent(new Event('rumahl:lock-session')); setDesktopMenu(null) }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
-                <LockKey size={16} className="text-foreground/55" />
-                {t('os.desktopMenu.lock')}
-              </button>
-              <button type="button" role="menuitem" onClick={() => window.location.reload()} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
-                <ArrowClockwise size={16} className="text-foreground/55" />
-                {t('os.desktopMenu.refresh')}
-              </button>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
 
       {settingsOpen && <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-[82] max-h-[52dvh] w-[min(23.5rem,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-background/95 p-3 shadow-2xl backdrop-blur-xl">
         <div className="mb-3 flex items-center justify-between gap-2 px-1"><p className="text-xs font-semibold uppercase tracking-wider text-foreground/45">{t('os.launcher.sync')}</p><span className={`text-[10px] ${storeReachable ? 'text-emerald-400' : storeReachable === false ? 'text-amber-400' : 'text-foreground/40'}`}>{storeReachable ? t('os.launcher.synced') : storeReachable === false ? t('os.launcher.offline') : t('os.launcher.syncing')}</span></div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
-import { ArrowClockwise, CaretRight, Gear, LockKey, PushPin, Storefront, Trash } from '@phosphor-icons/react'
+import { ArrowClockwise, CaretRight, FilePlus, FolderPlus, Gear, LockKey, PushPin, Storefront, Trash } from '@phosphor-icons/react'
 
 export interface DesktopMenuState {
   x: number
@@ -22,27 +22,40 @@ interface Props {
   onToggleDesktopApp?: (pageId: string) => void
   /** Whether the right-clicked app is currently on the desktop. */
   isRightClickedAppOnDesktop?: boolean
-  /** Open the "manage desktop shortcuts" panel. */
-  onManageDesktop?: () => void
   /** Delete the right-clicked desktop entry (file/folder/shortcut). */
   onDelete?: (fileId: string) => void
+  /** Create a new empty file on the desktop (wallpaper context menu). */
+  onNewFile?: () => void
+  /** Create a new folder on the desktop (wallpaper context menu). */
+  onNewFolder?: () => void
 }
 
 /**
  * DesktopContextMenu – the right-click menu on the desktop wallpaper / icons.
  * Opened from DesktopWorkspace at the pointer position. A contextual "Open"
  * item appears when an app icon was right-clicked; otherwise the menu shows
- * the desktop actions (Settings, App Store, Lock, Refresh). Right-clicking an
- * app icon also lets the user add/remove it as a desktop shortcut.
+ * the desktop actions (New file, New folder, Settings, App Store, Lock,
+ * Refresh). Right-clicking an app icon also lets the user add/remove it as a
+ * desktop shortcut.
  */
-export function DesktopContextMenu({ menu, onClose, onOpenApp, onOpenSettings, onRefresh, onToggleDesktopApp, isRightClickedAppOnDesktop, onManageDesktop, onDelete }: Props) {
+export function DesktopContextMenu({ menu, onClose, onOpenApp, onOpenSettings, onRefresh, onToggleDesktopApp, isRightClickedAppOnDesktop, onDelete, onNewFile, onNewFolder }: Props) {
   const { t } = useTranslation()
   const menuRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
   useEffect(() => {
     if (!menu) return
     const id = window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus())
-    return () => window.cancelAnimationFrame(id)
+    const closeOnLeftPointer = (event: PointerEvent) => {
+      if (event.button === 0 && !menuRef.current?.contains(event.target as Node)) onCloseRef.current()
+    }
+    document.addEventListener('pointerdown', closeOnLeftPointer, true)
+    return () => {
+      window.cancelAnimationFrame(id)
+      document.removeEventListener('pointerdown', closeOnLeftPointer, true)
+    }
   }, [menu])
 
   const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -87,6 +100,19 @@ export function DesktopContextMenu({ menu, onClose, onOpenApp, onOpenSettings, o
             <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/35">rumahl OS</div>
             <div className="mx-1.5 my-1 h-px bg-foreground/8" />
 
+            {!menu.appPageId && !menu.fileId && onNewFile && (
+              <button type="button" role="menuitem" onClick={() => { onNewFile(); onClose() }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <FilePlus size={16} className="text-foreground/55" />
+                {t('os.desktopMenu.newFile')}
+              </button>
+            )}
+            {!menu.appPageId && !menu.fileId && onNewFolder && (
+              <button type="button" role="menuitem" onClick={() => { onNewFolder(); onClose() }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <FolderPlus size={16} className="text-foreground/55" />
+                {t('os.desktopMenu.newFolder')}
+              </button>
+            )}
+
             {menu.appPageId && (
               <>
                 <button type="button" role="menuitem" onClick={onOpenApp} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
@@ -128,12 +154,6 @@ export function DesktopContextMenu({ menu, onClose, onOpenApp, onOpenSettings, o
               <Storefront size={16} className="text-foreground/55" />
               {t('os.desktopMenu.appStore')}
             </button>
-            {onManageDesktop && (
-              <button type="button" role="menuitem" onClick={() => { onManageDesktop(); onClose() }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
-                <PushPin size={16} className="text-foreground/55" />
-                {t('os.desktopMenu.manageDesktop')}
-              </button>
-            )}
             <div className="mx-1.5 my-1 h-px bg-foreground/8" />
             <button type="button" role="menuitem" onClick={() => { window.dispatchEvent(new Event('rumahl:lock-session')); onClose() }} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-foreground/85 transition-colors hover:bg-foreground/8 hover:text-foreground">
               <LockKey size={16} className="text-foreground/55" />

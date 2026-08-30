@@ -18,6 +18,14 @@ export interface StoredNotification {
   created_at: string
   read: boolean
   auto_dismiss_secs: number
+  persistent?: boolean
+  actions?: NotificationAction[]
+}
+
+export interface NotificationAction {
+  id: string
+  label: string
+  href?: string
 }
 
 const STORE_KEY = 'rumahl-toast-notifications'
@@ -54,7 +62,7 @@ function notify() {
 }
 
 /** Add a toast-derived notification. Returns the record. */
-export function pushNotification(entry: Omit<StoredNotification, 'id' | 'created_at' | 'read' | 'auto_dismiss_secs' | 'icon'> & { icon?: string }): StoredNotification {
+export function pushNotification(entry: Omit<StoredNotification, 'id' | 'created_at' | 'read' | 'icon' | 'auto_dismiss_secs'> & { icon?: string; auto_dismiss_secs?: number }): StoredNotification {
   hydrate()
   const record: StoredNotification = {
     ...entry,
@@ -62,7 +70,7 @@ export function pushNotification(entry: Omit<StoredNotification, 'id' | 'created
     entity_id: entry.entity_id || '',
     created_at: new Date().toISOString(),
     read: false,
-    auto_dismiss_secs: 0,
+    auto_dismiss_secs: entry.auto_dismiss_secs ?? 0,
     id: `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   }
   items = [record, ...items].slice(0, MAX)

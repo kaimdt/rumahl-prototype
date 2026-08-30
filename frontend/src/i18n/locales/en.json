@@ -147,6 +147,13 @@
     "installedApp": "App",
     "customApp": "Custom",
     "noApps": "No matching apps found.",
+    "run": {
+      "title": "Run",
+      "hint": "Enter an app, internal name, or web address",
+      "placeholder": "For example: files, settings, or https://…",
+      "run": "Run",
+      "notFound": "“{{command}}” was not found."
+    },
     "launcher": {
       "label": "rumahl OS homescreen",
       "nativeHome": "Native to rumahl OS",
@@ -266,7 +273,16 @@
       "invalidCredential": "Password or PIN is incorrect.",
       "usePin": "Unlock with PIN",
       "usePassword": "Unlock with password",
-      "chooseUser": "Choose a user"
+        "chooseUser": "Choose a user",
+        "changeStyle": "Change lock screen",
+        "styles": {
+          "midnight": "Midnight",
+          "monstera": "Midnight Monstera",
+          "halo": "Logo Halo",
+          "minimal": "Minimal Black",
+          "orbit-3d": "3D Orbit",
+          "custom": "Custom image"
+        }
     },
     "permissions": {
       "title": "rumahl OS permissions",
@@ -522,6 +538,8 @@
       "select": "Select",
       "serviceRestart": "The Files service is not responding correctly ({{detail}}). Please restart the Files service (rumahl-files).",
       "newFile": "New file",
+      "defaultNewFileName": "New file.txt",
+      "defaultNewFolderName": "New folder",
       "fileName": "File name",
       "folders": "Folders",
       "details": "Details",
@@ -610,7 +628,9 @@
       "refresh": "Refresh",
       "addToDesktop": "Add to desktop",
       "removeFromDesktop": "Remove from desktop",
-      "manageDesktop": "Customize desktop"
+      "manageDesktop": "Customize desktop",
+      "newFile": "New file",
+      "newFolder": "New folder"
     },
     "window": {
       "asWindow": "Open as window",
@@ -665,6 +685,42 @@
     "themeMode": "Theme Mode",
     "autoLock": "Auto-lock",
     "autoLockDesc": "Lock the session after inactivity",
+    "lockScreenStyle": "Lock screen",
+    "lockScreenStyleDesc": "Design used while the rumahl OS desktop is locked",
+    "lockScreenChooseImage": "Choose custom image",
+    "lockScreenPreview": "Lock screen preview",
+    "lockScreenPreviewHint": "Lock screen preview",
+    "sessionClockSize": "Clock size",
+    "sessionEditor": "Design session screen",
+    "sessionEditorOpen": "Edit visually",
+    "sessionEditorHint": "Click and drag elements directly",
+    "sessionEditorOnly": "The lock and sign-in screens are designed exclusively in the visual editor.",
+    "sessionGrid": "Show layout grid",
+    "sessionSnap": "Enable magnetic snapping",
+    "sessionWidgets": "Widgets",
+    "sessionEditorDate": "Saturday, August 30",
+    "sessionElements": { "clock": "Clock", "date": "Date", "status": "Status", "brand": "Logo" },
+    "timeThemeBackground": "Background",
+    "timeThemeAccent": "Accent",
+    "timeThemeReset": "Reset time-of-day colors",
+    "sessionTextSize": "Text size",
+    "sessionClockFont": "Clock font",
+    "sessionClockPosition": "Clock position",
+    "sessionWidgetDate": "Show date",
+    "sessionWidgetBrand": "Show rumahl logo",
+    "sessionWidgetStatus": "Show status widget",
+    "sessionFonts": { "rumahl": "rumahl Sans", "system": "System", "rounded": "Rounded", "serif": "Serif", "mono": "Monospace" },
+    "rumahlSansHint": "The rumahl brand typeface is optimized for large clocks and calm display text.",
+    "sessionPositions": { "top": "Top", "center": "Centered" },
+    "preview": "Show preview",
+    "screensaverStyle": "Screensaver design",
+    "screensaverTimeout": "Start after inactivity",
+    "screensaverStyles": {
+      "clock": "Atmospheric clock",
+      "logo-pop": "Roaming logo",
+      "logo-orbit": "Logo orbit",
+      "ambient": "Ambient colors"
+    },
     "autoScreensaver": "Screensaver automatically",
     "autoScreensaverDesc": "Show the screensaver after inactivity",
     "kioskMode": "Kiosk mode",
@@ -717,7 +773,7 @@
     "currentAccent": "Current Accent Color",
     "extractedPalette": "Extracted Palette",
     "resetToAuto": "Reset to Automatic",
-    "screensaverDesc": "Clock display when idle",
+    "screensaverDesc": "Animated scenes and information while idle",
     "screensaverEnable": "Enable screensaver",
     "reduceAnimations": "Reduce animations",
     "reduceAnimationsDesc": "Less animations and transitions for better performance",
@@ -788,7 +844,7 @@
     "backendUsageDesc": "CPU, memory and database",
     "homeAssistant": "Home Assistant",
     "homeAssistantDesc": "Connection, entities and domains",
-    "screensaverTimeoutDesc": "Shows a clock after idle time",
+    "screensaverTimeoutDesc": "Starts after a period without input",
     "tabGeneralDesc": "Profile, security & AI",
     "tabAppearanceDesc": "Theme, accent & glass",
     "tabDashboardDesc": "Designer & code",
@@ -1641,7 +1697,12 @@
   },
   "notifications": {
     "title": "Notifications",
-    "subtitle": "System notifications and background jobs"
+    "subtitle": "System notifications and background jobs",
+    "detail": "Notification details",
+    "source": "Source",
+    "time": "Time",
+    "copy": "Copy text",
+    "copied": "Copied"
   },
   "jobs": {
     "title": "Job Center",
@@ -2116,6 +2177,7 @@
       "diagnostics": "Run Diagnostics",
       "performance": "Performance",
       "cpuUsage": "CPU Usage",
+      "noPerformanceData": "No performance data available yet.",
       "services": "Services",
       "runningCount": "{{count}} active",
       "name": "Name",
@@ -2153,5 +2215,30 @@
     "saving": "Saving…",
     "saved": "Appearance standards saved",
     "saveFailed": "Save failed"
+  },
+  "terminal": {
+    "title": "rumahl OS Terminal",
+    "fullOsAccess": "Interactive system shell · Developer Mode",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "reconnect": "Reconnect",
+    "copy": "Copy output",
+    "copied": "Terminal output copied",
+    "clear": "Clear output",
+    "fullscreen": "Toggle fullscreen",
+    "input": "Terminal input",
+    "hint": "Click the terminal and type directly · Ctrl+C interrupts the process",
+    "scrollback": "scrollback",
+    "sessionClosed": "The terminal session was closed.",
+    "developerRequired": "The terminal is only available in Developer Mode."
+  },
+  "adminDevices": {
+    "rename": "Rename device",
+    "save": "Save",
+    "renamed": "Device name saved",
+    "copyFrom": "Copy configuration from…",
+    "apply": "Apply",
+    "configurationCopied": "{{count}} settings were transferred to the device",
+    "userUnavailable": "The current user could not be loaded"
   }
 }

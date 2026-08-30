@@ -36,6 +36,7 @@ export function persistAuthSession(token: string, refreshToken: string): void {
 export function clearAuthSession(): void {
   try { localStorage.removeItem(AUTH_SESSION_STORAGE_KEY) } catch { /* ignore */ }
   try { localStorage.removeItem('ha-auth-token') } catch { /* ignore */ }
+  try { localStorage.removeItem('ha-user-id') } catch { /* ignore */ }
   try { sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY) } catch { /* ignore */ }
   try { sessionStorage.removeItem('ha-auth-token') } catch { /* ignore */ }
 }

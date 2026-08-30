@@ -169,6 +169,51 @@ impl ConfigRepository {
         Ok(res.rows_affected() > 0)
     }
 
+    pub async fn rename_device(
+        &self,
+        device_id: &str,
+        device_name: &str,
+    ) -> anyhow::Result<Option<Device>> {
+        let device = sqlx::query_as::<_, Device>(
+            "UPDATE devices SET device_name = $1 WHERE id = $2 RETURNING *",
+        )
+        .bind(device_name)
+        .bind(device_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(device)
+    }
+
+    pub async fn copy_device_preferences(
+        &self,
+        user_id: &str,
+        source_device_id: &str,
+        target_device_id: &str,
+    ) -> anyhow::Result<usize> {
+        let preferences = self
+            .get_all_preferences(user_id, Some(source_device_id))
+            .await?;
+        sqlx::query("DELETE FROM user_preferences WHERE user_id = $1 AND device_id = $2")
+            .bind(user_id)
+            .bind(target_device_id)
+            .execute(&self.pool)
+            .await?;
+        for preference in &preferences {
+            let preference_value = serde_json::from_str(&preference.preference_value)
+                .unwrap_or_else(|_| serde_json::Value::String(preference.preference_value.clone()));
+            self.save_preference(
+                user_id,
+                Some(target_device_id),
+                crate::db::models::SavePreferenceRequest {
+                    preference_key: preference.preference_key.clone(),
+                    preference_value,
+                },
+            )
+            .await?;
+        }
+        Ok(preferences.len())
+    }
+
     /// List every entry in the `user_devices` association table so the
     /// admin presence view can map which user is logged in on which device.
     /// Returns tuples of (user_id, device_id, is_primary).

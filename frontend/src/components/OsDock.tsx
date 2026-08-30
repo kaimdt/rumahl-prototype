@@ -16,6 +16,7 @@ import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
 import { useShellMode } from '@/hooks/useShellMode'
 import { DesktopLauncherOverlay } from '@/components/DesktopLauncherOverlay'
 import { RumahlMark } from '@/components/RumahlMark'
+import { createDesktopShortcut, resolveDesktopFolder } from '@/lib/desktopShortcuts'
 import { getWindowPreview } from '@/lib/windowPreview'
 
 const RECENT_APPS_KEY = 'rumahl-os-recent-apps'
@@ -32,7 +33,7 @@ function readRecentIds(): string[] {
 
 export function OsDock() {
   const { t } = useTranslation()
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const { windows, workspaces, activeWorkspaceId, openWindow, openSplit, setImmersive, focusWindow, minimizeWindow, closeWindow, moveWindowToWorkspace, immersivePageId } = useOsWindows()
   const { installedApps } = useInstalledApps()
@@ -43,7 +44,10 @@ export function OsDock() {
   const [menuId, setMenuId] = useState<string | null>(null)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [hoverId, setHoverId] = useState<string | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
   const [focusId, setFocusId] = useState<string | null>(null)
+  const previewTimerRef = useRef<number | null>(null)
+  const previewSuppressedRef = useRef<string | null>(null)
   const reducedMotion = useReducedMotion()
   const [launcherOpen, setLauncherOpen] = useState(false)
   // Re-render the preview thumbnails whenever a window preview is captured.
@@ -54,6 +58,9 @@ export function OsDock() {
     return () => window.removeEventListener('rumahl:window-preview-updated', bump)
   }, [])
   const dockRef = useRef<HTMLDivElement>(null)
+  useEffect(() => () => {
+    if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current)
+  }, [])
   useCloseOnOtherMenu(() => setMenuId(null))
   // Close the launcher overlay on Escape.
   useEffect(() => {
@@ -161,6 +168,11 @@ export function OsDock() {
 
   const handleItemClick = (app: OsAppDefinition) => {
     setMenuId(null)
+    if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current)
+    previewSuppressedRef.current = app.id
+    setPreviewId(null)
+    setHoverId(null)
+    setFocusId(null)
     // Launcher mode (iOS/Android): always fullscreen, no windows.
     if (resolvedMode === 'launcher') {
       if (app.pageId === 'launcher') { setLauncherOpen(true); return }
@@ -193,12 +205,21 @@ export function OsDock() {
 
   const getName = (app: OsAppDefinition) => (app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName)
 
+  // Start menu → right-click an app to add it to the desktop (Windows style).
+  const handleAddToDesktop = async (app: OsAppDefinition) => {
+    const folderId = await resolveDesktopFolder()
+    await createDesktopShortcut({ pageId: app.pageId, name: getName(app) }, folderId)
+    window.dispatchEvent(new Event('rumahl:desktop-refresh'))
+    window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
+  }
+
   const renderItem = (app: OsAppDefinition, pinnedApp: boolean, index = 0) => {
     const Icon = app.icon
     const active = app.pageId === currentPageId
     const name = getName(app)
     const menuOpen = menuId === app.id
     const isHovered = hoverId === app.id
+    const previewVisible = previewId === app.id
     const isFocused = focusId === app.id
     const scale = magnification(index)
     const openWin = windows.find((w) => w.workspaceId === activeWorkspaceId && w.pageId === app.pageId)
@@ -210,9 +231,20 @@ export function OsDock() {
       <motion.div
         key={app.id}
         className="relative"
-        onMouseEnter={() => setHoverId(app.id)}
-        onMouseLeave={() => setHoverId(null)}
-        onFocusCapture={() => setFocusId(app.id)}
+        onMouseEnter={() => {
+          setHoverId(app.id)
+          if (previewSuppressedRef.current === app.id) return
+          if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current)
+          previewTimerRef.current = window.setTimeout(() => setPreviewId(app.id), 420)
+        }}
+        onMouseLeave={() => {
+          if (previewTimerRef.current !== null) window.clearTimeout(previewTimerRef.current)
+          previewTimerRef.current = null
+          if (previewSuppressedRef.current === app.id) previewSuppressedRef.current = null
+          setHoverId(null)
+          setPreviewId((current) => current === app.id ? null : current)
+        }}
+        onFocusCapture={() => { if (previewSuppressedRef.current !== app.id) setFocusId(app.id) }}
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusId(null)
         }}
@@ -221,7 +253,7 @@ export function OsDock() {
         transition={{ delay: 0.3 + index * 0.05, ...SPRING_SOFT }}
       >
         <AnimatePresence>
-          {resolvedMode === 'desktop' && openWin && (isHovered || isFocused) && !menuOpen && (
+          {resolvedMode === 'desktop' && openWin && (previewVisible || isFocused) && !menuOpen && (
             <motion.div
               initial={{ opacity: 0, y: 8, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -236,10 +268,10 @@ export function OsDock() {
                   {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={15} weight="duotone" />}
                 </span>
                 <strong>{name}</strong>
-                <button type="button" onClick={(event) => { event.stopPropagation(); minimizeWindow(app.pageId); if (currentPageId === app.pageId) setCurrentPageId('launcher') }} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}><Minus size={12} /></button>
-                <button type="button" onClick={(event) => { event.stopPropagation(); closeWindow(app.pageId); if (currentPageId === app.pageId) setCurrentPageId('launcher') }} aria-label={t('os.window.close')} title={t('os.window.close')}><X size={12} /></button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); setPreviewId(null); minimizeWindow(app.pageId); if (currentPageId === app.pageId) setCurrentPageId('launcher') }} aria-label={t('os.window.minimize')} title={t('os.window.minimize')}><Minus size={12} /></button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); setPreviewId(null); closeWindow(app.pageId); if (currentPageId === app.pageId) setCurrentPageId('launcher') }} aria-label={t('os.window.close')} title={t('os.window.close')}><X size={12} /></button>
               </div>
-              <button type="button" className="rumahl-taskbar-preview-body" onClick={() => handleItemClick(app)}>
+              <button type="button" className="rumahl-taskbar-preview-body" onClick={(event) => { event.currentTarget.blur(); handleItemClick(app) }}>
                 {previewUrl !== null ? (
                   <img className="rumahl-taskbar-preview-thumb" src={previewUrl} alt={name} loading="lazy" />
                 ) : (
@@ -257,7 +289,13 @@ export function OsDock() {
         </AnimatePresence>
         <button
           type="button"
-          onClick={() => handleItemClick(app)}
+          onPointerDown={(event) => {
+            if (event.pointerType !== 'mouse') return
+            previewSuppressedRef.current = app.id
+            setPreviewId(null)
+            setFocusId(null)
+          }}
+          onClick={(event) => { event.currentTarget.blur(); handleItemClick(app) }}
           onContextMenu={(event) => {
             event.preventDefault()
             closeAllContextMenus()
@@ -442,6 +480,9 @@ export function OsDock() {
         recent={recentIds}
         onOpenApp={(app) => { setLauncherOpen(false); handleItemClick(app) }}
         onOpenSettings={() => { setLauncherOpen(false); setCurrentPageId('settings') }}
+        onLock={() => { setLauncherOpen(false); window.dispatchEvent(new Event('rumahl:lock-session')) }}
+        onLogout={() => { setLauncherOpen(false); logout() }}
+        onAddToDesktop={handleAddToDesktop}
         onClose={() => setLauncherOpen(false)}
       />
     </div>

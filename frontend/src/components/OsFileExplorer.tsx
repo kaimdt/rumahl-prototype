@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
+  ArrowClockwise,
   ArrowRight,
   ArrowSquareOut,
   CaretDown,
@@ -319,12 +320,17 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const marqueeStart = useRef<{ x: number; y: number } | null>(null)
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const marqueeMode = useRef(false)
+  const marqueeBaseSelection = useRef<Set<string>>(new Set())
   const gridRef = useRef<HTMLDivElement>(null)
 
   const beginMarquee = (event: React.MouseEvent) => {
     if (event.button !== 0) return
     if ((event.target as HTMLElement).closest('.rumahl-file-tile, .rumahl-file-row, button, input, a')) return
+    event.preventDefault()
     marqueeStart.current = { x: event.clientX, y: event.clientY }
+    const additive = event.ctrlKey || event.metaKey || event.shiftKey
+    marqueeBaseSelection.current = additive ? new Set(selected) : new Set()
+    if (!additive) setSelected(new Set())
     marqueeMode.current = false
     const move = (moveEvent: MouseEvent) => {
       if (!marqueeStart.current) return
@@ -334,37 +340,38 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       if (marqueeMode.current) {
         const rect = gridRef.current?.getBoundingClientRect()
         if (rect) {
-          const x1 = Math.min(marqueeStart.current.x, moveEvent.clientX) - rect.left
-          const y1 = Math.min(marqueeStart.current.y, moveEvent.clientY) - rect.top
-          const x2 = Math.max(marqueeStart.current.x, moveEvent.clientX) - rect.left
-          const y2 = Math.max(marqueeStart.current.y, moveEvent.clientY) - rect.top
+          const surface = gridRef.current
+          const edge = 34
+          if (moveEvent.clientY > rect.bottom - edge) surface.scrollTop += 12
+          else if (moveEvent.clientY < rect.top + edge) surface.scrollTop -= 12
+          if (moveEvent.clientX > rect.right - edge) surface.scrollLeft += 12
+          else if (moveEvent.clientX < rect.left + edge) surface.scrollLeft -= 12
+          const x1 = Math.min(marqueeStart.current.x, moveEvent.clientX) - rect.left + surface.scrollLeft
+          const y1 = Math.min(marqueeStart.current.y, moveEvent.clientY) - rect.top + surface.scrollTop
+          const x2 = Math.max(marqueeStart.current.x, moveEvent.clientX) - rect.left + surface.scrollLeft
+          const y2 = Math.max(marqueeStart.current.y, moveEvent.clientY) - rect.top + surface.scrollTop
           setMarquee({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 })
+          const box = {
+            x1: Math.min(marqueeStart.current.x, moveEvent.clientX),
+            y1: Math.min(marqueeStart.current.y, moveEvent.clientY),
+            x2: Math.max(marqueeStart.current.x, moveEvent.clientX),
+            y2: Math.max(marqueeStart.current.y, moveEvent.clientY),
+          }
+          const next = new Set(marqueeBaseSelection.current)
+          gridRef.current?.querySelectorAll<HTMLElement>('.rumahl-file-tile').forEach((tile) => {
+            const tileRect = tile.getBoundingClientRect()
+            if (tileRect.left < box.x2 && tileRect.right > box.x1 && tileRect.top < box.y2 && tileRect.bottom > box.y1) {
+              const id = tile.dataset.id
+              if (id) next.add(id)
+            }
+          })
+          setSelected(next)
         }
       }
     }
-    const up = (upEvent: MouseEvent) => {
+    const up = () => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
-      if (marqueeMode.current && gridRef.current) {
-        const box = {
-          x1: Math.min(marqueeStart.current!.x, upEvent.clientX),
-          y1: Math.min(marqueeStart.current!.y, upEvent.clientY),
-          x2: Math.max(marqueeStart.current!.x, upEvent.clientX),
-          y2: Math.max(marqueeStart.current!.y, upEvent.clientY),
-        }
-        const additive = upEvent.ctrlKey || upEvent.metaKey || upEvent.shiftKey
-        setSelected((current) => {
-          const next = additive ? new Set(current) : new Set<string>()
-          gridRef.current!.querySelectorAll<HTMLElement>('.rumahl-file-tile').forEach((tile) => {
-            const r = tile.getBoundingClientRect()
-            if (r.left < box.x2 && r.right > box.x1 && r.top < box.y2 && r.bottom > box.y1) {
-              next.add(tile.dataset.id || '')
-            }
-          })
-          next.delete('')
-          return next
-        })
-      }
       marqueeStart.current = null
       marqueeMode.current = false
       setMarquee(null)
@@ -424,8 +431,9 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [renameEntry, setRenameEntry] = useState<FileEntry | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextEntry, setContextEntry] = useState<FileEntry | null>(null)
+  const [surfaceMenuOpen, setSurfaceMenuOpen] = useState(false)
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(null)
-  useCloseOnOtherMenu(() => { setContextEntry(null); setContextPos(null) })
+  useCloseOnOtherMenu(() => { setContextEntry(null); setSurfaceMenuOpen(false); setContextPos(null) })
   // Family shares: file ids currently shared with the family (family grant).
   const [familyShares, setFamilyShares] = useState<Set<string>>(new Set())
   const familyShareLoading = useRef<string | null>(null)
@@ -951,7 +959,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   const explorerFrame = (
     <>
-    <section className={`rumahl-files-app ${pickerMode ? 'flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-[1.6rem] border border-white/12 bg-background/95 text-foreground shadow-2xl backdrop-blur-xl' : 'rumahl-app-frame'}`} onClick={() => setContextEntry(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
+    <section className={`rumahl-files-app ${pickerMode ? 'flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-[1.6rem] border border-white/12 bg-background/95 text-foreground shadow-2xl backdrop-blur-xl' : 'rumahl-app-frame'}`} onClick={() => { setContextEntry(null); setSurfaceMenuOpen(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
       <OsAppNavbar
         pageId="os-files"
         title={t('os.apps.files.name')}
@@ -1055,8 +1063,20 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           <div className={`rumahl-selection-bar ${selected.size === 0 ? 'invisible' : ''}`}><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void createExternalLink(selectedEntries[0])}><LinkSimple size={16} />{t('os.files.shareExternalLink')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>
 
           <div
+            ref={gridRef}
             className={`rumahl-files-surface ${dropHighlight ? 'border-accent/60 ring-2 ring-accent/25' : ''}`}
             aria-busy={refreshing}
+            onMouseDown={beginMarquee}
+            onContextMenu={(event) => {
+              if (netMode || trashMode || (event.target as HTMLElement).closest('.rumahl-file-tile, .rumahl-file-row, button, input, a')) return
+              event.preventDefault()
+              event.stopPropagation()
+              closeAllContextMenus()
+              setSelected(new Set())
+              setContextEntry(null)
+              setContextPos({ x: event.clientX, y: event.clientY })
+              setSurfaceMenuOpen(true)
+            }}
             onDragOver={(event) => { event.preventDefault(); setDropHighlight(true) }}
             onDragLeave={(event) => { if (event.currentTarget === event.target) setDropHighlight(false) }}
             onDrop={(event) => { event.preventDefault(); event.stopPropagation(); setDropHighlight(false); if (event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}
@@ -1159,7 +1179,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                 )}
               </div>
             ) : initialLoading ? <div className="rumahl-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="rumahl-file-skeleton" />)}</div> : (sortedFiles.length === 0 && !newFileDraft && !newFolderDraft) ? <div className="rumahl-file-empty-state flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
-              <div ref={gridRef} onMouseDown={beginMarquee} className="rumahl-file-grid relative">{
+              <div className="rumahl-file-grid relative">{
                 newFileDraft && (
                   <div className="rumahl-file-tile relative border border-accent/50 bg-accent/8">
                     <span className="rumahl-document-icon"><img src="/icons/file.png" alt="" width={56} height={56} className="object-contain" draggable={false} /></span>
@@ -1192,7 +1212,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                     />
                   </div>
                 )}
-                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-id={entry.id} data-tooltip={entry.original_name} className={`rumahl-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''} ${pickerMode && !matchesAccept(entry) && !entry.is_folder ? 'opacity-35' : ''}`}><span className={entry.is_folder ? 'rumahl-folder-icon' : 'rumahl-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
+                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setSurfaceMenuOpen(false); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-id={entry.id} data-tooltip={entry.original_name} className={`rumahl-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''} ${pickerMode && !matchesAccept(entry) && !entry.is_folder ? 'opacity-35' : ''}`}><span className={entry.is_folder ? 'rumahl-folder-icon' : 'rumahl-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
                   <input
                     autoFocus
                     value={renameValue}
@@ -1211,7 +1231,6 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                 ) : (
                   <span className="mt-3 w-full truncate text-center text-sm font-medium">{entry.original_name}</span>
                 )}<span className="mt-1 text-xs text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : formatBytes(entry.size_bytes)}</span></div>)}
-          {marquee && <div className="rumahl-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
           </div>
             ) : viewMode === 'list' ? (
               <div className="rumahl-file-list"><div className="rumahl-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`rumahl-file-row relative ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-3">{selected.size > 0 && <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${selected.has(entry.id) ? 'bg-accent text-white' : 'bg-foreground/10 text-transparent'}`}><Check size={10} weight="bold" /></span>}<span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span>{renameEntry?.id === entry.id ? (
@@ -1257,6 +1276,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   )}</span><span className="truncate">{entry.is_folder ? t('os.systemApps.folder') : (entry.mime_type || t('os.files.typeFile'))}</span><span>{entry.is_folder ? '—' : formatBytes(entry.size_bytes)}</span><span>{new Date(entry.updated_at).toLocaleString()}</span></button>)}
               </div>
             )}
+          {marquee && <div className="rumahl-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
           </div>
         </main>
       </div>
@@ -1336,6 +1356,22 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
             </div>
           </div>
         </div>
+      )}
+      {createPortal(
+        surfaceMenuOpen && contextPos ? (
+          <div
+            className="rumahl-context-menu"
+            style={{ left: Math.min(contextPos.x, window.innerWidth - 230), top: Math.min(contextPos.y, window.innerHeight - 220), right: 'auto', zIndex: pickerMode ? 270 : undefined }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            {can('os.files.write') && <button type="button" onClick={() => { setViewMode('grid'); setNewFileName(t('os.files.defaultNewFileName')); setNewFileDraft(true); setNewFolderDraft(false); setSurfaceMenuOpen(false) }}><FilePlus size={16} />{t('os.files.newFile')}</button>}
+            {can('os.files.write') && <button type="button" onClick={() => { setViewMode('grid'); setNewFolderName(t('os.files.defaultNewFolderName')); setNewFolderDraft(true); setNewFileDraft(false); setSurfaceMenuOpen(false) }}><Folder size={16} />{t('os.systemApps.newFolder')}</button>}
+            {can('os.files.write') && <button type="button" onClick={() => { deviceInput.current?.click(); setSurfaceMenuOpen(false) }}><UploadSimple size={16} />{t('os.systemApps.upload')}</button>}
+            <button type="button" onClick={() => { void load(true); setSurfaceMenuOpen(false) }}><ArrowClockwise size={16} />{t('os.desktopMenu.refresh')}</button>
+          </div>
+        ) : null,
+        document.body,
       )}
       {createPortal(
       contextEntry && (() => {

@@ -6,6 +6,8 @@ import { ErrorFallback } from './ErrorFallback.tsx'
 import { initAutoContrast } from './lib/autoContrast'
 import { IS_DEMO } from './lib/config'
 import { persistAuthSession } from './lib/authHelpers'
+import { registerServiceWorkerUpdates } from './lib/serviceWorkerUpdates'
+import { initializeOfflineMutationQueue } from './lib/offlineMutationQueue'
 
 import "./index.css"
 
@@ -27,13 +29,8 @@ window.addEventListener('contextmenu', (event) => {
   event.preventDefault()
 }, { capture: true })
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
-      console.warn('[PWA] Service worker registration failed:', error)
-    })
-  })
-}
+registerServiceWorkerUpdates()
+initializeOfflineMutationQueue()
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary FallbackComponent={ErrorFallback}>

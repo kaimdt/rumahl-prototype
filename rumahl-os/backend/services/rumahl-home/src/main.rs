@@ -97,11 +97,11 @@ use ha_client::HomeAssistantClient;
 use ha_connection::HaConnectionManager;
 use ha_websocket::HAWebSocket;
 use homekit_client::HomekitClient;
-use rumahl_shared::settings::{SettingDefinition, SettingsRegistry};
-use rumahl_shared_config::system_config;
 use matter_client::MatterClient;
 use mqtt_client::MqttClient;
 use notification_dispatcher::NotificationDispatcher;
+use rumahl_shared::settings::{SettingDefinition, SettingsRegistry};
+use rumahl_shared_config::system_config;
 use streaming::StreamManager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -1679,7 +1679,14 @@ async fn main() -> anyhow::Result<()> {
         )
         // Connected devices (rumahl Desktop, browser tabs, kiosks)
         .route("/api/admin/devices", get(admin_list_devices))
-        .route("/api/admin/devices/:device_id", delete(admin_delete_device))
+        .route(
+            "/api/admin/devices/:device_id",
+            delete(admin_delete_device).put(admin_rename_device),
+        )
+        .route(
+            "/api/admin/devices/:device_id/copy-config",
+            post(admin_copy_device_config),
+        )
         // Combined presence overview: users + devices + login mapping
         .route("/api/admin/presence", get(admin_presence))
         // Centralised system event log (background-task errors / warnings)
@@ -2272,6 +2279,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/config/preferences/:user_id",
             get(get_user_preferences),
+        )
+        .route(
+            "/api/config/devices/:device_id/preferences/:user_id",
+            get(get_device_preferences).post(save_device_preference),
         )
         .route(
             "/api/config/system/preferences",
@@ -6060,6 +6071,56 @@ async fn admin_delete_device(
     }
 }
 
+async fn admin_rename_device(
+    State(state): State<AppState>,
+    Path(device_id): Path<String>,
+    Json(request): Json<Value>,
+) -> Result<Json<db::models::Device>, ErrorResponse> {
+    let device_name = request
+        .get("device_name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| ErrorResponse::bad_request("device_name is required".to_string()))?;
+    state
+        .config_repo
+        .rename_device(&device_id, device_name)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to rename device: {}", e)))?
+        .map(Json)
+        .ok_or_else(|| ErrorResponse::not_found(format!("Device {} not found", device_id)))
+}
+
+async fn admin_copy_device_config(
+    State(state): State<AppState>,
+    Path(target_device_id): Path<String>,
+    Json(request): Json<Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let source_device_id = request
+        .get("source_device_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ErrorResponse::bad_request("source_device_id is required".to_string()))?;
+    let user_id = request
+        .get("user_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ErrorResponse::bad_request("user_id is required".to_string()))?;
+    if source_device_id == target_device_id {
+        return Err(ErrorResponse::bad_request(
+            "Source and target device must differ".to_string(),
+        ));
+    }
+    let copied = state
+        .config_repo
+        .copy_device_preferences(user_id, source_device_id, &target_device_id)
+        .await
+        .map_err(|e| {
+            ErrorResponse::internal(format!("Failed to copy device configuration: {}", e))
+        })?;
+    Ok(Json(
+        serde_json::json!({ "copied": copied, "source_device_id": source_device_id, "target_device_id": target_device_id }),
+    ))
+}
+
 /// GET /api/admin/system-events
 /// Grouped (deduplicated) view of system events. Identical
 /// `(severity, source, message)` events are collapsed into one row with a
@@ -6677,6 +6738,55 @@ async fn get_user_preferences(
     }
 }
 
+/// Save a preference snapshot for one physical device.
+async fn save_device_preference(
+    State(state): State<AppState>,
+    Path((device_id, user_id)): Path<(String, String)>,
+    Json(request): Json<db::models::SavePreferenceRequest>,
+) -> Result<Json<db::models::UserPreference>, ErrorResponse> {
+    match state
+        .config_repo
+        .save_preference(&user_id, Some(&device_id), request)
+        .await
+    {
+        Ok(pref) => {
+            let _ = state
+                .config_repo
+                .record_change("user_preferences", &user_id, "UPDATE", Some(&device_id))
+                .await;
+            Ok(Json(pref))
+        }
+        Err(e) => {
+            warn!("Failed to save device preference: {}", e);
+            Err(ErrorResponse::internal(format!(
+                "Failed to save device preference: {}",
+                e
+            )))
+        }
+    }
+}
+
+/// Get all preference snapshots stored for one physical device.
+async fn get_device_preferences(
+    State(state): State<AppState>,
+    Path((device_id, user_id)): Path<(String, String)>,
+) -> Result<Json<Vec<db::models::UserPreference>>, ErrorResponse> {
+    match state
+        .config_repo
+        .get_all_preferences(&user_id, Some(&device_id))
+        .await
+    {
+        Ok(prefs) => Ok(Json(prefs)),
+        Err(e) => {
+            warn!("Failed to get device preferences: {}", e);
+            Err(ErrorResponse::internal(format!(
+                "Failed to get device preferences: {}",
+                e
+            )))
+        }
+    }
+}
+
 /// Save global system preference
 async fn save_system_preference(
     State(state): State<AppState>,
@@ -6808,7 +6918,9 @@ async fn proxy_intelligence_maintenance_run(
             let status = resp.status().as_u16();
             Json(json!({"error": format!("Intelligence service returned HTTP {}", status)}))
         }
-        Err(e) => Json(json!({"error": format!("rumahl-intelligence service not reachable: {}", e)})),
+        Err(e) => {
+            Json(json!({"error": format!("rumahl-intelligence service not reachable: {}", e)}))
+        }
     }
 }
 
@@ -7400,7 +7512,11 @@ async fn proxy_domain_validator(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("RUMAHL_DOMAIN_VALIDATOR_URL", "rumahl-domain-validator", 8104);
+    let base = microservice_url(
+        "RUMAHL_DOMAIN_VALIDATOR_URL",
+        "rumahl-domain-validator",
+        8104,
+    );
     forward_request_to(&state, &base, req).await
 }
 
@@ -7408,7 +7524,11 @@ async fn proxy_resources(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("RUMAHL_RESOURCE_MANAGER_URL", "rumahl-resource-manager", 8105);
+    let base = microservice_url(
+        "RUMAHL_RESOURCE_MANAGER_URL",
+        "rumahl-resource-manager",
+        8105,
+    );
     forward_request_to(&state, &base, req).await
 }
 
@@ -16095,10 +16215,12 @@ async fn admin_mqtt_connect(
         port: req.port.unwrap_or(1883),
         username: req.username.clone(),
         password: req.password.clone(),
-        client_id: req
-            .client_id
-            .clone()
-            .unwrap_or_else(|| format!("rumahl-dashboard-{}", &uuid::Uuid::new_v4().to_string()[..8])),
+        client_id: req.client_id.clone().unwrap_or_else(|| {
+            format!(
+                "rumahl-dashboard-{}",
+                &uuid::Uuid::new_v4().to_string()[..8]
+            )
+        }),
         use_tls: req.use_tls.unwrap_or(false),
     };
 
@@ -21148,7 +21270,9 @@ async fn internal_create_system_notification(
         _ => {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "error": "internal endpoint disabled (RUMAHL_INTERNAL_TOKEN unset)" })),
+                Json(
+                    json!({ "error": "internal endpoint disabled (RUMAHL_INTERNAL_TOKEN unset)" }),
+                ),
             )
         }
     };

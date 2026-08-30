@@ -5,6 +5,7 @@ import { Warning, ShieldWarning, Siren, CloudWarning } from '@phosphor-icons/rea
 import { useActiveWarnings, type ActiveWarning } from '@/components/NotificationCenter'
 import { RumahlMark } from '@/components/RumahlMark'
 import { useLocalStorage } from '@/lib/storage'
+import type { ScreensaverStyle } from '@/lib/screensaverStyles'
 
 interface ScreensaverProps {
   timeout?: number // in milliseconds, default 5 minutes
@@ -14,6 +15,8 @@ interface ScreensaverProps {
 export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverProps) {
   const [isActive, setIsActive] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [screensaverStyle] = useLocalStorage<ScreensaverStyle>('rumahl-screensaver-style', 'clock')
+  const [logoPosition, setLogoPosition] = useState({ x: 50, y: 50, key: 0 })
   const activeWarnings = useActiveWarnings()
 
   // Update time every second when screensaver is active
@@ -26,6 +29,20 @@ export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverPro
 
     return () => clearInterval(timer)
   }, [isActive])
+
+  useEffect(() => {
+    const showPreview = () => setIsActive(true)
+    window.addEventListener('rumahl:screensaver-preview', showPreview)
+    return () => window.removeEventListener('rumahl:screensaver-preview', showPreview)
+  }, [])
+
+  useEffect(() => {
+    if (!isActive || screensaverStyle !== 'logo-pop') return
+    const moveLogo = () => setLogoPosition((position) => ({ x: 12 + Math.random() * 76, y: 14 + Math.random() * 72, key: position.key + 1 }))
+    moveLogo()
+    const timer = window.setInterval(moveLogo, 4200)
+    return () => window.clearInterval(timer)
+  }, [isActive, screensaverStyle])
 
   const onIdle = useCallback(() => {
     if (enabled) {
@@ -131,7 +148,16 @@ export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverPro
             />
           </div>
 
-          <div className="text-center select-none relative">
+          {screensaverStyle === 'logo-pop' && (
+            <motion.div key={logoPosition.key} className="absolute -translate-x-1/2 -translate-y-1/2 select-none" style={{ left: `${logoPosition.x}%`, top: `${logoPosition.y}%` }} initial={{ opacity: 0, scale: .55, filter: 'blur(16px)' }} animate={{ opacity: [.05, .92, .92, 0], scale: [.55, 1, 1.04, .82], filter: ['blur(16px)', 'blur(0px)', 'blur(0px)', 'blur(12px)'] }} transition={{ duration: 3.8, times: [0, .2, .72, 1], ease: 'easeInOut' }}>
+              <RumahlMark className="h-[clamp(2.5rem,8vw,7rem)] text-white drop-shadow-[0_22px_55px_rgb(255_255_255_/_0.16)]" />
+            </motion.div>
+          )}
+          {screensaverStyle === 'logo-orbit' && (
+            <div className="rumahl-screensaver-orbit select-none"><span /><span /><motion.div animate={{ rotateY: [0, 360], y: [-10, 10, -10] }} transition={{ rotateY: { duration: 12, repeat: Infinity, ease: 'linear' }, y: { duration: 5, repeat: Infinity, ease: 'easeInOut' } }}><RumahlMark className="h-[clamp(3rem,9vw,7.5rem)] text-white" /></motion.div></div>
+          )}
+          {screensaverStyle === 'ambient' && <div className="rumahl-screensaver-ambient" aria-hidden="true"><i /><i /><i /></div>}
+          {screensaverStyle === 'clock' && <div className="text-center select-none relative">
             {/* Seconds ring indicator */}
             <div className="relative inline-block mb-2">
               <svg
@@ -156,7 +182,7 @@ export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverPro
 
               {/* Clock display */}
               <motion.div
-                className="font-extralight tabular-nums"
+                className="rumahl-display-clock font-extralight tabular-nums"
                 style={{
                   fontSize: 'clamp(4.5rem, 18vw, 11rem)',
                   lineHeight: 1,
@@ -222,7 +248,7 @@ export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverPro
             >
               <RumahlMark className="h-6" />
             </motion.div>
-          </div>
+          </div>}
         </motion.div>
       )}
     </AnimatePresence>

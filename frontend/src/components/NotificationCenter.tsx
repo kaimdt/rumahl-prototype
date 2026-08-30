@@ -235,6 +235,10 @@ function NotificationItem({
           ? 'border-transparent bg-foreground/2'
           : `${config.border} ${config.bg}`
       }`}
+      role="button"
+      tabIndex={0}
+      onClick={() => window.dispatchEvent(new CustomEvent('rumahl:notification-open', { detail: notification }))}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') window.dispatchEvent(new CustomEvent('rumahl:notification-open', { detail: notification })) }}
     >
       <div className="flex gap-2.5">
         <div className={`mt-0.5 flex-shrink-0 ${config.color}`}>
@@ -265,7 +269,7 @@ function NotificationItem({
         {!notification.read && (
           <Tip content="Als gelesen markieren">
             <button
-              onClick={onRead}
+              onClick={(event) => { event.stopPropagation(); onRead() }}
               className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-accent transition-colors"
             >
               <Check size={12} />
@@ -274,7 +278,7 @@ function NotificationItem({
         )}
         <Tip content="Entfernen">
           <button
-            onClick={onDismiss}
+            onClick={(event) => { event.stopPropagation(); onDismiss() }}
             className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-red-400 transition-colors"
           >
             <X size={12} />

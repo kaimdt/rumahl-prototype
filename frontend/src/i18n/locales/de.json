@@ -147,6 +147,13 @@
     "installedApp": "App",
     "customApp": "Eigene",
     "noApps": "Keine passenden Apps gefunden.",
+    "run": {
+      "title": "Ausführen",
+      "hint": "App, internen Namen oder Webadresse eingeben",
+      "placeholder": "Zum Beispiel: files, settings oder https://…",
+      "run": "Ausführen",
+      "notFound": "„{{command}}“ wurde nicht gefunden."
+    },
     "launcher": {
       "label": "rumahl OS Homescreen",
       "nativeHome": "Nativ in rumahl OS",
@@ -266,7 +273,16 @@
       "invalidCredential": "Passwort oder PIN ist nicht korrekt.",
       "usePin": "Mit PIN entsperren",
       "usePassword": "Mit Passwort entsperren",
-      "chooseUser": "Benutzer auswählen"
+        "chooseUser": "Benutzer auswählen",
+        "changeStyle": "Sperrbildschirm wechseln",
+        "styles": {
+          "midnight": "Midnight",
+          "monstera": "Midnight Monstera",
+          "halo": "Logo Halo",
+          "minimal": "Minimal Black",
+          "orbit-3d": "3D Orbit",
+          "custom": "Eigenes Bild"
+        }
     },
     "permissions": {
       "title": "rumahl-OS-Berechtigungen",
@@ -522,6 +538,8 @@
       "select": "Auswählen",
       "serviceRestart": "Der Files-Dienst antwortet nicht korrekt ({{detail}}). Bitte starte den Files-Dienst neu (rumahl-files).",
       "newFile": "Neue Datei",
+      "defaultNewFileName": "Neue Datei.txt",
+      "defaultNewFolderName": "Neuer Ordner",
       "fileName": "Dateiname",
       "folders": "Ordner",
       "details": "Details",
@@ -610,7 +628,9 @@
       "refresh": "Aktualisieren",
       "addToDesktop": "Zum Desktop hinzufügen",
       "removeFromDesktop": "Vom Desktop entfernen",
-      "manageDesktop": "Desktop anpassen"
+      "manageDesktop": "Desktop anpassen",
+      "newFile": "Neue Datei",
+      "newFolder": "Neuer Ordner"
     },
     "window": {
       "asWindow": "Als Fenster öffnen",
@@ -665,6 +685,42 @@
     "themeMode": "Design-Modus",
     "autoLock": "Automatisch sperren",
     "autoLockDesc": "Sitzung nach Inaktivität sperren",
+    "lockScreenStyle": "Sperrbildschirm",
+    "lockScreenStyleDesc": "Design für den gesperrten rumahl-OS-Desktop",
+    "lockScreenChooseImage": "Eigenes Bild wählen",
+    "lockScreenPreview": "Sperrbildschirm-Vorschau",
+    "lockScreenPreviewHint": "Vorschau des Sperrbildschirms",
+    "sessionClockSize": "Uhrgröße",
+    "sessionEditor": "Session-Bildschirm gestalten",
+    "sessionEditorOpen": "Visuell bearbeiten",
+    "sessionEditorHint": "Elemente direkt anklicken und verschieben",
+    "sessionEditorOnly": "Sperr- und Anmeldebildschirm werden ausschließlich im visuellen Editor gestaltet.",
+    "sessionGrid": "Gestaltungsraster einblenden",
+    "sessionSnap": "Magnetisches Einrasten aktivieren",
+    "sessionWidgets": "Widgets",
+    "sessionEditorDate": "Samstag, 30. August",
+    "sessionElements": { "clock": "Uhr", "date": "Datum", "status": "Status", "brand": "Logo" },
+    "timeThemeBackground": "Hintergrund",
+    "timeThemeAccent": "Akzent",
+    "timeThemeReset": "Tageszeitfarben zurücksetzen",
+    "sessionTextSize": "Textgröße",
+    "sessionClockFont": "Uhrschrift",
+    "sessionClockPosition": "Position der Uhr",
+    "sessionWidgetDate": "Datum anzeigen",
+    "sessionWidgetBrand": "rumahl-Logo anzeigen",
+    "sessionWidgetStatus": "Status-Widget anzeigen",
+    "sessionFonts": { "rumahl": "rumahl Sans", "system": "System", "rounded": "Abgerundet", "serif": "Serif", "mono": "Monospace" },
+    "rumahlSansHint": "Die rumahl-Markenschrift ist für große Uhren und ruhige Displaytexte optimiert.",
+    "sessionPositions": { "top": "Oben", "center": "Mittig" },
+    "preview": "Vorschau anzeigen",
+    "screensaverStyle": "Bildschirmschoner-Design",
+    "screensaverTimeout": "Start nach Inaktivität",
+    "screensaverStyles": {
+      "clock": "Atmosphärische Uhr",
+      "logo-pop": "Wanderndes Logo",
+      "logo-orbit": "Logo Orbit",
+      "ambient": "Ambient-Farben"
+    },
     "autoScreensaver": "Bildschirmschoner automatisch",
     "autoScreensaverDesc": "Bildschirmschoner bei Inaktivität anzeigen",
     "kioskMode": "Kiosk-Modus",
@@ -717,7 +773,7 @@
     "currentAccent": "Aktuelle Akzentfarbe",
     "extractedPalette": "Extrahierte Farbpalette",
     "resetToAuto": "Zurück zu Automatisch",
-    "screensaverDesc": "Uhr-Anzeige bei Inaktivität",
+    "screensaverDesc": "Animierte Motive und Informationen bei Inaktivität",
     "screensaverEnable": "Bildschirmschoner aktivieren",
     "reduceAnimations": "Animationen reduzieren",
     "reduceAnimationsDesc": "Weniger Animationen und Übergänge für bessere Performance",
@@ -788,7 +844,7 @@
     "backendUsageDesc": "CPU, Arbeitsspeicher und Datenbank",
     "homeAssistant": "Home Assistant",
     "homeAssistantDesc": "Verbindung, Entitäten und Domänen",
-    "screensaverTimeoutDesc": "Zeigt eine Uhr nach einer Zeit ohne Eingabe",
+    "screensaverTimeoutDesc": "Startet nach einer Zeit ohne Eingabe",
     "tabGeneralDesc": "Profil, Sicherheit & KI",
     "tabAppearanceDesc": "Theme, Akzent & Glas",
     "tabDashboardDesc": "Designer & Code",
@@ -1642,7 +1698,12 @@
   },
   "notifications": {
     "title": "Benachrichtigungen",
-    "subtitle": "Systembenachrichtigungen und Hintergrund-Jobs"
+    "subtitle": "Systembenachrichtigungen und Hintergrund-Jobs",
+    "detail": "Benachrichtigungsdetails",
+    "source": "Quelle",
+    "time": "Zeitpunkt",
+    "copy": "Text kopieren",
+    "copied": "Kopiert"
   },
   "jobs": {
     "title": "Job Center",
@@ -2117,6 +2178,7 @@
       "diagnostics": "Diagnose ausführen",
       "performance": "Leistung",
       "cpuUsage": "CPU-Auslastung",
+      "noPerformanceData": "Noch keine Leistungsdaten verfügbar.",
       "services": "Dienste",
       "runningCount": "{{count}} aktiv",
       "name": "Name",
@@ -2154,5 +2216,30 @@
     "saving": "Speichert…",
     "saved": "Appearance-Standards gespeichert",
     "saveFailed": "Speichern fehlgeschlagen"
+  },
+  "terminal": {
+    "title": "rumahl OS Terminal",
+    "fullOsAccess": "Interaktive System-Shell · Developer Mode",
+    "connected": "Verbunden",
+    "disconnected": "Getrennt",
+    "reconnect": "Neu verbinden",
+    "copy": "Ausgabe kopieren",
+    "copied": "Terminalausgabe kopiert",
+    "clear": "Ausgabe leeren",
+    "fullscreen": "Vollbild umschalten",
+    "input": "Terminaleingabe",
+    "hint": "Terminal anklicken und direkt tippen · Strg+C unterbricht den Prozess",
+    "scrollback": "Verlauf",
+    "sessionClosed": "Die Terminalsitzung wurde geschlossen.",
+    "developerRequired": "Das Terminal ist nur im Developer Mode verfügbar."
+  },
+  "adminDevices": {
+    "rename": "Gerät umbenennen",
+    "save": "Speichern",
+    "renamed": "Gerätename gespeichert",
+    "copyFrom": "Konfiguration übernehmen von …",
+    "apply": "Übernehmen",
+    "configurationCopied": "{{count}} Einstellungen wurden auf das Gerät übertragen",
+    "userUnavailable": "Der aktuelle Benutzer konnte nicht geladen werden"
   }
 }

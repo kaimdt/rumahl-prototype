@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowClockwise, Broadcast, Cpu, Desktop, Globe, MagnifyingGlass, Monitor, PencilSimple, Pulse, Terminal, Trash, UserMinus, Users, WifiHigh } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { confirmDialog } from '@/components/ui/confirmDialog'
@@ -7,6 +8,7 @@ import { OsPermissionEditor } from '@/components/OsPermissionEditor'
 import { AdminCard, ErrorMessage, InlineSpinner, LoadingSpinner, StatItem, adminFetch, cachedFetch, ccBadge, ccBtnSecondary, formatAge, notifyError, type AdminUser } from '../AdminPanel'
 import { PresencePayload, PresenceUser } from './core'
 import { AdminDevicesPayload } from './ai'
+import { authFetch } from '@/lib/authHelpers'
 export function UsersTab({ token }: { token: string }) {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -295,10 +297,15 @@ export interface rumahlLogEntry {
 
 
 export function DevicesTab({ token }: { token: string }) {
+  const { t } = useTranslation()
   const [data, setData] = useState<AdminDevicesPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'online' | 'offline'>('all')
+  const [editingDevice, setEditingDevice] = useState<string | null>(null)
+  const [deviceName, setDeviceName] = useState('')
+  const [copySource, setCopySource] = useState<Record<string, string>>({})
+  const [deviceAction, setDeviceAction] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -327,6 +334,41 @@ export function DevicesTab({ token }: { token: string }) {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     }
+  }
+
+  const rename = async (id: string) => {
+    const name = deviceName.trim()
+    if (!name) return
+    setDeviceAction(id)
+    try {
+      await adminFetch(`/api/admin/devices/${encodeURIComponent(id)}`, token, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_name: name }),
+      })
+      toast.success(t('adminDevices.renamed'))
+      setEditingDevice(null)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally { setDeviceAction(null) }
+  }
+
+  const copyConfiguration = async (targetId: string) => {
+    const sourceId = copySource[targetId]
+    if (!sourceId) return
+    setDeviceAction(targetId)
+    try {
+      const username = localStorage.getItem('ha-username') || 'default'
+      const userResponse = await authFetch(`/api/config/users/${encodeURIComponent(username)}`)
+      if (!userResponse.ok) throw new Error(t('adminDevices.userUnavailable'))
+      const user = await userResponse.json() as { id: string }
+      const result = await adminFetch(`/api/admin/devices/${encodeURIComponent(targetId)}/copy-config`, token, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_device_id: sourceId, user_id: user.id }),
+      }) as { copied: number }
+      toast.success(t('adminDevices.configurationCopied', { count: result.copied }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally { setDeviceAction(null) }
   }
 
   const filtered = (data?.devices ?? []).filter((d) => {
@@ -405,7 +447,13 @@ export function DevicesTab({ token }: { token: string }) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-foreground truncate">{d.device_name}</span>
+                            {editingDevice === d.id ? (
+                              <form className="flex min-w-[12rem] items-center gap-1" onSubmit={(event) => { event.preventDefault(); rename(d.id) }}>
+                                <input autoFocus value={deviceName} onChange={(event) => setDeviceName(event.target.value)}
+                                  className="min-w-0 flex-1 rounded-lg border border-foreground/15 bg-foreground/5 px-2 py-1 text-xs text-foreground outline-none focus:border-accent/60" />
+                                <button disabled={deviceAction === d.id} className="rounded-lg bg-accent/20 px-2 py-1 text-[10px] font-semibold text-accent">{t('adminDevices.save')}</button>
+                              </form>
+                            ) : <span className="text-sm font-semibold text-foreground truncate">{d.device_name}</span>}
                             {d.device_type && <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60 font-mono">{d.device_type}</span>}
                             {d.is_terminal && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 font-mono">terminal</span>}
                             {d.online ? (
@@ -423,7 +471,24 @@ export function DevicesTab({ token }: { token: string }) {
                             <span>· zuletzt: {new Date(d.last_seen).toLocaleString('de-DE')}</span>
                             <span>· seit: {new Date(d.created_at).toLocaleDateString('de-DE')}</span>
                           </div>
+                          <div className="mt-2 flex items-center gap-1.5">
+                            <select value={copySource[d.id] ?? ''} onChange={(event) => setCopySource((current) => ({ ...current, [d.id]: event.target.value }))}
+                              className="min-w-0 flex-1 rounded-lg border border-foreground/10 bg-foreground/5 px-2 py-1.5 text-[10px] text-foreground outline-none">
+                              <option value="">{t('adminDevices.copyFrom')}</option>
+                              {(data?.devices ?? []).filter((source) => source.id !== d.id).map((source) => (
+                                <option key={source.id} value={source.id}>{source.device_name}</option>
+                              ))}
+                            </select>
+                            <button type="button" disabled={!copySource[d.id] || deviceAction === d.id} onClick={() => copyConfiguration(d.id)}
+                              className="rounded-lg bg-foreground/5 px-2 py-1.5 text-[10px] font-semibold text-foreground/70 hover:bg-foreground/10 disabled:opacity-40">
+                              {t('adminDevices.apply')}
+                            </button>
+                          </div>
                         </div>
+                        <button onClick={() => { setEditingDevice(d.id); setDeviceName(d.device_name) }} title={t('adminDevices.rename')}
+                          className="p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10">
+                          <PencilSimple size={13} />
+                        </button>
                         <button onClick={() => remove(d.id)} title="Gerät entfernen"
                           className="p-1.5 rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25">
                           <Trash size={13} />
