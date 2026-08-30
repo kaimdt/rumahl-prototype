@@ -2110,6 +2110,9 @@
       "attention": "System needs attention",
       "release": "rumahl OS {{version}} · Midnight Hearth",
       "lastChecked": "Last checked: Today, 00:18",
+      "lastCheckedAt": "Last checked: {{time}}",
+      "notChecked": "Not checked yet",
+      "checkNow": "Check now",
       "diagnostics": "Run Diagnostics",
       "performance": "Performance",
       "cpuUsage": "CPU Usage",
@@ -2120,6 +2123,11 @@
       "memory": "Memory",
       "uptime": "Uptime",
       "running": "Running",
+      "failed": "Failed",
+      "subState": "State",
+      "systemService": "System service",
+      "noServiceData": "No service data available.",
+      "serviceSummaryDynamic": "{{running}} of {{total}} services active",
       "serviceSummary": "5 of 27 services",
       "viewAll": "View all services"
     }

@@ -47,7 +47,7 @@ export interface OsAppDefinition {
   runtimeStatus?: string
 }
 
-export const SYSTEM_OS_APPS: OsAppDefinition[] = [
+const SYSTEM_OS_APP_CATALOG: OsAppDefinition[] = [
   {
     id: 'rumahl-home',
     pageId: 'home',
@@ -297,6 +297,16 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 60,
   },
 ]
+
+// Administrative OS surfaces now live inside the unified Admin Center. Keep
+// their catalog definitions above for stable metadata and legacy deep links,
+// but do not expose them as independent launcher or taskbar applications.
+const ADMIN_CENTER_PAGE_IDS = new Set([
+  'os-network', 'os-storage', 'os-devices', 'os-containers', 'os-logs',
+  'os-services', 'os-system', 'os-updates', 'os-backups',
+])
+
+export const SYSTEM_OS_APPS = SYSTEM_OS_APP_CATALOG.filter((app) => !ADMIN_CENTER_PAGE_IDS.has(app.pageId))
 
 const SYSTEM_PAGE_IDS = new Set(SYSTEM_OS_APPS.map((app) => app.pageId))
 

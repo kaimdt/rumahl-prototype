@@ -2111,6 +2111,9 @@
       "attention": "System benötigt Aufmerksamkeit",
       "release": "rumahl OS {{version}} · Midnight Hearth",
       "lastChecked": "Zuletzt geprüft: Heute, 00:18",
+      "lastCheckedAt": "Zuletzt geprüft: {{time}}",
+      "notChecked": "Noch nicht geprüft",
+      "checkNow": "Jetzt prüfen",
       "diagnostics": "Diagnose ausführen",
       "performance": "Leistung",
       "cpuUsage": "CPU-Auslastung",
@@ -2121,6 +2124,11 @@
       "memory": "Speicher",
       "uptime": "Laufzeit",
       "running": "Aktiv",
+      "failed": "Fehlgeschlagen",
+      "subState": "Zustand",
+      "systemService": "Systemdienst",
+      "noServiceData": "Keine Dienstdaten verfügbar.",
+      "serviceSummaryDynamic": "{{running}} von {{total}} Diensten aktiv",
       "serviceSummary": "5 von 27 Diensten",
       "viewAll": "Alle Dienste anzeigen"
     }

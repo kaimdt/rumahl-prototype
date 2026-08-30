@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
 import {
@@ -25,10 +25,17 @@ import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { renderAdminTabContent, tabGroups, getTabs, type Tab } from '@/components/AdminPanel'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { authFetch } from '@/lib/authHelpers'
-import { useCallback, useEffect } from 'react'
+import { useCallback } from 'react'
 import { OsTerminal } from '@/components/OsTerminal'
 import { useShellMode } from '@/hooks/useShellMode'
-import { DesktopAdminCenter } from '@/components/DesktopAdminCenter'
+import { DesktopAdminCenter, type DesktopAdminSection, type DesktopServiceSummary } from '@/components/DesktopAdminCenter'
+import { OsServicesApp } from '@/components/OsServicesApp'
+import { OsStorageApp } from '@/components/OsStorageApp'
+import { OsDevicesApp } from '@/components/OsDevicesApp'
+import { OsContainersApp } from '@/components/OsContainersApp'
+import { OsLogsApp } from '@/components/OsLogsApp'
+import { OsSystemApp } from '@/components/OsSystemApp'
+import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
 
 /**
  * AdminCenter — Windows 11 Settings-style admin shell.
@@ -58,7 +65,7 @@ const NATIVE_APPS: Array<{ pageId: string; nameKey: string; icon: typeof Cube }>
   { pageId: 'os-system', nameKey: 'os.apps.system.name', icon: Gauge },
 ]
 
-export function AdminCenter() {
+export function AdminCenter({ initialSection = 'overview' }: { initialSection?: DesktopAdminSection }) {
   const { resolvedMode } = useShellMode()
   const { t } = useTranslation()
   const { token } = useAuth()
@@ -69,10 +76,14 @@ export function AdminCenter() {
 
   const [categoryId, setCategoryId] = useState<string>('home')
   const [detailTab, setDetailTab] = useState<Tab | null>(null)
+  const [desktopSection, setDesktopSection] = useState<DesktopAdminSection>(initialSection)
 
   // System health for the home overview.
   const [health, setHealth] = useState<{ status: string; ha_connected?: boolean; version?: string } | null>(null)
-  const [servicesUp, setServicesUp] = useState<number | null>(null)
+  const [services, setServices] = useState<DesktopServiceSummary[]>([])
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null)
+
+  useEffect(() => setDesktopSection(initialSection), [initialSection])
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -83,8 +94,9 @@ export function AdminCenter() {
       if (healthResponse.ok) setHealth(await healthResponse.json())
       if (servicesResponse?.ok) {
         const data = await servicesResponse.json()
-        setServicesUp((data.services || []).filter((s: { active?: string }) => s.active === 'active').length)
+        setServices(data.services || [])
       }
+      setCheckedAt(new Date())
     } catch {
       // offline
     }
@@ -117,13 +129,33 @@ export function AdminCenter() {
     setDetailTab(null)
   }
 
+  const renderDesktopSection = (section: DesktopAdminSection): ReactNode => {
+    switch (section) {
+      case 'services': return <OsServicesApp />
+      case 'storage': return <OsStorageApp />
+      case 'network': return <OsSystemApp kind="network" />
+      case 'devices': return <OsDevicesApp />
+      case 'containers': return <OsContainersApp />
+      case 'logs': return <OsLogsApp />
+      case 'system': return <OsSystemApp kind="system" />
+      case 'updates': return <OsMaintenanceApp kind="updates" />
+      case 'backups': return <OsMaintenanceApp kind="backups" />
+      case 'users': return renderAdminTabContent('users', token || '')
+      default: return null
+    }
+  }
+
   if (resolvedMode === 'desktop') {
     return (
       <DesktopAdminCenter
+        activeSection={desktopSection}
         healthStatus={health?.status}
         version={health?.version}
-        servicesUp={servicesUp}
-        onOpenApp={openApp}
+        services={services}
+        checkedAt={checkedAt}
+        content={renderDesktopSection(desktopSection)}
+        onSelectSection={setDesktopSection}
+        onRefresh={() => void refreshHealth()}
       />
     )
   }
@@ -139,7 +171,7 @@ export function AdminCenter() {
       {/* System status strip */}
       <div className="grid gap-3 sm:grid-cols-3">
         <StatusCard icon={Gauge} label={t('adminCenter.status')} value={health?.status || t('adminCenter.checking')} good={health?.status === 'ok'} />
-        <StatusCard icon={ArrowClockwise} label={t('adminCenter.servicesUp')} value={servicesUp != null ? String(servicesUp) : '–'} />
+        <StatusCard icon={ArrowClockwise} label={t('adminCenter.servicesUp')} value={String(services.filter((service) => service.active === 'active').length)} />
         <StatusCard icon={Cube} label={t('adminCenter.version')} value={health?.version || '–'} />
       </div>
 

@@ -3,7 +3,6 @@ import { OsHomeScreen } from '@/components/OsHomeScreen'
 import { OsSystemApp } from '@/components/OsSystemApp'
 import { OsImagesApp } from '@/components/OsImagesApp'
 import { OsSecurityApp } from '@/components/OsSecurityApp'
-import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
 import { OsInfoApp } from '@/components/OsInfoApp'
 import { OsAppWindow } from '@/components/OsAppWindow'
 import { OsWindowActions } from '@/components/OsWindowActions'
@@ -12,15 +11,22 @@ import { OsWindowActions } from '@/components/OsWindowActions'
 const AdminCenter = lazy(() => import('@/components/AdminCenter').then((m) => ({ default: m.AdminCenter })))
 const AgentTab = lazy(() => import('@/components/AgentTab').then((m) => ({ default: m.AgentTab })))
 const AutomationEditorApp = lazy(() => import('@/components/AutomationEditorApp').then((m) => ({ default: m.AutomationEditorApp })))
-const OsStorageApp = lazy(() => import('@/components/OsStorageApp').then((m) => ({ default: m.OsStorageApp })))
-const OsDevicesApp = lazy(() => import('@/components/OsDevicesApp').then((m) => ({ default: m.OsDevicesApp })))
-const OsContainersApp = lazy(() => import('@/components/OsContainersApp').then((m) => ({ default: m.OsContainersApp })))
-const OsLogsApp = lazy(() => import('@/components/OsLogsApp').then((m) => ({ default: m.OsLogsApp })))
-const OsServicesApp = lazy(() => import('@/components/OsServicesApp').then((m) => ({ default: m.OsServicesApp })))
 const DocsPage = lazy(() => import('@/components/DocsPageNew').then((m) => ({ default: m.DocsPage })))
 const SharePage = lazy(() => import('@/components/SharePage').then((m) => ({ default: m.SharePage })))
 const StreamSender = lazy(() => import('@/components/StreamSender').then((m) => ({ default: m.StreamSender })))
 const AppStoreTab = lazy(() => import('@/components/AppStoreTab').then((m) => ({ default: m.AppStoreTab })))
+
+const ADMIN_SECTION_BY_PAGE: Record<string, 'services' | 'storage' | 'network' | 'devices' | 'containers' | 'logs' | 'system' | 'updates' | 'backups'> = {
+  'os-services': 'services',
+  'os-storage': 'storage',
+  'os-network': 'network',
+  'os-devices': 'devices',
+  'os-containers': 'containers',
+  'os-logs': 'logs',
+  'os-system': 'system',
+  'os-updates': 'updates',
+  'os-backups': 'backups',
+}
 
 /**
  * osPageRegistry — the single source of truth for built-in rumahl OS pages.
@@ -56,21 +62,14 @@ export interface PageRenderContext {
 
 /** Raw page content (no window chrome) — used by the window manager. */
 export function renderBuiltinPage(pageId: string, ctx: PageRenderContext): ReactNode {
+  const adminSection = ADMIN_SECTION_BY_PAGE[pageId]
+  if (adminSection) return ctx.isAdmin ? <AdminCenter initialSection={adminSection} /> : null
   switch (pageId) {
     case 'launcher': return <OsHomeScreen />
     case 'os-files': return <OsSystemApp kind="files" />
     case 'os-images': return <OsImagesApp />
-    case 'os-network': return <OsSystemApp kind="network" />
-    case 'os-system': return <OsSystemApp kind="system" />
     case 'os-security': return <OsSecurityApp />
-    case 'os-storage': return <OsStorageApp />
-    case 'os-devices': return <OsDevicesApp />
-    case 'os-containers': return <OsContainersApp />
-    case 'os-logs': return <OsLogsApp />
-    case 'os-services': return <OsServicesApp />
     case 'os-info': return <OsInfoApp />
-    case 'os-updates': return <OsMaintenanceApp kind="updates" />
-    case 'os-backups': return <OsMaintenanceApp kind="backups" />
     case 'app-store': return <AppStoreTab token={ctx.token || ''} />
     case 'settings': return ctx.renderSettings()
     case 'admin': return ctx.isAdmin ? <AdminCenter /> : null
