@@ -444,14 +444,11 @@ export function OsSystemShell() {
             {online ? <WifiHigh size={15} weight="bold" /> : <WifiSlash size={15} weight="bold" />}
           </button>
 
-          {/* Desktop: shell-mode switcher + clock join the bottom system bar
-              (to the right of the system icons) — the same row as the dock. */}
-          {resolvedMode === 'desktop' && !immersivePageId && (
-            <>
-              <ShellModeSwitcher />
-              <DockClock />
-            </>
-          )}
+          {/* Shell-mode switcher: desktop mode → joins the bottom bar next to
+              the clock; launcher mode → sits top-right so you can switch to
+              the desktop. */}
+          {!immersivePageId && <ShellModeSwitcher />}
+          {resolvedMode === 'desktop' && !immersivePageId && <DockClock />}
         </div>
           </motion.div>
         )}

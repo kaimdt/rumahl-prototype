@@ -3829,7 +3829,12 @@ body {
 .rumahl-shell-mode-preview > div { display: grid; flex: 1; grid-template-columns: repeat(3, 1fr); gap: 0.3rem; }
 .rumahl-shell-mode-preview i { height: 1.2rem; border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent); border-radius: 0.32rem; background: color-mix(in oklch, var(--foreground) 5%, transparent); }
 
-:root[data-shell-mode="launcher"] .rumahl-shell-mode-control { bottom: calc(5.4rem + env(safe-area-inset-bottom, 0px)); }
+:root[data-shell-mode="launcher"] .rumahl-shell-mode-control { position: relative; right: auto; bottom: auto; z-index: 92; }
+:root[data-shell-mode="launcher"] .rumahl-shell-mode-trigger { display: grid; width: 1.75rem; height: 1.75rem; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: color-mix(in oklch, var(--foreground) 62%, transparent); box-shadow: none; backdrop-filter: none; }
+:root[data-shell-mode="launcher"] .rumahl-shell-mode-trigger:hover { color: var(--foreground); background: color-mix(in oklch, var(--foreground) 7%, transparent); }
+/* Launcher: the system bar is at the top, so the switcher popover opens
+   downward from the trigger (not upward like in the desktop bottom bar). */
+:root[data-shell-mode="launcher"] .rumahl-shell-mode-popover { top: 100%; bottom: auto; right: 0; margin-top: 0.4rem; }
 /* Desktop: the shell-mode switcher lives IN the bottom system bar (flex item
    between the system icons and the clock), not as a fixed floating button. */
 :root[data-shell-mode="desktop"] .rumahl-shell-mode-control { position: relative; right: auto; bottom: auto; z-index: 92; }
@@ -3871,7 +3876,9 @@ body {
 
 .rumahl-desktop-admin {
   display: flex;
+  height: 100%;
   min-height: 100%;
+  overflow: hidden;
   background: var(--background);
   color: color-mix(in oklch, var(--foreground) 90%, transparent);
   font-size: calc(13px * var(--ui-scale, 1));
@@ -3884,7 +3891,7 @@ body {
   flex-direction: column;
   gap: 4px;
   border-right: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
-  background: linear-gradient(155deg, rgb(28 28 36 / 0.94), rgb(17 18 24 / 0.98));
+  background: color-mix(in oklch, var(--card) 78%, var(--background));
   padding: 16px 11px 58px;
 }
 .rumahl-desktop-admin-side section { margin-top: 15px; }
@@ -3918,9 +3925,17 @@ body {
   padding: 0 10px;
   color: color-mix(in oklch, var(--foreground) 38%, transparent);
 }
-.rumahl-desktop-admin-search span { flex: 1; }
+.rumahl-desktop-admin-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--foreground); outline: 0; box-shadow: none !important; }
+.rumahl-desktop-admin-search input::placeholder { color: color-mix(in oklch, var(--foreground) 38%, transparent); }
 .rumahl-desktop-admin-search kbd { color: color-mix(in oklch, var(--foreground) 28%, transparent); font-size: calc(11px * var(--ui-scale, 1)); }
 .rumahl-desktop-admin-scroll { height: calc(100% - 44px); overflow: auto; padding: 22px 27px 18px; }
+.rumahl-desktop-admin-content { height: calc(100% - 44px); overflow: auto; background: var(--background); }
+.rumahl-desktop-admin-content > * { min-height: 100%; }
+.rumahl-desktop-admin-content .rumahl-app-navbar { display: grid !important; border-radius: 0 !important; cursor: default !important; }
+.rumahl-desktop-admin-content .rumahl-app-navbar .rumahl-window-actions,
+.rumahl-desktop-admin-content .rumahl-app-navbar span[aria-hidden="true"]:has(+ .rumahl-window-actions) { display: none !important; }
+.rumahl-desktop-admin-content .rumahl-app-frame { width: 100%; max-width: none; min-height: 100%; border: 0; border-radius: 0; background: var(--background) !important; box-shadow: none; }
+:root[data-shell-mode="desktop"] .rumahl-os-window:has(.rumahl-desktop-admin) > .rumahl-os-window-bar { display: flex !important; }
 .rumahl-desktop-health { display: flex; min-height: 76px; align-items: flex-start; gap: 10px; }
 .rumahl-desktop-health h1 { margin: -2px 0 2px; font-size: clamp(19px, 1.65vw, 24px); font-weight: 500; letter-spacing: -0.025em; }
 .rumahl-desktop-health p { margin: 0; color: color-mix(in oklch, var(--foreground) 38%, transparent); font-size: calc(12px * var(--ui-scale, 1)); line-height: 1.55; }
@@ -3938,6 +3953,14 @@ body {
   font-size: calc(12px * var(--ui-scale, 1));
 }
 .rumahl-desktop-panel { border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent); border-radius: 8px; background: color-mix(in oklch, var(--foreground) 1%, transparent); }
+.rumahl-desktop-health[data-state="healthy"] > svg { color: var(--rumahl-success); }
+.rumahl-desktop-health[data-state="attention"] > svg { color: var(--rumahl-warning); }
+.rumahl-desktop-health[data-state="checking"] > svg { color: color-mix(in oklch, var(--foreground) 46%, transparent); }
+.rumahl-admin-overview-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 7px 0 18px; }
+.rumahl-admin-overview-stats article { display: flex; min-height: 64px; flex-direction: column; justify-content: center; border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent); border-radius: 8px; background: color-mix(in oklch, var(--foreground) 2%, transparent); padding: 10px 13px; }
+.rumahl-admin-overview-stats strong { font-size: var(--desktop-type-title); font-weight: 560; }
+.rumahl-admin-overview-stats span { color: color-mix(in oklch, var(--foreground) 42%, transparent); font-size: var(--desktop-type-caption); }
+.rumahl-admin-overview-stats article[data-warning="true"] strong { color: var(--rumahl-warning); }
 .rumahl-performance-panel { height: 180px; overflow: hidden; }
 .rumahl-desktop-panel-head { display: flex; height: 42px; align-items: center; justify-content: space-between; padding: 0 12px; }
 .rumahl-desktop-panel-head strong { font-size: calc(12px * var(--ui-scale, 1)); font-weight: 550; }
@@ -3960,6 +3983,10 @@ body {
 .rumahl-service-name small { margin-top: 1px; color: color-mix(in oklch, var(--foreground) 32%, transparent); font-size: calc(11px * var(--ui-scale, 1)); }
 .rumahl-service-running { display: flex; align-items: center; gap: 5px; }
 .rumahl-service-running > i { width: 5px; height: 5px; border-radius: 50%; background: #55d592; box-shadow: 0 0 8px rgb(85 213 146 / 0.45); }
+.rumahl-service-stopped { display: flex; align-items: center; gap: 5px; }
+.rumahl-service-stopped > i { width: 5px; height: 5px; border-radius: 50%; background: var(--rumahl-warning); }
+.rumahl-admin-empty { padding: 24px 12px; color: color-mix(in oklch, var(--foreground) 42%, transparent); text-align: center; }
+.rumahl-desktop-admin .rumahl-service-row { grid-template-columns: minmax(210px, 1.75fr) minmax(90px, 0.7fr) minmax(80px, 0.55fr); }
 .rumahl-desktop-admin footer { display: flex; align-items: center; justify-content: space-between; padding-top: 9px; color: color-mix(in oklch, var(--foreground) 34%, transparent); font-size: calc(11px * var(--ui-scale, 1)); }
 .rumahl-desktop-admin footer button { color: var(--accent); }
 
@@ -4271,7 +4298,8 @@ body {
 }
 :root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-app-navbar > div:last-child { gap: 5px; }
 :root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-app-navbar > div:last-child > span[aria-hidden="true"] { height: 18px; opacity: 0.55; }
-:root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-window-actions button {
+:root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-window-actions > button,
+:root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-window-actions > div > button {
   width: 28px;
   min-width: 28px;
   height: 28px;
@@ -4791,7 +4819,8 @@ body {
 }
 :root[data-shell-mode="desktop"] .rumahl-os-window-bar { padding-inline: clamp(10px, 0.8vw, 15px); }
 :root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-app-navbar { padding-inline: clamp(9px, 0.75vw, 13px); }
-:root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-window-actions button,
+:root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-window-actions > button,
+:root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-window-actions > div > button,
 :root[data-shell-mode="desktop"] .rumahl-window-action {
   width: var(--desktop-shell-control);
   min-width: var(--desktop-shell-control);
