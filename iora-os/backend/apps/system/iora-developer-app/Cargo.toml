@@ -28,5 +28,5 @@ rand = "0.8"
 # API documentation
 # NOTE: actix_extras removed — workspace-wide feature unification with iora-home (axum_extras)
 # caused utoipa-gen E0119 (duplicate ArgumentResolver impls). We don't use IntoParams here.
-utoipa = { version = "4" }
+utoipa = { version = "5" }
 utoipa-swagger-ui = { version = "7", features = ["actix-web"] }
