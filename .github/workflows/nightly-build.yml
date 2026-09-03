@@ -159,7 +159,7 @@ jobs:
 
       # ── Upload artifacts (30-day retention) ───────────────────────
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: iora-os-nightly-${{ steps.tag-version.outputs.version }}
           path: ${{ steps.build.outputs.artifacts-dir }}
