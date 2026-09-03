@@ -743,7 +743,7 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-tungstenite 0.24.0",
- "tower 0.5.3",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -779,7 +779,7 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-tungstenite 0.29.0",
- "tower 0.5.3",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -3593,7 +3593,7 @@ dependencies = [
  "sysinfo 0.30.13",
  "tokio",
  "tokio-stream",
- "tower 0.5.3",
+ "tower",
  "tower-http 0.5.2",
  "tower_governor",
  "tracing",
@@ -3667,7 +3667,7 @@ dependencies = [
  "tar",
  "tokio",
  "tokio-stream",
- "tower 0.4.13",
+ "tower",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -3864,7 +3864,7 @@ dependencies = [
  "tokio-rustls 0.26.4",
  "tokio-stream",
  "tokio-tungstenite 0.21.0",
- "tower 0.4.13",
+ "tower",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -3989,7 +3989,7 @@ dependencies = [
  "tera",
  "thiserror 1.0.69",
  "tokio",
- "tower 0.4.13",
+ "tower",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -5803,7 +5803,7 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-rustls 0.26.4",
- "tower 0.5.3",
+ "tower",
  "tower-http 0.6.8",
  "tower-service",
  "url",
@@ -7400,22 +7400,7 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-stream",
- "tower 0.5.3",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tower"
-version = "0.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
-dependencies = [
- "futures-core",
- "futures-util",
- "pin-project",
- "pin-project-lite",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -7480,7 +7465,7 @@ dependencies = [
  "http-body 1.0.1",
  "iri-string",
  "pin-project-lite",
- "tower 0.5.3",
+ "tower",
  "tower-layer",
  "tower-service",
 ]
@@ -7510,7 +7495,7 @@ dependencies = [
  "pin-project",
  "thiserror 2.0.18",
  "tonic",
- "tower 0.5.3",
+ "tower",
  "tracing",
 ]
 
