@@ -19,7 +19,7 @@ dotenv = "0.15"
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.4"
 sysinfo = "0.30"
 tower = { version = "0.5.3", default-features = false }
 governor = "0.10.4"
