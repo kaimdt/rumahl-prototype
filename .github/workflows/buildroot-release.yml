@@ -185,7 +185,7 @@ jobs:
       # ── Create GitHub Release (only on tag push) ───────────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: "IORA OS ${{ github.ref_name }}"
