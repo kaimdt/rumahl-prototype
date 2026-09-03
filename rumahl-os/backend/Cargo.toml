@@ -35,6 +35,7 @@ members = [
     "services/rumahl-api",
     "services/rumahl-supervisor",
     "services/rumahl-appstore",
+    "services/rumahl-account",
     "services/rumahl-nginx",
     "services/rumahl-network-monitor",
     "services/rumahl-domain-validator",

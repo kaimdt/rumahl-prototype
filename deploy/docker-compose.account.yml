@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: rumahl_account
+    volumes:
+      - account_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d rumahl_account"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rumahl-account:
+    build:
+      context: ../rumahl-os/backend
+      dockerfile: services/rumahl-account/Dockerfile
+    environment:
+      ACCOUNT_DATABASE_URL: postgres://${POSTGRES_USER:-ora}:${POSTGRES_PASSWORD}@postgres:5432/rumahl_account
+      ACCOUNT_BIND: 0.0.0.0:8110
+      ACCOUNT_COOKIE_DOMAIN: ${ACCOUNT_COOKIE_DOMAIN:-.rumahl.com}
+      ACCOUNT_SECURE_COOKIES: ${ACCOUNT_SECURE_COOKIES:-true}
+      ACCOUNT_SESSION_DAYS: ${ACCOUNT_SESSION_DAYS:-30}
+      RUST_LOG: ${ACCOUNT_RUST_LOG:-rumahl_account=info}
+    ports:
+      - "127.0.0.1:${ACCOUNT_PORT:-8110}:8110"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  account_postgres:

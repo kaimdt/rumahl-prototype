@@ -23,6 +23,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
     CREATE DATABASE rumahl_security OWNER ora;
     CREATE DATABASE rumahl_secrets OWNER ora;
     CREATE DATABASE rumahl_appstore OWNER ora;
+    CREATE DATABASE rumahl_account OWNER ora;
 
     -- Grant all privileges
     GRANT ALL PRIVILEGES ON DATABASE rumahl_home TO $POSTGRES_USER;
@@ -30,6 +31,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
     GRANT ALL PRIVILEGES ON DATABASE rumahl_security TO $POSTGRES_USER;
     GRANT ALL PRIVILEGES ON DATABASE rumahl_secrets TO $POSTGRES_USER;
     GRANT ALL PRIVILEGES ON DATABASE rumahl_appstore TO $POSTGRES_USER;
+    GRANT ALL PRIVILEGES ON DATABASE rumahl_account TO $POSTGRES_USER;
 EOSQL
 
 echo "rumahl databases initialized successfully"
