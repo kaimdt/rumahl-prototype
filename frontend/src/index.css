@@ -4276,7 +4276,7 @@ body {
 
 /* Settings 2.0 — full visual replacement while retaining every settings flow. */
 :root[data-shell-mode="desktop"] .rumahl-settings-tabs { display: block; height: 100%; min-height: 0; }
-:root[data-shell-mode="desktop"] .rumahl-settings-app { height: 100%; overflow: hidden; background: var(--background) !important; }
+:root[data-shell-mode="desktop"] .rumahl-settings-app { height: 100%; overflow: hidden; background: var(--window-content-fill, var(--surface-palette-background)) !important; }
 :root[data-shell-mode="desktop"] .rumahl-settings-app > .rumahl-os-app-body { min-height: 0; }
 :root[data-shell-mode="desktop"] .rumahl-settings-app > .rumahl-os-app-body > .rumahl-os-app-sidebar {
   width: 198px;
@@ -6008,20 +6008,21 @@ select.rumahl-input option {
 }
 
 :root {
-  --surface-palette-card: var(--card);
-  --surface-palette-background: var(--background);
-  --surface-palette-popover: var(--popover);
+  --surface-neutral: oklch(from var(--card) l 0 h);
+  --surface-palette-card: var(--surface-neutral);
+  --surface-palette-background: var(--surface-neutral);
+  --surface-palette-popover: var(--surface-neutral);
   --surface-tint-color: var(--user-glass-tint, #8b5cf6);
 }
 
 :root[data-accent-surfaces="true"] {
-  --surface-palette-card: color-mix(in oklch, var(--accent) 10%, var(--card));
-  --surface-palette-background: color-mix(in oklch, var(--accent) 8%, var(--background));
-  --surface-palette-popover: color-mix(in oklch, var(--accent) 10%, var(--popover));
+  --surface-palette-card: color-mix(in oklch, var(--accent) 16%, var(--surface-neutral));
+  --surface-palette-background: color-mix(in oklch, var(--accent) 16%, var(--surface-neutral));
+  --surface-palette-popover: color-mix(in oklch, var(--accent) 16%, var(--surface-neutral));
   --surface-tint-color: var(--accent);
 }
 
-:root[data-accent-surfaces="true"] :is(.rumahl-os-window, .rumahl-app-frame, .rumahl-os-app-frame, .rumahl-menu, .rumahl-popover, .rumahl-dialog, .rumahl-start-menu, .rumahl-quick-settings, .rumahl-notification-center, .rumahl-system-bar) {
+:root[data-accent-surfaces] :is(.rumahl-os-window, .rumahl-app-frame, .rumahl-os-app-frame, .rumahl-menu, .rumahl-popover, .rumahl-dialog, .rumahl-start-menu, .rumahl-quick-settings, .rumahl-notification-center, .rumahl-system-bar) {
   --card: var(--surface-palette-card);
   --background: var(--surface-palette-background);
   --popover: var(--surface-palette-popover);

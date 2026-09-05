@@ -367,3 +367,22 @@ test('Accent surface opt-in persists and reset restores neutral surfaces', () =>
     assert.ok(locale.settings.colorPersonalization.tintTitle)
   }
 })
+
+test('Surface palette uses one neutral base when off and equal tint for every background when on', () => {
+  const rootValues = {}
+  css.walkRules(':root', (rule) => rule.walkDecls((decl) => { rootValues[decl.prop] = decl.value }))
+  assert.equal(rootValues['--surface-neutral'], 'oklch(from var(--card) l 0 h)')
+  const tinted = {}
+  css.walkRules(':root[data-accent-surfaces="true"]', (rule) => rule.walkDecls((decl) => { tinted[decl.prop] = decl.value }))
+  for (const role of ['card', 'background', 'popover']) {
+    assert.equal(rootValues[`--surface-palette-${role}`], 'var(--surface-neutral)')
+    assert.equal(tinted[`--surface-palette-${role}`], tinted['--surface-palette-card'])
+  }
+  let bothStatesUsePalette = false
+  css.walkRules((rule) => {
+    if (!rule.selector.startsWith(':root[data-accent-surfaces] :is(')) return
+    bothStatesUsePalette = true
+    rule.walkDecls('--background', (decl) => assert.equal(decl.value, 'var(--surface-palette-background)'))
+  })
+  assert.ok(bothStatesUsePalette, 'Legacy app background variables must use the palette for both switch states')
+})

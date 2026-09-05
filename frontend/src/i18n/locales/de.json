@@ -680,7 +680,7 @@
       "auto": "Aus Hintergrund",
       "preview": "Akzentfarbe {{color}} wählen",
       "tintTitle": "Oberflächen aus Akzentfarbe ableiten",
-      "tintDescription": "Tönt Fenster, Seitenleisten, Menüs und Dialoge einheitlich. Ausgeschaltet verwenden die Oberflächen ihre Theme-Farben; Markierungen behalten die Akzentfarbe."
+      "tintDescription": "Tönt Fenster, Seitenleisten, Menüs und Dialoge einheitlich. Ausgeschaltet sind die Grundflächen neutral und folgen der Helligkeit des Themes; Markierungen behalten die Akzentfarbe."
     },
     "surfaceStyle": {
       "title": "Glas als Systemstil",

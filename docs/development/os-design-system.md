@@ -110,7 +110,7 @@ node node_modules/typescript/bin/tsc --noEmit --pretty false
 The production build uses `--noCheck`, so report the separate TypeScript result.
 At migration time the full typecheck has 13 existing diagnostics, also present in
 the source branch. ESLint reports the same 11 existing warnings and no errors.
-The twenty Node regression tests pass, including disabling/re-enabling glass effects.
+The twenty-one Node regression tests pass, including disabling/re-enabling glass effects.
 The new Node regression suite does not require Bun. The
 repository's existing Bun tests still require an installed Bun runtime.
 
@@ -191,3 +191,12 @@ When enabled, the shared card, background and popover palette derives subtle tin
 from the active accent; windows, sidebars, menus, dialogs and glass use this same
 palette. When disabled, theme colors remain and sidebars no longer add their own
 accent tint. Selection/status colors and wallpaper content retain their roles.
+
+### Neutral background correction
+
+The off state now derives all base surface colors from an achromatic version of
+the theme card lightness. This prevents time-palette background colors leaking
+into only the sidebars. The on state uses the same 16% accent mix for card, page
+and popover backgrounds. Legacy local background variables use the shared palette
+in both states. Independent glass tint and semantic selection/status colors retain
+their existing controls. The Settings app also respects the glass content fill.

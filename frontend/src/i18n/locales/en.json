@@ -680,7 +680,7 @@
       "auto": "From wallpaper",
       "preview": "Choose accent color {{color}}",
       "tintTitle": "Derive surfaces from accent color",
-      "tintDescription": "Tint windows, sidebars, menus and dialogs consistently. When off, surfaces use their theme colors; selection highlights keep the accent color."
+      "tintDescription": "Tint windows, sidebars, menus and dialogs consistently. When off, base surfaces are neutral and follow the theme brightness; selection highlights keep the accent color."
     },
     "surfaceStyle": {
       "title": "Glass system style",
