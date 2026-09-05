@@ -4652,6 +4652,8 @@ body {
   border-top-color: color-mix(in oklch, var(--foreground) 10%, transparent);
   padding-right: clamp(8px, 0.8vw, 15px);
   backdrop-filter: blur(var(--blur-surface));
+  background: var(--surface-toolbar);
+  color: var(--text-primary);
 }
 :root[data-shell-mode="desktop"] .rumahl-topbar-actions {
   min-height: var(--desktop-shell-control);
@@ -4661,6 +4663,7 @@ body {
   background: transparent;
   padding: 0;
   box-shadow: none;
+  backdrop-filter: none;
 }
 :root[data-shell-mode="desktop"] .rumahl-topbar-action {
   width: var(--desktop-shell-control) !important;
@@ -4876,12 +4879,19 @@ body {
   bottom: calc(var(--desktop-taskbar-height) + clamp(8px, 0.7vw, 12px));
 }
 :root[data-shell-mode="desktop"] .rumahl-start-menu {
-  width: min(720px, calc(100vw - 24px));
   max-height: min(680px, calc(100dvh - var(--desktop-taskbar-height) - 24px));
+  width: min(600px, calc(100vw - 24px));
+  left: 12px;
+  right: auto;
+  margin: 0;
+  border-radius: var(--r-lg);
+  background: var(--surface-window);
 }
 :root[data-shell-mode="desktop"] .rumahl-start-menu-header {
-  gap: 10px;
-  padding: 12px 14px;
+  flex-wrap: wrap;
+  background: var(--surface-toolbar);
+  padding: 14px 16px;
+  gap: 12px;
 }
 :root[data-shell-mode="desktop"] .rumahl-start-menu-header > span:first-child {
   font-size: var(--desktop-type-secondary);
@@ -4890,7 +4900,7 @@ body {
 :root[data-shell-mode="desktop"] .rumahl-start-search input { font-size: var(--desktop-type-body); }
 :root[data-shell-mode="desktop"] .rumahl-start-menu-content { padding: 13px 14px 15px; }
 :root[data-shell-mode="desktop"] .rumahl-start-menu-content {
-  background: linear-gradient(180deg, color-mix(in oklch, var(--foreground) 1.8%, transparent), transparent 34%);
+  background: var(--surface-base);
 }
 :root[data-shell-mode="desktop"] .rumahl-start-menu-content h2,
 :root[data-shell-mode="desktop"] .rumahl-start-menu-content button { font-family: inherit; }
@@ -4908,20 +4918,22 @@ body {
 :root[data-shell-mode="desktop"] .rumahl-start-recent-item .text-sm { font-size: var(--desktop-type-body); }
 :root[data-shell-mode="desktop"] .rumahl-start-recent-item .text-xs { font-size: var(--desktop-type-caption); }
 :root[data-shell-mode="desktop"] .rumahl-start-app-tile {
-  min-height: 92px;
-  gap: 7px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
-  padding: 10px 5px 8px;
+  flex-direction: row;
+  min-height: 52px;
+  gap: 10px;
+  padding: 8px;
+  text-align: left;
 }
-:root[data-shell-mode="desktop"] .rumahl-start-app-tile:hover { border-color: color-mix(in oklch, var(--foreground) 7%, transparent); background: color-mix(in oklch, var(--accent) 8%, color-mix(in oklch, var(--foreground) 4%, transparent)); box-shadow: var(--shadow-floating); transform: translateY(-1px); }
-:root[data-shell-mode="desktop"] .rumahl-start-app-tile .rumahl-app-icon { width: 42px; height: 42px; border-radius: var(--r-sm); }
+:root[data-shell-mode="desktop"] .rumahl-start-app-tile:hover { background: var(--state-hover); border-color: transparent; box-shadow: none; transform: none; }
+:root[data-shell-mode="desktop"] .rumahl-start-app-tile .rumahl-app-icon { border-radius: var(--r-sm); width: 32px; height: 32px; flex-shrink: 0; }
 :root[data-shell-mode="desktop"] .rumahl-start-app-tile > span:last-child { font-size: var(--desktop-type-caption); }
 :root[data-shell-mode="desktop"] .rumahl-start-icon-frame {
   border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent) !important;
   border-radius: var(--r-md) !important;
-  background: linear-gradient(145deg, color-mix(in oklch, var(--app-accent, var(--accent)) 42%, var(--card)), color-mix(in oklch, var(--app-accent, var(--accent)) 24%, var(--background))) !important;
-  box-shadow: 0 7px 16px rgb(0 0 0 / 0.2), inset 0 1px color-mix(in oklch, white 16%, transparent) !important;
+  box-shadow: none !important;
+  background: var(--app-accent, var(--accent)) !important;
 }
 :root[data-shell-mode="desktop"] .rumahl-start-icon-frame.has-image {
   border-color: transparent !important;
@@ -5003,11 +5015,16 @@ body {
 
 @media (max-width: 720px) {
   :root[data-shell-mode="desktop"] .rumahl-start-menu {
-    width: calc(100vw - 16px);
     bottom: calc(var(--desktop-taskbar-height) + 8px);
+    width: min(600px, calc(100vw - 24px));
+    left: 12px;
+    right: auto;
+    margin: 0;
+    border-radius: var(--r-lg);
+    background: var(--surface-window);
   }
   :root[data-shell-mode="desktop"] .rumahl-start-menu-header > span:first-child { display: none; }
-  :root[data-shell-mode="desktop"] .rumahl-start-menu-content .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  :root[data-shell-mode="desktop"] .rumahl-start-menu-content .grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ─── Native desktop selection and context menu ─────────────────────── */
@@ -5778,11 +5795,11 @@ body {
   padding-inline: clamp(8px, 2vw, 28px);
 }
 .rumahl-launcher-library {
-  padding: clamp(16px, 2vw, 28px);
-  border: 1px solid var(--shell-border);
-  border-radius: var(--r-xl);
-  background: var(--surface-base);
   box-shadow: none;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
 }
 .rumahl-launcher-library-toolbar {
   padding-bottom: 16px;
@@ -5793,19 +5810,19 @@ body {
   border-radius: var(--r-sm);
 }
 .rumahl-launcher-library .rumahl-adaptive-text {
-  color: var(--foreground) !important;
-  text-shadow: none;
+  color: var(--adaptive-text-color, var(--foreground)) !important;
+  text-shadow: var(--adaptive-text-shadow, none);
 }
 .rumahl-launcher-app-grid {
-  gap: clamp(8px, 1.4vw, 20px);
+  gap: clamp(12px, 2.5vw, 32px);
 }
 .rumahl-launcher-app-grid > button {
-  padding: 14px 8px;
+  padding: 10px 4px;
 }
 .rumahl-launcher-app-grid > button > :is(.rumahl-app-icon, .rumahl-folder-tile) {
-  width: clamp(52px, 6vw, 72px);
-  height: clamp(52px, 6vw, 72px);
-  border-radius: var(--r-lg);
+  border-radius: 24%;
+  width: clamp(56px, 6vw, 76px);
+  height: clamp(56px, 6vw, 76px);
 }
 .rumahl-launcher-app-grid > button > .rumahl-app-icon > svg {
   width: 48%;
@@ -5818,8 +5835,13 @@ body {
   border-radius: var(--r-xs);
 }
 @media (max-width: 480px) {
-  .rumahl-launcher-library { padding: 12px; }
-  .rumahl-launcher-app-grid > button { padding: 12px 4px; }
+  .rumahl-launcher-library {
+    padding: 8px 0;
+    border: 0;
+    background: transparent;
+    border-radius: 0; }
+  .rumahl-launcher-app-grid > button {
+    padding: 10px 4px; }
   .rumahl-launcher-library-toolbar { padding-bottom: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -5827,3 +5849,66 @@ body {
 @media (prefers-reduced-motion: reduce) {
   :is(.rumahl-menu, .rumahl-popover, .rumahl-dialog, .rumahl-os-window, .rumahl-button, .rumahl-input, .rumahl-switch-thumb) { animation-duration: 0.01ms; transition-duration: 0.01ms; }
 }
+:root[data-shell-mode="desktop"] .rumahl-start-search{
+  order: 3;
+  flex-basis: 100%;
+  background: var(--surface-input);
+  border-radius: var(--r-sm);
+  backdrop-filter: none;
+}
+:root[data-shell-mode="desktop"] .rumahl-start-menu-header > button{
+  margin-left: auto;
+}
+:root[data-shell-mode="desktop"] .rumahl-start-app-grid{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.rumahl-launcher-workspace .rumahl-home-hero{
+  text-align: center;
+  padding: clamp(16px, 4vh, 44px) 0 24px;
+  color: var(--adaptive-text-color, var(--foreground));
+  text-shadow: var(--adaptive-text-shadow, none);
+}
+.rumahl-launcher-workspace .rumahl-home-hero h1{
+  font-size: clamp(36px, 6vw, 64px);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+}
+.rumahl-launcher-workspace .rumahl-command-search{
+  max-width: 420px;
+  border-radius: 999px;
+  background: var(--surface-glass);
+  border: 1px solid var(--border-default);
+}
+.rumahl-launcher-workspace .rumahl-card{
+  border-radius: 24px;
+  background: var(--surface-glass);
+  border: 1px solid var(--border-default);
+}
+main[data-immersive="true"]{
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-windows);
+  width: 100%;
+  height: 100dvh;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: auto;
+  background: var(--surface-base);
+}
+main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
+  height: 100dvh;
+  min-height: 100dvh;
+  border-radius: 0;
+}
+:root[data-immersive="true"] .rumahl-system-bar{
+  top: 0 !important;
+  bottom: auto;
+  background: var(--surface-toolbar);
+}
+:root[data-immersive="true"] .rumahl-system-bar > div:first-child{
+  display: flex;
+}
+@media (max-width: 600px) { :root[data-shell-mode="desktop"] .rumahl-start-app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 639px) { .rumahl-launcher-app-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 6px; } }

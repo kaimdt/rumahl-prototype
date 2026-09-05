@@ -36,7 +36,7 @@ function snapBounds(layout: OsSnapLayout) {
   const top = SNAP_INSET
   const bottom = h - SNAP_INSET
   switch (layout) {
-    case 'maximized': return { x: left, y: top, width: w - 2 * SNAP_INSET, height: h - 2 * SNAP_INSET }
+    case 'maximized': return { x: 0, y: 0, width: w, height: h - (document.documentElement.dataset.shellMode === 'desktop' ? document.querySelector('.rumahl-system-bar')?.getBoundingClientRect().height || 44 : 0) }
     case 'left': return { x: left, y: top, width: half(w) - SNAP_INSET, height: h - 2 * SNAP_INSET }
     case 'right': return { x: w / 2 + SNAP_GAP / 2, y: top, width: half(w) - SNAP_INSET, height: h - 2 * SNAP_INSET }
     case 'top': return { x: left, y: top, width: w - 2 * SNAP_INSET, height: half(h) - SNAP_INSET }
@@ -138,11 +138,18 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
 
   const isFloating = window.layout !== 'split-left' && window.layout !== 'split-right'
 
+  const [viewport, setViewport] = useState(() => ({ width: globalThis.innerWidth, height: globalThis.innerHeight }))
+  useEffect(() => {
+    const onResize = () => setViewport({ width: globalThis.innerWidth, height: globalThis.innerHeight })
+    globalThis.addEventListener('resize', onResize)
+    return () => globalThis.removeEventListener('resize', onResize)
+  }, [])
+
   const bounds = useMemo(() => {
     const snapped = snapBounds(window.layout as OsSnapLayout)
     if (snapped) return snapped
     return { x: window.x, y: window.y, width: window.width, height: window.height }
-  }, [window])
+  }, [window, viewport])
 
   const previewBounds = useMemo(() => (snapPreview ? snapBounds(snapPreview) : null), [snapPreview])
 

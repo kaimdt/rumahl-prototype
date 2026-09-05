@@ -19,7 +19,7 @@ import { useDeviceCapabilities } from '@/hooks/useDeviceCapabilities'
 export function OsWindowActions({ pageId, showMinimize = true }: { pageId: string; showMinimize?: boolean }) {
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
-  const { windows, activeWorkspaceId, openWindow, closeWindow, minimizeWindow, openSplit, setImmersive, snapWindow } = useOsWindows()
+  const { windows, immersivePageId, toggleMaximize, activeWorkspaceId, openWindow, closeWindow, minimizeWindow, openSplit, setImmersive, snapWindow } = useOsWindows()
   const { hasHover } = useDeviceCapabilities()
   const [menuOpen, setMenuOpen] = useState(false)
   const hoverTimer = useRef<number | undefined>(undefined)
@@ -59,18 +59,18 @@ export function OsWindowActions({ pageId, showMinimize = true }: { pageId: strin
   const actionButton = 'rumahl-window-action focus-ring'
 
   const windowState = windows.find((entry) => entry.workspaceId === activeWorkspaceId && entry.pageId === pageId)
-  const goFullscreen = () => { setImmersive(pageId); setCurrentPageId(pageId); setMenuOpen(false) }
+  const goFullscreen = () => { setImmersive(immersivePageId === pageId ? null : pageId); setCurrentPageId(pageId); setMenuOpen(false) }
   const toggleWindowMaximize = () => {
     if (windowState) {
-      window.dispatchEvent(new CustomEvent('rumahl:window-toggle-maximize', { detail: { pageId } }))
+      toggleMaximize(pageId)
       setMenuOpen(false)
       return
     }
     goFullscreen()
   }
-  const goWindow = () => { openWindow(pageId); setCurrentPageId('launcher'); setMenuOpen(false) }
-  const goSplit = (side: 'split-left' | 'split-right') => { openSplit(pageId, side); setCurrentPageId('launcher'); setMenuOpen(false) }
-  const applySnap = (layout: OsSnapLayout) => { snapWindow(pageId, layout); setCurrentPageId(pageId); setMenuOpen(false) }
+  const goWindow = () => { setImmersive(null); openWindow(pageId); setCurrentPageId('launcher'); setMenuOpen(false) }
+  const goSplit = (side: 'split-left' | 'split-right') => { setImmersive(null); openSplit(pageId, side); setCurrentPageId('launcher'); setMenuOpen(false) }
+  const applySnap = (layout: OsSnapLayout) => { setImmersive(null); snapWindow(pageId, layout); setCurrentPageId(pageId); setMenuOpen(false) }
 
   const snapLayouts: Array<{ label: string; cells: OsSnapLayout[] }> = [
     { label: t('os.window.snapHalves'), cells: ['left', 'right'] },
@@ -105,9 +105,9 @@ export function OsWindowActions({ pageId, showMinimize = true }: { pageId: strin
           ref={menuTriggerRef}
           type="button"
           onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => { if (windowState) toggleWindowMaximize(); else if (hasHover) goFullscreen(); else setMenuOpen((v) => !v) }}
+          onClick={() => { if (immersivePageId === pageId) goFullscreen(); else if (windowState) toggleWindowMaximize(); else if (hasHover) goFullscreen(); else setMenuOpen((v) => !v) }}
           className={actionButton}
-          aria-label={windowState ? t('os.window.maximize') : t('os.window.launchModes')}
+          aria-label={immersivePageId === pageId ? t('os.window.exitFullscreen') : windowState?.layout === 'maximized' ? t('os.window.restore') : windowState ? t('os.window.maximize') : t('os.window.launchModes')}
           aria-expanded={menuOpen}
           aria-haspopup="menu"
           onKeyDown={(event) => {
@@ -116,7 +116,7 @@ export function OsWindowActions({ pageId, showMinimize = true }: { pageId: strin
             setMenuOpen(true)
             window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus())
           }}
-          title={windowState?.layout === 'maximized' ? t('os.window.restore') : windowState ? t('os.window.maximize') : t('os.window.launchModes')}
+          title={immersivePageId === pageId ? t('os.window.exitFullscreen') : windowState?.layout === 'maximized' ? t('os.window.restore') : windowState ? t('os.window.maximize') : t('os.window.launchModes')}
         >
           <SquaresFour size={14} />
         </button>
@@ -159,7 +159,7 @@ export function OsWindowActions({ pageId, showMinimize = true }: { pageId: strin
               </div>
             )}
             <button type="button" role="menuitem" onClick={goFullscreen} className={menuItem}>
-              <CornersOut size={14} className="text-foreground/50" /> {t('os.window.fullscreen')}
+              <CornersOut size={14} className="text-foreground/50" /> {t(immersivePageId === pageId ? 'os.window.exitFullscreen' : 'os.window.fullscreen')}
             </button>
             <button type="button" role="menuitem" onClick={goWindow} className={menuItem}>
               <SquaresFour size={14} className="text-foreground/50" /> {t('os.window.asWindow')}

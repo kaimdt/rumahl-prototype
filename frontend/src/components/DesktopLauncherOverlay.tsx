@@ -164,7 +164,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 8 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="rumahl-start-menu fixed inset-x-0 top-[12dvh] z-[var(--layer-flyout)] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden rounded-3xl border border-foreground/12 bg-background/92 text-foreground shadow-2xl backdrop-blur-2xl"
+            className="rumahl-start-menu fixed inset-x-0 top-[12dvh] z-[var(--layer-flyout)] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden text-foreground"
             onClick={(event) => { event.stopPropagation(); setContextMenu(null) }}
             onContextMenu={(event) => {
               if (!(event.target as HTMLElement).closest('[data-launcher-app]')) setContextMenu(null)
@@ -213,7 +213,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
                     <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground/40">{t('os.launcher.recent')}</h2>
                     <button type="button" onClick={() => setQuery('')} className="text-xs font-medium text-accent hover:text-accent/80">{t('os.launcher.clearRecent')}</button>
                   </div>
-                  <div className="mb-6 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="mb-5 grid gap-1 sm:grid-cols-2">
                     {recentApps.map((app) => (
                       <LauncherAppRow key={app.id} app={app} name={app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName} onOpen={() => onOpenApp(app)} onContextMenu={openAppContextMenu} />
                     ))}

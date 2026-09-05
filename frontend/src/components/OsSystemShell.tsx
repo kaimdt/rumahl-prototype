@@ -397,7 +397,7 @@ export function OsSystemShell() {
         <div className="rumahl-topbar-mix pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium">
           {immersivePageId ? (
             <>
-              <button type="button" onClick={() => { setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
+              <button type="button" onClick={() => { setImmersive(null); focusWindow(immersivePageId); setCurrentPageId(immersivePageId) }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
               <button type="button" onClick={() => { closeWindow(immersivePageId); setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center hover:!bg-red-500/15 hover:!text-red-400" title={t('os.window.close')}><X size={15} weight="bold" /></button>
             </>
           ) : (

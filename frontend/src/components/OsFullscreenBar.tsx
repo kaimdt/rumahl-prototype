@@ -28,7 +28,7 @@ export function OsFullscreenBar({
 }) {
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
-  const { closeWindow, minimizeWindow, openWindow, setImmersive, immersivePageId } = useOsWindows()
+  const { closeWindow, minimizeWindow, openWindow, focusWindow, windows, setImmersive, immersivePageId } = useOsWindows()
   // Status-bar mode on regular pages; window actions only in true fullscreen.
   const showActions = Boolean(immersivePageId)
   const [visible, setVisible] = useState(true)
@@ -85,12 +85,14 @@ export function OsFullscreenBar({
   const exitFullscreen = useCallback(() => {
     if (immersivePageId) {
       setImmersive(null)
-      setCurrentPageId('launcher')
+      if (windows.some((entry) => entry.pageId === pageId)) focusWindow(pageId)
+      else openWindow(pageId)
+      setCurrentPageId(pageId)
       return
     }
     openWindow(pageId)
     setCurrentPageId('launcher')
-  }, [immersivePageId, openWindow, pageId, setCurrentPageId, setImmersive])
+  }, [immersivePageId, openWindow, focusWindow, windows, pageId, setCurrentPageId, setImmersive])
 
   const actionButton =
     'flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors hover:bg-foreground/12 hover:text-foreground focus-ring'
@@ -115,7 +117,7 @@ export function OsFullscreenBar({
                 <button type="button" onClick={minimize} aria-label={t('os.window.minimize')} title={t('os.window.minimize')} className={actionButton}>
                   <Minus size={14} weight="bold" />
                 </button>
-                <button type="button" onClick={exitFullscreen} aria-label={t('os.window.fullscreen')} title={t('os.window.fullscreen')} className={actionButton}>
+                <button type="button" onClick={exitFullscreen} aria-label={t('os.window.exitFullscreen')} title={t('os.window.exitFullscreen')} className={actionButton}>
                   <ArrowSquareOut size={13} weight="bold" />
                 </button>
                 <button type="button" onClick={close} aria-label={t('os.window.close')} title={t('os.window.close')} className={`${actionButton} hover:!bg-red-500/15 hover:!text-red-400`}>

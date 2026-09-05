@@ -164,3 +164,56 @@ test('Glass settings disable and restore shell effects without freezing theme co
   apply(settings)
   assert.equal(properties.has('--rumahl-glass-bg'), false)
 })
+
+function windowLogic(name, sandbox) {
+  const filename = resolve(frontend, 'contexts/OsWindowContext.tsx')
+  const source = readFileSync(filename, 'utf8')
+  const ast = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  let snippet
+  function visit(node) {
+    if ((ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) && node.name?.getText(ast) === name) {
+      snippet = ts.isFunctionDeclaration(node) ? node.getText(ast) : `const ${node.getText(ast)}`
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  assert.ok(snippet, name)
+  const { outputText } = ts.transpileModule(`${snippet}; globalThis.result = ${name}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } })
+  new Script(outputText).runInNewContext(sandbox)
+  return sandbox.result
+}
+
+test('Maximized windows fill the desktop work area edge to edge', () => {
+  const sandbox = {
+    innerWidth: 1440, innerHeight: 900, SNAP_INSET: 8, SNAP_GAP: 6,
+    document: { documentElement: { dataset: { shellMode: 'desktop' } }, querySelector: () => ({ getBoundingClientRect: () => ({ height: 48 }) }) },
+  }
+  const bounds = windowLogic('screenBounds', sandbox)('maximized')
+  assert.deepEqual(JSON.parse(JSON.stringify(bounds)), { x: 0, y: 0, width: 1440, height: 852 })
+})
+
+test('Restoring a maximized window survives React replaying the state updater', () => {
+  const original = { pageId: 'files', layout: 'window', x: 85, y: 70, width: 800, height: 560, z: 1, minimized: false }
+  let state = [original]
+  const sandbox = {
+    restoreRectsRef: { current: new Map() }, useCallback: (fn) => fn,
+    nextZ: () => 2, screenBounds: () => ({ x: 0, y: 0, width: 1440, height: 852 }),
+    setWindows: (update) => { update(state); state = update(state) },
+  }
+  const toggle = windowLogic('toggleMaximize', sandbox)
+  toggle('files')
+  assert.equal(state[0].layout, 'maximized')
+  toggle('files')
+  for (const key of ['layout', 'x', 'y', 'width', 'height']) assert.equal(state[0][key], original[key], key)
+})
+
+test('Immersive app content escapes page width and padding constraints', () => {
+  let fullscreen
+  css.walkRules('main[data-immersive="true"]', (rule) => { fullscreen = rule })
+  assert.ok(fullscreen)
+  const declarations = Object.fromEntries(fullscreen.nodes.filter((node) => node.type === 'decl').map((node) => [node.prop, node.value]))
+  assert.equal(declarations.position, 'fixed')
+  assert.equal(declarations.inset, '0')
+  assert.equal(declarations['max-width'], 'none')
+  assert.equal(declarations.padding, '0')
+})

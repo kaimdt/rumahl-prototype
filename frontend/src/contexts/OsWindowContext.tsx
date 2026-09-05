@@ -141,7 +141,7 @@ function screenBounds(layout: OsSnapLayout) {
   const top = SNAP_INSET
   const bottom = h - SNAP_INSET
   switch (layout) {
-    case 'maximized': return { x: left, y: top, width: w - 2 * SNAP_INSET, height: h - 2 * SNAP_INSET }
+    case 'maximized': return { x: 0, y: 0, width: w, height: h - (document.documentElement.dataset.shellMode === 'desktop' ? document.querySelector('.rumahl-system-bar')?.getBoundingClientRect().height || 44 : 0) }
     case 'left': return { x: left, y: top, width: half(w) - SNAP_INSET, height: h - 2 * SNAP_INSET }
     case 'right': return { x: w / 2 + SNAP_GAP / 2, y: top, width: half(w) - SNAP_INSET, height: h - 2 * SNAP_INSET }
     case 'top': return { x: left, y: top, width: w - 2 * SNAP_INSET, height: half(h) - SNAP_INSET }
@@ -234,6 +234,7 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
   }, [activeWorkspaceId, makeDefaultWindow])
 
   const closeWindow = useCallback((pageId: string | null) => {
+    setImmersivePageId((current) => current === pageId ? null : current)
     restoreRectsRef.current.delete(pageId ?? '')
     setWindows((current) => {
       const target = current.find((w) => w.pageId === pageId)
@@ -255,6 +256,7 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const minimizeWindow = useCallback((pageId: string | null) => {
+    setImmersivePageId((current) => current === pageId ? null : current)
     setWindows((current) => current.map((w) =>
       w.pageId === pageId ? { ...w, minimized: true } : w))
   }, [])
@@ -276,7 +278,6 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
         const restored = saved && w.layout !== 'window'
           ? { ...w, layout, ...saved, z: nextZ(), minimized: false }
           : { ...w, layout, z: nextZ(), minimized: false }
-        restoreRectsRef.current.delete(pageId ?? '')
         return restored
       }
       // Snap/maximize: remember the starting free-form rect so it can be
@@ -299,7 +300,7 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
         const restored = saved
           ? { ...w, layout: 'window', ...saved, z: nextZ(), minimized: false }
           : { ...w, layout: 'window', z: nextZ(), minimized: false }
-        restoreRectsRef.current.delete(pageId ?? '')
+        // React may replay this updater; retain the rectangle until the next snap or close.
         return restored
       }
       // Maximize every non-maximized state, including restored legacy session
@@ -361,6 +362,18 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
   const setImmersive = useCallback((pageId: string | null) => {
     setImmersivePageId(pageId)
   }, [])
+
+  useEffect(() => {
+    document.documentElement.dataset.immersive = immersivePageId ? 'true' : 'false'
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) setImmersivePageId(null)
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => {
+      window.removeEventListener('keydown', onEscape)
+      delete document.documentElement.dataset.immersive
+    }
+  }, [immersivePageId])
 
   // ── Session restore: load persisted windows once on boot ────────────────
   useEffect(() => {

@@ -110,7 +110,7 @@ node node_modules/typescript/bin/tsc --noEmit --pretty false
 The production build uses `--noCheck`, so report the separate TypeScript result.
 At migration time the full typecheck has 13 existing diagnostics, also present in
 the source branch. ESLint reports the same 11 existing warnings and no errors.
-The nine Node regression tests pass, including disabling/re-enabling glass effects.
+The twelve Node regression tests pass, including disabling/re-enabling glass effects.
 The new Node regression suite does not require Bun. The
 repository's existing Bun tests still require an installed Bun runtime.
 
@@ -131,3 +131,16 @@ tests do not prove responsive layout, focus visibility or color contrast:
 
 During this session the Windows UI automation tool stopped because it could not
 reliably identify the browser URL. No visual verification is claimed.
+
+## Shell feedback follow-up
+
+Desktop status controls now sit on an opaque theme surface, so dark light-theme
+icons do not disappear against a dark wallpaper. The start menu uses compact app
+rows and the same header/content materials as app windows. The launcher returns
+to a wallpaper-based icon grid, pill search and rounded widgets, retaining its dock.
+
+Immersive apps fill the viewport without page gutters. Escape and exit controls
+return to the active app; window/split/minimize/close transitions clear immersive
+state. Maximized windows fill the work area above the desktop taskbar and restore
+the prior rectangle even when React replays the state updater. Regression tests
+cover this restoration and the work-area/fullscreen bounds. Visual QA is pending.
