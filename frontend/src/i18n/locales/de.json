@@ -674,6 +674,14 @@
     }
   },
   "settings": {
+    "colorPersonalization": {
+      "description": "Wähle eine vorgeschlagene Farbe, eine Farbe aus dem Hintergrund oder deine eigene Farbe.",
+      "custom": "Eigene Farbe wählen",
+      "auto": "Aus Hintergrund",
+      "preview": "Akzentfarbe {{color}} wählen",
+      "tintTitle": "Oberflächen aus Akzentfarbe ableiten",
+      "tintDescription": "Tönt Fenster, Seitenleisten, Menüs und Dialoge einheitlich. Ausgeschaltet verwenden die Oberflächen ihre Theme-Farben; Markierungen behalten die Akzentfarbe."
+    },
     "surfaceStyle": {
       "title": "Glas als Systemstil",
       "description": "Glas mit Blur für Fenster, Startmenü, Menüs und Dialoge. Der Fensterinhalt bleibt klar lesbar; die Desktop-Leiste lässt sich separat gestalten.",

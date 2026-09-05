@@ -1,3 +1,4 @@
+import { useSurfaceAppearance } from '@/hooks/useSurfaceAppearance'
 import { ThemeColorModeControl } from './settings/ThemeColorModeControl'
 import { SurfaceAppearanceSettings } from './settings/SurfaceAppearanceSettings'
 import { ShellAppearanceSettings } from './settings/ShellAppearanceSettings'
@@ -366,6 +367,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
   const { preset: uiScalePreset, setPreset: setUiScale } = useUiScale()
   const { selectedTheme, setSelectedTheme, setAutoTheme, setSleepMode } = useTheme()
+  const { settings: surfaceAppearance, save: saveSurfaceAppearance } = useSurfaceAppearance()
   // Per-user auto-lock timeout (minutes, 0 = disabled).
   const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('rumahl-auto-lock-minutes', 15)
   const [screensaverStyle, setScreensaverStyle] = useLocalStorage<ScreensaverStyle>('rumahl-screensaver-style', 'clock')
@@ -780,25 +782,32 @@ export function SettingsPage(props: SettingsPageProps) {
               <div className="appr-setting-row appr-wallpaper-row">
                 <div>
                   <h3>{t('settings.accentColor')}</h3>
-                  <p>Wähle deine bevorzugte Akzentfarbe für Elemente und Highlights.</p>
+                  <p>{t('settings.colorPersonalization.description')}</p>
                 </div>
                 <div className="appr-swatches" aria-label={t('settings.accentColor')}>
-                  {accentColorSettings.extractedPalette.length > 0
-                    ? accentColorSettings.extractedPalette.slice(0, 7).map((color, i) => (
+                  {Array.from(new Set([...accentColorSettings.extractedPalette.slice(0, 4), '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#eab308', '#f97316', '#ef4444', '#ec4899'].map((color) => color.toLowerCase()))).map((color, i) => (
                         <button
                           key={`${color}-${i}`}
                           type="button"
                           onClick={() => accentColorSettings.selectFromPalette(color)}
-                          className={`appr-swatch ${accentColorSettings.accentColor === color ? 'active' : ''}`}
+                          className={`appr-swatch ${accentColorSettings.mode === 'static' && accentColorSettings.staticColor.toLowerCase() === color ? 'active' : ''}`}
                           style={{ ['--sw' as string]: color }}
-                          aria-label={color}
+                          aria-label={t('settings.colorPersonalization.preview', { color })}
+                          aria-pressed={accentColorSettings.mode === 'static' && accentColorSettings.staticColor.toLowerCase() === color}
                         />
-                      ))
-                    : null}
-                  <input type="color" value={accentColorSettings.staticColor} onChange={(event) => { accentColorSettings.setStaticColor(event.target.value); accentColorSettings.setMode('static') }} aria-label={t('settings.accentColor')} className="h-9 w-9 cursor-pointer rounded-full border border-border bg-transparent p-1" />
+                      ))}
+                  <label className="rumahl-secondary-button relative gap-2 cursor-pointer focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring">
+                    <Palette size={18} aria-hidden="true" />
+                    <span>{t('settings.colorPersonalization.custom')}</span>
+                    <input type="color" value={accentColorSettings.staticColor} onChange={(event) => { accentColorSettings.setStaticColor(event.target.value); accentColorSettings.setMode('static') }} aria-label={t('settings.colorPersonalization.custom')} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                  </label>
+                  <button type="button" className="rumahl-secondary-button" aria-pressed={accentColorSettings.mode === 'auto'} onClick={accentColorSettings.resetToAuto}>{t('settings.colorPersonalization.auto')}</button>
                 </div>
               </div>
 
+              <div className="appr-divider" />
+
+              <ApprToggle label={t('settings.colorPersonalization.tintTitle')} description={t('settings.colorPersonalization.tintDescription')} checked={surfaceAppearance.accentSurfaces} onCheckedChange={(accentSurfaces) => saveSurfaceAppearance({ ...surfaceAppearance, accentSurfaces })} />
               <div className="appr-divider" />
 
               {/* Design-Modus */}

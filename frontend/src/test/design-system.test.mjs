@@ -343,3 +343,27 @@ test('Desktop app backgrounds cannot cover the glass window with forced opaque f
     rule.walkDecls('backdrop-filter', (declaration) => assert.match(declaration.value, /--shared-glass-blur/))
   })
 })
+
+test('Accent surface opt-in persists and reset restores neutral surfaces', () => {
+  let stored = { accentSurfaces: true, style: 'solid' }
+  const root = { dataset: {}, style: { setProperty: () => {} } }
+  const { useSurfaceAppearance, normalizeSurfaceAppearance } = isolatedPresentationModule('hooks/useSurfaceAppearance.ts', {
+    react: { useEffect: (effect) => effect() }, '@/lib/storage': { useLocalStorage: () => [stored, (value) => { stored = value }] },
+  }, { document: { documentElement: root } })
+  useSurfaceAppearance()
+  assert.equal(root.dataset.accentSurfaces, 'true')
+  useSurfaceAppearance().reset()
+  useSurfaceAppearance()
+  assert.equal(root.dataset.accentSurfaces, 'false')
+  assert.equal(normalizeSurfaceAppearance({ accentSurfaces: 'true' }).accentSurfaces, false)
+  let visibleSwatches = false
+  css.walkRules('.rumahl-settings-appearance .appr-swatch', (rule) => {
+    rule.walkDecls('background', (declaration) => { visibleSwatches = declaration.value === 'var(--sw)' })
+  })
+  assert.ok(visibleSwatches, 'Color previews must have a fill in both launcher and desktop mode')
+  for (const language of ['de', 'en']) {
+    const locale = JSON.parse(readFileSync(resolve(frontend, `i18n/locales/${language}.json`), 'utf8'))
+    assert.ok(locale.settings.colorPersonalization.custom)
+    assert.ok(locale.settings.colorPersonalization.tintTitle)
+  }
+})

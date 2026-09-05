@@ -674,6 +674,14 @@
     }
   },
   "settings": {
+    "colorPersonalization": {
+      "description": "Choose a suggested color, a wallpaper color or your own color.",
+      "custom": "Choose custom color",
+      "auto": "From wallpaper",
+      "preview": "Choose accent color {{color}}",
+      "tintTitle": "Derive surfaces from accent color",
+      "tintDescription": "Tint windows, sidebars, menus and dialogs consistently. When off, surfaces use their theme colors; selection highlights keep the accent color."
+    },
     "surfaceStyle": {
       "title": "Glass system style",
       "description": "Blurred glass for windows, the start menu, menus and dialogs. Content stays readable; the desktop bar can be styled separately.",

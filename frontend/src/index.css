@@ -121,10 +121,10 @@
 
   /* ─── OS Surface tokens (derived from theme card/foreground) ─────── */
   --os-bg: var(--background);
-  --surface-base: var(--card);
-  --surface-raised: color-mix(in oklch, var(--card) 94%, var(--foreground));
-  --surface-overlay: var(--popover);
-  --surface-glass: color-mix(in oklch, var(--card) var(--surface-glass-opacity, 92%), transparent);
+  --surface-base: var(--surface-palette-card);
+  --surface-raised: color-mix(in oklch, var(--surface-palette-card) 94%, var(--foreground));
+  --surface-overlay: var(--surface-palette-popover);
+  --surface-glass: color-mix(in oklch, var(--surface-palette-card) var(--surface-glass-opacity, 92%), transparent);
   --text-primary: var(--foreground);
   --text-secondary: color-mix(in oklch, var(--foreground) 76%, var(--card));
   --text-tertiary: var(--muted-foreground);
@@ -164,13 +164,13 @@
   --rumahl-duration-page: var(--dur-normal);
   --rumahl-ease-out: var(--ease-out);
   --font-ui: "Rumahl Sans", system-ui, sans-serif;
-  --surface-desktop: var(--background);
-  --surface-window: var(--card);
-  --surface-sidebar: color-mix(in oklch, var(--background) 96%, var(--accent));
-  --surface-toolbar: color-mix(in oklch, var(--card) 96%, var(--foreground));
-  --surface-dialog: var(--popover);
+  --surface-desktop: var(--surface-palette-background);
+  --surface-window: var(--surface-palette-card);
+  --surface-sidebar: color-mix(in oklch, var(--surface-palette-background) 96%, var(--foreground));
+  --surface-toolbar: color-mix(in oklch, var(--surface-palette-card) 96%, var(--foreground));
+  --surface-dialog: var(--surface-palette-popover);
   --surface-scrim: oklch(0.1 0.01 250 / 0.48);
-  --surface-input: var(--card);
+  --surface-input: var(--surface-palette-card);
   --selection: color-mix(in oklch, var(--accent) 17%, var(--card));
   --state-hover: color-mix(in oklch, var(--foreground) 7%, var(--card));
   --state-active: color-mix(in oklch, var(--foreground) 12%, var(--card));
@@ -5489,8 +5489,8 @@ body {
 :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-pill-btn:hover,
 :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-scale-choice:hover { background: var(--appr-control-hover); }
 /* swatches */
-:root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-swatches { display: flex; align-items: center; gap: 18px; }
-:root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-swatch {
+.rumahl-settings-appearance .appr-swatches { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.rumahl-settings-appearance .appr-swatch {
   position: relative;
   width: 28px;
   height: 28px;
@@ -5501,7 +5501,7 @@ body {
   box-shadow: var(--shadow-floating);
   cursor: pointer;
 }
-:root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-swatch.active::after {
+.rumahl-settings-appearance .appr-swatch.active::after {
   content: "";
   position: absolute;
   inset: 7px;
@@ -5652,7 +5652,7 @@ body {
   :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-mode-grid { grid-template-columns: repeat(2, 1fr); }
   :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-setting-row,
   :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-wallpaper-row { align-items: flex-start; flex-direction: column; }
-  :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-swatches { flex-wrap: wrap; gap: 11px; }
+  .rumahl-settings-appearance .appr-swatches { flex-wrap: wrap; gap: 11px; min-width: 0; max-width: 100%; }
   :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-wallpaper-actions { width: 100%; justify-content: space-between; }
   :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-schedule-controls,
   :root[data-shell-mode="desktop"] .rumahl-settings-appearance .appr-scale-controls { grid-template-columns: 1fr 1fr; }
@@ -5970,7 +5970,7 @@ main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
 
 /* A single blurred outer surface avoids stacking several nearly opaque fills. */
 :root {
-  --user-glass-color: color-mix(in oklch, var(--user-glass-tint, #8b5cf6) var(--user-glass-tint-strength, 10%), var(--card));
+  --user-glass-color: color-mix(in oklch, var(--surface-tint-color) var(--user-glass-tint-strength, 10%), var(--surface-palette-card));
   --user-glass-fill: color-mix(in oklch, var(--user-glass-color) var(--user-glass-opacity, 68%), transparent);
 }
 :root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"]) {
@@ -5978,11 +5978,11 @@ main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
   --surface-overlay: var(--user-glass-fill);
   --surface-dialog: var(--user-glass-fill);
   --surface-base: transparent;
-  --surface-raised: color-mix(in oklch, var(--card) 16%, transparent);
-  --surface-toolbar: color-mix(in oklch, var(--card) 12%, transparent);
-  --surface-sidebar: color-mix(in oklch, var(--card) 20%, transparent);
+  --surface-raised: color-mix(in oklch, var(--surface-palette-card) 16%, transparent);
+  --surface-toolbar: color-mix(in oklch, var(--surface-palette-card) 12%, transparent);
+  --surface-sidebar: color-mix(in oklch, var(--surface-palette-card) 20%, transparent);
   --window-content-fill: transparent;
-  --window-panel-fill: color-mix(in oklch, var(--card) 12%, transparent);
+  --window-panel-fill: color-mix(in oklch, var(--surface-palette-card) 12%, transparent);
   --shared-glass-blur: var(--user-glass-blur, 24px);
 }
 :root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"]) :is(.rumahl-os-window, .rumahl-menu, .rumahl-popover, .rumahl-dialog, .rumahl-start-menu, .rumahl-quick-settings, .rumahl-notification-center) {
@@ -6005,4 +6005,34 @@ select.rumahl-input option {
 
 :root[data-shell-mode="desktop"][data-bar-material="solid"] .rumahl-system-bar {
   background: var(--card);
+}
+
+:root {
+  --surface-palette-card: var(--card);
+  --surface-palette-background: var(--background);
+  --surface-palette-popover: var(--popover);
+  --surface-tint-color: var(--user-glass-tint, #8b5cf6);
+}
+
+:root[data-accent-surfaces="true"] {
+  --surface-palette-card: color-mix(in oklch, var(--accent) 10%, var(--card));
+  --surface-palette-background: color-mix(in oklch, var(--accent) 8%, var(--background));
+  --surface-palette-popover: color-mix(in oklch, var(--accent) 10%, var(--popover));
+  --surface-tint-color: var(--accent);
+}
+
+:root[data-accent-surfaces="true"] :is(.rumahl-os-window, .rumahl-app-frame, .rumahl-os-app-frame, .rumahl-menu, .rumahl-popover, .rumahl-dialog, .rumahl-start-menu, .rumahl-quick-settings, .rumahl-notification-center, .rumahl-system-bar) {
+  --card: var(--surface-palette-card);
+  --background: var(--surface-palette-background);
+  --popover: var(--surface-palette-popover);
+}
+
+.rumahl-settings-appearance .appr-swatch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.rumahl-settings-appearance .appr-wallpaper-row:has(.appr-swatches) {
+  flex-wrap: wrap;
+  gap: 16px;
 }
