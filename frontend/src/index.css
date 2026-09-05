@@ -3542,7 +3542,7 @@ body {
 :root[data-shell-mode="desktop"] .rumahl-os-window .glass-card,
 :root[data-shell-mode="desktop"] .rumahl-os-window [data-slot="card"] {
   border-color: var(--border) !important;
-  background: color-mix(in oklch, var(--card) 60%, transparent) !important;
+  background: var(--window-panel-fill, color-mix(in oklch, var(--card) 60%, transparent)) !important;
   box-shadow: none !important;
 }
 
@@ -4109,7 +4109,7 @@ body {
 :root[data-shell-mode="desktop"]:not([data-theme="night"]):not([data-theme="evening"]):not([data-theme="sleep"]):not([data-theme="day-classic"]) .rumahl-os-window .rumahl-app-frame,
 :root[data-shell-mode="desktop"]:not([data-theme="night"]):not([data-theme="evening"]):not([data-theme="sleep"]):not([data-theme="day-classic"]) .rumahl-os-window .rumahl-settings-app,
 :root[data-shell-mode="desktop"]:not([data-theme="night"]):not([data-theme="evening"]):not([data-theme="sleep"]):not([data-theme="day-classic"]) .rumahl-os-window .rumahl-store-app {
-  background: var(--background) !important;
+  background: var(--window-content-fill, var(--background)) !important;
   color: var(--foreground);
 }
 :root[data-shell-mode="desktop"]:not([data-theme="night"]):not([data-theme="evening"]):not([data-theme="sleep"]):not([data-theme="day-classic"]) .rumahl-task-switcher {
@@ -4166,7 +4166,7 @@ body {
   width: 100%;
   max-width: none;
   min-height: 100%;
-  background: var(--background) !important;
+  background: var(--window-content-fill, var(--background)) !important;
   color: var(--text-primary);
 }
 :root[data-shell-mode="desktop"] .rumahl-os-window .rumahl-app-navbar h1 { font-size: calc(13px * var(--ui-scale, 1)); font-weight: 550; }
@@ -5931,7 +5931,7 @@ main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
 }
 :root[data-shell-mode="desktop"][data-bar-material="glass"] .rumahl-system-bar {
   background: var(--user-glass-fill);
-  backdrop-filter: blur(var(--shell-bar-blur, 20px));
+  backdrop-filter: blur(var(--shared-glass-blur, var(--shell-bar-blur, 20px)));
 }
 :root[data-shell-mode="desktop"][data-bar-material="transparent"] .rumahl-system-bar {
   background: transparent;
@@ -5981,6 +5981,9 @@ main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
   --surface-raised: color-mix(in oklch, var(--card) 16%, transparent);
   --surface-toolbar: color-mix(in oklch, var(--card) 12%, transparent);
   --surface-sidebar: color-mix(in oklch, var(--card) 20%, transparent);
+  --window-content-fill: transparent;
+  --window-panel-fill: color-mix(in oklch, var(--card) 12%, transparent);
+  --shared-glass-blur: var(--user-glass-blur, 24px);
 }
 :root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"]) :is(.rumahl-os-window, .rumahl-menu, .rumahl-popover, .rumahl-dialog, .rumahl-start-menu, .rumahl-quick-settings, .rumahl-notification-center) {
   background: var(--user-glass-fill);

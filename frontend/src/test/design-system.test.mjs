@@ -323,3 +323,23 @@ test('Glass style applies stored density, blur and tint and can return to solid'
     assert.ok(locale.settings.colorSupport.switching)
   }
 })
+
+test('Desktop app backgrounds cannot cover the glass window with forced opaque fills', () => {
+  css.walkRules((rule) => {
+    if (!rule.selector.includes('.rumahl-os-window')) return
+    rule.walkDecls('background', (declaration) => {
+      if (!declaration.important) return
+      assert.notEqual(declaration.value, 'var(--background)', rule.selector)
+      assert.notEqual(declaration.value, 'color-mix(in oklch, var(--card) 60%, transparent)', rule.selector)
+    })
+  })
+  let glassRoot
+  css.walkRules(':root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"])', (rule) => { glassRoot = rule })
+  const values = Object.fromEntries(glassRoot.nodes.filter((node) => node.type === 'decl').map((node) => [node.prop, node.value]))
+  assert.equal(values['--window-content-fill'], 'transparent')
+  assert.equal(values['--shared-glass-blur'], 'var(--user-glass-blur, 24px)')
+  css.walkRules(':root[data-shell-mode="desktop"][data-bar-material="glass"] .rumahl-system-bar', (rule) => {
+    rule.walkDecls('background', (declaration) => assert.equal(declaration.value, 'var(--user-glass-fill)'))
+    rule.walkDecls('backdrop-filter', (declaration) => assert.match(declaration.value, /--shared-glass-blur/))
+  })
+})

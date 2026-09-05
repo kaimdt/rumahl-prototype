@@ -110,7 +110,7 @@ node node_modules/typescript/bin/tsc --noEmit --pretty false
 The production build uses `--noCheck`, so report the separate TypeScript result.
 At migration time the full typecheck has 13 existing diagnostics, also present in
 the source branch. ESLint reports the same 11 existing warnings and no errors.
-The eighteen Node regression tests pass, including disabling/re-enabling glass effects.
+The nineteen Node regression tests pass, including disabling/re-enabling glass effects.
 The new Node regression suite does not require Bun. The
 repository's existing Bun tests still require an installed Bun runtime.
 
@@ -169,3 +169,12 @@ custom themes retain their identity and expose only declared design modes. Theme
 cards label light, dark and automatic-switch appearances. Selecting automatic mode
 also enables automatic scheduling and exits sleep override. The accent color input
 is now bound to the existing static color setting.
+
+### Window material parity
+
+The glass system style also overrides the legacy desktop application background
+rules through `--window-content-fill` and `--window-panel-fill`. Their opaque
+fallbacks remain for the solid style. Glass windows and the glass desktop bar
+share fill, tint, opacity and blur; either blur control updates the shared surface
+setting while the glass system style is active. Bar material selection remains
+independent, so the bar can still be fully transparent or opaque.
