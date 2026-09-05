@@ -143,6 +143,10 @@ function applyGlassSettings(settings: GlassSettings) {
     `oklch(from var(--foreground) l c h / ${clampedBorderAlpha})`
   )
 
+  document.documentElement.style.setProperty('--blur-surface', `${enabled ? Math.round(blurIntensity * 0.4) : 0}px`)
+  document.documentElement.style.setProperty('--blur-overlay', `${enabled ? Math.round(blurIntensity * 0.6) : 0}px`)
+  document.documentElement.style.setProperty('--surface-glass-opacity', `${enabled ? Math.max(4, Math.min(98, 92 * transparency)) : 100}%`)
+
   if (!enabled) {
     document.documentElement.style.setProperty('--glass-backdrop-blur', 'blur(0px)')
     document.documentElement.style.setProperty('--glass-header-blur', 'blur(0px)')

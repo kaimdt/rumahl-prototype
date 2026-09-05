@@ -156,7 +156,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
             exit={{ opacity: 0 }}
             onClick={() => { setContextMenu(null); onClose() }}
             aria-label={t('common.close')}
-            className="fixed inset-0 z-[90] cursor-default bg-black/30 backdrop-blur-[2px]"
+            className="fixed inset-0 z-[var(--layer-flyout-backdrop)] cursor-default bg-black/30 backdrop-blur-[2px]"
           />
           <motion.div
             ref={panelRef}
@@ -164,7 +164,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 8 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="rumahl-start-menu fixed inset-x-0 top-[12dvh] z-[91] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden rounded-3xl border border-foreground/12 bg-background/92 text-foreground shadow-2xl backdrop-blur-2xl"
+            className="rumahl-start-menu fixed inset-x-0 top-[12dvh] z-[var(--layer-flyout)] mx-auto flex w-[min(64rem,calc(100vw-2rem))] max-h-[76dvh] flex-col overflow-hidden rounded-3xl border border-foreground/12 bg-background/92 text-foreground shadow-2xl backdrop-blur-2xl"
             onClick={(event) => { event.stopPropagation(); setContextMenu(null) }}
             onContextMenu={(event) => {
               if (!(event.target as HTMLElement).closest('[data-launcher-app]')) setContextMenu(null)
@@ -254,7 +254,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
             <motion.div
               initial={{ opacity: 0, y: 4, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              className="rumahl-start-app-context fixed z-[93] w-56 rounded-xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+              className="rumahl-start-app-context fixed z-[var(--layer-menu)] w-56 rumahl-menu"
               style={{ left: Math.min(contextMenu.x, window.innerWidth - 240), top: Math.min(contextMenu.y, window.innerHeight - 132) }}
               role="menu"
               onClick={(event) => event.stopPropagation()}

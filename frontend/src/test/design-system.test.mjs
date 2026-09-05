@@ -1,0 +1,166 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Script } from 'node:vm'
+import test from 'node:test'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import ts from 'typescript'
+import postcss from 'postcss'
+
+const frontend = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const require = createRequire(resolve(frontend, '../package.json'))
+const cache = new Map()
+
+// Compile actual presentation components with the installed compiler. This suite
+// runs with Node so the visual foundations can be checked without a Bun runtime.
+function component(relativePath) {
+  const filename = resolve(frontend, relativePath)
+  if (cache.has(filename)) return cache.get(filename)
+  const source = readFileSync(filename, 'utf8')
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
+  })
+  const module = { exports: {} }
+  const load = (id) => id.startsWith('@/')
+    ? component(`${id.slice(2)}${id.endsWith('utils') ? '.ts' : '.tsx'}`)
+    : require(id)
+  new Script(`(function(require, module, exports) {${outputText}\n})`, { filename })
+    .runInThisContext()(load, module, module.exports)
+  cache.set(filename, module.exports)
+  return module.exports
+}
+
+test('Button retains native form semantics and accessible disabled state', () => {
+  const { Button } = component('components/ui/button.tsx')
+  const html = renderToStaticMarkup(React.createElement(Button, {
+    type: 'submit', disabled: true, name: 'action', value: 'save',
+    'aria-label': 'Save settings', variant: 'secondary',
+  }, 'Save'))
+  for (const attribute of ['type="submit"', 'disabled=""', 'name="action"', 'value="save"', 'aria-label="Save settings"']) {
+    assert.ok(html.includes(attribute), attribute)
+  }
+})
+
+test('Button asChild preserves a link instead of nesting interactive elements', () => {
+  const { Button } = component('components/ui/button.tsx')
+  const html = renderToStaticMarkup(React.createElement(Button, { asChild: true, variant: 'outline' },
+    React.createElement('a', { href: '/settings', 'aria-current': 'page' }, 'Settings')))
+  assert.match(html, /^<a /)
+  assert.match(html, /href="\/settings"/)
+  assert.match(html, /aria-current="page"/)
+  assert.doesNotMatch(html, /<button/)
+})
+
+test('Input and textarea preserve labels, validation and form values', () => {
+  const { Input } = component('components/ui/input.tsx')
+  const { Textarea } = component('components/ui/textarea.tsx')
+  const input = renderToStaticMarkup(React.createElement(Input, {
+    type: 'email', name: 'email', defaultValue: 'test@example.invalid', required: true,
+    'aria-invalid': true, 'aria-describedby': 'email-error',
+  }))
+  assert.match(input, /type="email"/)
+  assert.match(input, /required=""/)
+  assert.match(input, /aria-invalid="true"/)
+  assert.match(input, /aria-describedby="email-error"/)
+  assert.match(input, /value="test@example.invalid"/)
+  const textarea = renderToStaticMarkup(React.createElement(Textarea, {
+    name: 'notes', rows: 4, defaultValue: 'Existing notes', 'aria-label': 'Notes',
+  }))
+  assert.match(textarea, /rows="4"/)
+  assert.match(textarea, /aria-label="Notes"/)
+  assert.match(textarea, />Existing notes<\/textarea>/)
+})
+
+test('App frame keeps all optional regions without creating nested main landmarks', () => {
+  const { OsAppFrame } = component('components/OsAppFrame.tsx')
+  const html = renderToStaticMarkup(React.createElement(OsAppFrame, {
+    navbar: 'Title', toolbar: 'Tools', sidebar: 'Navigation', detail: 'Details',
+  }, 'Content'))
+  for (const region of ['Title', 'Tools', 'Navigation', 'Details', 'Content']) assert.ok(html.includes(region))
+  assert.equal((html.match(/<aside/g) || []).length, 2)
+  assert.doesNotMatch(html, /<main/)
+})
+
+const css = postcss.parse(readFileSync(resolve(frontend, 'index.css'), 'utf8'))
+
+test('Desktop mode cannot replace theme-aware semantic surfaces with fixed dark colors', () => {
+  css.walkRules((rule) => {
+    if (rule.selector !== ':root[data-shell-mode="desktop"]') return
+    rule.walkDecls((declaration) => {
+      if (/^--(?:surface-|os-bg)/.test(declaration.prop)) {
+        assert.match(declaration.value, /var\(/, `${rule.selector}: ${declaration.prop}`)
+      }
+    })
+  })
+})
+
+test('Titlebar plus toolbar is never constrained to a single fixed header height', () => {
+  css.walkRules((rule) => {
+    if (!rule.selectors.some((selector) => /(?:^|\s)\.rumahl-app-navbar$/.test(selector))) return
+    rule.walkDecls('height', (declaration) => assert.ok(
+      ['auto', 'fit-content'].includes(declaration.value), `${rule.selector}: ${declaration.value}`,
+    ))
+  })
+})
+
+test('Inactive window styling does not dim application content with filters', () => {
+  css.walkRules((rule) => {
+    if (!rule.selector.includes('.rumahl-os-window[data-active="false"]')) return
+    rule.walkDecls('filter', (declaration) => assert.equal(declaration.value, 'none'))
+  })
+})
+
+test('Portaled controls stay above dialogs and below critical overlays', () => {
+  const levels = new Map()
+  css.walkDecls((declaration) => {
+    if (declaration.prop.startsWith('--layer-')) levels.set(declaration.prop, Number(declaration.value))
+  })
+  const order = ['windows', 'shell', 'flyout', 'dialog', 'menu', 'tooltip', 'critical']
+    .map((name) => levels.get(`--layer-${name}`))
+  assert.ok(order.every(Number.isFinite))
+  assert.ok(order.every((value, index) => index === 0 || value > order[index - 1]))
+})
+
+test('Glass settings disable and restore shell effects without freezing theme colors', () => {
+  const properties = new Map()
+  const attributes = new Map()
+  const source = readFileSync(resolve(frontend, 'hooks/useGlassSettings.ts'), 'utf8')
+  const { outputText } = ts.transpileModule(`${source}\nexport { applyGlassSettings }`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  })
+  const module = { exports: {} }
+  const sandbox = {
+    module, exports: module.exports,
+    require: (id) => id === 'react' ? require(id) : {},
+    document: { documentElement: {
+      setAttribute: (key, value) => attributes.set(key, value),
+      style: {
+        setProperty: (key, value) => properties.set(key, value),
+        removeProperty: (key) => properties.delete(key),
+      },
+    } },
+    getComputedStyle: () => ({ getPropertyValue: () => 'oklch(0.2 0.01 250 / 0.8)' }),
+  }
+  new Script(outputText).runInNewContext(sandbox)
+  const apply = module.exports.applyGlassSettings
+  const settings = { enabled: true, blurIntensity: 40, transparency: 1, cardRadius: 12, borderAlpha: 0.12 }
+  apply(settings)
+  assert.equal(attributes.get('data-glass'), 'on')
+  assert.equal(properties.get('--blur-surface'), '16px')
+  assert.equal(properties.get('--blur-overlay'), '24px')
+  assert.equal(properties.get('--surface-glass-opacity'), '92%')
+  assert.equal(properties.has('--rumahl-glass-bg'), false)
+  apply({ ...settings, enabled: false })
+  assert.equal(attributes.get('data-glass'), 'off')
+  assert.equal(properties.get('--blur-surface'), '0px')
+  assert.equal(properties.get('--blur-overlay'), '0px')
+  assert.equal(properties.get('--surface-glass-opacity'), '100%')
+  apply({ ...settings, transparency: 0.5 })
+  assert.equal(properties.get('--surface-glass-opacity'), '46%')
+  assert.equal(properties.get('--blur-overlay'), '24px')
+  apply(settings)
+  assert.equal(properties.has('--rumahl-glass-bg'), false)
+})

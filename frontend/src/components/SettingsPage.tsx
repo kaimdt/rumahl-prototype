@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { authFetch } from '@/lib/authHelpers'
 import {
@@ -488,7 +489,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="rumahl-settings-sidebar-brand-label">{t('navigation.settings')}</span>
             </div>
             <TabsList className="rumahl-settings-sidebar">
-          <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <User size={15} weight="fill" />
             </span>
@@ -497,7 +498,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabGeneralDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="appearance" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="appearance" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <Palette size={15} weight="fill" />
             </span>
@@ -506,7 +507,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabAppearanceDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="dashboard" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="dashboard" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <Layout size={15} weight="fill" />
             </span>
@@ -515,7 +516,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabDashboardDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="system" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="system" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <GearSix size={15} weight="fill" />
             </span>
@@ -524,7 +525,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabSystemDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="apps" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="apps" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <AppWindow size={15} weight="fill" />
             </span>
@@ -767,7 +768,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <h3>{t('settings.accentMode')}</h3>
                   <p>{t('settings.accentModeDesc')}</p>
                 </div>
-                <button type="button" className="appr-select-btn">
+                <button type="button" className="rumahl-secondary-button">
                   <span>Dunkel (Automatisch)</span><span aria-hidden="true">⌄</span>
                 </button>
               </div>
@@ -838,7 +839,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <p>{t('settings.hintergrundDesc')}</p>
                 </div>
                 <div className="appr-wallpaper-actions">
-                  <button type="button" className="appr-soft-btn" onClick={() => navigateToPage('settings')}>{t('settings.hintergrundAnpassen')}</button>
+                  <button type="button" className="rumahl-secondary-button" onClick={() => navigateToPage('settings')}>{t('settings.hintergrundAnpassen')}</button>
                   <div className="appr-wallpaper-thumb" aria-label={t('settings.hintergrund')} />
                 </div>
               </div>
@@ -852,14 +853,11 @@ export function SettingsPage(props: SettingsPageProps) {
                 <div className="appr-setting-row" style={{ marginTop: 16 }}>
                   <div>
                     <h3>{t('settings.transparenz')}</h3>
-                    <p>Aktiviere Unschärfe und Transparenz für ein modernes Aussehen.</p>
+                    <p>{t('settings.osTransparencyHint')}</p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={glassSettings.enabled}
-                    onClick={() => glassSettings.setEnabled(!glassSettings.enabled)}
-                    className={`appr-switch ${glassSettings.enabled ? 'on' : ''}`}
+                  <Switch
+                    checked={glassSettings.enabled}
+                    onCheckedChange={glassSettings.setEnabled}
                     aria-label={t('settings.transparenz')}
                   />
                 </div>
@@ -871,12 +869,9 @@ export function SettingsPage(props: SettingsPageProps) {
                     <h3>{t('settings.animationen')}</h3>
                     <p>{t('settings.animationDesc')}</p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={!reduceMotion}
-                    onClick={() => onToggleReduceMotion(!reduceMotion)}
-                    className={`appr-switch ${!reduceMotion ? 'on' : ''}`}
+                  <Switch
+                    checked={!reduceMotion}
+                    onCheckedChange={(enabled) => onToggleReduceMotion(!enabled)}
                     aria-label={t('settings.animationen')}
                   />
                 </div>
@@ -889,12 +884,9 @@ export function SettingsPage(props: SettingsPageProps) {
                       <h2>{t('settings.zeitplan')}</h2>
                       <p style={{ marginTop: 4 }}>{t('settings.zeitplanDesc')}</p>
                     </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={selectedTheme === 'auto'}
-                      onClick={() => setSelectedTheme(selectedTheme === 'auto' ? 'night' : 'auto')}
-                      className={`appr-switch ${selectedTheme === 'auto' ? 'on' : ''}`}
+                    <Switch
+                      checked={selectedTheme === 'auto'}
+                      onCheckedChange={(enabled) => setSelectedTheme(enabled ? 'auto' : 'night')}
                       aria-label={t('settings.autoTheme')}
                     />
                   </div>

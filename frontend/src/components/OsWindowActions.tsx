@@ -126,7 +126,7 @@ export function OsWindowActions({ pageId, showMinimize = true }: { pageId: strin
             ref={menuRef}
             role="menu"
             aria-label={t('os.window.launchModes')}
-            className="rumahl-snap-menu absolute right-0 top-full z-[90] mt-1 w-56 overflow-hidden rounded-xl border border-foreground/10 bg-background/95 p-1.5 text-foreground shadow-xl backdrop-blur-xl"
+            className="rumahl-snap-menu absolute right-0 top-full z-[90] mt-1 w-56 overflow-hidden rumahl-menu"
             onMouseEnter={cancelClose}
             onMouseLeave={closeSoon}
             onClick={() => setMenuOpen(false)}
@@ -178,7 +178,7 @@ export function OsWindowActions({ pageId, showMinimize = true }: { pageId: strin
         type="button"
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => { closeWindow(pageId); setCurrentPageId('launcher') }}
-        className={`${actionButton} hover:!bg-red-500/15 hover:!text-red-400`}
+        className={`${actionButton} rumahl-window-action-close`}
         aria-label={t('os.window.close')}
         title={t('os.window.close')}
       >

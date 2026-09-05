@@ -266,6 +266,7 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
         role="dialog"
         aria-labelledby={titleId}
         tabIndex={-1}
+        data-layout={window.layout}
         data-active={active ? 'true' : 'false'}
         data-dragging={isDragging ? 'true' : 'false'}
         data-resizing={isResizing ? 'true' : 'false'}
@@ -286,12 +287,12 @@ export function OsWindowFrame({ window, active = false, name, icon, renderConten
           className={`rumahl-os-window-bar ${window.layout === 'window' ? 'cursor-grab active:cursor-grabbing' : ''}`}
         >
           {icon}
-          <span id={titleId} className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-normal text-foreground/75">
+          <span id={titleId} className="rumahl-os-window-title min-w-0 flex-1 truncate">
             {window.pageId ? name : t('os.window.emptyPane')}
           </span>
           <OsWindowActions pageId={window.pageId} showMinimize={isFloating} />
         </div>
-        <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div ref={contentRef} className="rumahl-os-window-content min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {window.pageId ? renderContent(window.pageId) : (
             <div className="flex min-h-full flex-col items-center justify-center gap-3 p-6 text-center">
               <SquaresFour size={40} weight="duotone" className="text-foreground/15" />

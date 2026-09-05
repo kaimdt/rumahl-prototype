@@ -51,6 +51,10 @@
       "icon": "code",
       "items": [
         {
+          "title": "OS Design System",
+          "path": "development/os-design-system.md"
+        },
+        {
           "title": "App Development",
           "path": "development/app-development.md",
           "highlight": true

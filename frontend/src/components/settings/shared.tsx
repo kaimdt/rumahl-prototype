@@ -121,8 +121,8 @@ export function SettingsSection({
           <Icon size={15} weight={accentIcon ? 'fill' : 'regular'} />
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="text-[0.78rem] font-medium text-foreground">{title}</h4>
-          {description && <p className="mt-0.5 line-clamp-1 text-[0.65rem] leading-relaxed text-foreground/42">{description}</p>}
+          <h4 className="text-sm font-medium text-foreground">{title}</h4>
+          {description && <p className="mt-0.5 line-clamp-1 text-xs leading-relaxed text-ui-secondary">{description}</p>}
         </div>
       </header>
       <div className="rumahl-settings-section-content space-y-3">
@@ -162,10 +162,11 @@ export function SliderRow({
         min={min}
         max={max}
         value={value}
+        aria-label={label}
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
         style={{
-          background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, oklch(from var(--foreground) l c h / 0.10) ${pct}%, oklch(from var(--foreground) l c h / 0.10) 100%)`,
+          background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, var(--state-active) ${pct}%, oklch(from var(--foreground) l c h / 0.10) 100%)`,
         }}
         className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:opacity-40 transition-shadow focus:outline-none focus:ring-2 focus:ring-accent/30 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_0_3px_oklch(from_var(--accent)_l_c_h/0.18)] [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
       />

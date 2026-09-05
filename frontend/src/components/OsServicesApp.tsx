@@ -19,9 +19,9 @@ function isRunning(service: SystemdService) {
 }
 
 function statusBadge(service: SystemdService) {
-  if (isRunning(service)) return 'bg-emerald-500/10 text-emerald-300'
-  if (service.active === 'failed') return 'bg-red-500/10 text-red-300'
-  if (service.active === 'activating') return 'bg-amber-500/10 text-amber-300'
+  if (isRunning(service)) return 'bg-success/10 text-success'
+  if (service.active === 'failed') return 'bg-destructive/10 text-destructive'
+  if (service.active === 'activating') return 'bg-warning/10 text-warning'
   return 'bg-foreground/8 text-foreground/45'
 }
 
@@ -83,7 +83,7 @@ export function OsServicesApp() {
   const failedCount = services.filter((service) => service.active === 'failed').length
 
   return (
-    <section className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-app-frame overflow-hidden">
       <OsAppNavbar
         pageId="os-services"
         title={t('os.apps.services.name')}
@@ -103,10 +103,10 @@ export function OsServicesApp() {
         }
       />
 
-      <div className="p-4 pb-10 sm:p-6">
-      {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <div className="p-4">
+      {error && <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-4">
+      <div className="rumahl-stat-group mb-5 grid sm:grid-cols-4">
         <Summary icon={Power} label={t('servicesApp.total')} value={String(services.length)} />
         <Summary icon={Play} label={t('servicesApp.running')} value={String(runningCount)} />
         <Summary icon={Square} label={t('servicesApp.inactive')} value={String(services.length - runningCount - failedCount)} />
@@ -164,5 +164,5 @@ export function OsServicesApp() {
 }
 
 function Summary({ icon: Icon, label, value, warning = false }: { icon: typeof Power; label: string; value: string; warning?: boolean }) {
-  return <div className="rumahl-card rounded-2xl p-4"><Icon size={20} className={warning ? 'text-red-400' : 'text-accent'} /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="rumahl-stat p-4"><Icon size={20} className={warning ? 'text-destructive' : 'text-accent'} /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }

@@ -46,10 +46,10 @@ function formatBytes(value = 0) {
 
 function statusColor(status?: string) {
   switch (status) {
-    case 'running': return 'bg-emerald-500/10 text-emerald-300'
+    case 'running': return 'bg-success/10 text-success'
     case 'stopped': return 'bg-foreground/8 text-foreground/45'
-    case 'starting': return 'bg-amber-500/10 text-amber-300'
-    case 'error': case 'failed': return 'bg-red-500/10 text-red-300'
+    case 'starting': return 'bg-warning/10 text-warning'
+    case 'error': case 'failed': return 'bg-destructive/10 text-destructive'
     default: return 'bg-foreground/8 text-foreground/45'
   }
 }
@@ -121,7 +121,7 @@ export function OsContainersApp() {
   const runningCount = apps.filter((app) => app.status === 'running').length
 
   return (
-    <section className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-app-frame overflow-hidden">
       <OsAppNavbar
         pageId="os-containers"
         title={t('os.apps.containers.name')}
@@ -135,8 +135,8 @@ export function OsContainersApp() {
         }
       />
 
-      <div className="p-4 pb-10 sm:p-6">
-      {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <div className="p-4">
+      {error && <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1 rounded-full bg-foreground/6 p-1">
@@ -164,9 +164,9 @@ export function OsContainersApp() {
             .map((port) => typeof port === 'string' ? port : `${port.external}:${port.internal}/${port.protocol}`)
             .join(', ')
           return (
-            <article key={app.id} className={`rumahl-card rounded-3xl p-5 ${running ? 'border-emerald-400/15' : ''}`}>
+            <article key={app.id} className={`rumahl-card p-4 ${running ? 'border-emerald-400/15' : ''}`}>
               <div className="flex items-start gap-3">
-                <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${running ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/7 text-foreground/45'}`}>
+                <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${running ? 'bg-success/10 text-success' : 'bg-foreground/7 text-foreground/45'}`}>
                   {app.icon ? <img src={app.icon} alt="" className="size-6 object-contain" /> : <Cube size={20} weight="duotone" />}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -212,7 +212,7 @@ export function OsContainersApp() {
           )
         })}
         {!loading && filtered.length === 0 && (
-          <div className="rumahl-card col-span-full rounded-3xl p-8 text-center text-sm text-foreground/40">{t('containersApp.empty')}</div>
+          <div className="rumahl-card col-span-full p-8 text-center text-sm text-foreground/40">{t('containersApp.empty')}</div>
         )}
       </div>
       </div>
@@ -221,5 +221,5 @@ export function OsContainersApp() {
 }
 
 function Summary({ icon: Icon, label, value }: { icon: typeof Cube; label: string; value: string }) {
-  return <div className="rumahl-card rounded-2xl p-4"><Icon size={20} className="text-accent" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="rumahl-card p-4"><Icon size={20} className="text-accent" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }

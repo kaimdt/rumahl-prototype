@@ -137,7 +137,7 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
   const subtitle = t(`os.apps.${kind}.description`)
 
   return (
-    <section className="rumahl-system-monitor-app rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-system-monitor-app rumahl-app-frame overflow-hidden">
       <OsAppNavbar
         pageId={pageId}
         title={title}
@@ -151,15 +151,15 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
         }
       />
 
-      <div className="p-4 pb-10 sm:p-6">
-      {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <div className="p-4">
+      {error && <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
 
       {kind === 'network' && (
         <>
         {can('os.network.write') && (
-          <div className="mb-4 rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4">
+          <div className="mb-4 rounded-2xl border border-amber-500/20 bg-warning/8 p-4">
             {networkConfirmation ? (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center"><p className="flex-1 text-sm text-amber-100">{t('os.systemApps.confirmDhcp')}</p><button type="button" onClick={() => setNetworkConfirmation(false)} className="rounded-xl bg-foreground/8 px-3 py-2 text-xs">{t('common.cancel')}</button><button type="button" disabled={working} onClick={enableDhcp} className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-black disabled:opacity-50">{t('common.confirm')}</button></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center"><p className="flex-1 text-sm text-amber-100">{t('os.systemApps.confirmDhcp')}</p><button type="button" onClick={() => setNetworkConfirmation(false)} className="rounded-xl bg-foreground/8 px-3 py-2 text-xs">{t('common.cancel')}</button><button type="button" disabled={working} onClick={enableDhcp} className="rounded-xl bg-warning px-3 py-2 text-xs font-semibold text-black disabled:opacity-50">{t('common.confirm')}</button></div>
             ) : (
               <div className="flex items-center justify-between gap-3"><p className="text-sm text-foreground/60">{t('os.systemApps.dhcpHint')}</p><button type="button" onClick={() => setNetworkConfirmation(true)} className="shrink-0 rounded-xl bg-foreground/8 px-3 py-2 text-xs">{t('os.systemApps.enableDhcp')}</button></div>
             )}
@@ -167,14 +167,14 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           {interfaces.map((entry) => (
-            <article key={entry.name} className="rumahl-card rounded-3xl p-5">
-              <div className="flex items-center justify-between"><WifiHigh size={24} weight="duotone" className="text-emerald-400" /><span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300">{t('os.systemApps.active')}</span></div>
+            <article key={entry.name} className="rumahl-card p-5">
+              <div className="flex items-center justify-between"><WifiHigh size={24} weight="duotone" className="text-success" /><span className="rounded-full bg-success/10 px-2 py-1 text-[10px] font-semibold text-success">{t('os.systemApps.active')}</span></div>
               <h2 className="mt-5 text-lg font-semibold">{entry.name}</h2>
               <p className="text-xs text-foreground/40">{entry.mac_address || t('os.systemApps.noAddress')}</p>
               <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><span>{t('os.systemApps.received')}<strong className="mt-1 block">{formatBytes(entry.received_bytes)}</strong></span><span>{t('os.systemApps.sent')}<strong className="mt-1 block">{formatBytes(entry.transmitted_bytes)}</strong></span></div>
             </article>
           ))}
-          {!loading && interfaces.length === 0 && <div className="rumahl-card col-span-full rounded-3xl p-8 text-center text-sm text-foreground/40">{t('os.systemApps.noInterfaces')}</div>}
+          {!loading && interfaces.length === 0 && <div className="rumahl-card col-span-full p-8 text-center text-sm text-foreground/40">{t('os.systemApps.noInterfaces')}</div>}
         </div>
         </>
       )}
@@ -182,11 +182,11 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
       {kind === 'system' && (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rumahl-card rounded-2xl p-4"><Cpu size={20} className="mb-2 text-accent" /><p className="text-xl font-semibold">{Math.round(system?.cpu_usage_percent || 0)}%</p><p className="text-xs text-foreground/40">CPU</p></div>
-            <div className="rumahl-card rounded-2xl p-4"><HardDrive size={20} className="mb-2 text-accent" /><p className="text-xl font-semibold">{formatBytes(system?.memory_used_bytes)}</p><p className="text-xs text-foreground/40">{t('os.shell.memory')}</p></div>
-            <div className="rumahl-card rounded-2xl p-4"><Network size={20} className="mb-2 text-accent" /><p className="truncate text-xl font-semibold">{system?.hostname || '–'}</p><p className="text-xs text-foreground/40">{system ? `${system.os_name} ${system.os_version}` : '–'}</p></div>
+            <div className="rumahl-card p-4"><Cpu size={20} className="mb-2 text-accent" /><p className="text-xl font-semibold">{Math.round(system?.cpu_usage_percent || 0)}%</p><p className="text-xs text-foreground/40">CPU</p></div>
+            <div className="rumahl-card p-4"><HardDrive size={20} className="mb-2 text-accent" /><p className="text-xl font-semibold">{formatBytes(system?.memory_used_bytes)}</p><p className="text-xs text-foreground/40">{t('os.shell.memory')}</p></div>
+            <div className="rumahl-card p-4"><Network size={20} className="mb-2 text-accent" /><p className="truncate text-xl font-semibold">{system?.hostname || '–'}</p><p className="text-xs text-foreground/40">{system ? `${system.os_name} ${system.os_version}` : '–'}</p></div>
           </div>
-          <div className="rumahl-system-performance rumahl-card rounded-3xl p-5">
+          <div className="rumahl-system-performance rumahl-card p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div><h2 className="text-sm font-semibold">{t('adminCenter.desktop.performance')}</h2><p className="text-[10px] text-foreground/35">{t('adminCenter.desktop.cpuUsage')}</p></div>
               <span className="rounded-md bg-foreground/5 px-2 py-1 text-[9px] text-foreground/45">1H</span>
@@ -203,8 +203,8 @@ function OsSystemDataApp({ kind, pageId }: { kind: 'network' | 'system'; pageId:
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="rumahl-card rounded-3xl p-5"><h2 className="mb-3 text-sm font-semibold">{t('os.systemApps.storage')}</h2>{disks.map((disk) => <div key={disk.mount_point} className="mb-3 last:mb-0"><div className="mb-1 flex justify-between text-xs"><span>{disk.mount_point}</span><span>{Math.round(disk.usage_percent)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-foreground/10"><div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(disk.usage_percent, 100)}%` }} /></div></div>)}</div>
-          <div className="rumahl-card rounded-3xl p-5"><h2 className="mb-3 text-sm font-semibold">{t('os.systemApps.processes')}</h2>{processes.slice(0, 10).map((process) => <div key={process.pid} className="flex items-center gap-3 border-b border-foreground/7 py-2 text-xs last:border-0"><span className="w-12 text-foreground/35">{process.pid}</span><span className="min-w-0 flex-1 truncate font-medium">{process.name}</span><span>{process.cpu_percent.toFixed(1)}%</span><span className="w-20 text-right text-foreground/45">{formatBytes(process.memory_bytes)}</span></div>)}</div>
+          <div className="rumahl-card p-5"><h2 className="mb-3 text-sm font-semibold">{t('os.systemApps.storage')}</h2>{disks.map((disk) => <div key={disk.mount_point} className="mb-3 last:mb-0"><div className="mb-1 flex justify-between text-xs"><span>{disk.mount_point}</span><span>{Math.round(disk.usage_percent)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-foreground/10"><div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(disk.usage_percent, 100)}%` }} /></div></div>)}</div>
+          <div className="rumahl-card p-5"><h2 className="mb-3 text-sm font-semibold">{t('os.systemApps.processes')}</h2>{processes.slice(0, 10).map((process) => <div key={process.pid} className="flex items-center gap-3 border-b border-foreground/7 py-2 text-xs last:border-0"><span className="w-12 text-foreground/35">{process.pid}</span><span className="min-w-0 flex-1 truncate font-medium">{process.name}</span><span>{process.cpu_percent.toFixed(1)}%</span><span className="w-20 text-right text-foreground/45">{formatBytes(process.memory_bytes)}</span></div>)}</div>
         </div>
       )}
       </div>

@@ -801,6 +801,7 @@
     "deviceLockDesc": "Locks settings on this device – PIN to unlock",
     "aiDisableDesc": "Disables rumahl AI, Pi.dev Agent and all AI features",
     "glassEffectsDesc": "Transparency, blur and card radius",
+    "osTransparencyHint": "Enable blur and transparency for floating surfaces.",
     "frostedGlassDesc": "Frosted glass look for cards and menus",
     "about": "About",
     "aboutDesc": "Device, operating system and status",

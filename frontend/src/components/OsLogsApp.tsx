@@ -84,7 +84,7 @@ export function OsLogsApp() {
   const active = sources.find((source) => source.id === activeSource)
 
   return (
-    <section className="rumahl-app-frame mx-auto max-w-7xl overflow-hidden">
+    <section className="rumahl-app-frame overflow-hidden">
       <OsAppNavbar
         pageId="os-logs"
         title={t('os.apps.logs.name')}
@@ -104,8 +104,8 @@ export function OsLogsApp() {
         }
       />
 
-      <div className="p-4 pb-10 sm:p-6">
-      {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <div className="p-4">
+      {error && <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
         {/* Source list */}
@@ -119,7 +119,7 @@ export function OsLogsApp() {
               className={`w-full rounded-2xl border p-4 text-left transition-colors ${activeSource === source.id ? 'border-accent/40 bg-accent/10' : 'border-white/8 bg-foreground/4 hover:bg-foreground/7'}`}
             >
               <div className="flex items-center gap-2">
-                {source.kind === 'service' ? <Square size={14} className="text-cyan-300" /> : source.kind === 'file' ? <FileText size={14} className="text-amber-300" /> : <ListBullets size={14} className="text-foreground/50" />}
+                {source.kind === 'service' ? <Square size={14} className="text-cyan-300" /> : source.kind === 'file' ? <FileText size={14} className="text-warning" /> : <ListBullets size={14} className="text-foreground/50" />}
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{source.name}</span>
                 {source.running && <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" />}
               </div>
@@ -144,7 +144,7 @@ export function OsLogsApp() {
                 const text = line.raw || (line.message || '')
                 const level = (line.level || '').toLowerCase()
                 const timestamp = line.timestamp || ''
-                const color = level.includes('error') ? 'text-red-300' : level.includes('warn') ? 'text-amber-300' : level.includes('info') ? 'text-cyan-200' : 'text-foreground/75'
+                const color = level.includes('error') ? 'text-destructive' : level.includes('warn') ? 'text-warning' : level.includes('info') ? 'text-cyan-200' : 'text-foreground/75'
                 return (
                   <div key={index} className="whitespace-pre-wrap break-words">
                     {timestamp && <span className="text-foreground/35">{timestamp} </span>}

@@ -4,6 +4,7 @@
 // They are used by EVERY settings tab so the whole page reads uniformly,
 // while each control stays bound to the same real state as before.
 import * as React from 'react'
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 
 // ─── Panel: glass card with a bold title (mockup .panel) ────────────────────
@@ -29,13 +30,13 @@ export function ApprRow({ label, description, children, hint }: {
   hint?: React.ReactNode
 }) {
   return (
-    <div className="appr-setting-row" style={{ marginTop: 16 }}>
+    <div className="appr-setting-row mt-4">
       <div>
         <h3>{label}</h3>
         {description && <p>{description}</p>}
       </div>
       {children && <div className="shrink-0">{children}</div>}
-      {hint && !children && <p className="appr-hint" style={{ marginTop: 0 }}>{hint}</p>}
+      {hint && !children && <p className="appr-hint mt-0">{hint}</p>}
     </div>
   )
 }
@@ -53,9 +54,10 @@ export function ApprToggle({ label, description, checked, onCheckedChange, disab
   onCheckedChange: (v: boolean) => void
   disabled?: boolean
 }) {
+  const labelId = React.useId()
   return (
-    <ApprRow label={label} description={description}>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className="shrink-0" />
+    <ApprRow label={<span id={labelId}>{label}</span>} description={description}>
+      <Switch aria-labelledby={labelId} checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className="shrink-0" />
     </ApprRow>
   )
 }
@@ -73,8 +75,7 @@ export function ApprSelect({ value, onChange, options, ariaLabel }: {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label={ariaLabel}
-        className="appr-select-btn min-w-[200px]"
-        style={{ background: 'transparent', border: '0', fontSize: 'inherit', color: 'inherit', height: '45px' }}
+        className="rumahl-input min-w-[min(200px,40vw)]"
       >
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -90,8 +91,8 @@ export function ApprButton({ children, onClick, disabled, type = 'button' }: {
   type?: 'button' | 'submit'
 }) {
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className="appr-soft-btn">
+    <Button type={type} onClick={onClick} disabled={disabled} variant="secondary">
       {children}
-    </button>
+    </Button>
   )
 }

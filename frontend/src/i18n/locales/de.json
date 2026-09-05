@@ -801,6 +801,7 @@
     "deviceLockDesc": "Sperrt Einstellungen auf diesem Gerät – PIN zum Entsperren",
     "aiDisableDesc": "Schaltet rumahl AI, Pi.dev Agent und alle KI-Funktionen aus",
     "glassEffectsDesc": "Transparenz, Unschärfe und Kartenradius",
+    "osTransparencyHint": "Unschärfe und Transparenz für schwebende Oberflächen aktivieren.",
     "frostedGlassDesc": "Frosted-Glass-Optik für Karten und Menüs",
     "about": "Info",
     "aboutDesc": "Gerät, Betriebssystem und Status",

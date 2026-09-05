@@ -380,32 +380,32 @@ export function LauncherAppGrid({
           initial={{ opacity: 0, y: 6, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 4, scale: 0.97 }}
-          className="fixed z-[87] w-48 overflow-hidden rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+          className="rumahl-menu fixed z-[var(--layer-menu)] w-48 overflow-hidden"
           style={{ left: Math.min(quickMenu.x, window.innerWidth - 200), top: Math.min(quickMenu.y + 8, window.innerHeight - (isManagedApp(quickMenu.app) ? 340 : 260)) }}
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
         >
           {isManagedApp(quickMenu.app) && <>
             {/* Start / Stop — depending on the current runtime status */}
-            <button type="button" onClick={() => void runAppAction(isAppRunning(quickMenu.app) ? 'stop' : 'start', quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8 disabled:pointer-events-none disabled:opacity-50">
+            <button type="button" onClick={() => void runAppAction(isAppRunning(quickMenu.app) ? 'stop' : 'start', quickMenu.app)} disabled={busyAction !== null} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection disabled:pointer-events-none disabled:opacity-50">
               {busyAction === 'start' || busyAction === 'stop' ? <MenuSpinner /> : isAppRunning(quickMenu.app)
                 ? <Stop size={16} className="text-foreground/60" />
                 : <Play size={16} className="text-foreground/60" />}
               {isAppRunning(quickMenu.app) ? t('os.quickActions.stop') : t('os.quickActions.start')}
             </button>
-            <button type="button" onClick={() => void runAppAction('restart', quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8 disabled:pointer-events-none disabled:opacity-50">
+            <button type="button" onClick={() => void runAppAction('restart', quickMenu.app)} disabled={busyAction !== null} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection disabled:pointer-events-none disabled:opacity-50">
               {busyAction === 'restart' ? <MenuSpinner /> : <ArrowClockwise size={16} className="text-foreground/60" />}
               {t('os.quickActions.restart')}
             </button>
-            <button type="button" onClick={() => troubleshootApp(quickMenu.app)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => troubleshootApp(quickMenu.app)} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <Wrench size={16} className="text-foreground/60" />
               {t('os.quickActions.troubleshoot')}
             </button>
-            <button type="button" onClick={() => showAppInStore(quickMenu.app)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => showAppInStore(quickMenu.app)} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <Storefront size={16} className="text-foreground/60" />
               {t('os.quickActions.showInStore')}
             </button>
-            <button type="button" onClick={() => void confirmUninstall(quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-red-300/90 hover:bg-red-500/15 disabled:pointer-events-none disabled:opacity-50">
+            <button type="button" onClick={() => void confirmUninstall(quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">
               {busyAction === 'uninstall' ? <MenuSpinner /> : <TrashSimple size={16} className="text-red-400/80" />}
               {t('os.quickActions.uninstall')}
             </button>
@@ -413,7 +413,7 @@ export function LauncherAppGrid({
               <button
                 type="button"
                 onClick={() => { onAddToDesktop(quickMenu.app); setQuickMenu(null) }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+                className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
               >
                 <PushPin size={16} className="text-foreground/60" />
                 {t('os.quickActions.addToDesktop')}
@@ -429,7 +429,7 @@ export function LauncherAppGrid({
                 if (!moreOpen) setMorePos(rect ? { x: rect.right, y: rect.top } : null)
                 setMoreOpen(!moreOpen)
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
             >
               <SquaresFour size={16} className="text-foreground/60" />
               <span className="flex-1">{t('os.quickActions.more')}</span>
@@ -437,7 +437,7 @@ export function LauncherAppGrid({
             </button>
           </>}
           {!isManagedApp(quickMenu.app) && <>
-            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <ArrowSquareOut size={16} className="text-foreground/60" />
               {t('os.launcher.open')}
             </button>
@@ -445,7 +445,7 @@ export function LauncherAppGrid({
               <button
                 type="button"
                 onClick={() => { onAddToDesktop(quickMenu.app); setQuickMenu(null) }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+                className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
               >
                 <PushPin size={16} className="text-foreground/60" />
                 {t('os.quickActions.addToDesktop')}
@@ -457,29 +457,29 @@ export function LauncherAppGrid({
                 toggleDockPin(quickMenu.app.id)
                 setQuickMenu({ ...quickMenu, pinned: !quickMenu.pinned })
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
             >
               <PushPin size={16} className="text-foreground/60" />
               {quickMenu.pinned ? t('os.quickActions.unpin') : t('os.quickActions.pin')}
             </button>
             <div className="my-1 h-px bg-foreground/8" />
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.asWindow')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitLeft')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitRight')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.immersive')}
             </button>
-            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <PencilSimple size={16} className="text-foreground/60" />
               {t('os.quickActions.arrange')}
             </button>
@@ -492,12 +492,12 @@ export function LauncherAppGrid({
             initial={{ opacity: 0, x: -6, scale: 0.96 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -4, scale: 0.97 }}
-            className="fixed z-[88] w-48 overflow-hidden rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+            className="rumahl-menu fixed z-[var(--layer-menu)] w-48 overflow-hidden"
             style={{ left: Math.min((morePos?.x ?? quickMenu.x + 192) + 6, window.innerWidth - 200), top: Math.min(morePos?.y ?? quickMenu.y + 8, window.innerHeight - 340) }}
             onClick={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.stopPropagation()}
           >
-            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <ArrowSquareOut size={16} className="text-foreground/60" />
               {t('os.launcher.open')}
             </button>
@@ -507,29 +507,29 @@ export function LauncherAppGrid({
                 toggleDockPin(quickMenu.app.id)
                 setQuickMenu({ ...quickMenu, pinned: !quickMenu.pinned })
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
             >
               <PushPin size={16} className="text-foreground/60" />
               {quickMenu.pinned ? t('os.quickActions.unpin') : t('os.quickActions.pin')}
             </button>
             <div className="my-1 h-px bg-foreground/8" />
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.asWindow')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitLeft')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitRight')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.immersive')}
             </button>
-            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <PencilSimple size={16} className="text-foreground/60" />
               {t('os.quickActions.arrange')}
             </button>
