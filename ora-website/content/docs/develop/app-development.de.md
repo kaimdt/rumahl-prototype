@@ -77,3 +77,11 @@ const { files } = await ora.files.list({ folderId: null });
 4. Pflege deine App — Updates und Sicherheitspatches werden erwartet
 
 > **Tipp:** Die vollständigen Regeln stehen in der Entwicklervereinbarung, den Review-Richtlinien und der Inhaltsrichtlinie unter /legal/app-store.
+
+
+## Weiterführende Entwickler-Ressourcen
+
+- **[rumahl Developers Portal](/docs/guides/rumahl-developers):** Organisationen, App-Registrierung, Verifizierung und Release-Kanäle.
+- **[Developer REST-API](/docs/guides/developer-api):** Vollständige Endpunkt-Dokumentation für App- und Release-Management.
+- **[OAuth 2.0 & rumahl Konto](/docs/guides/oauth-identity):** Sichere Benutzeranmeldung mit Single Sign-On und PKCE.
+- **[SDKs & CI/CD-Integration](/docs/guides/sdks-integration):** Bibliotheken für TypeScript und Python sowie GitHub Actions Vorlagen.

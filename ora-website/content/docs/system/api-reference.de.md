@@ -82,3 +82,12 @@ Echtzeit-Updates laufen über WebSockets — das interaktive Terminal, Live-Syst
 ```
 
 > **Tipp:** Die vollständige Endpunkt-Dokumentation gibt es jederzeit in der Swagger-UI deiner laufenden Instanz.
+
+
+## Entwickler- & Cloud-APIs
+
+Für die Cloud- und Store-Automatisierung sowie Single Sign-On bietet rumahl dedizierte Schnittstellen:
+
+- **[Developer REST-API](/docs/guides/developer-api):** Verwalte Apps, Releases, Binaries, Teammitglieder, Webhooks und Scoped API-Keys programmatisch.
+- **[OAuth 2.0 & rumahl Konto](/docs/guides/oauth-identity):** OpenID Connect (OIDC), PKCE-Autorisierungsfluss, Passkeys (FIDO2) und Consent-Management.
+- **[SDKs & CI/CD-Integration](/docs/guides/sdks-integration):** Offizielle SDKs für TypeScript und Python, cURL-Skripte und GitHub Actions Workflows.

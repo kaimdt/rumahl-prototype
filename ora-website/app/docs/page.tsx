@@ -17,6 +17,10 @@ export const metadata: Metadata = {
 const docsFeaturedSlugs = [
   "installation",
   "quick-start",
+  "rumahl-developers",
+  "developer-api",
+  "oauth-identity",
+  "sdks-integration",
   "architecture",
   "api-reference",
   "security-model",
@@ -80,9 +84,12 @@ export default function DocsPage() {
               </span>
               {[
                 { label: "Installation", slug: "installation" },
+                { label: "rumahl Developers", slug: "rumahl-developers" },
+                { label: "OAuth & Identity", slug: "oauth-identity" },
+                { label: "Developer API", slug: "developer-api" },
+                { label: "SDKs & CI/CD", slug: "sdks-integration" },
                 { label: "API Reference", slug: "api-reference" },
                 { label: "Architecture", slug: "architecture" },
-                { label: "Security Model", slug: "security-model" },
                 { label: "App Development", slug: "app-development" },
               ].map((topic) => (
                 <Link

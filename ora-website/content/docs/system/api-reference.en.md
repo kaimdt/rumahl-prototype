@@ -82,3 +82,12 @@ Real-time updates flow over WebSockets — the interactive terminal, live system
 ```
 
 > **Tip:** the full endpoint documentation is always available in the Swagger UI of your running instance.
+
+
+## Developer & Cloud APIs
+
+For cloud and store automation as well as federated Single Sign-On, rumahl provides dedicated developer APIs:
+
+- **[Developer REST API](/docs/guides/developer-api):** Programmatically manage apps, releases, binary bundles, team members, webhooks, and scoped API keys.
+- **[OAuth 2.0 & rumahl Account](/docs/guides/oauth-identity):** OpenID Connect (OIDC), PKCE authorization flow, Passkeys (FIDO2), and consent management.
+- **[SDKs & CI/CD Integration](/docs/guides/sdks-integration):** Official SDKs for TypeScript and Python, cURL release recipes, and GitHub Actions workflows.
