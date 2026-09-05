@@ -674,6 +674,27 @@
     }
   },
   "settings": {
+    "surfaceStyle": {
+      "title": "Glass system style",
+      "description": "Blurred glass for windows, the start menu, menus and dialogs. Content stays readable; the desktop bar can be styled separately.",
+      "material": "Surface style",
+      "solid": "Clear and opaque",
+      "glass": "Glass with blur",
+      "opacity": "Opacity",
+      "blur": "Blur",
+      "tint": "Glass tint",
+      "tintStrength": "Tint strength",
+      "reset": "Reset surfaces",
+      "disabled": "Glass effects are disabled or restricted by the active theme."
+    },
+    "colorSupport": {
+      "switching": "Light/dark · automatic switching",
+      "lightOnly": "Light appearance",
+      "darkOnly": "Dark appearance",
+      "themeDefined": "Defined by theme",
+      "customModes": "These color modes are provided by the active theme.",
+      "fixed": "This theme does not provide switchable color modes."
+    },
     "shellAppearance": {
       "title": "Personalize desktop bar",
       "description": "Choose the material, icons and divider for the logo and status bar. Changes apply immediately and are saved on this device.",

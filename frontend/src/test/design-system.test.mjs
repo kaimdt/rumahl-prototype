@@ -259,3 +259,67 @@ test('Desktop bar personalization labels exist in both root settings locales', (
     }
   }
 })
+
+function isolatedPresentationModule(path, mocks, globals = {}) {
+  const source = readFileSync(resolve(frontend, path), 'utf8')
+  const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } })
+  const module = { exports: {} }
+  new Script(outputText).runInNewContext({ module, exports: module.exports, require: (id) => mocks[id] ?? require(id), ...globals })
+  return module.exports
+}
+
+test('Color mode dropdown selects working light, dark and automatic theme states', () => {
+  const calls = []
+  const theme = { selectedTheme: 'day', designModes: [], activeDesignMode: 'default', setSelectedTheme: (value) => calls.push(['theme', value]), setAutoTheme: (value) => calls.push(['auto', value]), setSleepMode: (value) => calls.push(['sleep', value]) }
+  const { ThemeColorModeControl } = isolatedPresentationModule('components/settings/ThemeColorModeControl.tsx', {
+    '@/contexts/ThemeContext': { useTheme: () => theme },
+    'react-i18next': { useTranslation: () => ({ t: (key) => key }) },
+    './appr': { ApprSelect: 'select' },
+  })
+  const dropdown = ThemeColorModeControl()
+  assert.equal(dropdown.props.value, 'light')
+  theme.selectedTheme = 'day-classic'
+  assert.equal(ThemeColorModeControl().props.value, 'dark')
+  dropdown.props.onChange('dark')
+  assert.deepEqual(calls.pop(), ['theme', 'night'])
+  dropdown.props.onChange('auto')
+  assert.deepEqual(calls.slice(-3), [['sleep', false], ['auto', true], ['theme', 'auto']])
+  dropdown.props.onChange('light')
+  assert.deepEqual(calls.pop(), ['theme', 'day'])
+})
+
+test('Custom color mode selection preserves its theme and uses declared modes', () => {
+  const calls = []
+  const { ThemeColorModeControl } = isolatedPresentationModule('components/settings/ThemeColorModeControl.tsx', {
+    '@/contexts/ThemeContext': { useTheme: () => ({ selectedTheme: 'custom-theme', activeDesignMode: 'light', designModes: [{ id: 'light', name: 'Light' }, { id: 'dark', name: 'Dark' }], setActiveDesignMode: (value) => calls.push(value) }) },
+    'react-i18next': { useTranslation: () => ({ t: (key) => key }) }, './appr': { ApprSelect: 'select' },
+  })
+  const dropdown = ThemeColorModeControl().props.children[0]
+  assert.deepEqual(Array.from(dropdown.props.options, (option) => option.value), ['light', 'dark'])
+  dropdown.props.onChange('dark')
+  assert.deepEqual(calls, ['dark'])
+})
+
+test('Glass style applies stored density, blur and tint and can return to solid', () => {
+  const properties = new Map()
+  const root = { dataset: {}, style: { setProperty: (key, value) => properties.set(key, value) } }
+  let stored = { style: 'glass', opacity: 55, blur: 30, tint: '#224466', tintStrength: 22 }
+  const { useSurfaceAppearance, normalizeSurfaceAppearance } = isolatedPresentationModule('hooks/useSurfaceAppearance.ts', {
+    react: { useEffect: (effect) => effect() }, '@/lib/storage': { useLocalStorage: () => [stored, (value) => { stored = value }] },
+  }, { document: { documentElement: root } })
+  useSurfaceAppearance()
+  assert.equal(root.dataset.surfaceStyle, 'glass')
+  assert.equal(properties.get('--user-glass-opacity'), '55%')
+  assert.equal(properties.get('--user-glass-blur'), '30px')
+  assert.equal(properties.get('--user-glass-tint'), '#224466')
+  useSurfaceAppearance().reset()
+  useSurfaceAppearance()
+  assert.equal(root.dataset.surfaceStyle, 'solid')
+  assert.equal(normalizeSurfaceAppearance({ opacity: -1, blur: Infinity, tint: 'invalid' }).opacity, 20)
+  assert.equal(normalizeSurfaceAppearance({ blur: Infinity }).blur, 24)
+  for (const language of ['de', 'en']) {
+    const locale = JSON.parse(readFileSync(resolve(frontend, `i18n/locales/${language}.json`), 'utf8'))
+    assert.ok(locale.settings.surfaceStyle.title)
+    assert.ok(locale.settings.colorSupport.switching)
+  }
+})

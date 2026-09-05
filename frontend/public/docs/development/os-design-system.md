@@ -110,7 +110,7 @@ node node_modules/typescript/bin/tsc --noEmit --pretty false
 The production build uses `--noCheck`, so report the separate TypeScript result.
 At migration time the full typecheck has 13 existing diagnostics, also present in
 the source branch. ESLint reports the same 11 existing warnings and no errors.
-The fifteen Node regression tests pass, including disabling/re-enabling glass effects.
+The eighteen Node regression tests pass, including disabling/re-enabling glass effects.
 The new Node regression suite does not require Bun. The
 repository's existing Bun tests still require an installed Bun runtime.
 
@@ -154,3 +154,18 @@ and notifies mounted controls immediately. Reset restores the opaque, automatic
 contrast default. Invalid persisted values are normalized. Reduced transparency
 keeps an opaque surface; disabling glass removes blur from the glass preset.
 The launcher dock layout and application navbars are unaffected.
+
+## Glass system style and color mode controls
+
+Appearance now offers a device-local glass system style (`rumahl-surface-appearance`).
+Opacity (20–95%), blur (0–60 px), tint and tint strength apply to window, menu and
+dialog surfaces. Interior application frames do not add a second opaque fill.
+Inputs retain their readable theme surface. Reduced transparency or disabled glass
+keeps the opaque layout. The bar glass preset uses the adjustable glass fill and
+enables glass when selected; its material remains independent of the window style.
+
+The color mode dropdown changes built-in light/dark/time-based automatic themes;
+custom themes retain their identity and expose only declared design modes. Theme
+cards label light, dark and automatic-switch appearances. Selecting automatic mode
+also enables automatic scheduling and exits sleep override. The accent color input
+is now bound to the existing static color setting.

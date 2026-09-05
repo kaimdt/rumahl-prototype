@@ -5930,7 +5930,7 @@ main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
   --shell-bar-text-shadow: 0 1px 3px rgb(255 255 255 / 0.45);
 }
 :root[data-shell-mode="desktop"][data-bar-material="glass"] .rumahl-system-bar {
-  background: var(--surface-glass);
+  background: var(--user-glass-fill);
   backdrop-filter: blur(var(--shell-bar-blur, 20px));
 }
 :root[data-shell-mode="desktop"][data-bar-material="transparent"] .rumahl-system-bar {
@@ -5966,4 +5966,40 @@ main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
 :root[data-glass="off"][data-bar-material="glass"] {
   --shell-bar-ink: var(--foreground);
   --shell-bar-text-shadow: none;
+}
+
+/* A single blurred outer surface avoids stacking several nearly opaque fills. */
+:root {
+  --user-glass-color: color-mix(in oklch, var(--user-glass-tint, #8b5cf6) var(--user-glass-tint-strength, 10%), var(--card));
+  --user-glass-fill: color-mix(in oklch, var(--user-glass-color) var(--user-glass-opacity, 68%), transparent);
+}
+:root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"]) {
+  --surface-window: var(--user-glass-fill);
+  --surface-overlay: var(--user-glass-fill);
+  --surface-dialog: var(--user-glass-fill);
+  --surface-base: transparent;
+  --surface-raised: color-mix(in oklch, var(--card) 16%, transparent);
+  --surface-toolbar: color-mix(in oklch, var(--card) 12%, transparent);
+  --surface-sidebar: color-mix(in oklch, var(--card) 20%, transparent);
+}
+:root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"]) :is(.rumahl-os-window, .rumahl-menu, .rumahl-popover, .rumahl-dialog, .rumahl-start-menu, .rumahl-quick-settings, .rumahl-notification-center) {
+  background: var(--user-glass-fill);
+  backdrop-filter: blur(var(--user-glass-blur, 24px));
+  -webkit-backdrop-filter: blur(var(--user-glass-blur, 24px));
+}
+:root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"]) .rumahl-os-window :is(.rumahl-app-frame, .rumahl-os-app-frame, .rumahl-os-window-content) {
+  background: transparent;
+  backdrop-filter: none;
+}
+:root[data-surface-style="glass"]:not([data-glass="off"]):not([data-reduce-transparency="true"]) main > :is(.rumahl-app-frame, .rumahl-os-app-frame) {
+  background: var(--user-glass-fill);
+  backdrop-filter: blur(var(--user-glass-blur, 24px));
+}
+select.rumahl-input option {
+  background: var(--card);
+  color: var(--foreground);
+}
+
+:root[data-shell-mode="desktop"][data-bar-material="solid"] .rumahl-system-bar {
+  background: var(--card);
 }

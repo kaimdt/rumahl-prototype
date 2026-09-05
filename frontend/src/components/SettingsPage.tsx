@@ -1,3 +1,5 @@
+import { ThemeColorModeControl } from './settings/ThemeColorModeControl'
+import { SurfaceAppearanceSettings } from './settings/SurfaceAppearanceSettings'
 import { ShellAppearanceSettings } from './settings/ShellAppearanceSettings'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -363,7 +365,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
   const { preset: uiScalePreset, setPreset: setUiScale } = useUiScale()
-  const { selectedTheme, setSelectedTheme } = useTheme()
+  const { selectedTheme, setSelectedTheme, setAutoTheme, setSleepMode } = useTheme()
   // Per-user auto-lock timeout (minutes, 0 = disabled).
   const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('rumahl-auto-lock-minutes', 15)
   const [screensaverStyle, setScreensaverStyle] = useLocalStorage<ScreensaverStyle>('rumahl-screensaver-style', 'clock')
@@ -769,9 +771,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <h3>{t('settings.accentMode')}</h3>
                   <p>{t('settings.accentModeDesc')}</p>
                 </div>
-                <button type="button" className="rumahl-secondary-button">
-                  <span>Dunkel (Automatisch)</span><span aria-hidden="true">⌄</span>
-                </button>
+                <ThemeColorModeControl />
               </div>
 
               <div className="appr-divider" />
@@ -795,7 +795,7 @@ export function SettingsPage(props: SettingsPageProps) {
                         />
                       ))
                     : null}
-                  <button type="button" className="appr-add-swatch" aria-label="Akzentfarbe hinzufügen">＋</button>
+                  <input type="color" value={accentColorSettings.staticColor} onChange={(event) => { accentColorSettings.setStaticColor(event.target.value); accentColorSettings.setMode('static') }} aria-label={t('settings.accentColor')} className="h-9 w-9 cursor-pointer rounded-full border border-border bg-transparent p-1" />
                 </div>
               </div>
 
@@ -819,12 +819,13 @@ export function SettingsPage(props: SettingsPageProps) {
                       <button
                         key={mode.id}
                         type="button"
-                        onClick={() => setSelectedTheme(mode.id)}
+                        onClick={() => { setSleepMode(false); if (mode.id === 'auto') setAutoTheme(true); setSelectedTheme(mode.id) }}
                         className={`appr-mode-card ${selected ? 'selected' : ''}`}
                       >
                         <span className={`appr-preview ${mode.cls}`} aria-hidden="true" />
                         <strong>{t(`settings.themeOptions.${mode.id}.label`)}</strong>
                         <small>{t(`settings.themeOptions.${mode.id}.description`)}</small>
+                        <span className="mt-2 block text-xs text-muted-foreground">{t(mode.id === 'auto' ? 'settings.colorSupport.switching' : mode.id === 'day' ? 'settings.colorSupport.lightOnly' : 'settings.colorSupport.darkOnly')}</span>
                       </button>
                     )
                   })}
@@ -887,7 +888,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     </div>
                     <Switch
                       checked={selectedTheme === 'auto'}
-                      onCheckedChange={(enabled) => setSelectedTheme(enabled ? 'auto' : 'night')}
+                      onCheckedChange={(enabled) => { setSleepMode(false); setAutoTheme(enabled); setSelectedTheme(enabled ? 'auto' : 'night') }}
                       aria-label={t('settings.autoTheme')}
                     />
                   </div>
@@ -936,7 +937,8 @@ export function SettingsPage(props: SettingsPageProps) {
             {/* Advanced / additional appearance settings — kept as collapsible
                 sections so every existing flow remains reachable. */}
             <div className="space-y-3.5 mt-4">
-              <ShellAppearanceSettings />
+              <ShellAppearanceSettings onEnableGlass={glassSettings.setEnabled} />
+              <SurfaceAppearanceSettings enabled={glassSettings.enabled} onEnable={glassSettings.setEnabled} />
               <SettingsSection icon={Eye} title={t('settings.glassEffects')} description={t('settings.glassEffectsDesc')}>
                 <ToggleRow
                   label={t("settings.glassEnable")}

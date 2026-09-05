@@ -4,13 +4,13 @@ import { useShellAppearance } from '@/hooks/useShellAppearance'
 import { SettingsSection, SliderRow } from './shared'
 import { ApprButton, ApprRow, ApprSelect, ApprToggle } from './appr'
 
-export function ShellAppearanceSettings() {
+export function ShellAppearanceSettings({ onEnableGlass }: { onEnableGlass: (enabled: boolean) => void }) {
   const { t } = useTranslation()
   const { settings, save, reset } = useShellAppearance()
   return (
     <SettingsSection icon={SlidersHorizontal} title={t('settings.shellAppearance.title')} description={t('settings.shellAppearance.description')}>
       <ApprRow label={t('settings.shellAppearance.material')}>
-        <ApprSelect value={settings.material} ariaLabel={t('settings.shellAppearance.material')} onChange={(material) => save({ ...settings, material })}
+        <ApprSelect value={settings.material} ariaLabel={t('settings.shellAppearance.material')} onChange={(material) => { save({ ...settings, material }); if (material === 'glass') onEnableGlass(true) }}
           options={['solid', 'glass', 'transparent'].map((value) => ({ value, label: t(`settings.shellAppearance.${value}`) }))} />
       </ApprRow>
       <ApprRow label={t('settings.shellAppearance.contrast')} description={t('settings.shellAppearance.contrastHint')}>
