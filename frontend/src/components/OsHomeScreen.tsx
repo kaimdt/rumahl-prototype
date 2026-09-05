@@ -274,24 +274,25 @@ export function OsHomeScreen() {
   }, [])
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement) return
+      if (resolvedMode !== 'launcher' || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, button, [contenteditable="true"], [role="dialog"]')) return
       if (event.key === 'ArrowRight') setPage((value) => Math.min(value + 1, appPages.length - 1))
       if (event.key === 'ArrowLeft') setPage((value) => Math.max(value - 1, 0))
       if (event.key === 'Home' && homeApp) setCurrentPageId(homeApp.pageId)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [appPages.length, homeApp, setCurrentPageId])
+  }, [appPages.length, homeApp, setCurrentPageId, resolvedMode])
   useEffect(() => {
     const openCommand = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      if (resolvedMode === 'launcher' && !event.defaultPrevented && searchInput.current && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         searchInput.current?.focus()
       }
     }
     window.addEventListener('keydown', openCommand)
     return () => window.removeEventListener('keydown', openCommand)
-  }, [])
+  }, [resolvedMode])
 
   const selectLauncher = (id: string) => {
     setLauncherId(id)
@@ -417,7 +418,7 @@ export function OsHomeScreen() {
 
   return (
     <section
-      className="relative min-h-[calc(100dvh-8rem)] select-none pb-4 pt-2"
+      className="rumahl-launcher-workspace relative min-h-[calc(100dvh-8rem)] select-none pb-4 pt-2"
       style={launcher?.accent ? { '--accent': launcher.accent } as React.CSSProperties : undefined}
       aria-label={t('os.launcher.label')}
       onWheel={onWheelPage}
@@ -487,23 +488,30 @@ export function OsHomeScreen() {
               </div>
             </div>
           )}
-          <label className="rumahl-command-search mx-auto mb-6 flex min-h-14 max-w-2xl items-center gap-3 rounded-2xl px-4"><MagnifyingGlass size={20} className="text-white/45" /><span className="sr-only">{t('os.search')}</span><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && visibleApps[0]) openApp(visibleApps[0]) }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35" /><kbd className="hidden sm:inline">⌘K</kbd></label>
-          {appGrid}
+          <label className="rumahl-command-search mx-auto mb-6 flex min-h-12 max-w-2xl items-center gap-3 rounded-xl px-4">
+            <MagnifyingGlass size={20} className="shrink-0 text-foreground/50" />
+            <span className="sr-only">{t('os.search')}</span>
+            <input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && visibleApps[0]) openApp(visibleApps[0]); if (event.key === 'Escape') setQuery('') }} placeholder={t('os.launcher.commandPlaceholder')} className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none" />
+            <kbd className="hidden shrink-0 sm:inline">{t(navigator.platform.includes('Mac') ? 'os.launcher.commandShortcutMac' : 'os.launcher.commandShortcutOther')}</kbd>
+          </label>
+          <div className="rumahl-launcher-library">{appGrid}</div>
         </div>
       )}
 
       {layout === 'deck' && (
         <div className="mx-auto mt-7 grid max-w-7xl gap-5 px-1 lg:grid-cols-[0.85fr_1.15fr]">
-          <div className="glass-card rounded-4xl p-5 sm:p-7"><p className="text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.intelligent')}</p><h2 className="mt-2 text-2xl font-semibold sm:text-3xl">{t('os.launcher.whatToDo')}</h2><label className="mt-6 flex min-h-14 items-center gap-3 rounded-2xl border border-foreground/12 bg-foreground/5 px-4 transition-all focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_14%,transparent)]"><MagnifyingGlass size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm outline-none" /></label><div className="mt-5 flex flex-wrap gap-2">{apps.slice(0, 4).map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="rounded-full border border-foreground/10 bg-foreground/5 px-3 py-2 text-xs transition-colors hover:bg-foreground/10">{getName(app)}</button>)}</div></div>
+          <div className="glass-card rounded-4xl p-5 sm:p-7"><p className="text-xs uppercase tracking-[0.18em] text-accent">{t('os.launcher.intelligent')}</p><h2 className="mt-2 text-2xl font-semibold sm:text-3xl">{t('os.launcher.whatToDo')}</h2><label className="rumahl-command-search mt-6 flex min-h-14 items-center gap-3 rounded-2xl border border-foreground/12 bg-foreground/5 px-4 transition-all focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_14%,transparent)]"><MagnifyingGlass size={20} /><input ref={searchInput} aria-label={t('os.search')} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && visibleApps[0]) openApp(visibleApps[0]); if (event.key === 'Escape') setQuery('') }} placeholder={t('os.launcher.commandPlaceholder')} className="w-full bg-transparent text-sm outline-none" /></label><div className="mt-5 flex flex-wrap gap-2">{apps.slice(0, 4).map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="rounded-full border border-foreground/10 bg-foreground/5 px-3 py-2 text-xs transition-colors hover:bg-foreground/10">{getName(app)}</button>)}</div></div>
           <div className="space-y-2"><p className="mb-3 px-2 text-sm font-semibold">{t('os.allApps')}</p>{visibleApps.map((app) => <button key={app.id} type="button" onClick={() => openApp(app)} className="glass-card group flex min-h-20 w-full touch-manipulation items-center gap-4 rounded-2xl p-3 text-left transition-all hover:-translate-y-0.5 hover:bg-foreground/10 hover:shadow-lg focus-ring"><AppIcon app={app} /><span className="min-w-0 flex-1"><span className="block font-semibold">{getName(app)}</span><span className="block truncate text-xs text-foreground/45">{getDescription(app)}</span></span><ArrowRight size={18} className="text-foreground/35 transition-transform group-hover:translate-x-0.5" /></button>)}</div>
         </div>
       )}
 
       {layout === 'canvas' && (
-        <div className="mx-auto mt-8 max-w-7xl overflow-hidden px-1"><label className="glass-card mx-auto mb-10 flex min-h-12 max-w-sm items-center gap-3 rounded-full px-4 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_14%,transparent)]"><MagnifyingGlass size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('os.search')} className="w-full bg-transparent text-sm outline-none" /></label><div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-[10vw] pb-6 [scrollbar-width:none]">{visibleApps.map((app, index) => <button key={app.id} type="button" onClick={() => openApp(app)} className={`glass-card group min-h-72 shrink-0 snap-center rounded-4xl p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl focus-ring ${index === 0 ? 'w-[min(78vw,28rem)]' : 'w-[min(68vw,20rem)]'}`}><AppIcon app={app} size="large" /><span className="mt-20 block text-2xl font-semibold">{getName(app)}</span><span className="mt-2 block text-sm text-foreground/50">{getDescription(app)}</span><span className="mt-5 inline-flex items-center gap-2 text-sm text-accent">{t('os.launcher.open')}<ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></span></button>)}</div></div>
+        <div className="mx-auto mt-8 max-w-7xl overflow-hidden px-1"><label className="rumahl-command-search glass-card mx-auto mb-10 flex min-h-12 max-w-sm items-center gap-3 rounded-full px-4 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_14%,transparent)]"><MagnifyingGlass size={19} /><input ref={searchInput} aria-label={t('os.search')} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && visibleApps[0]) openApp(visibleApps[0]); if (event.key === 'Escape') setQuery('') }} placeholder={t('os.search')} className="w-full bg-transparent text-sm outline-none" /></label><div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-[10vw] pb-6 [scrollbar-width:none]">{visibleApps.map((app, index) => <button key={app.id} type="button" onClick={() => openApp(app)} className={`glass-card group min-h-72 shrink-0 snap-center rounded-4xl p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl focus-ring ${index === 0 ? 'w-[min(78vw,28rem)]' : 'w-[min(68vw,20rem)]'}`}><AppIcon app={app} size="large" /><span className="mt-20 block text-2xl font-semibold">{getName(app)}</span><span className="mt-2 block text-sm text-foreground/50">{getDescription(app)}</span><span className="mt-5 inline-flex items-center gap-2 text-sm text-accent">{t('os.launcher.open')}<ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></span></button>)}</div></div>
       )}
 
-      {layout === 'default' && appPages.length > 1 && <div className="mt-7 flex justify-center gap-2" aria-label={t('os.launcher.pages')}>{appPages.map((_, index) => <button key={index} type="button" onClick={() => setPage(index)} className={`h-2.5 rounded-full transition-all ${index === activePage ? 'w-7 bg-accent' : 'w-2.5 bg-foreground/25'}`} aria-label={t('os.launcher.page', { page: index + 1 })} />)}</div>}
+      {visibleApps.length === 0 && <p role="status" className="py-10 text-center text-sm text-foreground/60">{t('common.noResults')}</p>}
+
+      {layout === 'default' && appPages.length > 1 && <div className="mt-7 flex justify-center gap-2" aria-label={t('os.launcher.pages')}>{appPages.map((_, index) => <button key={index} type="button" onClick={() => setPage(index)} className={`h-2.5 rounded-full transition-all ${index === activePage ? 'w-7 bg-accent' : 'w-2.5 bg-foreground/25'}`} aria-current={index === activePage ? 'page' : undefined} aria-label={t('os.launcher.page', { page: index + 1 })} />)}</div>}
       {layout === 'default' && (
         <div className="mx-auto max-w-6xl px-1">
           {widgetIds.length > 0 && <div className="mt-6 mb-5 grid gap-3 sm:grid-cols-2">

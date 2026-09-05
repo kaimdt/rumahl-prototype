@@ -182,6 +182,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
               <label className="rumahl-start-search flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-foreground/12 bg-foreground/4 px-3.5 py-2.5 text-foreground/80 backdrop-blur focus-within:border-accent/40">
                 <MagnifyingGlass size={17} className="shrink-0 text-foreground/45" />
                 <input
+                  aria-label={t('os.search')}
                   ref={inputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -231,7 +232,7 @@ export function DesktopLauncherOverlay({ open, apps, recent, onOpenApp, onOpenSe
                   ))}
                 </div>
               ) : (
-                <p className="py-10 text-center text-sm text-foreground/40">{t('os.search')}</p>
+                <p role="status" className="py-10 text-center text-sm text-foreground/60">{t('common.noResults')}</p>
               )}
             </div>
             <footer className="rumahl-start-menu-footer flex items-center justify-between gap-3 border-t border-foreground/8 px-4 py-3">

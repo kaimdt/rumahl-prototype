@@ -171,6 +171,8 @@
       "intelligent": "Intelligenter Zugriff",
       "whatToDo": "Was möchtest du tun?",
       "commandPlaceholder": "App, Gerät oder Aktion suchen",
+      "commandShortcutMac": "⌘ K",
+      "commandShortcutOther": "Strg K",
       "recent": "Zuletzt verwendet",
       "clearRecent": "Verlauf leeren",
       "pages": "Homescreen-Seiten",

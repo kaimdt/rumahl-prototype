@@ -284,14 +284,15 @@ export function LauncherAppGrid({
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
-        <button type="button" onClick={() => onEditModeChange(!editMode)} className={`flex min-h-10 items-center gap-2 rounded-full border px-4 text-xs font-semibold transition-colors ${editMode ? 'border-accent/40 bg-accent/15 text-accent' : 'border-foreground/10 bg-background/80 text-foreground/65 hover:bg-background'}`}>
+      <div className="rumahl-launcher-library-toolbar mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-foreground">{t('os.allApps')}</h2>
+        <button type="button" aria-pressed={editMode} onClick={() => onEditModeChange(!editMode)} className={`flex min-h-10 items-center gap-2 rounded-full border px-4 text-xs font-semibold transition-colors ${editMode ? 'border-accent/40 bg-accent/15 text-accent' : 'border-foreground/10 bg-background/80 text-foreground/65 hover:bg-background'}`}>
           {editMode ? <Check size={16} weight="bold" /> : <PencilSimple size={16} />}
           {editMode ? t('os.launcher.finishEditing') : t('os.launcher.edit')}
         </button>
       </div>
       <AnimatePresence mode="wait">
-        <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6">
+        <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="rumahl-launcher-app-grid grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6">
           {/* Install progress tiles (CasaOS/Umbrel style): apps currently
               being installed show a progress ring instead of a startable
               tile, so the launcher never offers a half-installed app. */}
