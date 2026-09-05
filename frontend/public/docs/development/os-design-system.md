@@ -110,7 +110,7 @@ node node_modules/typescript/bin/tsc --noEmit --pretty false
 The production build uses `--noCheck`, so report the separate TypeScript result.
 At migration time the full typecheck has 13 existing diagnostics, also present in
 the source branch. ESLint reports the same 11 existing warnings and no errors.
-The twelve Node regression tests pass, including disabling/re-enabling glass effects.
+The fifteen Node regression tests pass, including disabling/re-enabling glass effects.
 The new Node regression suite does not require Bun. The
 repository's existing Bun tests still require an installed Bun runtime.
 
@@ -144,3 +144,13 @@ return to the active app; window/split/minimize/close transitions clear immersiv
 state. Maximized windows fill the work area above the desktop taskbar and restore
 the prior rectangle even when React replays the state updater. Regression tests
 cover this restoration and the work-area/fullscreen bounds. Visual QA is pending.
+
+## Desktop bar personalization
+
+Appearance settings expose opaque, glass and fully transparent bar materials,
+automatic/light/dark icon contrast, divider visibility and a 0–40 px glass blur.
+The existing local storage hook persists `rumahl-shell-appearance` on this device
+and notifies mounted controls immediately. Reset restores the opaque, automatic
+contrast default. Invalid persisted values are normalized. Reduced transparency
+keeps an opaque surface; disabling glass removes blur from the glass preset.
+The launcher dock layout and application navbars are unaffected.

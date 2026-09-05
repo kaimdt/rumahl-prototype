@@ -674,6 +674,22 @@
     }
   },
   "settings": {
+    "shellAppearance": {
+      "title": "Desktop-Leiste personalisieren",
+      "description": "Material, Symbole und Trennrand für die Leiste mit Logo und Systemstatus. Änderungen gelten sofort und werden auf diesem Gerät gespeichert.",
+      "material": "Oberfläche",
+      "solid": "Deckend",
+      "glass": "Glas",
+      "transparent": "Vollständig transparent",
+      "contrast": "Logo und Symbole",
+      "contrastHint": "Automatisch folgt bei transparenten Leisten dem Hintergrundbild. Für unruhige Bilder kannst du helle oder dunkle Symbole festlegen.",
+      "auto": "Automatisch",
+      "light": "Hell",
+      "dark": "Dunkel",
+      "border": "Trennrand anzeigen",
+      "blur": "Unschärfe der Leiste",
+      "reset": "Leiste zurücksetzen"
+    },
     "title": "Einstellungen",
     "general": "Allgemein",
     "appearance": "Erscheinungsbild",

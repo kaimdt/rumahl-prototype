@@ -1,3 +1,4 @@
+import { useShellAppearance } from '@/hooks/useShellAppearance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { DUR_PAGE, EASE_OS, MOTION_PANEL } from '@/lib/motion'
@@ -73,6 +74,7 @@ function formatUptime(seconds: number, t: (key: string, options?: Record<string,
 }
 
 export function OsSystemShell() {
+  useShellAppearance()
   const { t, i18n } = useTranslation()
   const { theme, sleepMode, setSleepMode } = useTheme()
   const { resolvedMode } = useShellMode()

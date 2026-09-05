@@ -5912,3 +5912,58 @@ main[data-immersive="true"] :is(.rumahl-app-frame, .rumahl-os-app-frame){
 }
 @media (max-width: 600px) { :root[data-shell-mode="desktop"] .rumahl-start-app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 639px) { .rumahl-launcher-app-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 6px; } }
+/* User-selected desktop bar material; floating menus retain their own surfaces. */
+:root {
+  --shell-bar-ink: var(--foreground);
+  --shell-bar-text-shadow: none;
+}
+:root[data-bar-material="transparent"] {
+  --shell-bar-ink: var(--adaptive-text-color, var(--foreground));
+  --shell-bar-text-shadow: var(--adaptive-text-shadow, none);
+}
+:root[data-bar-contrast="light"] {
+  --shell-bar-ink: #fff;
+  --shell-bar-text-shadow: 0 1px 4px rgb(0 0 0 / 0.65);
+}
+:root[data-bar-contrast="dark"] {
+  --shell-bar-ink: #17202e;
+  --shell-bar-text-shadow: 0 1px 3px rgb(255 255 255 / 0.45);
+}
+:root[data-shell-mode="desktop"][data-bar-material="glass"] .rumahl-system-bar {
+  background: var(--surface-glass);
+  backdrop-filter: blur(var(--shell-bar-blur, 20px));
+}
+:root[data-shell-mode="desktop"][data-bar-material="transparent"] .rumahl-system-bar {
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+:root[data-shell-mode="desktop"] :is(.rumahl-topbar-mix, .rumahl-topbar-action, .rumahl-clock-button, .rumahl-taskbar-clock-time, .rumahl-taskbar-clock-date, .rumahl-shell-mode-trigger),
+:root[data-shell-mode="desktop"] .rumahl-dock-item:first-child .rumahl-app-icon > svg {
+  color: var(--shell-bar-ink);
+  text-shadow: var(--shell-bar-text-shadow);
+}
+:root[data-shell-mode="desktop"] .rumahl-topbar-action:hover {
+  color: var(--shell-bar-ink);
+  background: color-mix(in oklch, var(--shell-bar-ink) 12%, transparent);
+}
+:root[data-shell-mode="desktop"][data-bar-material] .rumahl-system-bar {
+  border-top-color: color-mix(in oklch, var(--shell-bar-ink) 16%, transparent);
+}
+:root[data-shell-mode="desktop"][data-bar-border="false"] .rumahl-system-bar {
+  border-top: 0;
+}
+:root[data-shell-mode="desktop"][data-glass="off"][data-bar-material="glass"] .rumahl-system-bar,
+:root[data-shell-mode="desktop"][data-reduce-transparency="true"][data-bar-material] .rumahl-system-bar {
+  background: var(--surface-toolbar);
+  backdrop-filter: none;
+  --shell-bar-ink: var(--foreground);
+  --shell-bar-text-shadow: none;
+}
+
+:root[data-reduce-transparency="true"][data-bar-material],
+:root[data-glass="off"][data-bar-material="glass"] {
+  --shell-bar-ink: var(--foreground);
+  --shell-bar-text-shadow: none;
+}

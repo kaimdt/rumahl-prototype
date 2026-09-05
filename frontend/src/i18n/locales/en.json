@@ -674,6 +674,22 @@
     }
   },
   "settings": {
+    "shellAppearance": {
+      "title": "Personalize desktop bar",
+      "description": "Choose the material, icons and divider for the logo and status bar. Changes apply immediately and are saved on this device.",
+      "material": "Surface",
+      "solid": "Opaque",
+      "glass": "Glass",
+      "transparent": "Fully transparent",
+      "contrast": "Logo and icons",
+      "contrastHint": "Automatic follows the wallpaper on transparent bars. For busy images, choose light or dark icons.",
+      "auto": "Automatic",
+      "light": "Light",
+      "dark": "Dark",
+      "border": "Show divider",
+      "blur": "Bar blur",
+      "reset": "Reset system bar"
+    },
     "title": "Settings",
     "general": "General",
     "appearance": "Appearance",

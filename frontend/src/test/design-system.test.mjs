@@ -217,3 +217,45 @@ test('Immersive app content escapes page width and padding constraints', () => {
   assert.equal(declarations['max-width'], 'none')
   assert.equal(declarations.padding, '0')
 })
+
+test('Bar preferences retain transparent mode and validate persisted values', () => {
+  const source = readFileSync(resolve(frontend, 'hooks/useShellAppearance.ts'), 'utf8')
+  const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
+  const module = { exports: {} }
+  let stored = { material: 'transparent', contrast: 'light', border: false, blur: 12 }
+  const root = { dataset: {}, style: { setProperty: () => {} } }
+  new Script(outputText).runInNewContext({ module, exports: module.exports, document: { documentElement: root },
+    require: (id) => id === 'react' ? { useEffect: (effect) => effect() } : { useLocalStorage: () => [stored, (value) => { stored = value }] },
+  })
+  const { normalizeShellAppearance, useShellAppearance } = module.exports
+  useShellAppearance()
+  assert.equal(root.dataset.barMaterial, 'transparent')
+  assert.equal(root.dataset.barContrast, 'light')
+  assert.equal(root.dataset.barBorder, 'false')
+  useShellAppearance().reset()
+  useShellAppearance()
+  assert.equal(root.dataset.barMaterial, 'solid')
+  assert.equal(root.dataset.barContrast, 'auto')
+  assert.equal(root.dataset.barBorder, 'true')
+  assert.equal(normalizeShellAppearance({ blur: 400 }).blur, 40)
+  assert.equal(normalizeShellAppearance({ blur: NaN, material: 'invalid' }).material, 'solid')
+  assert.equal(normalizeShellAppearance(null).blur, 20)
+})
+
+test('Fully transparent desktop bars have neither fill nor blur', () => {
+  let material
+  css.walkRules(':root[data-shell-mode="desktop"][data-bar-material="transparent"] .rumahl-system-bar', (rule) => { material = rule })
+  assert.ok(material)
+  const values = Object.fromEntries(material.nodes.filter((node) => node.type === 'decl').map((node) => [node.prop, node.value]))
+  assert.equal(values.background, 'transparent')
+  assert.equal(values['backdrop-filter'], 'none')
+})
+
+test('Desktop bar personalization labels exist in both root settings locales', () => {
+  for (const language of ['de', 'en']) {
+    const locale = JSON.parse(readFileSync(resolve(frontend, `i18n/locales/${language}.json`), 'utf8'))
+    for (const key of ['title', 'description', 'material', 'solid', 'glass', 'transparent', 'contrast', 'contrastHint', 'auto', 'light', 'dark', 'border', 'blur', 'reset']) {
+      assert.equal(typeof locale.settings.shellAppearance[key], 'string', `${language}: ${key}`)
+    }
+  }
+})

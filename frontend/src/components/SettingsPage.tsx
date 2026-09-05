@@ -1,3 +1,4 @@
+import { ShellAppearanceSettings } from './settings/ShellAppearanceSettings'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Switch } from '@/components/ui/switch'
@@ -935,6 +936,7 @@ export function SettingsPage(props: SettingsPageProps) {
             {/* Advanced / additional appearance settings — kept as collapsible
                 sections so every existing flow remains reachable. */}
             <div className="space-y-3.5 mt-4">
+              <ShellAppearanceSettings />
               <SettingsSection icon={Eye} title={t('settings.glassEffects')} description={t('settings.glassEffectsDesc')}>
                 <ToggleRow
                   label={t("settings.glassEnable")}
