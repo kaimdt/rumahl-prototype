@@ -20,7 +20,7 @@ pub struct NetworkStatus {
     pub interfaces: Vec<NetworkInfo>,
     /// Currently matched network profile (if any)
     pub matched_profile: Option<NetworkProfile>,
-    /// Current IORA Home URL being used
+    /// Current rumahl Home URL being used
     pub current_home_url: String,
     /// Network fingerprint for identification
     pub fingerprint: Option<String>,
@@ -45,7 +45,7 @@ pub async fn get_network_status(state: State<'_, AppState>) -> Result<NetworkSta
         active,
         interfaces,
         matched_profile,
-        current_home_url: cfg.iora_home_url.clone(),
+        current_home_url: cfg.rumahl_home_url.clone(),
         fingerprint,
     })
 }
@@ -105,9 +105,9 @@ pub async fn switch_to_profile(
     let cfg = state.config.lock().await.clone();
     if let Some(profile) = cfg.network_profiles.get(profile_index) {
         let mut cfg = state.config.lock().await.clone();
-        cfg.iora_home_url = profile.iora_home_url.clone();
-        if let Some(ref url) = profile.iora_backend_url {
-            cfg.iora_backend_url = url.clone();
+        cfg.rumahl_home_url = profile.rumahl_home_url.clone();
+        if let Some(ref url) = profile.rumahl_backend_url {
+            cfg.rumahl_backend_url = url.clone();
         }
         config::save(&cfg).map_err(|e| e.to_string())?;
         *state.config.lock().await = cfg;
@@ -119,7 +119,7 @@ pub async fn switch_to_profile(
             "Manually switched to profile '{}' ({}), home_url={}",
             profile.name,
             profile.network_type.as_str(),
-            profile.iora_home_url
+            profile.rumahl_home_url
         );
     }
     Ok(())
@@ -153,7 +153,7 @@ fn find_matching_profile(cfg: &AppConfig, active: &NetworkInfo) -> Option<Networ
 // ─── Background network monitor (called from main.rs setup) ─────────────
 
 /// Start a background task that periodically checks for network changes
-/// and auto-switches the IORA Home URL to the matching profile.
+/// and auto-switches the rumahl Home URL to the matching profile.
 pub fn start_network_monitor(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         // Initial delay to let the app settle
@@ -178,12 +178,12 @@ pub fn start_network_monitor(app: AppHandle) {
 
                     if let Some(profile) = find_matching_profile_for_info(&profiles, &current) {
                         let mut cfg = app.state::<AppState>().config.lock().await.clone();
-                        let url_changed = cfg.iora_home_url != profile.iora_home_url;
+                        let url_changed = cfg.rumahl_home_url != profile.rumahl_home_url;
 
                         if url_changed {
-                            cfg.iora_home_url = profile.iora_home_url.clone();
-                            if let Some(ref url) = profile.iora_backend_url {
-                                cfg.iora_backend_url = url.clone();
+                            cfg.rumahl_home_url = profile.rumahl_home_url.clone();
+                            if let Some(ref url) = profile.rumahl_backend_url {
+                                cfg.rumahl_backend_url = url.clone();
                             }
                             let _ = config::save(&cfg);
                             *app.state::<AppState>().config.lock().await = cfg;
@@ -195,7 +195,7 @@ pub fn start_network_monitor(app: AppHandle) {
                                 profile.name,
                                 current.network_type.as_str(),
                                 current.interface_name,
-                                profile.iora_home_url
+                                profile.rumahl_home_url
                             );
                         }
                     }

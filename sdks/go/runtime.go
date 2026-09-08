@@ -1,5 +1,5 @@
-// Package iora provides runtime components for IORA SDK
-package iora
+// Package ora provides runtime components for rumahl SDK
+package ora
 
 import (
 	"encoding/json"
@@ -49,8 +49,8 @@ func (pt *PermissionToken) NeedsRenewal() bool {
 	return (pt.ExpiresAt - time.Now().Unix()) < 30
 }
 
-// IoraMessage is the base interface for all IORA messages
-type IoraMessage interface {
+// rumahlMessage is the base interface for all rumahl messages
+type rumahlMessage interface {
 	MessageType() string
 }
 
@@ -111,7 +111,7 @@ type PermissionGrantMessage struct {
 
 func (m PermissionGrantMessage) MessageType() string { return "permission_grant" }
 
-// QueryMessage represents a query from IORA
+// QueryMessage represents a query from rumahl
 type QueryMessage struct {
 	Type      string                 `json:"type"`
 	QueryID   string                 `json:"query_id"`
@@ -191,6 +191,6 @@ func NewPermissionRequestMessage(appID, permission, context string, duration int
 }
 
 // ToJSON converts a message to JSON
-func ToJSON(msg IoraMessage) ([]byte, error) {
+func ToJSON(msg rumahlMessage) ([]byte, error) {
 	return json.Marshal(msg)
 }

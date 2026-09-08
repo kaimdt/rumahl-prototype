@@ -1,6 +1,6 @@
 # Plugin Development Guide
 
-This guide will help you create plugins for the IORA platform.
+This guide will help you create plugins for the rumahl platform.
 
 > 📚 **Vollständige System-Referenz**: Siehe [App & Plugin System (v2.2)](../system/app-plugin-system.md)
 > für die komplette API-Referenz, die Plugin-Sandbox-API und die Sandbox-Restriktionen.
@@ -22,11 +22,11 @@ This guide will help you create plugins for the IORA platform.
 
 ## Overview
 
-IORA plugins are lightweight extensions that run in a sandboxed environment. Unlike apps, plugins:
+rumahl plugins are lightweight extensions that run in a sandboxed environment. Unlike apps, plugins:
 
-- Run directly in IORA's runtime (no Docker container)
+- Run directly in rumahl's runtime (no Docker container)
 - Have stricter resource limits
-- Can extend IORA's core functionality
+- Can extend rumahl's core functionality
 - Are faster to load and execute
 - Perfect for widgets, automations, and integrations
 
@@ -39,13 +39,13 @@ Dashboard widgets that display information or controls.
 Background services that process data or events.
 
 ### 3. API
-Extend IORA's API with new endpoints.
+Extend rumahl's API with new endpoints.
 
 ### 4. Integration
-Connect IORA to external services or devices.
+Connect rumahl to external services or devices.
 
 ### 5. Theme
-Customize IORA's appearance.
+Customize rumahl's appearance.
 
 ### 6. Automation
 Create custom automation triggers and actions.
@@ -56,7 +56,7 @@ Process and transform data streams.
 ## Prerequisites
 
 - JavaScript/TypeScript knowledge
-- Understanding of IORA's API
+- Understanding of rumahl's API
 - Familiarity with async programming
 - Knowledge of the plugin type you're creating
 
@@ -123,7 +123,7 @@ class StatusWidget {
 
   async refresh() {
     try {
-      // Fetch data from IORA API
+      // Fetch data from rumahl API
       const response = await fetch('/api/core/system-info');
       this.data = await response.json();
       this.render();
@@ -164,9 +164,9 @@ Create a ZIP file:
 zip -r my-first-widget.zip manifest.json icon.png widget.js styles.css
 ```
 
-### Step 4: Install in IORA
+### Step 4: Install in rumahl
 
-1. Open IORA Control Center
+1. Open rumahl Control Center
 2. Navigate to Plugins
 3. Click "Install Plugin"
 4. Upload `my-first-widget.zip`
@@ -259,40 +259,40 @@ Plugins run in a sandboxed environment with resource limits:
 - Limited execution time
 - Memory limits enforced
 - Network access controlled by permissions
-- No access to other plugins or IORA internals
+- No access to other plugins or rumahl internals
 
 ## Plugin API
 
-Plugins can use the IORA Plugin API:
+Plugins can use the rumahl Plugin API:
 
 ```javascript
-// Get IORA API instance
-const iora = window.IORA;
+// Get rumahl API instance
+const ora = window.rumahl;
 
 // Read entities
-const entities = await iora.entities.list();
-const entity = await iora.entities.get('light.living_room');
+const entities = await ora.entities.list();
+const entity = await ora.entities.get('light.living_room');
 
 // Control entities
-await iora.entities.setState('light.living_room', 'on');
-await iora.entities.callService('light', 'turn_on', {
+await ora.entities.setState('light.living_room', 'on');
+await ora.entities.callService('light', 'turn_on', {
   entity_id: 'light.living_room',
   brightness: 255
 });
 
 // Send notifications
-await iora.notifications.send({
+await ora.notifications.send({
   title: 'Plugin Alert',
   message: 'Something happened!',
   type: 'info'
 });
 
 // Store data
-await iora.storage.set('my_data', { value: 123 });
-const data = await iora.storage.get('my_data');
+await ora.storage.set('my_data', { value: 123 });
+const data = await ora.storage.get('my_data');
 
 // Register API endpoint
-iora.api.register('/api/plugin/my-endpoint', async (req) => {
+ora.api.register('/api/plugin/my-endpoint', async (req) => {
   return { status: 'ok', data: 'Hello' };
 });
 ```
@@ -435,9 +435,9 @@ class ExternalServiceIntegration {
   async syncDevices() {
     const devices = await this.fetchData('/devices');
 
-    // Create IORA entities for each device
+    // Create rumahl entities for each device
     for (const device of devices) {
-      await iora.entities.create({
+      await ora.entities.create({
         id: `external.${device.id}`,
         name: device.name,
         type: device.type,
@@ -472,7 +472,7 @@ widget.init();
 console.assert(widget.config.location === 'Test', 'Config not set correctly');
 ```
 
-### Testing in IORA
+### Testing in rumahl
 
 1. Install plugin in development mode
 2. Check console for errors
@@ -539,7 +539,7 @@ console.log('Execution time:', duration, 'ms');
 3. **Compatibility**
    - Handle API changes gracefully
    - Provide fallbacks for missing features
-   - Test on different IORA versions
+   - Test on different rumahl versions
    - Document dependencies
 
 4. **User Experience**
@@ -586,6 +586,6 @@ console.log('Execution time:', duration, 'ms');
 
 ## Support
 
-- [GitHub Issues](https://github.com/kaimdt/home-assistant-dashb/issues)
-- [Community Forum](https://github.com/kaimdt/home-assistant-dashb/discussions)
-- [Plugin Development Chat](https://github.com/kaimdt/home-assistant-dashb/discussions/categories/plugin-development)
+- [GitHub Issues](https://github.com/rumahl/home-assistant-dashb/issues)
+- [Community Forum](https://github.com/rumahl/home-assistant-dashb/discussions)
+- [Plugin Development Chat](https://github.com/rumahl/home-assistant-dashb/discussions/categories/plugin-development)

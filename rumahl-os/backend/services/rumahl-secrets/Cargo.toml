@@ -1,0 +1,28 @@
+[package]
+name = "rumahl-secrets"
+version = "0.1.0"
+edition = "2021"
+description = "rumahl Secrets – encrypted storage and management of sensitive data for the rumahl ecosystem"
+
+[dependencies]
+rumahl-shared-heartbeat = { path = "../../shared/rumahl-shared-heartbeat" }
+rumahl-shared-config = { path = "../../shared/rumahl-shared-config" }
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+thiserror = "1.0"
+dotenv = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "migrate", "macros"] }
+
+# Encryption dependencies
+aes-gcm = "0.10"
+rand = "0.8"
+hex = "0.4"
+base64 = "0.21"

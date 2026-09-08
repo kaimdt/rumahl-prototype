@@ -1,70 +1,70 @@
-# IORA JavaScript/TypeScript SDK
+# rumahl JavaScript/TypeScript SDK
 
-Official JavaScript and TypeScript SDK for developing IORA apps and plugins with iframe integration.
+Official JavaScript and TypeScript SDK for developing rumahl apps and plugins with iframe integration.
 
 ## Features
 
-- 🌐 **HTTP Client** - REST API client for IORA backend services
+- 🌐 **HTTP Client** - REST API client for rumahl backend services
 - 🔒 **Iframe SDK** - Secure postMessage communication for iframe-based apps
 - 📦 **TypeScript Support** - Full type definitions for type-safe development
 - 🔑 **Permission Management** - Built-in permission enums and risk assessment
 - 📝 **Manifest Builder** - Programmatic app manifest creation
-- 🎯 **Event System** - Subscribe to IORA events in real-time
+- 🎯 **Event System** - Subscribe to rumahl events in real-time
 
 ## Installation
 
 ```bash
-npm install @iora/sdk
+npm install @rumahl/sdk
 ```
 
 Or with yarn:
 
 ```bash
-yarn add @iora/sdk
+yarn add @rumahl/sdk
 ```
 
 ## Quick Start
 
 ### For Iframe-based Apps (Recommended)
 
-If your app runs inside an iframe within IORA, use the IoraIframe client:
+If your app runs inside an iframe within rumahl, use the rumahlIframe client:
 
 ```typescript
-import { createIoraIframe } from '@iora/sdk';
+import { createrumahlIframe } from '@rumahl/sdk';
 
 // Initialize the SDK
-const iora = createIoraIframe('your-app-id');
+const ora = createrumahlIframe('your-app-id');
 
 // Wait for SDK to be ready
-await iora.ready();
+await ora.ready();
 
 // Get all entities
-const entities = await iora.getEntities();
+const entities = await ora.getEntities();
 
 // Control a device
-await iora.callService('light', 'turn_on', 'light.living_room', {
+await ora.callService('light', 'turn_on', 'light.living_room', {
   brightness: 255,
   color_name: 'blue'
 });
 
 // Send a notification
-await iora.sendNotification('Hello', 'App is ready!');
+await ora.sendNotification('Hello', 'App is ready!');
 
 // Subscribe to entity state changes
-iora.on('entity_state_changed', (event) => {
+ora.on('entity_state_changed', (event) => {
   console.log('Entity changed:', event.data);
 });
 ```
 
 ### For HTTP-based Apps
 
-If your app runs externally and needs to make HTTP requests to IORA:
+If your app runs externally and needs to make HTTP requests to rumahl:
 
 ```typescript
-import { IoraClient } from '@iora/sdk';
+import { rumahlClient } from '@rumahl/sdk';
 
 // Initialize client
-const client = new IoraClient('http://localhost:8080', 'your-api-key');
+const client = new rumahlClient('http://localhost:8080', 'your-api-key');
 
 // Get entities
 const entities = await client.entities.list();
@@ -88,14 +88,14 @@ const data = await client.storage.get('my-key');
 
 ## API Reference
 
-### IoraIframe (Iframe SDK)
+### rumahlIframe (Iframe SDK)
 
-The IoraIframe class provides secure communication between your iframe app and IORA.
+The rumahlIframe class provides secure communication between your iframe app and rumahl.
 
 #### Constructor
 
 ```typescript
-const iora = new IoraIframe(appId: string, parentOrigin?: string);
+const ora = new rumahlIframe(appId: string, parentOrigin?: string);
 ```
 
 - `appId`: Your app's unique identifier
@@ -107,27 +107,27 @@ const iora = new IoraIframe(appId: string, parentOrigin?: string);
 Wait for the SDK to initialize and receive security token.
 
 ```typescript
-await iora.ready();
+await ora.ready();
 ```
 
 **call\<T\>(method: string, ...params: any[]): Promise\<T\>**
-Call any IORA API method.
+Call any rumahl API method.
 
 ```typescript
-const result = await iora.call('entities.get', 'light.bedroom');
+const result = await ora.call('entities.get', 'light.bedroom');
 ```
 
 **Entity Management**
 
 ```typescript
 // Get all entities
-const entities = await iora.getEntities();
+const entities = await ora.getEntities();
 
 // Get specific entity
-const entity = await iora.getEntity('light.living_room');
+const entity = await ora.getEntity('light.living_room');
 
 // Call a service
-await iora.callService('light', 'turn_on', 'light.bedroom', {
+await ora.callService('light', 'turn_on', 'light.bedroom', {
   brightness: 255
 });
 ```
@@ -135,7 +135,7 @@ await iora.callService('light', 'turn_on', 'light.bedroom', {
 **Notifications**
 
 ```typescript
-await iora.sendNotification('Title', 'Message', {
+await ora.sendNotification('Title', 'Message', {
   priority: 'high',
   icon: 'bell'
 });
@@ -145,46 +145,46 @@ await iora.sendNotification('Title', 'Message', {
 
 ```typescript
 // Store data
-await iora.setStorage('key', { myData: 'value' });
+await ora.setStorage('key', { myData: 'value' });
 
 // Retrieve data
-const data = await iora.getStorage('key');
+const data = await ora.getStorage('key');
 
 // Delete data
-await iora.deleteStorage('key');
+await ora.deleteStorage('key');
 ```
 
 **Settings**
 
 ```typescript
 // Get app settings
-const settings = await iora.getSettings();
+const settings = await ora.getSettings();
 
 // Update settings
-await iora.updateSettings({ theme: 'dark', interval: 60 });
+await ora.updateSettings({ theme: 'dark', interval: 60 });
 ```
 
 **UI Control**
 
 ```typescript
 // Request fullscreen
-await iora.requestFullscreen();
+await ora.requestFullscreen();
 
 // Exit fullscreen
-await iora.exitFullscreen();
+await ora.exitFullscreen();
 
 // Show toast message
-await iora.showToast('Success!', 'success');
+await ora.showToast('Success!', 'success');
 
 // Navigate to a page
-await iora.navigateTo('page-id');
+await ora.navigateTo('page-id');
 ```
 
 **Events**
 
 ```typescript
 // Subscribe to events
-const unsubscribe = iora.on('entity_state_changed', (event) => {
+const unsubscribe = ora.on('entity_state_changed', (event) => {
   console.log('Entity:', event.data.entity_id);
   console.log('New state:', event.data.state);
 });
@@ -197,23 +197,23 @@ unsubscribe();
 
 ```typescript
 // Check permission
-const hasPermission = await iora.hasPermission('NetworkAccess');
+const hasPermission = await ora.hasPermission('NetworkAccess');
 
 // Request permission
-const granted = await iora.requestPermission('CameraAccess');
+const granted = await ora.requestPermission('CameraAccess');
 ```
 
-### IoraClient (HTTP SDK)
+### rumahlClient (HTTP SDK)
 
-HTTP client for making REST API calls to IORA.
+HTTP client for making REST API calls to rumahl.
 
 #### Constructor
 
 ```typescript
-const client = new IoraClient(baseUrl?: string, apiKey?: string);
+const client = new rumahlClient(baseUrl?: string, apiKey?: string);
 ```
 
-- `baseUrl`: IORA instance URL (default: 'http://localhost:8080')
+- `baseUrl`: rumahl instance URL (default: 'http://localhost:8080')
 - `apiKey`: API key for authentication
 
 #### Entity API
@@ -287,12 +287,12 @@ await client.settings.update('app-id', {
 Build app manifests programmatically:
 
 ```typescript
-import { ManifestBuilder, Permission } from '@iora/sdk';
+import { ManifestBuilder, Permission } from '@rumahl/sdk';
 
 const manifest = new ManifestBuilder('my-app', 'My App')
   .version('1.0.0')
   .developer('Your Name')
-  .description('An awesome IORA app')
+  .description('An awesome rumahl app')
   .permissions([
     Permission.ReadEntities,
     Permission.ControlEntities,
@@ -345,7 +345,7 @@ const manifestJson = new ManifestBuilder('my-app', 'My App')
 ### Permissions
 
 ```typescript
-import { Permission, getPermissionRiskLevel, getPermissionDescription } from '@iora/sdk';
+import { Permission, getPermissionRiskLevel, getPermissionDescription } from '@rumahl/sdk';
 
 // Use permissions
 const perms = [
@@ -373,28 +373,28 @@ import type {
   ServiceCall,
   NotificationPayload,
   AppSettings,
-  IoraEvent,
+  rumahlEvent,
   IframeMessage,
   AppManifest,
   CustomPage,
   IframeConfig,
   SettingsSchema
-} from '@iora/sdk';
+} from '@rumahl/sdk';
 ```
 
 ## Complete Example: Weather Dashboard
 
 ```typescript
-import { createIoraIframe, Permission } from '@iora/sdk';
+import { createrumahlIframe, Permission } from '@rumahl/sdk';
 
 // Initialize SDK
-const iora = createIoraIframe('weather-dashboard');
+const ora = createrumahlIframe('weather-dashboard');
 
 async function init() {
-  await iora.ready();
+  await ora.ready();
 
   // Get settings
-  const settings = await iora.getSettings();
+  const settings = await ora.getSettings();
   const apiKey = settings.api_key;
   const updateInterval = settings.update_interval || 300;
 
@@ -404,8 +404,8 @@ async function init() {
       const response = await fetch(`https://api.weather.com/data?key=${apiKey}`);
       const weather = await response.json();
 
-      // Store in IORA
-      await iora.setStorage('current_weather', weather);
+      // Store in rumahl
+      await ora.setStorage('current_weather', weather);
 
       // Update UI
       document.getElementById('temp').textContent = `${weather.temp}°C`;
@@ -413,14 +413,14 @@ async function init() {
 
       // Send notification if severe weather
       if (weather.severity === 'high') {
-        await iora.sendNotification(
+        await ora.sendNotification(
           'Severe Weather Alert',
           `${weather.condition} expected in your area`,
           { priority: 'high' }
         );
       }
     } catch (error) {
-      await iora.showToast('Failed to update weather', 'error');
+      await ora.showToast('Failed to update weather', 'error');
     }
   }
 
@@ -429,9 +429,9 @@ async function init() {
   setInterval(updateWeather, updateInterval * 1000);
 
   // Subscribe to settings changes
-  iora.on('settings_changed', async (event) => {
+  ora.on('settings_changed', async (event) => {
     if (event.data.app_id === 'weather-dashboard') {
-      const newSettings = await iora.getSettings();
+      const newSettings = await ora.getSettings();
       // Restart with new settings
       location.reload();
     }
@@ -447,7 +447,7 @@ init();
 
 ```typescript
 // Specify parent origin explicitly
-const iora = new IoraIframe('my-app', 'https://my-iora-instance.com');
+const ora = new rumahlIframe('my-app', 'https://my-rumahl-instance.com');
 ```
 
 ### 2. Use Security Tokens
@@ -476,7 +476,7 @@ Only request the sandbox permissions you need:
 
 ### 4. Request Minimal Permissions
 
-Only request the IORA permissions your app actually needs:
+Only request the rumahl permissions your app actually needs:
 
 ```typescript
 .permissions([
@@ -510,7 +510,7 @@ Create a `manifest.json` file:
   "name": "My App",
   "version": "1.0.0",
   "developer": "Your Name",
-  "description": "An awesome IORA app",
+  "description": "An awesome rumahl app",
   "type": "app",
   "permissions": [
     "ReadEntities",
@@ -563,6 +563,6 @@ MIT
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/your-org/iora-sdk
-- Documentation: https://docs.iora.io
-- Community: https://community.iora.io
+- GitHub Issues: https://github.com/your-org/rumahl-sdk
+- Documentation: https://docs.ora.io
+- Community: https://community.ora.io

@@ -1,0 +1,33 @@
+# ============================================================================
+# rumahl OS – Docker Build Environment
+# ============================================================================
+# Ermöglicht den Build von rumahl OS Images ohne natives Linux.
+# Genutzt von dev-local.sh auf macOS und Windows.
+#
+# Bauen:
+#   docker build -t rumahl-build-env -f Dockerfile.build .
+#
+# Nutzung (aus dem Repo-Root):
+#   docker run --rm -v "$(pwd):/work" -w /work/rumahl-os rumahl-build-env \
+#     bash -c "./setup.sh --target pc --deps-only --yes && ./build.sh all --dev --progress"
+# ============================================================================
+
+FROM ubuntu:24.04
+
+# ── Systempakete für Buildroot + rumahl ──────────────────────────────────
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    build-essential git wget curl tar gzip xz-utils cpio unzip rsync bc \
+    libncurses-dev libssl-dev libelf-dev python3 python3-pip \
+    pkg-config ca-certificates file jq musl-tools \
+    nodejs npm \
+    qemu-utils zip xorriso grub-common grub-pc-bin grub-efi-amd64-bin mtools dosfstools parted \
+    ccache sccache mold \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Rust Toolchain ─────────────────────────────────────────────────────
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup target add x86_64-unknown-linux-musl x86_64-unknown-linux-gnu
+
+# ── Arbeitsverzeichnis ─────────────────────────────────────────────────
+WORKDIR /work

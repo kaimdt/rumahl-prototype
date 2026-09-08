@@ -1,25 +1,25 @@
-# IORA Documentation
+# rumahl Documentation
 
-Welcome to the IORA (Intelligent Open Residential Assistant) documentation.
+Welcome to the rumahl (Intelligent Open Residential Assistant) documentation.
 
 ## Quick Links
 
 - [Getting Started](getting-started/README.md) - Installation and initial setup
-- [App Development](development/app-development.md) - Create apps for IORA
-- [Plugin Development](development/plugin-development.md) - Create plugins for IORA
+- [App Development](development/app-development.md) - Create apps for rumahl
+- [Plugin Development](development/plugin-development.md) - Create plugins for rumahl
 - [API Reference](api/README.md) - Complete API documentation
 - [Security Guide](security/README.md) - Security features and best practices
 
-## What is IORA?
+## What is rumahl?
 
-IORA is a comprehensive home automation platform that provides:
+rumahl is a comprehensive home automation platform that provides:
 
 - **Smart Home Control** - Manage devices, sensors, and automations
 - **App Store** - Install apps and plugins to extend functionality
 - **Security & Privacy** - Built-in security monitoring and encryption
 - **Network Monitoring** - Track devices on your local network
 - **API Gateway** - Secure API access for integrations
-- **Plugin System** - Extend IORA with custom functionality
+- **Plugin System** - Extend rumahl with custom functionality
 
 ## Documentation Structure
 
@@ -79,14 +79,14 @@ IORA is a comprehensive home automation platform that provides:
 
 ## Contributing
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines on contributing to IORA.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines on contributing to rumahl.
 
 ## License
 
-IORA is open source software. See [LICENSE](../LICENSE) for details.
+rumahl is open source software. See [LICENSE](../LICENSE) for details.
 
 ## Support
 
-- **Documentation Issues**: [Report here](https://github.com/kaimdt/home-assistant-dashb/issues)
-- **Community**: [Join discussions](https://github.com/kaimdt/home-assistant-dashb/discussions)
+- **Documentation Issues**: [Report here](https://github.com/rumahl/home-assistant-dashb/issues)
+- **Community**: [Join discussions](https://github.com/rumahl/home-assistant-dashb/discussions)
 - **Security Issues**: See [Security Policy](security/README.md#reporting-security-issues)

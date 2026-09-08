@@ -21,7 +21,7 @@ import {
   Storefront, CloudSlash, Star, DownloadSimple
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
 import { AgentTab } from './AgentTab'
 import { InfrastructureVisualization } from './InfrastructureVisualization'
@@ -31,6 +31,7 @@ import { authFetch } from '@/lib/authHelpers'
 import { OsPermissionEditor } from '@/components/OsPermissionEditor'
 
 // Admin tabs are lazy-loaded per module to keep the initial AdminPanel chunk small.
+const AppearanceStandardsTab = lazy(() => import('./adminTabs/AppearanceStandards').then((m) => ({ default: m.AppearanceStandardsTab })))
 const AiConversationsTab = lazy(() => import('./adminTabs/ai').then((m) => ({ default: m.AiConversationsTab })))
 const AiOverviewTab = lazy(() => import('./adminTabs/ai').then((m) => ({ default: m.AiOverviewTab })))
 const AiProvidersTab = lazy(() => import('./adminTabs/ai').then((m) => ({ default: m.AiProvidersTab })))
@@ -134,7 +135,7 @@ export interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-export type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
+export type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes' | 'appearance-standards'
 
 // ═══ Unified Control Center Design Components ═══
 // Theme-aware, consistent input/button/card primitives for the entire Control Center.
@@ -192,9 +193,10 @@ type TabEntry = { id: Tab; label: string; icon: typeof ShieldCheck; description:
  *  Must not call i18n.t at module level — the bundler mangles it to bare t(). */
 export function getTabs(t: (key: string) => string): TabEntry[] {
   return [
-    { id: 'services', label: t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+    { id: 'services', label: t('admin.services'), icon: Gauge, description: 'Alle rumahl-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
     { id: 'health-intelligence', label: t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
     { id: 'themes', label: t('admin.themes'), icon: Palette, description: t('admin.themesDesc') },
+    { id: 'appearance-standards', label: t('admin.appearanceStandards'), icon: Palette, description: t('admin.appearanceStandardsDesc') },
     { id: 'developer-mode', label: t('admin.developerMode'), icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
     { id: 'documentation', label: t('admin.documentation'), icon: BookOpen, description: t('admin.docsDesc') },
     { id: 'protocols', label: t('admin.protocols'), icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
@@ -204,9 +206,9 @@ export function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'tasks', label: t('admin.tasks'), icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
     { id: 'control-mode', label: t('admin.controlMode'), icon: Robot, description: t('admin.controlModeDesc') },
     { id: 'system', label: t('admin.system'), icon: Cpu, description: t('admin.systemDesc') },
-    { id: 'system-info', label: t('admin.systemInfo'), icon: Heartbeat, description: 'Detaillierte Systeminformationen von IORA OS — CPU, RAM, Festplatten und Netzwerk' },
+    { id: 'system-info', label: t('admin.systemInfo'), icon: Heartbeat, description: 'Detaillierte Systeminformationen von rumahl OS — CPU, RAM, Festplatten und Netzwerk' },
     { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und IP-Konfiguration verwalten' },
-    { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten IORA-Infrastruktur mit Service-Status und Datenflüssen' },
+    { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten rumahl-Infrastruktur mit Service-Status und Datenflüssen' },
     { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
     { id: 'presence', label: 'Live-Übersicht', icon: Pulse, description: 'Alle angemeldeten Nutzer und ihre Geräte in Echtzeit — wer ist online, auf welchem Browser, Desktop oder Kiosk eingeloggt' },
     { id: 'apps', label: t('admin.apps'), icon: Cube, description: t('admin.appsDesc') },
@@ -232,7 +234,7 @@ export function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'scheduler', label: 'Scheduler', icon: Timer, description: 'Zeitpläne und Watchdogs für automatisierte Aktionen verwalten' },
     { id: 'analytics', label: 'Analytics', icon: ChartLine, description: 'Dashboard-Statistiken, Entity-Nutzung und System-Gesundheit überwachen' },
     { id: 'backups', label: 'Backups', icon: Archive, description: 'Dashboard-Konfiguration sichern und wiederherstellen' },
-    { id: 'cloud-settings', label: 'IORA Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
+    { id: 'cloud-settings', label: 'rumahl Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
     { id: 'logs', label: 'Logs', icon: ListBullets, description: 'System- und Home Assistant Logs in Echtzeit einsehen' },
     { id: 'system-logs', label: 'System-Events', icon: Warning, description: 'Zentrale Fehler-, Warn- und Info-Events aus Hintergrundprozessen wie Webhook-Auslieferung, Scheduler und HA-Sync' },
     { id: 'logbook', label: 'Logbuch', icon: BookOpen, description: 'Home Assistant Logbuch — chronologischer Verlauf aller Zustandsänderungen und Ereignisse' },
@@ -241,28 +243,28 @@ export function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'database', label: 'Datenbank', icon: Database, description: 'SQLite-Datenbank verwalten, bereinigen und Statistiken anzeigen' },
     { id: 'warnings', label: 'Warnungen', icon: ShieldWarning, description: 'Protokoll aller Wetter- und Zivilschutzwarnungen mit Zeitstempeln' },
     { id: 'system-notifications', label: 'System-Meldungen', icon: Siren, description: 'Systemmeldungen zu Sync-Status, Datenlücken und Backend-Warnungen – nur für Admins sichtbar' },
-    { id: 'ai-overview', label: 'AI Übersicht', icon: Brain, description: 'IORA Assist Status, aktiver Provider, Verbrauch und Health — zentrale AI-Übersicht' },
+    { id: 'ai-overview', label: 'AI Übersicht', icon: Brain, description: 'rumahl Assist Status, aktiver Provider, Verbrauch und Health — zentrale AI-Übersicht' },
     { id: 'ai-providers', label: 'AI Provider', icon: MagicWand, description: 'AI Provider verwalten — OpenAI, Anthropic, lokale Modelle und Desktop-Bridges konfigurieren' },
     { id: 'ai-conversations', label: 'AI Konversationen', icon: ChatCircle, description: 'Konversations-Threads, Verlauf und proaktive Benachrichtigungen verwalten' },
     { id: 'ai-tasks', label: 'AI Aufgaben', icon: Robot, description: 'Autonome AI-Aufgaben — Zeitpläne, Trigger und Status der Hintergrund-Agenten' },
     { id: 'ai-tools', label: 'AI Tools', icon: Hand, description: 'Internet-Suche, Web-Scraping und Screenshot-Tools des Assistenten testen und ausführen' },
     { id: 'ai-voice', label: 'AI Stimme', icon: Microphone, description: 'Spracheingabe (STT) und Sprachausgabe (TTS) testen — Voice-Modelle und Latenz prüfen' },
     { id: 'ai-agent', label: 'Agent', icon: Robot, description: 'Vollständiger Agent-Arbeitsbereich mit Chat, Aufgaben und Verlauf — wie GitHub Agent Tab' },
-    { id: 'devices', label: 'Verbundene Geräte', icon: Desktop, description: 'Alle registrierten IORA Desktop, Browser- und Kiosk-Clients sehen — Online-Status, letzter Heartbeat, aktive WebSocket-Sitzungen' },
-    { id: 'secrets', label: 'Secrets', icon: Vault, description: 'Verschlüsselter Tresor für API-Keys, Tokens und Passwörter — verwalten, rotieren und Audit-Log einsehen (iora-secrets)' },
-    { id: 'files', label: 'Dateien', icon: FolderOpen, description: 'Datei-Verwaltung mit Versionierung, Freigabe-Links, Berechtigungen und Quotas (iora-files)' },
-    { id: 'gateway', label: 'Gateway', icon: Envelope, description: 'Externe Gateway-Operationen — E-Mail-Versand, Web-Suche, HTTP-Proxy und Update-Verifikation (iora-gateway)' },
-    { id: 'watchdog', label: 'Watchdog', icon: Dog, description: 'Service-Health-Monitoring, Heartbeats, Auto-Recovery und Event-Stream (iora-watchdog)' },
-    { id: 'connector', label: 'Connector / Tunnel', icon: ShareNetwork, description: 'Cloud-Tunnel, exponierte Dienste, Pairing-Tokens und IP-Blocklist (iora-connector)' },
-    { id: 'domain-validator', label: 'Domain Validator', icon: ShieldCheck, description: 'App-Zugriffsrichtlinien für externe Domains und Audit-Log (iora-domain-validator)' },
-    { id: 'resources', label: 'Ressourcen', icon: HardDrive, description: 'Container-Ressourcenverwaltung, CPU-/RAM-Allokation und Reallokation (iora-resource-manager)' },
-    { id: 'api-bridge', label: 'API Bridge', icon: Code, description: 'GraphQL, WebDAV, CalDAV und MQTT-Bridge — externe Schnittstellen der iora-api' },
-    { id: 'dev-bridge', label: 'Dev Bridge', icon: Terminal, description: 'IORA OS Dev Bridge — Service-Logs, System-Info, Filesystem, Build & Replace und Live-Streaming aller Dienste auf Entwickler-Images' },
-    { id: 'os-ssh', label: 'SSH-Zugang', icon: Terminal, description: 'SSH-Server aktivieren/deaktivieren, autorisierte Schlüssel und SSH-Benutzer verwalten — nur auf IORA OS' },
-    { id: 'os-network-config', label: 'IP-Konfiguration', icon: Globe, description: 'Netzwerk-Interfaces auflisten und IP/Gateway/DNS pro Interface konfigurieren — nur auf IORA OS' },
-    { id: 'os-disks', label: 'Festplatten', icon: HardDrive, description: 'Alle gemounteten Datenträger, Belegung, Dateisysteme und entfernbare Medien — nur auf IORA OS' },
-    { id: 'os-processes', label: 'Prozesse', icon: Pulse, description: 'Top-Prozesse mit CPU- und RAM-Verbrauch, sortiert nach Auslastung — nur auf IORA OS' },
-    { id: 'os-power', label: 'Power & Hostname', icon: Power, description: 'Hostname ändern, IORA OS neu starten oder herunterfahren — nur auf IORA OS' },
+    { id: 'devices', label: 'Verbundene Geräte', icon: Desktop, description: 'Alle registrierten rumahl Desktop, Browser- und Kiosk-Clients sehen — Online-Status, letzter Heartbeat, aktive WebSocket-Sitzungen' },
+    { id: 'secrets', label: 'Secrets', icon: Vault, description: 'Verschlüsselter Tresor für API-Keys, Tokens und Passwörter — verwalten, rotieren und Audit-Log einsehen (rumahl-secrets)' },
+    { id: 'files', label: 'Dateien', icon: FolderOpen, description: 'Datei-Verwaltung mit Versionierung, Freigabe-Links, Berechtigungen und Quotas (rumahl-files)' },
+    { id: 'gateway', label: 'Gateway', icon: Envelope, description: 'Externe Gateway-Operationen — E-Mail-Versand, Web-Suche, HTTP-Proxy und Update-Verifikation (rumahl-gateway)' },
+    { id: 'watchdog', label: 'Watchdog', icon: Dog, description: 'Service-Health-Monitoring, Heartbeats, Auto-Recovery und Event-Stream (rumahl-watchdog)' },
+    { id: 'connector', label: 'Connector / Tunnel', icon: ShareNetwork, description: 'Cloud-Tunnel, exponierte Dienste, Pairing-Tokens und IP-Blocklist (rumahl-connector)' },
+    { id: 'domain-validator', label: 'Domain Validator', icon: ShieldCheck, description: 'App-Zugriffsrichtlinien für externe Domains und Audit-Log (rumahl-domain-validator)' },
+    { id: 'resources', label: 'Ressourcen', icon: HardDrive, description: 'Container-Ressourcenverwaltung, CPU-/RAM-Allokation und Reallokation (rumahl-resource-manager)' },
+    { id: 'api-bridge', label: 'API Bridge', icon: Code, description: 'GraphQL, WebDAV, CalDAV und MQTT-Bridge — externe Schnittstellen der rumahl-api' },
+    { id: 'dev-bridge', label: 'Dev Bridge', icon: Terminal, description: 'rumahl OS Dev Bridge — Service-Logs, System-Info, Filesystem, Build & Replace und Live-Streaming aller Dienste auf Entwickler-Images' },
+    { id: 'os-ssh', label: 'SSH-Zugang', icon: Terminal, description: 'SSH-Server aktivieren/deaktivieren, autorisierte Schlüssel und SSH-Benutzer verwalten — nur auf rumahl OS' },
+    { id: 'os-network-config', label: 'IP-Konfiguration', icon: Globe, description: 'Netzwerk-Interfaces auflisten und IP/Gateway/DNS pro Interface konfigurieren — nur auf rumahl OS' },
+    { id: 'os-disks', label: 'Festplatten', icon: HardDrive, description: 'Alle gemounteten Datenträger, Belegung, Dateisysteme und entfernbare Medien — nur auf rumahl OS' },
+    { id: 'os-processes', label: 'Prozesse', icon: Pulse, description: 'Top-Prozesse mit CPU- und RAM-Verbrauch, sortiert nach Auslastung — nur auf rumahl OS' },
+    { id: 'os-power', label: 'Power & Hostname', icon: Power, description: 'Hostname ändern, rumahl OS neu starten oder herunterfahren — nur auf rumahl OS' },
   ]
 }
 
@@ -279,25 +281,25 @@ export const tabGroups: TabGroup[] = [
   { id: 'extensions', title: 'Apps, Plugins & Themes', icon: Palette, items: ['apps', 'plugins', 'themes', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'ha-tools', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
-  { id: 'services', title: 'IORA Backend-Dienste', icon: Plug, items: ['secrets', 'files', 'gateway', 'watchdog', 'connector', 'domain-validator', 'resources', 'api-bridge'] },
-  { id: 'os', title: 'IORA OS', icon: Terminal, items: ['os-ssh', 'os-network-config', 'os-disks', 'os-processes', 'os-power'] },
+  { id: 'services', title: 'rumahl Backend-Dienste', icon: Plug, items: ['secrets', 'files', 'gateway', 'watchdog', 'connector', 'domain-validator', 'resources', 'api-bridge'] },
+  { id: 'os', title: 'rumahl OS', icon: Terminal, items: ['os-ssh', 'os-network-config', 'os-disks', 'os-processes', 'os-power'] },
   { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'system-logs', 'database', 'warnings', 'system-notifications', 'global-alert', 'notifications'] },
   { id: 'access', title: 'Benutzer', icon: Users, items: ['users', 'presence'] },
 ]
 
-export const CLOUD_HOST_KEY = 'iora-cloud-connector-host'
-export const CLOUD_USE_TLS_KEY = 'iora-cloud-connector-use-tls'
-export const CLOUD_PRIVATE_PORT_KEY = 'iora-cloud-connector-private-port'
-export const CLOUD_PUBLIC_PORT_KEY = 'iora-cloud-connector-public-port'
-export const CLOUD_ENABLE_REVERSE_PROXY_KEY = 'iora-cloud-connector-enable-reverse-proxy'
-export const CLOUD_REQUIRE_VPN_KEY = 'iora-cloud-connector-require-vpn'
+export const CLOUD_HOST_KEY = 'rumahl-cloud-connector-host'
+export const CLOUD_USE_TLS_KEY = 'rumahl-cloud-connector-use-tls'
+export const CLOUD_PRIVATE_PORT_KEY = 'rumahl-cloud-connector-private-port'
+export const CLOUD_PUBLIC_PORT_KEY = 'rumahl-cloud-connector-public-port'
+export const CLOUD_ENABLE_REVERSE_PROXY_KEY = 'rumahl-cloud-connector-enable-reverse-proxy'
+export const CLOUD_REQUIRE_VPN_KEY = 'rumahl-cloud-connector-require-vpn'
 
 
 export const backendBase = () => getBackendUrl() || ''
 
 /**
  * Returns the correct base URL for `path`. Assist calls intentionally go
- * through iora-home/nginx as relative `/api/assist/*` requests; direct
+ * through rumahl-home/nginx as relative `/api/assist/*` requests; direct
  * browser calls to local loopback break as soon as the dashboard is opened from
  * another device.
  */
@@ -343,7 +345,7 @@ export async function adminFetch(path: string, token: string, options?: RequestI
     if (looksLikeHtml || trimmed.startsWith('<')) {
       message = 'Dieser Bereich ist auf diesem System (noch) nicht verfügbar.'
       if (res.status === 200) {
-        message = 'Dieser Bereich ist auf diesem System (noch) nicht verfügbar. Der Endpunkt existiert nicht oder wird von einem anderen IORA-Microservice bereitgestellt.'
+        message = 'Dieser Bereich ist auf diesem System (noch) nicht verfügbar. Der Endpunkt existiert nicht oder wird von einem anderen rumahl-Microservice bereitgestellt.'
       }
     } else {
       try {
@@ -362,7 +364,7 @@ export async function adminFetch(path: string, token: string, options?: RequestI
       // Only when a token was actually sent (a boot-time call with an empty
       // token must not log out an otherwise healthy session).
       if (token) {
-        window.dispatchEvent(new CustomEvent('iora:auth-unauthorized', { detail: { url } }))
+        window.dispatchEvent(new CustomEvent('rumahl:auth-unauthorized', { detail: { url } }))
       }
       throw new Error('Sitzung abgelaufen. Bitte neu einloggen.')
     }
@@ -475,6 +477,7 @@ export function renderAdminTabContent(tab: Tab, token: string): React.ReactNode 
     case 'control-mode': return <Suspense fallback={null}><ControlModeTab token={token} /></Suspense>
     case 'system': return <Suspense fallback={null}><SystemTab token={token} /></Suspense>
     case 'system-info': return <SystemInfoTab token={token} />
+    case 'appearance-standards': return <Suspense fallback={null}><AppearanceStandardsTab /></Suspense>
     case 'infrastructure': return <InfrastructureVisualization token={token} />
     case 'apps': return <AppStoreTab token={token} />
     case 'plugins': return <PluginsTab token={token} />
@@ -550,7 +553,7 @@ export function AdminPanel() {
   // Persist expanded group across page reloads via localStorage
   const [expandedGroup, setExpandedGroup] = useState<string>(() => {
     try {
-      return localStorage.getItem('iora-admin-expanded-group') || 'core'
+      return localStorage.getItem('rumahl-admin-expanded-group') || 'core'
     } catch { return 'core' }
   })
   const [haEnabled, setHaEnabled] = useState<boolean>(true)
@@ -568,7 +571,7 @@ export function AdminPanel() {
 
   // Persist expandedGroup to localStorage
   useEffect(() => {
-    try { localStorage.setItem('iora-admin-expanded-group', expandedGroup) } catch {}
+    try { localStorage.setItem('rumahl-admin-expanded-group', expandedGroup) } catch {}
   }, [expandedGroup])
 
   // Auto-expand the group that contains the active tab
@@ -613,8 +616,8 @@ export function AdminPanel() {
     prefetchAdjacentTabs(activeTab, token)
   }, [activeTab, token])
 
-  // Deep-link support: when something dispatches `iora:open-admin` with
-  // {tab: 'assist'} or writes 'iora-admin-deep-link' to sessionStorage,
+  // Deep-link support: when something dispatches `rumahl:open-admin` with
+  // {tab: 'assist'} or writes 'rumahl-admin-deep-link' to sessionStorage,
   // jump to the matching admin tab (e.g. "ai-providers" for the AI banner CTA).
   useEffect(() => {
     const resolveDeepLink = (raw: string | null | undefined): Tab | null => {
@@ -632,11 +635,11 @@ export function AdminPanel() {
 
     // 1) Consume any pending deep-link written before mount
     try {
-      const pending = sessionStorage.getItem('iora-admin-deep-link')
+      const pending = sessionStorage.getItem('rumahl-admin-deep-link')
       const target = resolveDeepLink(pending)
       if (target) {
         setActiveTab(target)
-        sessionStorage.removeItem('iora-admin-deep-link')
+        sessionStorage.removeItem('rumahl-admin-deep-link')
       }
     } catch {}
 
@@ -646,8 +649,8 @@ export function AdminPanel() {
       const target = resolveDeepLink(detail?.tab)
       if (target) setActiveTab(target)
     }
-    window.addEventListener('iora:open-admin', handler)
-    return () => window.removeEventListener('iora:open-admin', handler)
+    window.addEventListener('rumahl:open-admin', handler)
+    return () => window.removeEventListener('rumahl:open-admin', handler)
   }, [])
 
   return (
@@ -679,7 +682,7 @@ export function AdminPanel() {
         `}>
           {/* Close button for mobile overlay */}
           <div className="lg:hidden flex items-center justify-between mb-3 flex-shrink-0">
-            <p className="text-sm font-semibold text-foreground">Control Center</p>
+            <p className="text-sm font-semibold text-foreground">{t('os.apps.admin.name')}</p>
             <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-foreground/5">
               <X size={18} className="text-foreground/50" />
             </button>
@@ -697,8 +700,8 @@ export function AdminPanel() {
               <ShieldCheck size={20} weight="fill" className="text-accent" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">Control Center</p>
-              <p className="text-[10px] text-foreground/40">System & Apps verwalten</p>
+              <p className="text-sm font-semibold text-foreground">{t('os.apps.admin.name')}</p>
+              <p className="text-[10px] text-foreground/40">{t('os.apps.admin.description')}</p>
             </div>
           </div>
           <div ref={sidebarRef} className="space-y-3 overflow-y-auto flex-1 pr-1 -mr-1">
@@ -833,8 +836,8 @@ export interface ServiceStatus {
 
 // ── Global Configuration Tab ───────────────────────────────────────────
 //
-// Surfaces every IORA OS setting registered with the backend
-// `SettingsRegistry` (see backend/iora-shared/src/settings.rs). The
+// Surfaces every rumahl OS setting registered with the backend
+// `SettingsRegistry` (see backend/rumahl-shared/src/settings.rs). The
 // schema-driven design means we get one consistent UI for what would
 // otherwise be a sprawling .env file: every entry has a description,
 // category, type-aware input, validation and a list of services that
@@ -990,13 +993,13 @@ export function SettingInput({ def, value, onChange, disabled }: {
 // ─── Developer Mode quick-toggle tab ────────────────────────────────────
 //
 // Reframed in 29.28: this is the "Plugin- und App-Entwicklermodus". When
-// active, the IORA Developer App is unlocked, ZIP installs use a relaxed
+// active, the rumahl Developer App is unlocked, ZIP installs use a relaxed
 // trust model, and the dev-bridge surfaces extra `/api/dev/*` endpoints.
 // Non-developers should leave this off — it broadens the system's
 // attack surface in exchange for tooling convenience.
 //
-// On OS-Entwickler-Images (where /etc/iora/os-dev-mode is present and
-// `iora-dev-bridge.service` is shipping) the toggle is locked on and a
+// On OS-Entwickler-Images (where /etc/rumahl/os-dev-mode is present and
+// `rumahl-dev-bridge.service` is shipping) the toggle is locked on and a
 // banner explains the implications.
 export function AdminCard({ children, title, description, icon: Icon, className = '' }: {
   children: React.ReactNode
@@ -1058,7 +1061,7 @@ export function ConfigModal({ open, onClose, title, icon: Icon, children }: {
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="glass-card rounded-2xl p-5 w-full max-w-md max-h-[80vh] overflow-y-auto"
+          className="rumahl-card rounded-2xl p-5 w-full max-w-md max-h-[80vh] overflow-y-auto"
           onClick={e => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-4">
@@ -1080,16 +1083,17 @@ export function ConfigModal({ open, onClose, title, icon: Icon, children }: {
 // ── MQTT Tab ──────────────────────────────────────────────────
 
 export function LoadingSpinner() {
+  const { t } = useTranslation()
   return (
-    <div className="rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-12 flex flex-col items-center justify-center gap-3">
-      <div className="w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin" />
-      <p className="text-xs text-foreground/40">Lade…</p>
+    <div className="rumahl-system-loading rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-12 flex flex-col items-center justify-center gap-3" role="status" aria-live="polite">
+      <div className="rumahl-system-spinner w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin" aria-hidden="true" />
+      <p className="rumahl-system-loading-label text-xs text-foreground/40">{t('common.loading')}</p>
     </div>
   )
 }
 
 export function InlineSpinner({ size = 14, className = '' }: { size?: number; className?: string }) {
-  return <div style={{ width: size, height: size }} className={`border-2 border-current/30 border-t-current rounded-full animate-spin shrink-0 ${className}`} />
+  return <div style={{ width: size, height: size }} className={`rumahl-system-spinner border-2 border-current/30 border-t-current rounded-full animate-spin shrink-0 ${className}`} aria-hidden="true" />
 }
 
 export function ErrorMessage({ children }: { children: React.ReactNode }) {
@@ -1135,7 +1139,7 @@ export async function devBridgeFetch(path: string, devToken?: string | null, opt
     ...((options?.headers as Record<string, string>) || {}),
   }
   if (devToken) {
-    headers['x-iora-dev-token'] = devToken
+    headers['x-rumahl-dev-token'] = devToken
   }
   return fetch(`${baseUrl}${path}`, {
     ...options,

@@ -1,18 +1,18 @@
-# IORA Developer Mode
+# rumahl Developer Mode
 
 ## Overview
 
-Developer Mode is a special operational mode in IORA that enables enhanced development capabilities for Apps. When enabled, Apps can access advanced system data, communicate with other Apps, and integrate deeply with IDEs for streamlined development workflows.
+Developer Mode is a special operational mode in rumahl that enables enhanced development capabilities for Apps. When enabled, Apps can access advanced system data, communicate with other Apps, and integrate deeply with IDEs for streamlined development workflows.
 
 **⚠️ SECURITY WARNING:** Developer Mode provides extensive system access and should **ONLY** be enabled in development/testing environments. **NEVER enable Developer Mode in production systems.**
 
 ## Enabling Developer Mode
 
-Developer Mode must be explicitly enabled in the IORA Control Center before any Developer Mode features become available. **When you enable Developer Mode, the IORA Developer App is automatically installed** if not already present.
+Developer Mode must be explicitly enabled in the rumahl Control Center before any Developer Mode features become available. **When you enable Developer Mode, the rumahl Developer App is automatically installed** if not already present.
 
 ```python
 # Python SDK
-async with IoraClient("http://localhost:8080", api_key="your-api-key") as client:
+async with rumahlClient("http://localhost:8080", api_key="your-api-key") as client:
     # Enable Developer Mode (auto-installs Developer App)
     await client.toggle_developer_mode(enabled=True)
 
@@ -29,9 +29,9 @@ curl -X POST http://localhost:8080/api/developer/toggle \
   -d '{"enabled": true}'
 ```
 
-## IORA Developer App
+## rumahl Developer App
 
-The **IORA Developer App** (`io.iora.developer-app`) is the official development tool that provides exclusive hot-reload capabilities and IDE integration. It is automatically installed when you first enable Developer Mode.
+The **rumahl Developer App** (`io.rumahl.developer-app`) is the official development tool that provides exclusive hot-reload capabilities and IDE integration. It is automatically installed when you first enable Developer Mode.
 
 ### Developer App Features
 
@@ -182,7 +182,7 @@ with open("my-app-image.tar", "rb") as f:
     image_data = f.read()
     image_tar_b64 = base64.b64encode(image_data).decode("utf-8")
 
-# Deploy to IORA
+# Deploy to rumahl
 result = await client.deploy_from_ide(
     app_id="com.example.my-app",
     image_tar=image_tar_b64,
@@ -205,7 +205,7 @@ Stream live logs from any container using Server-Sent Events (SSE):
 
 ```python
 # Python SDK
-async for log_line in client.stream_logs("iora-app-my-app"):
+async for log_line in client.stream_logs("rumahl-app-my-app"):
     print(log_line)
 ```
 
@@ -235,7 +235,7 @@ async for metrics_json in client.stream_metrics():
 
 ### 7. Hot Reload (Developer App Exclusive)
 
-The IORA Developer App provides exclusive hot-reload capabilities for updating running apps without full container restarts:
+The rumahl Developer App provides exclusive hot-reload capabilities for updating running apps without full container restarts:
 
 ```python
 # Python SDK
@@ -396,14 +396,14 @@ Complete example of a development tool that uses Developer Mode:
 
 ```python
 """
-IORA Development Tool - Monitor apps and system metrics
+rumahl Development Tool - Monitor apps and system metrics
 """
-from iora_sdk import IoraClient
+from rumahl_sdk import rumahlClient
 import asyncio
 import json
 
 async def main():
-    async with IoraClient("http://localhost:8080", api_key="dev-api-key") as client:
+    async with rumahlClient("http://localhost:8080", api_key="dev-api-key") as client:
         # Enable Developer Mode
         await client.toggle_developer_mode(enabled=True)
         print("✓ Developer Mode enabled")
@@ -445,7 +445,7 @@ async def main():
         print("\n=== Streaming Logs ===")
         async def stream_logs_for_duration():
             try:
-                async for log_line in client.stream_logs("iora-app-weather"):
+                async for log_line in client.stream_logs("rumahl-app-weather"):
                     print(f"[LOG] {log_line}")
             except asyncio.TimeoutError:
                 pass
@@ -465,10 +465,10 @@ if __name__ == "__main__":
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Deploy to IORA",
+      "label": "Deploy to rumahl",
       "type": "shell",
       "command": "python",
-      "args": ["${workspaceFolder}/scripts/deploy_to_iora.py"],
+      "args": ["${workspaceFolder}/scripts/deploy_to_ora.py"],
       "group": {
         "kind": "build",
         "isDefault": true
@@ -482,11 +482,11 @@ if __name__ == "__main__":
 
 ```python
 #!/usr/bin/env python3
-"""deploy_to_iora.py - Deploy app to IORA from IDE"""
+"""deploy_to_ora.py - Deploy app to rumahl from IDE"""
 import asyncio
 import subprocess
 import base64
-from iora_sdk import IoraClient
+from rumahl_sdk import rumahlClient
 
 async def deploy():
     # Build Docker image
@@ -501,9 +501,9 @@ async def deploy():
     with open("my-app.tar", "rb") as f:
         image_tar = base64.b64encode(f.read()).decode("utf-8")
 
-    # Deploy to IORA
-    print("Deploying to IORA...")
-    async with IoraClient("http://iora-dev.local:8080", api_key="dev-key") as client:
+    # Deploy to rumahl
+    print("Deploying to rumahl...")
+    async with rumahlClient("http://rumahl-dev.local:8080", api_key="dev-key") as client:
         result = await client.deploy_from_ide(
             app_id="com.example.my-app",
             image_tar=image_tar,
@@ -583,11 +583,11 @@ Remove ALL Developer Mode permissions from manifest before production release.
 - Verify Docker image is valid: `docker load < my-app.tar`
 - Check base64 encoding is correct
 - Ensure sufficient disk space
-- Check IORA supervisor logs
+- Check rumahl supervisor logs
 
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/kaimdt/home-assistant-dashb/issues
-- Documentation: https://iora-docs.example.com/developer-mode
-- Community Forum: https://forum.iora.example.com/
+- GitHub Issues: https://github.com/rumahl/home-assistant-dashb/issues
+- Documentation: https://rumahl-docs.example.com/developer-mode
+- Community Forum: https://forum.ora.example.com/

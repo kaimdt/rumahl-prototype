@@ -1,4 +1,4 @@
-// Messaging Settings – SMTP Email, Telegram Bot, WhatsApp configuration for ORA AI
+// Messaging Settings – SMTP Email, Telegram Bot, WhatsApp configuration for rumahl AI
 import { useState, useEffect } from 'react'
 import { motion } from 'motion/react'
 import {
@@ -26,7 +26,7 @@ interface WhatsAppConfig {
 }
 
 const defaultConfig: MessagingConfig = {
-  smtp: { enabled: false, host: '', port: 587, username: '', password: '', from_address: '', from_name: 'ORA AI', use_tls: true },
+  smtp: { enabled: false, host: '', port: 587, username: '', password: '', from_address: '', from_name: 'rumahl AI', use_tls: true },
   telegram: { enabled: false, bot_token: '', bot_username: '', webhook_url: '', allowed_chat_ids: [], forward_to_ora: true },
   whatsapp: { enabled: false, provider: 'twilio', account_sid: '', auth_token: '', phone_number_id: '', from_number: '', webhook_verify_token: '', allowed_numbers: [] },
 }
@@ -70,7 +70,7 @@ export function MessagingSettings() {
         <Broadcast size={18} weight="fill" className="text-accent" />
         <div>
           <h2 className="text-sm font-semibold text-foreground">Messaging</h2>
-          <p className="text-[10px] text-foreground/40">Email, Telegram, WhatsApp – Chatte mit ORA überall</p>
+          <p className="text-[10px] text-foreground/40">Email, Telegram, WhatsApp – Chatte mit rumahl überall</p>
         </div>
         <div className="flex-1" />
         {testResult && <span className="text-[10px] text-green-400">{testResult}</span>}
@@ -94,7 +94,7 @@ export function MessagingSettings() {
           <Field label="Username" value={config.smtp.username} onChange={v => save({ ...config, smtp: { ...config.smtp, username: v } })} placeholder="user@gmail.com" />
           <Field label="Password" value={config.smtp.password} onChange={v => save({ ...config, smtp: { ...config.smtp, password: v } })} placeholder="••••" type="password" />
           <Field label="From Address" value={config.smtp.from_address} onChange={v => save({ ...config, smtp: { ...config.smtp, from_address: v } })} placeholder="ora@domain.com" />
-          <Field label="From Name" value={config.smtp.from_name} onChange={v => save({ ...config, smtp: { ...config.smtp, from_name: v } })} placeholder="ORA AI" />
+          <Field label="From Name" value={config.smtp.from_name} onChange={v => save({ ...config, smtp: { ...config.smtp, from_name: v } })} placeholder="rumahl AI" />
           <button onClick={testEmail} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-accent/10 border border-accent/20 text-accent text-[11px] hover:bg-accent/20 transition-all">
             <PaperPlaneRight size={12} /> Test-Email senden
           </button>
@@ -107,8 +107,8 @@ export function MessagingSettings() {
           expanded={expanded === 'telegram'} onExpand={() => setExpanded(expanded === 'telegram' ? null : 'telegram')}
         >
           <Field label="Bot Token" value={config.telegram.bot_token} onChange={v => save({ ...config, telegram: { ...config.telegram, bot_token: v } })} placeholder="123:ABC..." type="password" />
-          <Field label="Bot Username" value={config.telegram.bot_username} onChange={v => save({ ...config, telegram: { ...config.telegram, bot_username: v } })} placeholder="@ora_bot" />
-          <Field label="Webhook URL" value={config.telegram.webhook_url} onChange={v => save({ ...config, telegram: { ...config.telegram, webhook_url: v } })} placeholder="https://iora.local/api/assist/messaging/telegram/webhook" />
+          <Field label="Bot Username" value={config.telegram.bot_username} onChange={v => save({ ...config, telegram: { ...config.telegram, bot_username: v } })} placeholder="@rumahl_bot" />
+          <Field label="Webhook URL" value={config.telegram.webhook_url} onChange={v => save({ ...config, telegram: { ...config.telegram, webhook_url: v } })} placeholder="https://rumahl.local/api/assist/messaging/telegram/webhook" />
           <Field label="Allowed Chat IDs (comma)" value={config.telegram.allowed_chat_ids.join(',')} onChange={v => save({ ...config, telegram: { ...config.telegram, allowed_chat_ids: v.split(',').map(s => s.trim()).filter(Boolean) } })} placeholder="123456,789012" />
           <button onClick={setupTelegram} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[11px] hover:bg-sky-500/20 transition-all">
             <Check size={12} /> Webhook einrichten

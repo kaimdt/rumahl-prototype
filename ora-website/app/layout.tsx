@@ -1,48 +1,63 @@
 import type { Metadata } from "next";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
+import { Manrope, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
+import { SmoothAnchors } from "@/components/smooth-anchors";
 import "./globals.css";
 
-const geistSans = GeistSans;
-const geistMono = GeistMono;
+/* Manrope — UI & Headlines (600–700 / 500–600 / 400–500)
+   JetBrains Mono — Code, Terminal, IPs */
+const manrope = Manrope({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-manrope",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-jetbrains-mono",
+});
 
 export const metadata: Metadata = {
   title: {
-    default: "ORA - Your Intelligent Home Platform",
-    template: "%s — ORA",
+    default: "rumahl OS - Your Home Operating System",
+    template: "%s — rumahl OS",
   },
   description:
-    "ORA is the open, local-first smart home platform that puts you in control. AI-powered automation, privacy-first design, and seamless device integration.",
+    "rumahl OS is the open, local-first home operating system. Smart home, apps, media, and ORA — your AI assistant — all on your hardware.",
   keywords: [
-    "ORA",
+    "rumahl",
+    "rumahl OS",
+    "home OS",
+    "home operating system",
     "smart home",
     "home automation",
     "AI",
+    "rumahl",
     "local-first",
     "privacy",
     "IoT",
     "Home Assistant",
     "open source",
   ],
-  authors: [{ name: "ORA Team" }],
+  authors: [{ name: "rumahl Team" }],
   robots: "index, follow",
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://ora-home.dev",
-    siteName: "ORA",
-    title: "ORA - Your Intelligent Home Platform",
+    url: "https://rumahl.com",
+    siteName: "rumahl OS",
+    title: "rumahl OS - Your Home Operating System",
     description:
-      "ORA is the open, local-first smart home platform that puts you in control. AI-powered automation, privacy-first design, and seamless device integration.",
+      "rumahl OS is the open, local-first home operating system. Smart home, apps, media, and ORA — your AI assistant — all on your hardware.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "ORA - Your Intelligent Home Platform",
+    title: "rumahl OS - Your Home Operating System",
     description:
-      "ORA is the open, local-first smart home platform that puts you in control.",
+      "rumahl OS is the open, local-first home operating system that puts you in control.",
   },
 };
 
@@ -52,20 +67,41 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${manrope.variable} ${jetbrainsMono.variable}`}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="alternate icon" type="image/png" href="/favicon.png" />
-        {/* Plus Jakarta Sans — distinctive geometric sans-serif */}
-        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet" />
+        {/* Google Sitelinks Search Box — lets Google use the site search
+            on the docs & support pages. */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "rumahl",
+              url: "https://rumahl.com",
+              potentialAction: {
+                "@type": "SearchAction",
+                target: {
+                  "@type": "EntryPoint",
+                  urlTemplate:
+                    "https://rumahl.com/support?q={search_term_string}",
+                },
+                "query-input": "required name=search_term_string",
+              },
+            }),
+          }}
+        />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased overflow-x-hidden">
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="light"
+          enableSystem={false}
           disableTransitionOnChange
         >
+          <SmoothAnchors />
           <a href="#main-content" className="sr-only skip-link">
             Skip to Content
           </a>

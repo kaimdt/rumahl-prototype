@@ -154,7 +154,7 @@ export function SystemLog({ isOpen, onClose }: Props) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `iora-system-log-${new Date().toISOString().slice(0, 10)}.txt`
+    a.download = `rumahl-system-log-${new Date().toISOString().slice(0, 10)}.txt`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -248,7 +248,7 @@ export function SystemLog({ isOpen, onClose }: Props) {
                 <div className="text-center">
                   <Terminal size={48} weight="duotone" className="mx-auto mb-3 opacity-20" />
                   <p className="text-sm">Warte auf System-Events…</p>
-                  <p className="text-[10px] mt-1">Die Live-Ansicht zeigt alle Hintergrund-Aktivitäten des IORA-Systems.</p>
+                  <p className="text-[10px] mt-1">Die Live-Ansicht zeigt alle Hintergrund-Aktivitäten des rumahl-Systems.</p>
                 </div>
               </div>
             ) : (
@@ -318,7 +318,7 @@ export function SystemLog({ isOpen, onClose }: Props) {
               {paused ? 'Pausiert' : 'Live'}
             </span>
             <span>{entries.length.toLocaleString()} Events gesamt</span>
-            <span className="ml-auto">IORA System Monitor</span>
+            <span className="ml-auto">rumahl System Monitor</span>
           </div>
         </motion.div>
       )}

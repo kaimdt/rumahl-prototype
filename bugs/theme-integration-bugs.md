@@ -18,7 +18,7 @@
 ## 1. 🚨 HIGH – Notification field name mismatch: `enter`/`exit`/`max`/`dismiss` vs Rust struct fields
 
 **Files:**
-- `iora-os/backend/shared/iora-shared/src/theme.rs` — `NotificationThemeConfig` struct (line ~476)
+- `rumahl-os/backend/shared/rumahl-shared/src/theme.rs` — `NotificationThemeConfig` struct (line ~476)
 - `apps/examples/themes/*/manifest.json` — all sample theme manifests
 
 **Evidence:**
@@ -65,15 +65,15 @@ The steampunk manifest wants exit animation "slide-left" and dismiss timeout 800
 ## 2. 🚨 HIGH – Inline theme install (`POST /api/themes/install-from-manifest`) bypasses manifest validation
 
 **Files:**
-- `iora-os/backend/services/iora-home/src/theme_handler.rs` line ~678 – `handle_install_theme_inline`
-- `iora-os/backend/services/iora-home/src/main.rs` line ~15649 – `handle_theme_zip_install`
+- `rumahl-os/backend/services/rumahl-home/src/theme_handler.rs` line ~678 – `handle_install_theme_inline`
+- `rumahl-os/backend/services/rumahl-home/src/main.rs` line ~15649 – `handle_theme_zip_install`
 
 **Evidence:**
 
 The ZIP install handler runs validation:
 ```rust
 // main.rs line ~15693
-let validation = iora_shared::manifest_validator::validate_theme_manifest(&manifest_json);
+let validation = rumahl_shared::manifest_validator::validate_theme_manifest(&manifest_json);
 if !validation.is_valid() { ... return error ... }
 ```
 
@@ -82,7 +82,7 @@ The inline install handler does **not** call validation:
 // theme_handler.rs line ~678
 pub async fn handle_install_theme_inline(
     State(gs): State<AppState>,
-    Json(def): Json<iora_shared::theme::ThemeDefinition>,
+    Json(def): Json<rumahl_shared::theme::ThemeDefinition>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     gs.theme_manager.install_inline(def).await  // ← No validation step
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Install: {}", e)))?;
@@ -92,15 +92,15 @@ pub async fn handle_install_theme_inline(
 
 **Impact:** Any malformed `ThemeDefinition` can be installed via the inline API without required fields, invalid CSS values, missing `css_variables`, etc. This creates an inconsistency — the same manifest would be rejected via ZIP but accepted via inline.
 
-**Fix:** Add `iora_shared::manifest_validator::validate_theme_manifest` call to `handle_install_theme_inline`, consistent with the ZIP handler.
+**Fix:** Add `rumahl_shared::manifest_validator::validate_theme_manifest` call to `handle_install_theme_inline`, consistent with the ZIP handler.
 
 ---
 
 ## 3. MEDIUM – `ThemeCssResponse.animation` field always `None`
 
 **Files:**
-- `iora-os/backend/shared/iora-shared/src/theme.rs` line ~340 — `ThemeCssResponse` struct
-- `iora-os/backend/services/iora-home/src/theme_handler.rs` — `get_theme_css1` method
+- `rumahl-os/backend/shared/rumahl-shared/src/theme.rs` line ~340 — `ThemeCssResponse` struct
+- `rumahl-os/backend/services/rumahl-home/src/theme_handler.rs` — `get_theme_css1` method
 
 **Evidence:**
 
@@ -112,13 +112,13 @@ pub animation: Option<ThemeAnimationConfig>,  // line ~340
 In `get_theme_css1`, **every** construction path hardcodes `animation: None`:
 ```rust
 // "auto" path (~line 401):
-return Ok(iora_shared::theme::ThemeCssResponse {
+return Ok(rumahl_shared::theme::ThemeCssResponse {
     ...
     animation: None,
 });
 
 // Cached theme path (~line 505):
-return Ok(iora_shared::theme::ThemeCssResponse {
+return Ok(rumahl_shared::theme::ThemeCssResponse {
     ...
     animation: None,  // ← never populated from DB
 });
@@ -138,7 +138,7 @@ animation: None,
 ## 4. MEDIUM – TypeScript `ThemeFont` interface missing `format` field
 
 **Files:**
-- `iora-os/backend/shared/iora-shared/src/theme.rs` line ~22 — `ThemeFont` struct
+- `rumahl-os/backend/shared/rumahl-shared/src/theme.rs` line ~22 — `ThemeFont` struct
 - `frontend/src/contexts/ThemeContext.tsx` line ~13 — `ThemeFont` interface
 
 **Evidence:**
@@ -184,7 +184,7 @@ Manifests include `"format": "woff2"` for every font.
 ## 5. MEDIUM – TypeScript `ThemeIconConfig` interface missing `font_file` field
 
 **Files:**
-- `iora-os/backend/shared/iora-shared/src/theme.rs` line ~63 — `ThemeIconConfig` struct
+- `rumahl-os/backend/shared/rumahl-shared/src/theme.rs` line ~63 — `ThemeIconConfig` struct
 - `frontend/src/contexts/ThemeContext.tsx` line ~22 — `ThemeIconConfig` interface
 
 **Evidence:**
@@ -220,8 +220,8 @@ export interface ThemeIconConfig {
 ## 6. MEDIUM – Validator rejects child themes that rely on `parent_theme` for required CSS variables
 
 **Files:**
-- `iora-os/backend/shared/iora-shared/src/manifest_validator.rs` line ~112 — `REQUIRED_THEME_VARS`
-- `iora-os/backend/shared/iora-shared/src/manifest_validator.rs` line ~176 — required vars check
+- `rumahl-os/backend/shared/rumahl-shared/src/manifest_validator.rs` line ~112 — `REQUIRED_THEME_VARS`
+- `rumahl-os/backend/shared/rumahl-shared/src/manifest_validator.rs` line ~176 — required vars check
 
 **Evidence:**
 
@@ -270,7 +270,7 @@ The validator does **not** check whether `parent_theme` is set. A minimal child 
 
 **Files:**
 - `frontend/src/contexts/ThemeContext.tsx` line ~289 — `ThemeCssResponse` interface
-- `iora-os/backend/shared/iora-shared/src/theme.rs` line ~338 — Rust `ThemeCssResponse`
+- `rumahl-os/backend/shared/rumahl-shared/src/theme.rs` line ~338 — Rust `ThemeCssResponse`
 
 **Evidence:**
 
@@ -299,7 +299,7 @@ export interface ThemeCssResponse {
 ## 8. LOW – Empty `css_path` in `ThemeIconConfig` produces broken resolved URL
 
 **Files:**
-- `iora-os/backend/services/iora-home/src/theme_handler.rs` — `get_theme_css1` path resolution
+- `rumahl-os/backend/services/rumahl-home/src/theme_handler.rs` — `get_theme_css1` path resolution
 - `apps/examples/themes/*/manifest.json` — all manifests set `"css_path": ""`
 
 **Evidence:**
@@ -338,7 +338,7 @@ This is a directory URL, not a CSS file. The frontend injects it as a `<link rel
 ## 9. LOW – TypeScript `InstalledTheme` interface missing backend fields
 
 **Files:**
-- `iora-os/backend/shared/iora-shared/src/theme.rs` line ~248 — `InstalledTheme` struct
+- `rumahl-os/backend/shared/rumahl-shared/src/theme.rs` line ~248 — `InstalledTheme` struct
 - `frontend/src/contexts/ThemeContext.tsx` line ~56 — `InstalledTheme` interface
 
 **Evidence:**
@@ -379,7 +379,7 @@ export interface InstalledTheme {
 The TypeScript `ThemeCssResponse` includes `css_url?: string` as a legacy single-CSS-URL field alongside `css_urls: string[]`. The Rust struct only has `css_urls`. The frontend handles this gracefully with a fallback (`if css_urls.length > 0 ... else if css_url ...`). Not a bug, but cleanup candidate.
 
 ### B. `ThemeZipInstallBody` defined but unused in handler
-`iora-os/backend/services/iora-home/src/theme_handler.rs` line ~638 defines `ThemeZipInstallBody` but the actual ZIP handler in `main.rs` parses JSON manually. The struct is dead code.
+`rumahl-os/backend/services/rumahl-home/src/theme_handler.rs` line ~638 defines `ThemeZipInstallBody` but the actual ZIP handler in `main.rs` parses JSON manually. The struct is dead code.
 
 ### C. Duplicate `oklch` check in manifest validator
 `manifest_validator.rs` lines ~203-204: `starts_with("oklch(")` and `starts_with("oklch")` are both checked — the second is redundant since `oklch(` already matches the first. No functional impact.

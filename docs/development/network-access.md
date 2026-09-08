@@ -1,6 +1,6 @@
 # Network Access Control
 
-Control which domains and IP addresses your app can access. This is enforced at the IORA gateway and proxy level.
+Control which domains and IP addresses your app can access. This is enforced at the rumahl gateway and proxy level.
 
 ## Configuration
 
@@ -166,7 +166,7 @@ By default, apps cannot access localhost. To allow localhost access, add it expl
 }
 ```
 
-Use with caution – this allows the app to access IORA services directly.
+Use with caution – this allows the app to access rumahl services directly.
 
 ## Container Networking
 

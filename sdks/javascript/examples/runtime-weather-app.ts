@@ -1,12 +1,12 @@
 /**
  * Example app demonstrating the enhanced runtime features
  *
- * This example shows how to use the new IORA SDK runtime manager:
+ * This example shows how to use the new rumahl SDK runtime manager:
  * - Automatic heartbeat
  * - Status reporting
  * - Centralized logging
  * - Dynamic permission requests
- * - Bidirectional communication with IORA
+ * - Bidirectional communication with rumahl
  */
 
 import {
@@ -14,15 +14,15 @@ import {
   AppStatus,
   LogLevel,
   Permission,
-  IoraClient,
-} from "@iora/sdk";
+  rumahlClient,
+} from "@rumahl/sdk";
 
 async function main() {
   // Initialize runtime manager from environment variables
-  // IORA sets these when starting the app:
-  // - IORA_APP_ID
-  // - IORA_ENDPOINT
-  // - IORA_HEARTBEAT_INTERVAL
+  // rumahl sets these when starting the app:
+  // - RUMAHL_APP_ID
+  // - RUMAHL_ENDPOINT
+  // - RUMAHL_HEARTBEAT_INTERVAL
   const runtime = RuntimeManager.fromEnv();
 
   // Start the runtime (begins heartbeat, message processing, etc.)
@@ -40,15 +40,15 @@ async function main() {
 }
 
 async function runWeatherApp(runtime: RuntimeManager) {
-  // ── ORA OS surface (Package 2: ora.*) ────────────────────────────────
-  // The runtime manager sets IORA_ENDPOINT/IORA_APP_TOKEN; the SDK client
+  // ── rumahl OS surface (Package 2: ora.*) ────────────────────────────────
+  // The runtime manager sets RUMAHL_ENDPOINT/RUMAHL_APP_TOKEN; the SDK client
   // gives apps the same OS capabilities as the shell (jobs, files,
   // permissions, system events, devices, secrets).
-  const ora = new IoraClient({
-    baseUrl: process.env.IORA_ENDPOINT || "http://localhost:8126",
-    apiKey: process.env.IORA_APP_TOKEN,
+  const ora = new rumahlClient({
+    baseUrl: process.env.RUMAHL_ENDPOINT || "http://localhost:8126",
+    apiKey: process.env.RUMAHL_APP_TOKEN,
   });
-  ora.setAppId(process.env.IORA_APP_ID || "weather-service");
+  ora.setAppId(process.env.RUMAHL_APP_ID || "weather-service");
 
   try {
     // Track weather refreshes as background jobs (Job Center UI).

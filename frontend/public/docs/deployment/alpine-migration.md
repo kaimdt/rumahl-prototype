@@ -2,7 +2,7 @@
 
 ## Overview
 
-All IORA services have been migrated from Debian to Alpine Linux to dramatically reduce resource consumption and enable deployment on resource-constrained devices like Raspberry Pi.
+All rumahl services have been migrated from Debian to Alpine Linux to dramatically reduce resource consumption and enable deployment on resource-constrained devices like Raspberry Pi.
 
 ## Resource Improvements
 
@@ -21,27 +21,27 @@ All IORA services have been migrated from Debian to Alpine Linux to dramatically
 | Service | Debian | Alpine | Savings |
 |---------|--------|--------|---------|
 | postgres | 150 MB | 150 MB | 0 MB (unchanged) |
-| iora-core | 80 MB | 40 MB | 40 MB |
-| iora-home | 100 MB | 50 MB | 50 MB |
-| iora-secrets | 60 MB | 30 MB | 30 MB |
-| iora-backup | 70 MB | 35 MB | 35 MB |
-| iora-watchdog | 50 MB | 25 MB | 25 MB |
-| iora-security | 70 MB | 35 MB | 35 MB |
-| iora-gateway | 60 MB | 30 MB | 30 MB |
-| iora-control | 80 MB | 40 MB | 40 MB |
-| iora-supervisor | 100 MB | 50 MB | 50 MB |
+| rumahl-core | 80 MB | 40 MB | 40 MB |
+| rumahl-home | 100 MB | 50 MB | 50 MB |
+| rumahl-secrets | 60 MB | 30 MB | 30 MB |
+| rumahl-backup | 70 MB | 35 MB | 35 MB |
+| rumahl-watchdog | 50 MB | 25 MB | 25 MB |
+| rumahl-security | 70 MB | 35 MB | 35 MB |
+| rumahl-gateway | 60 MB | 30 MB | 30 MB |
+| rumahl-control | 80 MB | 40 MB | 40 MB |
+| rumahl-supervisor | 100 MB | 50 MB | 50 MB |
 | **Total** | **~820 MB** | **~485 MB** | **~335 MB (41%)** |
 
 ### Target Requirements Achieved ✅
 
-**Goal**: IORA should run on Raspberry Pi with ≤ 2 CPU cores and ≤ 4 GB RAM for 2 users (without AI)
+**Goal**: rumahl should run on Raspberry Pi with ≤ 2 CPU cores and ≤ 4 GB RAM for 2 users (without AI)
 
 **Actual Resource Usage (Alpine-based):**
 - **RAM**: ~485 MB base + ~1.5 GB for PostgreSQL and working memory = **~2 GB total** ✅
 - **CPU**: ~0.3-0.5 cores idle, ~1.5 cores peak = **well under 2 cores** ✅
 - **Disk**: ~300 MB for containers + ~2 GB for data = **~2.5 GB total** ✅
 
-**Result**: IORA can now comfortably run on:
+**Result**: rumahl can now comfortably run on:
 - Raspberry Pi 4 (2GB model) ✅
 - Raspberry Pi 4 (4GB model) with room for growth ✅
 - Other ARM SBCs with 2GB+ RAM ✅
@@ -134,11 +134,11 @@ RUN apk add --no-cache \
 ```bash
 # Build main backend services
 cd backend
-docker build -t iora/services:alpine .
+docker build -t ora/services:alpine .
 
 # Build individual services with targets
-docker build -t iora/home:alpine --target iora-home .
-docker build -t iora/core:alpine --target iora-core .
+docker build -t ora/home:alpine --target rumahl-home .
+docker build -t ora/core:alpine --target rumahl-core .
 # etc.
 ```
 
@@ -146,22 +146,22 @@ docker build -t iora/core:alpine --target iora-core .
 
 ```bash
 # Backup service
-cd backend/iora-backup
-docker build -t iora/backup:alpine .
+cd backend/rumahl-backup
+docker build -t ora/backup:alpine .
 
 # App store
-cd backend/iora-appstore
-docker build -t iora/appstore:alpine .
+cd backend/rumahl-appstore
+docker build -t ora/appstore:alpine .
 ```
 
 ### Cross-Platform Builds (for Raspberry Pi)
 
 ```bash
 # Build for ARM64 (Raspberry Pi 4)
-docker buildx build --platform linux/arm64 -t iora/services:alpine-arm64 .
+docker buildx build --platform linux/arm64 -t ora/services:alpine-arm64 .
 
 # Build multi-platform
-docker buildx build --platform linux/amd64,linux/arm64 -t iora/services:alpine .
+docker buildx build --platform linux/amd64,linux/arm64 -t ora/services:alpine .
 ```
 
 ## Testing
@@ -170,12 +170,12 @@ docker buildx build --platform linux/amd64,linux/arm64 -t iora/services:alpine .
 
 ```bash
 # Check image sizes
-docker images | grep iora
+docker images | grep ora
 
 # Expected output (approximate):
-# iora/core       alpine    xxxxx   20MB
-# iora/home       alpine    xxxxx   25MB
-# iora/backup     alpine    xxxxx   30MB
+# ora/core       alpine    xxxxx   20MB
+# ora/home       alpine    xxxxx   25MB
+# ora/backup     alpine    xxxxx   30MB
 ```
 
 ### Runtime Testing
@@ -199,9 +199,9 @@ docker ps --filter "health=healthy"
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 
-# 2. Clone and start IORA
-git clone https://github.com/your-org/iora.git
-cd iora
+# 2. Clone and start rumahl
+git clone https://github.com/your-org/ora.git
+cd ora
 docker compose up -d
 
 # 3. Monitor resources
@@ -228,7 +228,7 @@ htop  # Should see ~2GB RAM usage total
 
 ### 🎯 Target Met
 
-**Original Requirement**: "IORA should run on Raspberry Pi with max 2 CPU cores and 4GB RAM for 2 users (without AI)"
+**Original Requirement**: "rumahl should run on Raspberry Pi with max 2 CPU cores and 4GB RAM for 2 users (without AI)"
 
 **Result**:
 - ✅ Runs on 2GB Raspberry Pi 4 (with minimal services)
@@ -295,7 +295,7 @@ htop  # Should see ~2GB RAM usage total
 
 ## Conclusion
 
-The Alpine Linux migration successfully reduces IORA's resource footprint by 85% for container overhead and 41% for total memory usage. IORA can now run comfortably on Raspberry Pi 4 (2GB+) within the specified limits of 2 CPU cores and 4GB RAM for 2 concurrent users.
+The Alpine Linux migration successfully reduces rumahl's resource footprint by 85% for container overhead and 41% for total memory usage. rumahl can now run comfortably on Raspberry Pi 4 (2GB+) within the specified limits of 2 CPU cores and 4GB RAM for 2 concurrent users.
 
 **Status**: ✅ Migration Complete
 **Compatibility**: ✅ Fully Tested

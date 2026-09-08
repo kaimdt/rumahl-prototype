@@ -1,0 +1,17 @@
+config BR2_PACKAGE_RUMAHL_RUNTIME_SENSOR_EBPF_LOADER
+	bool "rumahl-runtime-sensor-ebpf-loader"
+	depends on BR2_LINUX_KERNEL
+	depends on BR2_PACKAGE_LIBBPF
+	depends on BR2_PACKAGE_HOST_CLANG
+	depends on BR2_PACKAGE_HOST_BPFTOOL
+	help
+	  Observation-only CO-RE eBPF loader and ring-buffer consumer for
+	  the rumahl runtime sensor. Loads runtime.bpf.o, enriches connect
+	  events and forwards every event as a JSON line to
+	  rumahl-runtime-sensor over its Unix socket.
+
+	  This is the single component permitted to hold CAP_BPF and
+	  CAP_PERFMON (Security Foundation baseline runtime sensor
+	  privileged exception). It performs no host mutations.
+
+	  https://github.com/rumahl/ora

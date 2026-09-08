@@ -89,7 +89,7 @@ export function DocsPage() {
           setExpandedSections(new Set([data.navigation[0].section]))
         } else {
           setConfig({
-            title: 'IORA OS Dokumentation',
+            title: 'rumahl OS Dokumentation',
             description: 'Keine Dokumentationsdateien gefunden',
             navigation: [{
               section: 'Hinweis',
@@ -102,7 +102,7 @@ export function DocsPage() {
       }
     } catch { /* offline — fallback below */ }
     setConfig({
-      title: 'IORA OS Dokumentation',
+      title: 'rumahl OS Dokumentation',
       description: 'Eingebettete Dokumentation',
       navigation: [{
         section: 'Hinweis',
@@ -116,7 +116,7 @@ export function DocsPage() {
     if (path === '__offline__') {
       setCurrentPath(path)
       setCurrentTitle('Offline')
-      setCurrentContent('Die Dokumentation ist derzeit nicht erreichbar. Stelle sicher, dass der IORA-Backend-Dienst läuft.')
+      setCurrentContent('Die Dokumentation ist derzeit nicht erreichbar. Stelle sicher, dass der rumahl-Backend-Dienst läuft.')
       return
     }
     setLoading(true)
@@ -288,7 +288,7 @@ export function DocsPage() {
               <div className="w-20 h-20 rounded-3xl bg-accent/[0.06] ring-1 ring-accent/[0.08] flex items-center justify-center mb-6">
                 <BookOpen size={40} weight="duotone" className="text-accent/40" />
               </div>
-              <h2 className="text-lg font-semibold text-foreground mb-2">IORA Dokumentation</h2>
+              <h2 className="text-lg font-semibold text-foreground mb-2">rumahl Dokumentation</h2>
               <p className="text-sm text-foreground/40 max-w-sm leading-relaxed">
                 Wähle ein Thema aus der Seitenleiste oder nutze die Suche, um die Dokumentation zu durchsuchen.
               </p>

@@ -1,7 +1,7 @@
 /**
- * IORA SDK Runtime Components
+ * rumahl SDK Runtime Components
  *
- * This module provides the runtime infrastructure for IORA apps including:
+ * This module provides the runtime infrastructure for rumahl apps including:
  * - Status management
  * - Heartbeat system
  * - Logging integration
@@ -58,26 +58,26 @@ export function tokenNeedsRenewal(token: PermissionToken): boolean {
 }
 
 /**
- * Base IORA message
+ * Base rumahl message
  */
-export interface IoraMessage {
+export interface rumahlMessage {
   type: string;
   timestamp: number;
 }
 
 /**
- * Heartbeat signal from app to IORA
+ * Heartbeat signal from app to rumahl
  */
-export interface HeartbeatMessage extends IoraMessage {
+export interface HeartbeatMessage extends rumahlMessage {
   type: "heartbeat";
   appId: string;
   status: AppStatus;
 }
 
 /**
- * Status update from app to IORA
+ * Status update from app to rumahl
  */
-export interface StatusUpdateMessage extends IoraMessage {
+export interface StatusUpdateMessage extends rumahlMessage {
   type: "status_update";
   appId: string;
   oldStatus: AppStatus;
@@ -86,9 +86,9 @@ export interface StatusUpdateMessage extends IoraMessage {
 }
 
 /**
- * Log entry from app to IORA
+ * Log entry from app to rumahl
  */
-export interface LogMessage extends IoraMessage {
+export interface LogMessage extends rumahlMessage {
   type: "log";
   appId: string;
   level: LogLevel;
@@ -97,9 +97,9 @@ export interface LogMessage extends IoraMessage {
 }
 
 /**
- * Permission request from app to IORA
+ * Permission request from app to rumahl
  */
-export interface PermissionRequestMessage extends IoraMessage {
+export interface PermissionRequestMessage extends rumahlMessage {
   type: "permission_request";
   appId: string;
   permission: string;
@@ -108,9 +108,9 @@ export interface PermissionRequestMessage extends IoraMessage {
 }
 
 /**
- * Permission grant from IORA to app
+ * Permission grant from rumahl to app
  */
-export interface PermissionGrantMessage extends IoraMessage {
+export interface PermissionGrantMessage extends rumahlMessage {
   type: "permission_grant";
   token: string;
   expiresAt: number;
@@ -118,18 +118,18 @@ export interface PermissionGrantMessage extends IoraMessage {
 }
 
 /**
- * Permission denial from IORA to app
+ * Permission denial from rumahl to app
  */
-export interface PermissionDeniedMessage extends IoraMessage {
+export interface PermissionDeniedMessage extends rumahlMessage {
   type: "permission_denied";
   permission: string;
   reason: string;
 }
 
 /**
- * Query from IORA to app
+ * Query from rumahl to app
  */
-export interface QueryMessage extends IoraMessage {
+export interface QueryMessage extends rumahlMessage {
   type: "query";
   queryId: string;
   command: string;
@@ -137,18 +137,18 @@ export interface QueryMessage extends IoraMessage {
 }
 
 /**
- * Response from app to IORA
+ * Response from app to rumahl
  */
-export interface ResponseMessage extends IoraMessage {
+export interface ResponseMessage extends rumahlMessage {
   type: "response";
   queryId: string;
   data: any;
 }
 
 /**
- * Error response from app to IORA
+ * Error response from app to rumahl
  */
-export interface ErrorResponseMessage extends IoraMessage {
+export interface ErrorResponseMessage extends rumahlMessage {
   type: "error_response";
   queryId: string;
   error: string;

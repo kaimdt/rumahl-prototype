@@ -1,8 +1,8 @@
-# IORA App Store - Implementation Summary
+# rumahl App Store - Implementation Summary
 
 ## Overview
 
-This document summarizes the complete App Store implementation for IORA, including dynamic port assignment, installation workflows, custom pages, and settings management.
+This document summarizes the complete App Store implementation for rumahl, including dynamic port assignment, installation workflows, custom pages, and settings management.
 
 ## Requirements Fulfilled
 
@@ -10,7 +10,7 @@ Based on the German requirements:
 
 > Apps dürfen sich selber keinen Port raussuchen sondern bekommen einen Zugewiesen.
 
-✅ **Dynamic Port Assignment**: Apps no longer choose ports. IORA assigns from pool (3000-4000).
+✅ **Dynamic Port Assignment**: Apps no longer choose ports. rumahl assigns from pool (3000-4000).
 
 > Außerdem dürfen Apps und Plugins eigene Seiten erstellen.
 
@@ -20,9 +20,9 @@ Based on the German requirements:
 
 ✅ **Settings Pages**: Apps define `settings_schema` for dynamic settings UI.
 
-> Außerdem soll es einen Appstore geben welcher auf appstore.kaimdt.com laufen wird dort kann man direkt Apps installieren für die IORA Instanz. Alternative auch als ZIP Datei.
+> Außerdem soll es einen Appstore geben welcher auf appstore.rumahl.com laufen wird dort kann man direkt Apps installieren für die rumahl Instanz. Alternative auch als ZIP Datei.
 
-✅ **App Store**: Backend ready, frontend with placeholder for appstore.kaimdt.com + ZIP upload functional.
+✅ **App Store**: Backend ready, frontend with placeholder for appstore.rumahl.com + ZIP upload functional.
 
 > Standardmäßig sind alle Apps erstmal nicht vertrauenswürdig nur über den Appstore.
 
@@ -40,11 +40,11 @@ Based on the German requirements:
 
 ### Components
 
-1. **iora-shared** (Rust shared library)
+1. **rumahl-shared** (Rust shared library)
    - `port_manager.rs`: Dynamic port allocation (3000-4000 range)
    - `app_manifest.rs`: Complete manifest schema
 
-2. **iora-appstore** (Rust backend service, port 8098)
+2. **rumahl-appstore** (Rust backend service, port 8098)
    - App installation/uninstallation
    - Port assignment coordination
    - Permission management
@@ -84,7 +84,7 @@ Based on the German requirements:
 
 1. User searches in App Store tab
 2. Clicks install, reviews permissions
-3. Backend fetches from appstore.kaimdt.com
+3. Backend fetches from appstore.rumahl.com
 4. Installation proceeds as above
 5. App marked as **trusted**
 6. Permissions auto-approved
@@ -95,8 +95,8 @@ Based on the German requirements:
 2. Port manager finds free port in 3000-4000 range (e.g., 3042)
 3. Mapping created: `3042:3000/tcp`
 4. Port stored in database
-5. Environment variable `IORA_EXTERNAL_PORT=3042` injected
-6. App accessible at `http://iora.local:3042` externally
+5. Environment variable `RUMAHL_EXTERNAL_PORT=3042` injected
+6. App accessible at `http://rumahl.local:3042` externally
 
 ### Custom Pages
 
@@ -112,13 +112,13 @@ Based on the German requirements:
    }
    ```
 2. Page registered during installation
-3. Appears in IORA navigation menu
+3. Appears in rumahl navigation menu
 4. Content served from app container
 
 ### Settings Management
 
 1. App manifest defines `settings_schema` with fields
-2. IORA generates dynamic form UI
+2. rumahl generates dynamic form UI
 3. User configures via Settings page
 4. Settings stored in `app_settings` table
 5. App fetches via `/api/appstore/apps/{id}/settings`
@@ -129,13 +129,13 @@ Based on the German requirements:
 
 ### Backend
 
-- `backend/iora-shared/src/port_manager.rs` (**new**)
-- `backend/iora-shared/src/app_manifest.rs` (**new**)
-- `backend/iora-shared/src/lib.rs` (modified)
-- `backend/iora-appstore/Cargo.toml` (**new**)
-- `backend/iora-appstore/Dockerfile` (**new**)
-- `backend/iora-appstore/src/main.rs` (**new**)
-- `backend/iora-appstore/schema.sql` (**new**)
+- `backend/rumahl-shared/src/port_manager.rs` (**new**)
+- `backend/rumahl-shared/src/app_manifest.rs` (**new**)
+- `backend/rumahl-shared/src/lib.rs` (modified)
+- `backend/rumahl-appstore/Cargo.toml` (**new**)
+- `backend/rumahl-appstore/Dockerfile` (**new**)
+- `backend/rumahl-appstore/src/main.rs` (**new**)
+- `backend/rumahl-appstore/schema.sql` (**new**)
 
 ### Frontend
 
@@ -145,8 +145,8 @@ Based on the German requirements:
 
 ### Infrastructure
 
-- `docker-compose.yml` (added iora-appstore service)
-- `init-postgres.sh` (added iora_appstore database)
+- `docker-compose.yml` (added rumahl-appstore service)
+- `init-postgres.sh` (added rumahl_appstore database)
 
 ### Examples
 
@@ -184,7 +184,7 @@ Based on the German requirements:
 ### 🚧 To Be Implemented
 
 - Self-registration endpoint (`POST /api/core/apps/register`)
-- App Store remote integration (appstore.kaimdt.com API)
+- App Store remote integration (appstore.rumahl.com API)
 - Settings page UI generator
 - Custom page rendering
 - Widget component loading
@@ -196,7 +196,7 @@ Based on the German requirements:
 
 ## API Endpoints
 
-### iora-appstore (port 8098)
+### rumahl-appstore (port 8098)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -209,7 +209,7 @@ Based on the German requirements:
 | POST | `/api/appstore/settings` | Update app settings |
 | GET | `/api/appstore/apps/{id}/settings` | Get app settings |
 
-### iora-supervisor (port 8097)
+### rumahl-supervisor (port 8097)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -310,7 +310,7 @@ Based on the German requirements:
    - Register endpoints, widgets, pages
 
 2. **App Store Integration**
-   - Connect to appstore.kaimdt.com API
+   - Connect to appstore.rumahl.com API
    - Implement app discovery
    - Handle downloads
 
@@ -359,14 +359,14 @@ Apps should read assigned port from environment:
 const PORT = 3000
 
 // New: Use assigned port
-const PORT = process.env.IORA_EXTERNAL_PORT || 3000
+const PORT = process.env.RUMAHL_EXTERNAL_PORT || 3000
 ```
 
 ---
 
 ## Conclusion
 
-The IORA App Store implementation provides a complete framework for app distribution, installation, and management with:
+The rumahl App Store implementation provides a complete framework for app distribution, installation, and management with:
 
 - **Dynamic port assignment** preventing conflicts
 - **Trust levels** ensuring security

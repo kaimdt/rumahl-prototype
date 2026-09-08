@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
 import {
@@ -25,8 +25,17 @@ import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { renderAdminTabContent, tabGroups, getTabs, type Tab } from '@/components/AdminPanel'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { authFetch } from '@/lib/authHelpers'
-import { useCallback, useEffect } from 'react'
+import { useCallback } from 'react'
 import { OsTerminal } from '@/components/OsTerminal'
+import { useShellMode } from '@/hooks/useShellMode'
+import { DesktopAdminCenter, type DesktopAdminSection, type DesktopServiceSummary } from '@/components/DesktopAdminCenter'
+import { OsServicesApp } from '@/components/OsServicesApp'
+import { OsStorageApp } from '@/components/OsStorageApp'
+import { OsDevicesApp } from '@/components/OsDevicesApp'
+import { OsContainersApp } from '@/components/OsContainersApp'
+import { OsLogsApp } from '@/components/OsLogsApp'
+import { OsSystemApp } from '@/components/OsSystemApp'
+import { OsMaintenanceApp } from '@/components/OsMaintenanceApp'
 
 /**
  * AdminCenter — Windows 11 Settings-style admin shell.
@@ -56,7 +65,8 @@ const NATIVE_APPS: Array<{ pageId: string; nameKey: string; icon: typeof Cube }>
   { pageId: 'os-system', nameKey: 'os.apps.system.name', icon: Gauge },
 ]
 
-export function AdminCenter() {
+export function AdminCenter({ initialSection = 'overview' }: { initialSection?: DesktopAdminSection }) {
+  const { resolvedMode } = useShellMode()
   const { t } = useTranslation()
   const { token } = useAuth()
   const { setCurrentPageId } = usePageNavigation()
@@ -66,22 +76,69 @@ export function AdminCenter() {
 
   const [categoryId, setCategoryId] = useState<string>('home')
   const [detailTab, setDetailTab] = useState<Tab | null>(null)
+  const [desktopSection, setDesktopSection] = useState<DesktopAdminSection>(initialSection)
 
   // System health for the home overview.
   const [health, setHealth] = useState<{ status: string; ha_connected?: boolean; version?: string } | null>(null)
-  const [servicesUp, setServicesUp] = useState<number | null>(null)
+  const [services, setServices] = useState<DesktopServiceSummary[]>([])
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null)
+  const [performanceHistory, setPerformanceHistory] = useState<Array<{ time: string; value: number }>>([])
+  const [developerMode, setDeveloperMode] = useState(false)
+
+  useEffect(() => setDesktopSection(initialSection), [initialSection])
+
+  useEffect(() => {
+    let cancelled = false
+    const refreshDeveloperMode = async () => {
+      try {
+        const response = await authFetch('/api/admin/settings')
+        if (!response.ok) return
+        const payload = await response.json()
+        const settings = (payload?.settings ?? payload ?? []) as Array<{ key: string; value: unknown }>
+        const enabled = settings.some((setting) => setting.key === 'developer.mode' && setting.value === true)
+        if (!cancelled) setDeveloperMode(enabled)
+      } catch { /* Admin Center remains usable without this optional capability. */ }
+    }
+    void refreshDeveloperMode()
+    const interval = window.setInterval(refreshDeveloperMode, 10_000)
+    return () => { cancelled = true; window.clearInterval(interval) }
+  }, [token])
+
+  useEffect(() => {
+    const update = (event: Event) => setDeveloperMode(Boolean((event as CustomEvent<{ enabled: boolean }>).detail?.enabled))
+    window.addEventListener('rumahl:developer-mode', update)
+    return () => window.removeEventListener('rumahl:developer-mode', update)
+  }, [])
+
+  useEffect(() => {
+    if (!developerMode && categoryId === 'terminal') setCategoryId('home')
+  }, [categoryId, developerMode])
 
   const refreshHealth = useCallback(async () => {
     try {
-      const [healthResponse, servicesResponse] = await Promise.all([
+      const [healthResult, servicesResult, systemResult] = await Promise.allSettled([
         fetch('/health'),
         can('os.system.read') ? authFetch('/api/os/control/os/services') : Promise.resolve(null),
+        can('os.system.read') ? authFetch('/api/os/control/system') : Promise.resolve(null),
       ])
-      if (healthResponse.ok) setHealth(await healthResponse.json())
+      if (healthResult.status === 'fulfilled' && healthResult.value.ok) setHealth(await healthResult.value.json())
+      const servicesResponse = servicesResult.status === 'fulfilled' ? servicesResult.value : null
       if (servicesResponse?.ok) {
         const data = await servicesResponse.json()
-        setServicesUp((data.services || []).filter((s: { active?: string }) => s.active === 'active').length)
+        setServices(data.services || [])
       }
+      const systemResponse = systemResult.status === 'fulfilled' ? systemResult.value : null
+      if (systemResponse?.ok) {
+        const data = await systemResponse.json() as { cpu_usage_percent?: number }
+        if (typeof data.cpu_usage_percent === 'number' && Number.isFinite(data.cpu_usage_percent)) {
+          const point = {
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            value: Math.max(0, Math.min(100, data.cpu_usage_percent)),
+          }
+          setPerformanceHistory((current) => [...current, point].slice(-60))
+        }
+      }
+      setCheckedAt(new Date())
     } catch {
       // offline
     }
@@ -96,9 +153,9 @@ export function AdminCenter() {
   // Category structure: home + the existing admin groups.
   const categories: Category[] = useMemo(() => [
     { id: 'home', title: t('adminCenter.home'), icon: House, items: [] },
-    { id: 'terminal', title: t('adminCenter.terminal'), icon: Terminal, items: [] },
+    ...(developerMode ? [{ id: 'terminal', title: t('adminCenter.terminal'), icon: Terminal, items: [] as Tab[] }] : []),
     ...tabGroups.map((group) => ({ id: group.id, title: group.title, icon: group.icon as typeof Cpu, items: group.items as Tab[] })),
-  ], [t])
+  ], [developerMode, t])
 
   const activeCategory = categories.find((category) => category.id === categoryId) || categories[0]
 
@@ -114,6 +171,41 @@ export function AdminCenter() {
     setDetailTab(null)
   }
 
+  const renderDesktopSection = (section: DesktopAdminSection): ReactNode => {
+    switch (section) {
+      case 'services': return <OsServicesApp />
+      case 'storage': return <OsStorageApp />
+      case 'network': return <OsSystemApp kind="network" />
+      case 'devices': return <OsDevicesApp />
+      case 'containers': return <OsContainersApp />
+      case 'logs': return <OsLogsApp />
+      case 'system': return <OsSystemApp kind="system" />
+      case 'updates': return <OsMaintenanceApp kind="updates" />
+      case 'backups': return <OsMaintenanceApp kind="backups" />
+      case 'users': return renderAdminTabContent('users', token || '')
+      case 'developer': return renderAdminTabContent('developer-mode', token || '')
+      case 'terminal': return developerMode ? <OsTerminal /> : null
+      default: return null
+    }
+  }
+
+  if (resolvedMode === 'desktop') {
+    return (
+      <DesktopAdminCenter
+        activeSection={desktopSection}
+        healthStatus={health?.status}
+        version={health?.version}
+        services={services}
+        performanceData={performanceHistory}
+        checkedAt={checkedAt}
+        developerMode={developerMode}
+        content={renderDesktopSection(desktopSection)}
+        onSelectSection={setDesktopSection}
+        onRefresh={() => void refreshHealth()}
+      />
+    )
+  }
+
   // ── Home overview ─────────────────────────────────────────────────────────
   const renderHome = () => (
     <div className="space-y-6">
@@ -125,7 +217,7 @@ export function AdminCenter() {
       {/* System status strip */}
       <div className="grid gap-3 sm:grid-cols-3">
         <StatusCard icon={Gauge} label={t('adminCenter.status')} value={health?.status || t('adminCenter.checking')} good={health?.status === 'ok'} />
-        <StatusCard icon={ArrowClockwise} label={t('adminCenter.servicesUp')} value={servicesUp != null ? String(servicesUp) : '–'} />
+        <StatusCard icon={ArrowClockwise} label={t('adminCenter.servicesUp')} value={String(services.filter((service) => service.active === 'active').length)} />
         <StatusCard icon={Cube} label={t('adminCenter.version')} value={health?.version || '–'} />
       </div>
 
@@ -136,7 +228,7 @@ export function AdminCenter() {
           {NATIVE_APPS.map((app) => {
             const Icon = app.icon
             return (
-              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="glass-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
+              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="rumahl-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
                 <span className="grid size-10 place-items-center rounded-xl bg-accent/15 text-accent"><Icon size={20} weight="duotone" /></span>
                 <span className="mt-3 block text-sm font-semibold">{t(app.nameKey, app.pageId)}</span>
                 <span className="mt-1 block text-[11px] text-foreground/45">{t('adminCenter.openApp')}</span>
@@ -153,7 +245,7 @@ export function AdminCenter() {
           {categories.filter((category) => category.id !== 'home').map((category) => {
             const Icon = category.icon
             return (
-              <button key={category.id} type="button" onClick={() => setCategoryId(category.id)} className="glass-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
+              <button key={category.id} type="button" onClick={() => setCategoryId(category.id)} className="rumahl-card group rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
                 <span className="grid size-10 place-items-center rounded-xl bg-foreground/8 text-foreground/70"><Icon size={20} weight="duotone" /></span>
                 <span className="mt-3 block text-sm font-semibold">{category.title}</span>
                 <span className="mt-1 block text-[11px] text-foreground/45">{category.items.length} {t('adminCenter.items')}</span>
@@ -181,7 +273,7 @@ export function AdminCenter() {
           {category.apps.map((app) => {
             const Icon = app.icon
             return (
-              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="glass-card rounded-2xl border border-accent/25 bg-accent/6 p-4 text-left transition-colors hover:bg-accent/10">
+              <button key={app.pageId} type="button" onClick={() => openApp(app.pageId)} className="rumahl-card rounded-2xl border border-accent/25 bg-accent/6 p-4 text-left transition-colors hover:bg-accent/10">
                 <span className="grid size-10 place-items-center rounded-xl bg-accent/15 text-accent"><Icon size={20} weight="duotone" /></span>
                 <span className="mt-3 block text-sm font-semibold">{t(app.nameKey, app.pageId)}</span>
                 <span className="mt-1 block text-[11px] text-foreground/45">{t('adminCenter.openApp')}</span>
@@ -197,7 +289,7 @@ export function AdminCenter() {
           if (!entry) return null
           const Icon = entry.icon as typeof Cpu
           return (
-            <button key={tabId} type="button" onClick={() => openDetail(tabId)} className="glass-card rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
+            <button key={tabId} type="button" onClick={() => openDetail(tabId)} className="rumahl-card rounded-2xl p-4 text-left transition-colors hover:bg-foreground/6">
               <span className="grid size-10 place-items-center rounded-xl bg-foreground/8 text-foreground/70"><Icon size={20} weight="duotone" /></span>
               <span className="mt-3 block text-sm font-semibold">{entry.label}</span>
               {entry.description && <span className="mt-1 line-clamp-2 block text-[11px] text-foreground/45">{entry.description}</span>}
@@ -267,7 +359,7 @@ export function AdminCenter() {
 
 function StatusCard({ icon: Icon, label, value, good = true }: { icon: typeof Gauge; label: string; value: string; good?: boolean }) {
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className="rumahl-card rounded-2xl p-4">
       <Icon size={20} className={good ? 'text-emerald-400' : 'text-amber-400'} />
       <p className="mt-3 text-lg font-semibold">{value}</p>
       <p className="text-xs text-foreground/40">{label}</p>

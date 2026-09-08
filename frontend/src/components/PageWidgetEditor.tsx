@@ -34,7 +34,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import type { DashboardPage, DashboardWidget, EntityState } from '@/lib/types'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Tip } from '@/components/ui/tip'
 
 interface PageWidgetEditorProps {

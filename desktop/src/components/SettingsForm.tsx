@@ -118,27 +118,27 @@ export function SettingsForm({
         />
       </section>
 
-      {/* IORA Backend section */}
+      {/* rumahl Backend section */}
       <section className="flex flex-col gap-3">
-        <SectionHeader>IORA Backend</SectionHeader>
+        <SectionHeader>rumahl Backend</SectionHeader>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-medium text-foreground/60">IORA Assist URL</label>
+          <label className="text-[13px] font-medium text-foreground/60">rumahl Assist URL</label>
           <input
             type="url"
-            value={form.iora_backend_url}
-            onChange={field("iora_backend_url")}
+            value={form.rumahl_backend_url}
+            onChange={field("rumahl_backend_url")}
             placeholder="http://localhost:8092"
             className={inputClass}
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] font-medium text-foreground/60">IORA Home URL</label>
+          <label className="text-[13px] font-medium text-foreground/60">rumahl Home URL</label>
           <input
             type="url"
-            value={form.iora_home_url}
-            onChange={field("iora_home_url")}
+            value={form.rumahl_home_url}
+            onChange={field("rumahl_home_url")}
             placeholder="http://localhost:3001"
             className={inputClass}
           />
@@ -177,7 +177,7 @@ export function SettingsForm({
             className={inputClass}
           />
           <span className="text-[11px] text-foreground/40">
-            Anzeigename in IORA Assist (bei mehreren Clients)
+            Anzeigename in rumahl Assist (bei mehreren Clients)
           </span>
         </div>
 

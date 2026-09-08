@@ -1,7 +1,7 @@
 {
-  "name": "@iora/sdk",
+  "name": "@rumahl/sdk",
   "version": "0.1.0",
-  "description": "Official JavaScript/TypeScript SDK for IORA app development",
+  "description": "Official JavaScript/TypeScript SDK for rumahl app development",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -12,17 +12,17 @@
     "prepare": "npm run build"
   },
   "keywords": [
-    "iora",
+    "ora",
     "sdk",
     "iframe",
     "app",
     "home-automation"
   ],
-  "author": "IORA Team",
+  "author": "rumahl Team",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kaimdt/home-assistant-dashb"
+    "url": "https://github.com/rumahl/home-assistant-dashb"
   },
   "files": [
     "dist",

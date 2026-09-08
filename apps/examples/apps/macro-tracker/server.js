@@ -18,30 +18,30 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
-// ---- IORA Database Integration ----
-const IORA_HOME = process.env.IORA_HOME_URL || 'http://iora-home:3001';
+// ---- rumahl Database Integration ----
+const RUMAHL_HOME = process.env.RUMAHL_HOME_URL || 'http://rumahl-home:3001';
 const APP_ID = 'macro-tracker';
 let db = null;
 
 function getHeaders() {
   const h = { 'Content-Type': 'application/json' };
-  if (process.env.IORA_API_KEY) h['Authorization'] = 'Bearer ' + process.env.IORA_API_KEY;
+  if (process.env.RUMAHL_API_KEY) h['Authorization'] = 'Bearer ' + process.env.RUMAHL_API_KEY;
   return h;
 }
 
-// Use IORA-provided SQLite if running in IORA, otherwise use local file
+// Use rumahl-provided SQLite if running in rumahl, otherwise use local file
 async function initDatabase() {
   try {
-    // Try IORA database first
-    const statusRes = await fetch(`${IORA_HOME}/api/apps/${APP_ID}/database/status`, {
+    // Try rumahl database first
+    const statusRes = await fetch(`${RUMAHL_HOME}/api/apps/${APP_ID}/database/status`, {
       headers: getHeaders()
     });
     if (statusRes.ok) {
       const status = await statusRes.json();
       if (status.provisioned) {
-        console.log('[MacroTracker] Using IORA-managed SQLite database');
+        console.log('[MacroTracker] Using rumahl-managed SQLite database');
 
-        // Execute init SQL directly against IORA API
+        // Execute init SQL directly against rumahl API
         const initSQL = [
           `CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY AUTOINCREMENT, protein_g REAL NOT NULL DEFAULT 180, fat_g REAL NOT NULL DEFAULT 70, carbs_g REAL NOT NULL DEFAULT 250, calories REAL NOT NULL DEFAULT 2500, water_goal_ml REAL NOT NULL DEFAULT 3000, updated_at TEXT DEFAULT (datetime('now')))`,
           `CREATE TABLE IF NOT EXISTS water_log (id INTEGER PRIMARY KEY AUTOINCREMENT, amount_ml REAL NOT NULL DEFAULT 250, log_date TEXT NOT NULL DEFAULT (date('now')), logged_at TEXT DEFAULT (datetime('now')))`,
@@ -54,7 +54,7 @@ async function initDatabase() {
         ];
 
         for (const sql of initSQL) {
-          await fetch(`${IORA_HOME}/api/apps/${APP_ID}/database/execute`, {
+          await fetch(`${RUMAHL_HOME}/api/apps/${APP_ID}/database/execute`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({ sql, params: [] })
@@ -86,7 +86,7 @@ async function initDatabase() {
         ];
 
         for (const food of defaultFoods) {
-          await fetch(`${IORA_HOME}/api/apps/${APP_ID}/database/execute`, {
+          await fetch(`${RUMAHL_HOME}/api/apps/${APP_ID}/database/execute`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
@@ -96,12 +96,12 @@ async function initDatabase() {
           });
         }
 
-        console.log('[MacroTracker] IORA database initialized with default foods');
+        console.log('[MacroTracker] rumahl database initialized with default foods');
         return true;
       }
     }
   } catch (e) {
-    console.log('[MacroTracker] IORA database not available, using local SQLite:', e.message);
+    console.log('[MacroTracker] rumahl database not available, using local SQLite:', e.message);
   }
 
   // Fallback: local SQLite file
@@ -208,15 +208,15 @@ async function initDatabase() {
   return false;
 }
 
-// ---- DB Query Helper (works with both IORA and local SQLite) ----
+// ---- DB Query Helper (works with both rumahl and local SQLite) ----
 async function dbAll(sql, params = []) {
   if (db) {
     // Local SQLite
     const stmt = db.prepare(sql);
     return stmt.all(...params);
   } else {
-    // IORA API
-    const res = await fetch(`${IORA_HOME}/api/apps/${APP_ID}/database/execute`, {
+    // rumahl API
+    const res = await fetch(`${RUMAHL_HOME}/api/apps/${APP_ID}/database/execute`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ sql, params })
@@ -239,7 +239,7 @@ async function dbRun(sql, params = []) {
     const stmt = db.prepare(sql);
     return stmt.run(...params);
   } else {
-    const res = await fetch(`${IORA_HOME}/api/apps/${APP_ID}/database/execute`, {
+    const res = await fetch(`${RUMAHL_HOME}/api/apps/${APP_ID}/database/execute`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ sql, params })
@@ -906,8 +906,8 @@ app.get('*', (req, res) => {
 
 // ---- Startup ----
 async function start() {
-  const usingIora = await initDatabase();
-  console.log(`[MacroTracker] Running on port ${PORT}, IORA mode: ${usingIora}`);
+  const usingrumahl = await initDatabase();
+  console.log(`[MacroTracker] Running on port ${PORT}, rumahl mode: ${usingrumahl}`);
 }
 
 const server = app.listen(PORT, () => {

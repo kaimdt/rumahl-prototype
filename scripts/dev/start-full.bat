@@ -1,6 +1,6 @@
 @echo off
-REM IORA Full Dev Mode - Windows Launcher
-REM Starts both Vite dev server and iora-home backend
+REM rumahl Full Dev Mode - Windows Launcher
+REM Starts both Vite dev server and rumahl-home backend
 
-echo Starting IORA Full Development Mode...
+echo Starting rumahl Full Development Mode...
 node "%~dp0start-full.mjs" %*

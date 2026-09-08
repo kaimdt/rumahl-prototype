@@ -19,7 +19,7 @@
   };
 
   // Make theme info available globally
-  window.__iora_theme = THEME;
+  window.__rumahl_theme = THEME;
 
   console.log(
     `%c🎨 ${THEME.name} v${THEME.version} %cactive`,

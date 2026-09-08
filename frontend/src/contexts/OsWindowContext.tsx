@@ -30,6 +30,8 @@ export interface OsWindow {
   height: number
   z: number
   minimized: boolean
+  /** Virtual desktop that owns this window. */
+  workspaceId: number
 }
 
 export type OsSplitSide = 'split-left' | 'split-right'
@@ -43,6 +45,8 @@ export const SNAP_LAYOUTS: readonly OsSnapLayout[] = [
 
 interface OsWindowContextValue {
   windows: OsWindow[]
+  workspaces: number[]
+  activeWorkspaceId: number
   immersivePageId: string | null
   openWindow: (pageId: string) => void
   openSplit: (pageId: string, side: OsSplitSide) => void
@@ -57,14 +61,72 @@ interface OsWindowContextValue {
   toggleMaximize: (pageId: string | null) => void
   /** Discard the current window set (used on explicit desktop reset). */
   resetWindows: () => void
+  createWorkspace: () => void
+  removeWorkspace: (workspaceId: number) => void
+  switchWorkspace: (workspaceId: number) => void
+  moveWindowToWorkspace: (pageId: string | null, workspaceId: number) => void
 }
 
 const OsWindowContext = createContext<OsWindowContextValue | null>(null)
 
 const DEFAULT_WINDOW_WIDTH = 880
 const DEFAULT_WINDOW_HEIGHT = 640
-const SESSION_STORAGE_KEY = 'iora-os-session-windows'
+const SESSION_STORAGE_KEY = 'rumahl-os-session-windows'
+const WORKSPACES_STORAGE_KEY = 'rumahl-os-workspaces'
+const ACTIVE_WORKSPACE_STORAGE_KEY = 'rumahl-os-active-workspace'
+const MAX_WORKSPACES = 4
+/** Per-app remembered free-form geometry (localStorage), so re-opening an app
+ *  returns to the position/size the user last had it at. */
+const APP_GEOMETRY_KEY = 'rumahl-os-app-geometry'
 const SAVE_DEBOUNCE_MS = 800
+
+interface AppGeometry { x: number; y: number; width: number; height: number }
+
+function readWorkspaces(): number[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WORKSPACES_STORAGE_KEY) || '[1,2]')
+    const values = Array.isArray(parsed)
+      ? parsed.filter((value): value is number => Number.isInteger(value) && value > 0).slice(0, MAX_WORKSPACES)
+      : []
+    return values.length ? [...new Set(values)] : [1, 2]
+  } catch {
+    return [1, 2]
+  }
+}
+
+function readActiveWorkspace(workspaces: number[]): number {
+  const stored = Number(localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY))
+  return workspaces.includes(stored) ? stored : workspaces[0]
+}
+
+function readAppGeometry(): Record<string, AppGeometry> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(APP_GEOMETRY_KEY) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeAppGeometry(map: Record<string, AppGeometry>): void {
+  try { localStorage.setItem(APP_GEOMETRY_KEY, JSON.stringify(map)) } catch { /* non-critical */ }
+}
+
+/** Clamp a remembered rect into the current viewport (with a small margin) so
+ *  a window restored from an old/other-sized screen never lands off-screen. */
+function clampToViewport(g: AppGeometry): AppGeometry {
+  const w = globalThis.innerWidth
+  const h = globalThis.innerHeight
+  const margin = 8
+  const width = Math.max(340, Math.min(g.width, w - 2 * margin))
+  const height = Math.max(220, Math.min(g.height, h - 2 * margin))
+  return {
+    width,
+    height,
+    x: Math.max(margin, Math.min(g.x, w - width - margin)),
+    y: Math.max(margin, Math.min(g.y, h - height - margin)),
+  }
+}
 
 /** Screen geometry (with a small inset so maximized/snapped windows keep a margin). */
 const SNAP_INSET = 8
@@ -79,7 +141,7 @@ function screenBounds(layout: OsSnapLayout) {
   const top = SNAP_INSET
   const bottom = h - SNAP_INSET
   switch (layout) {
-    case 'maximized': return { x: left, y: top, width: w - 2 * SNAP_INSET, height: h - 2 * SNAP_INSET }
+    case 'maximized': return { x: 0, y: 0, width: w, height: h - (document.documentElement.dataset.shellMode === 'desktop' ? document.querySelector('.rumahl-system-bar')?.getBoundingClientRect().height || 44 : 0) }
     case 'left': return { x: left, y: top, width: half(w) - SNAP_INSET, height: h - 2 * SNAP_INSET }
     case 'right': return { x: w / 2 + SNAP_GAP / 2, y: top, width: half(w) - SNAP_INSET, height: h - 2 * SNAP_INSET }
     case 'top': return { x: left, y: top, width: w - 2 * SNAP_INSET, height: half(h) - SNAP_INSET }
@@ -96,14 +158,29 @@ function screenBounds(layout: OsSnapLayout) {
  * split-view panes rendered on top of the desktop. Callers own navigation. */
 export function OsWindowProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<OsWindow[]>([])
+  const [workspaces, setWorkspaces] = useState<number[]>(readWorkspaces)
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => readActiveWorkspace(readWorkspaces()))
   const [immersivePageId, setImmersivePageId] = useState<string | null>(null)
   const zCounter = useRef(10)
   const { user } = useAuth()
   const saveTimer = useRef<number | null>(null)
 
+  // Free-form geometry last seen before a window snapped/maximized, keyed by
+  // pageId. Lets "restore to window" return to the exact size/position the
+  // user had, instead of snapping back to fullscreen (which happened when the
+  // maximized bounds were kept as the free-form geometry).
+  const restoreRectsRef = useRef<Map<string, { x: number; y: number; width: number; height: number }>>(new Map())
+
   const nextZ = () => ++zCounter.current
 
   const makeDefaultWindow = useCallback((pageId: string | null, layout: OsWindowLayout): OsWindow => {
+    if (pageId) {
+      const remembered = readAppGeometry()[pageId]
+      if (remembered) {
+        const g = clampToViewport(remembered)
+        return { pageId, layout, ...g, z: nextZ(), minimized: false, workspaceId: activeWorkspaceId }
+      }
+    }
     const width = Math.min(DEFAULT_WINDOW_WIDTH, globalThis.innerWidth * 0.86)
     const height = Math.min(DEFAULT_WINDOW_HEIGHT, globalThis.innerHeight * 0.78)
     return {
@@ -115,26 +192,28 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
       height,
       z: nextZ(),
       minimized: false,
+      workspaceId: activeWorkspaceId,
     }
-  }, [])
+  }, [activeWorkspaceId])
 
   const openWindow = useCallback((pageId: string) => {
     setWindows((current) => {
       const existing = current.find((w) => w.pageId === pageId)
       if (existing) {
-        return current.map((w) => (w.pageId === pageId ? { ...w, z: nextZ(), minimized: false } : w))
+        return current.map((w) => (w.pageId === pageId ? { ...w, z: nextZ(), minimized: false, workspaceId: activeWorkspaceId } : w))
       }
       // Opening a floating window clears the split layout.
-      const withoutSplit = current.filter((w) => SNAP_LAYOUTS.includes(w.layout as OsSnapLayout))
+      const withoutSplit = current.filter((w) => w.workspaceId !== activeWorkspaceId || SNAP_LAYOUTS.includes(w.layout as OsSnapLayout))
       return [...withoutSplit, makeDefaultWindow(pageId, 'window')]
     })
-  }, [makeDefaultWindow])
+  }, [activeWorkspaceId, makeDefaultWindow])
 
   const openSplit = useCallback((pageId: string, side: OsSplitSide) => {
     const other: OsSplitSide = side === 'split-left' ? 'split-right' : 'split-left'
     setWindows((current) => {
       // Entering split replaces any floating windows.
-      const split = current.filter((w) => w.layout === 'split-left' || w.layout === 'split-right')
+      const otherWorkspaces = current.filter((w) => w.workspaceId !== activeWorkspaceId)
+      const split = current.filter((w) => w.workspaceId === activeWorkspaceId && (w.layout === 'split-left' || w.layout === 'split-right'))
       const otherPane = split.find((w) => w.layout === other)
       const thisPane = split.find((w) => w.layout === side)
       const next: OsWindow[] = []
@@ -150,11 +229,13 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
       } else {
         next.push(makeDefaultWindow(pageId, side))
       }
-      return next
+      return [...otherWorkspaces, ...next]
     })
-  }, [makeDefaultWindow])
+  }, [activeWorkspaceId, makeDefaultWindow])
 
   const closeWindow = useCallback((pageId: string | null) => {
+    setImmersivePageId((current) => current === pageId ? null : current)
+    restoreRectsRef.current.delete(pageId ?? '')
     setWindows((current) => {
       const target = current.find((w) => w.pageId === pageId)
       if (!target) return current
@@ -175,6 +256,7 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const minimizeWindow = useCallback((pageId: string | null) => {
+    setImmersivePageId((current) => current === pageId ? null : current)
     setWindows((current) => current.map((w) =>
       w.pageId === pageId ? { ...w, minimized: true } : w))
   }, [])
@@ -189,8 +271,21 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
       if (w.pageId !== pageId) return w
       const bounds = screenBounds(layout)
       if (!bounds) {
-        // Restoring to 'window': keep the free-form geometry.
-        return { ...w, layout, z: nextZ(), minimized: false }
+        // Restoring to 'window': give back the pre-snap geometry (stored when
+        // the window was snapped/maximized), if any — otherwise keep the
+        // current free-form geometry.
+        const saved = restoreRectsRef.current.get(pageId ?? '')
+        const restored = saved && w.layout !== 'window'
+          ? { ...w, layout, ...saved, z: nextZ(), minimized: false }
+          : { ...w, layout, z: nextZ(), minimized: false }
+        return restored
+      }
+      // Snap/maximize: remember the starting free-form rect so it can be
+      // restored later. Only stash once — further snaps (e.g. left → right)
+      // must not overwrite the original free-form size.
+      const isFreeForm = w.layout === 'window'
+      if (isFreeForm) {
+        restoreRectsRef.current.set(pageId ?? '', { x: w.x, y: w.y, width: w.width, height: w.height })
       }
       return { ...w, layout, ...bounds, z: nextZ(), minimized: false }
     }))
@@ -200,23 +295,85 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
     setWindows((current) => current.map((w) => {
       if (w.pageId !== pageId) return w
       if (w.layout === 'maximized') {
-        return { ...w, layout: 'window', z: nextZ(), minimized: false }
+        // Restore from the stored pre-maximize rect, if present.
+        const saved = restoreRectsRef.current.get(pageId ?? '')
+        const restored = saved
+          ? { ...w, layout: 'window', ...saved, z: nextZ(), minimized: false }
+          : { ...w, layout: 'window', z: nextZ(), minimized: false }
+        // React may replay this updater; retain the rectangle until the next snap or close.
+        return restored
       }
-      if (SNAP_LAYOUTS.includes(w.layout as OsSnapLayout)) {
-        const bounds = screenBounds('maximized')
-        return bounds ? { ...w, layout: 'maximized', ...bounds, z: nextZ() } : w
+      // Maximize every non-maximized state, including restored legacy session
+      // values and split layouts. Restricting this branch to SNAP_LAYOUTS made
+      // the visible titlebar button silently do nothing for those windows.
+      const bounds = screenBounds('maximized')
+      if (!bounds) return w
+      if (w.layout === 'window') {
+        restoreRectsRef.current.set(pageId ?? '', { x: w.x, y: w.y, width: w.width, height: w.height })
       }
-      return w
+      return { ...w, layout: 'maximized', ...bounds, z: nextZ() }
     }))
   }, [])
 
   const resetWindows = useCallback(() => {
+    restoreRectsRef.current.clear()
     setWindows([])
   }, [])
+
+  const createWorkspace = useCallback(() => {
+    setWorkspaces((current) => {
+      if (current.length >= MAX_WORKSPACES) return current
+      const nextId = Math.max(...current, 0) + 1
+      const next = [...current, nextId]
+      localStorage.setItem(WORKSPACES_STORAGE_KEY, JSON.stringify(next))
+      setActiveWorkspaceId(nextId)
+      localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, String(nextId))
+      return next
+    })
+  }, [])
+
+  const removeWorkspace = useCallback((workspaceId: number) => {
+    setWorkspaces((current) => {
+      if (current.length <= 1 || !current.includes(workspaceId)) return current
+      const next = current.filter((id) => id !== workspaceId)
+      const fallbackId = next[Math.max(0, current.indexOf(workspaceId) - 1)] ?? next[0]
+      setWindows((items) => items.map((item) => item.workspaceId === workspaceId ? { ...item, workspaceId: fallbackId } : item))
+      setActiveWorkspaceId((active) => {
+        const nextActive = active === workspaceId ? fallbackId : active
+        localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, String(nextActive))
+        return nextActive
+      })
+      localStorage.setItem(WORKSPACES_STORAGE_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const switchWorkspace = useCallback((workspaceId: number) => {
+    if (!workspaces.includes(workspaceId)) return
+    setActiveWorkspaceId(workspaceId)
+    localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, String(workspaceId))
+  }, [workspaces])
+
+  const moveWindowToWorkspace = useCallback((pageId: string | null, workspaceId: number) => {
+    if (!workspaces.includes(workspaceId)) return
+    setWindows((current) => current.map((item) => item.pageId === pageId ? { ...item, workspaceId, z: nextZ() } : item))
+  }, [workspaces])
 
   const setImmersive = useCallback((pageId: string | null) => {
     setImmersivePageId(pageId)
   }, [])
+
+  useEffect(() => {
+    document.documentElement.dataset.immersive = immersivePageId ? 'true' : 'false'
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) setImmersivePageId(null)
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => {
+      window.removeEventListener('keydown', onEscape)
+      delete document.documentElement.dataset.immersive
+    }
+  }, [immersivePageId])
 
   // ── Session restore: load persisted windows once on boot ────────────────
   useEffect(() => {
@@ -227,7 +384,7 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
       try {
         const parsed = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]')
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setWindows((current) => (current.length === 0 ? parsed : current))
+          setWindows((current) => (current.length === 0 ? parsed.map((w: OsWindow) => ({ ...w, workspaceId: w.workspaceId || 1 })) : current))
         }
       } catch {
         // corrupt fallback — ignore
@@ -239,7 +396,7 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
         if (!alive) return
         const restored = (data.windows || [])
           .filter((w: OsWindow) => w.pageId)
-          .map((w: OsWindow) => ({ ...w, minimized: false }))
+          .map((w: OsWindow) => ({ ...w, minimized: false, workspaceId: w.workspaceId || 1 }))
         if (restored.length > 0) {
           setWindows((current) => (current.length === 0 ? restored : current))
         }
@@ -249,6 +406,24 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
       alive = false
     }
   }, [user])
+
+  // ── Per-app geometry persist ─────────────────────────────────────────
+  // Remember each app's free-form window geometry (position + size) so that
+  // re-opening the same app returns to where the user last had it. Only free
+  // form (`window`) rects are stored; split/maximized/snapped are transient
+  // layouts. Written debounced alongside the session save.
+  useEffect(() => {
+    if (!user) return
+    const map = readAppGeometry()
+    let changed = false
+    for (const w of windows) {
+      if (w.pageId && w.layout === 'window') {
+        map[w.pageId] = { x: w.x, y: w.y, width: w.width, height: w.height }
+        changed = true
+      }
+    }
+    if (changed) writeAppGeometry(map)
+  }, [windows, user])
 
   // ── Session persist: debounced save of the window set ───────────────────
   useEffect(() => {
@@ -300,6 +475,8 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
     <OsWindowContext.Provider
       value={{
         windows,
+        workspaces,
+        activeWorkspaceId,
         immersivePageId,
         openWindow,
         openSplit,
@@ -311,6 +488,10 @@ export function OsWindowProvider({ children }: { children: ReactNode }) {
         snapWindow,
         toggleMaximize,
         resetWindows,
+        createWorkspace,
+        removeWorkspace,
+        switchWorkspace,
+        moveWindowToWorkspace,
       }}
     >
       {children}

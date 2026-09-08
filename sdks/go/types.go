@@ -1,5 +1,5 @@
-// Package iora provides type definitions for IORA SDK
-package iora
+// Package ora provides type definitions for rumahl SDK
+package ora
 
 import "time"
 
@@ -48,8 +48,8 @@ type HealthStatus struct {
 	Details map[string]interface{} `json:"details,omitempty"`
 }
 
-// IoraEvent represents an IORA event
-type IoraEvent struct {
+// rumahlEvent represents an rumahl event
+type rumahlEvent struct {
 	Type      string      `json:"type"`
 	Data      interface{} `json:"data"`
 	Timestamp int64       `json:"timestamp"`
@@ -63,5 +63,5 @@ type IframeMessage struct {
 	Params []interface{}          `json:"params,omitempty"`
 	Result interface{}            `json:"result,omitempty"`
 	Error  map[string]interface{} `json:"error,omitempty"`
-	Event  *IoraEvent             `json:"event,omitempty"`
+	Event  *rumahlEvent             `json:"event,omitempty"`
 }

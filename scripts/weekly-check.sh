@@ -1,16 +1,16 @@
 #!/bin/bash
-# ORA Weekly Code Quality Check
+# rumahl Weekly Code Quality Check
 set -euo pipefail
 
 PROJECT="/home/hermes/ora"
 OUTPUT=""
 
-echo "=== ORA Weekly Code Quality Check ==="
+echo "=== rumahl Weekly Code Quality Check ==="
 echo ""
 
 # --- cargo check ---
 echo "─── cargo check ───"
-CHECK_OUTPUT=$(cd "$PROJECT/iora-os/backend" && cargo check 2>&1)
+CHECK_OUTPUT=$(cd "$PROJECT/rumahl-os/backend" && cargo check 2>&1)
 
 if [ $? -ne 0 ]; then
     echo "$CHECK_OUTPUT" | tail -20
@@ -27,7 +27,7 @@ echo ""
 
 # --- cargo clippy ---
 echo "─── cargo clippy ───"
-CLIPPY_OUTPUT=$(cd "$PROJECT/iora-os/backend" && cargo clippy 2>&1)
+CLIPPY_OUTPUT=$(cd "$PROJECT/rumahl-os/backend" && cargo clippy 2>&1)
 CLIPPY_COUNT=$(echo "$CLIPPY_OUTPUT" | grep "^warning:" | wc -l)
 echo "$CLIPPY_OUTPUT" | grep "^warning:" | head -15
 echo "   Total: $CLIPPY_COUNT clippy warnings"

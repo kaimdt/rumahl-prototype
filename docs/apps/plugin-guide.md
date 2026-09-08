@@ -425,5 +425,5 @@ Create a `plugin.json` manifest:
 ## Support
 
 For questions and support:
-- GitHub Issues: https://github.com/kaimdt/home-assistant-dashb/issues
-- Documentation: https://github.com/kaimdt/home-assistant-dashb/wiki
+- GitHub Issues: https://github.com/rumahl/home-assistant-dashb/issues
+- Documentation: https://github.com/rumahl/home-assistant-dashb/wiki

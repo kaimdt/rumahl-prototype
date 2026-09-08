@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# IORA OS — CI Pipeline
+# rumahl OS — CI Pipeline
 # Runs on every push to main and on PRs targeting main.
 # Checks: Rust workspace compilation, frontend build, basic linting.
 # ─────────────────────────────────────────────────────────────────────
@@ -11,6 +11,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_frontend:
+        description: "Also run the frontend job"
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,6 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies (GStreamer for rumahl-browserd)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev libglib2.0-dev pkg-config
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -41,26 +52,49 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            iora-os/backend/target
-          key: rust-${{ runner.os }}-${{ hashFiles('iora-os/backend/Cargo.lock') }}
+            rumahl-os/backend/target
+          key: rust-${{ runner.os }}-${{ hashFiles('rumahl-os/backend/Cargo.lock') }}
           restore-keys: |
             rust-${{ runner.os }}-
 
       - name: Check formatting
-        working-directory: iora-os/backend
+        working-directory: rumahl-os/backend
         run: cargo fmt --check
 
       - name: Clippy
-        working-directory: iora-os/backend
+        working-directory: rumahl-os/backend
         run: cargo clippy --all-targets --locked
 
       - name: Build workspace (release)
-        working-directory: iora-os/backend
+        working-directory: rumahl-os/backend
         run: cargo build --release --locked
 
       - name: Run tests
-        working-directory: iora-os/backend
+        working-directory: rumahl-os/backend
         run: cargo test --locked
+
+      - name: Security Phase 1 regression gate
+        working-directory: rumahl-os/backend
+        run: cargo test --locked -p rumahl-security -p rumahl-security-helper
+
+      - name: Enforce Security Foundation boundary
+        run: python3 rumahl-os/tests/validate-security-baseline.py
+
+      - name: Runtime Sensor 2.1 regression gate
+        working-directory: rumahl-os/backend
+        run: cargo test --locked -p rumahl-runtime-sensor
+
+      - name: Runtime Identity 2.2 regression gate
+        working-directory: rumahl-os/backend
+        run: cargo test --locked -p rumahl-runtime-identity
+
+      - name: Runtime Profiles and Detection 2.3/2.4 regression gate
+        working-directory: rumahl-os/backend
+        run: cargo test --locked -p rumahl-runtime-policy
+
+      - name: Incident Correlation 2.5 regression gate
+        working-directory: rumahl-os/backend
+        run: cargo test --locked -p rumahl-incident-engine
 
   # ── Frontend ────────────────────────────────────────────────────────
   frontend-check:
@@ -98,11 +132,22 @@ jobs:
 
       - name: Check all defconfigs exist
         run: |
-          count=$(ls iora-os/configs/iora_defconfig* 2>/dev/null | wc -l)
+          count=$(ls rumahl-os/configs/rumahl_defconfig* 2>/dev/null | wc -l)
           if [ "$count" -lt 2 ]; then
             echo "ERROR: expected at least 2 defconfigs, found $count"
-            ls iora-os/configs/ 2>/dev/null || true
+            ls rumahl-os/configs/ 2>/dev/null || true
             exit 1
           fi
           echo "Found $count defconfigs:"
-          ls iora-os/configs/iora_defconfig*
+          ls rumahl-os/configs/rumahl_defconfig*
+
+      - name: Validate Security image integration
+        run: |
+          bash -n rumahl-os/board/rumahl/post-build.sh rumahl-os/tests/security-firewall-integration.sh
+          for config in rumahl-os/configs/*defconfig*; do
+            grep -qx 'BR2_PACKAGE_NFTABLES=y' "$config"
+            grep -qx 'BR2_PACKAGE_CLAMAV=y' "$config"
+            grep -qx 'BR2_PACKAGE_YARA=y' "$config"
+          done
+          grep -q 'rumahl-security:x:919:919' rumahl-os/board/rumahl/post-build.sh
+          grep -q 'reserved security UID 919 is already assigned' rumahl-os/board/rumahl/post-build.sh

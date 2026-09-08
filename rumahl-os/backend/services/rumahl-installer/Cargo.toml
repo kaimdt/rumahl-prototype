@@ -1,0 +1,38 @@
+[package]
+name = "rumahl-installer"
+version = "0.1.0"
+edition = "2021"
+description = "rumahl Installer – installation and update management for rumahl on Debian servers"
+
+[[bin]]
+name = "rumahl-installer"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+rumahl-shared-config = { path = "../../shared/rumahl-shared-config" }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "migrate"] }
+chrono = { version = "0.4", features = ["serde"] }
+indicatif = "0.17"
+dialoguer = "0.11"
+colored = "2.0"
+rand = "0.8"
+hex = "0.4"
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["user"] }
+
+# Optional web API mode
+axum = { version = "0.7", features = ["macros"], optional = true }
+tower-http = { version = "0.5", features = ["cors"], optional = true }
+
+[features]
+default = []
+web-api = ["axum", "tower-http"]

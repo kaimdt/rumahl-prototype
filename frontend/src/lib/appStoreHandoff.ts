@@ -6,8 +6,8 @@
  * already-mounted case; the App Store consumes it on mount.
  */
 
-const PENDING_SHOW_KEY = 'iora-appstore-pending-show'
-const PENDING_DETAIL_KEY = 'iora-appstore-pending-detail'
+const PENDING_SHOW_KEY = 'rumahl-appstore-pending-show'
+const PENDING_DETAIL_KEY = 'rumahl-appstore-pending-detail'
 
 function remember(key: string, appId: string) {
   try {
@@ -28,7 +28,7 @@ function consume(key: string): string | null {
 /** "Show in App Store": navigate there and open the app's store page. */
 export function requestAppInStore(appId: string) {
   remember(PENDING_SHOW_KEY, appId)
-  window.dispatchEvent(new CustomEvent('iora:appstore-show-app', { detail: { appId } }))
+  window.dispatchEvent(new CustomEvent('rumahl:appstore-show-app', { detail: { appId } }))
 }
 
 /** Consume a pending "show in store" request (App Store page mount). */

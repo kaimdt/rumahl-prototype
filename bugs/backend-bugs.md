@@ -1,7 +1,7 @@
-# Backend Bug Report – IORA OS Rust Codebase
+# Backend Bug Report – rumahl OS Rust Codebase
 
 **Date:** 2026-05-23
-**Scope:** `iora-os/backend/` – services/iora-home/src/ and shared/iora-shared/src/
+**Scope:** `rumahl-os/backend/` – services/rumahl-home/src/ and shared/rumahl-shared/src/
 **Methodology:** Static analysis of `.rs` files for compilation errors, unwrap/expect on error paths, SQL injection, auth bypass, missing migrations, dead code, and serde mismatches.
 
 ---
@@ -29,8 +29,8 @@
 - **Fix:** Change `.bind(false)` to `.bind(def.system)` in both `store_theme` and `install_inline`.
 
 ### 3. PostgreSQL Hard-Assumption vs SQLite Default URL
-- **Files:** `db/mod.rs` line 5: `use sqlx::{postgres::PgPool, Pool, Postgres};`, `system_config.rs` line ~69: `"sqlite:./data/iora.db?mode=rwc"`
-- **Issue:** `init_db()` uses `PgPool::connect()` which expects a PostgreSQL connection string. However, the default `database_url()` returns `"sqlite:./data/iora.db?mode=rwc"`. If `DATABASE_URL` env var is not set, the server will crash on startup with a connection error. The theme_handler also hardcodes `sqlx::postgres::PgRow` in `map_theme_row()`.
+- **Files:** `db/mod.rs` line 5: `use sqlx::{postgres::PgPool, Pool, Postgres};`, `system_config.rs` line ~69: `"sqlite:./data/rumahl.db?mode=rwc"`
+- **Issue:** `init_db()` uses `PgPool::connect()` which expects a PostgreSQL connection string. However, the default `database_url()` returns `"sqlite:./data/rumahl.db?mode=rwc"`. If `DATABASE_URL` env var is not set, the server will crash on startup with a connection error. The theme_handler also hardcodes `sqlx::postgres::PgRow` in `map_theme_row()`.
 - **Severity:** Critical – Startup crash on default config
 - **Fix:** Either change the default URL to a PostgreSQL-compatible string, or switch to a feature-gated backend (e.g., `#[cfg]` blocks for sqlite vs postgres). Alternatively, document that `DATABASE_URL` is mandatory for development.
 
@@ -50,17 +50,17 @@
   ```
   While the GET endpoint masks the password before returning, it remains stored in plaintext in the DB. Anyone with DB access can read it.
 - **Severity:** High – Credential leak
-- **Fix:** Encrypt the password before storage using `iora-shared` encryption utilities, or use the existing `iora-secrets` service. At minimum, document this in a security note.
+- **Fix:** Encrypt the password before storage using `rumahl-shared` encryption utilities, or use the existing `rumahl-secrets` service. At minimum, document this in a security note.
 
 ### 5. Default JWT Secret is Hardcoded and Predictable
-- **Files:** `auth.rs` line 9: `"your-secret-key-change-in-production"`, `system_config.rs` line ~107: `"iora-dev-jwt-change-in-production"`
-- **Issue:** Two different default JWT secrets exist. If the `IORA_JWT_SECRET` env var is not set, the JWT secret falls back to a well-known string that anyone can find in the source code. This allows attackers to forge valid JWT tokens and gain admin access.
+- **Files:** `auth.rs` line 9: `"your-secret-key-change-in-production"`, `system_config.rs` line ~107: `"rumahl-dev-jwt-change-in-production"`
+- **Issue:** Two different default JWT secrets exist. If the `rumahl_JWT_SECRET` env var is not set, the JWT secret falls back to a well-known string that anyone can find in the source code. This allows attackers to forge valid JWT tokens and gain admin access.
 - **Severity:** High – Auth bypass
 - **Fix:** Remove hardcoded defaults. On startup, if no JWT secret exists, generate a random one (e.g., 64 bytes of crypto-random hex) and log it. Store it in the DB or a secure file. **Never use a code-literal default.**
 
 ### 6. Hardcoded Default Encryption Key for Security DB
 - **Files:** `system_config.rs` line ~114: `env_or("SECURITY_DB_KEY", "")`
-- **Issue:** The `security_db_key()` function returns an empty string as default. The iora-security service uses this key for encryption. An empty encryption key means data is effectively unencrypted.
+- **Issue:** The `security_db_key()` function returns an empty string as default. The rumahl-security service uses this key for encryption. An empty encryption key means data is effectively unencrypted.
 - **Severity:** High – Data not encrypted
 - **Fix:** Generate a random key on first startup and persist it. Fail explicitly if no key is configured.
 
@@ -98,7 +98,7 @@
 - **Fix:** Use `.unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())` or proper error handling.
 
 ### 10. `theme_handler.rs.tmp` – Image File Left in Source Tree
-- **Files:** `services/iora-home/src/theme_handler.rs.tmp`
+- **Files:** `services/rumahl-home/src/theme_handler.rs.tmp`
 - **Issue:** A `.tmp` file containing image data was left in the source directory. This is likely an accidental artifact (perhaps a pasted screenshot) and should not be committed.
 - **Severity:** Medium-High – Code hygiene / potential information leak
 - **Fix:** Delete `theme_handler.rs.tmp` and add `*.tmp` to `.gitignore`.
@@ -129,10 +129,10 @@
   ```
   On dev images, passwords as short as 5 characters (e.g., "12345") are accepted. This is documented as intentional but creates a weak default for development.
 - **Severity:** Medium – Weak security for dev environments
-- **Fix:** At minimum, log a prominent warning when a short password is used. Consider requiring 8 characters even on dev images but providing a bypass via explicit env var (`IORA_DEV_INSECURE_PASSWORDS=1`).
+- **Fix:** At minimum, log a prominent warning when a short password is used. Consider requiring 8 characters even on dev images but providing a bypass via explicit env var (`rumahl_DEV_INSECURE_PASSWORDS=1`).
 
-### 14. Unsafe Code in iora-security for Disk Stats
-- **Files:** `services/iora-security/src/main.rs` lines 751-769
+### 14. Unsafe Code in rumahl-security for Disk Stats
+- **Files:** `services/rumahl-security/src/main.rs` lines 751-769
 - **Issue:**
   ```rust
   unsafe {

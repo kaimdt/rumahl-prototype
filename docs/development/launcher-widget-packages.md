@@ -1,6 +1,6 @@
 +# Launcher and widget packages
 
-ORA OS discovers launcher and widget extensions from the normal App Store installation catalogue. No separate installer or service is required.
+rumahl OS discovers launcher and widget extensions from the normal App Store installation catalogue. No separate installer or service is required.
 
 ## Launcher package
 
@@ -12,7 +12,7 @@ A launcher is an app or plugin manifest with a `launcher` object:
   "name": "Example Launcher",
   "version": "1.0.0",
   "developer": "Example",
-  "description": "An ORA OS launcher",
+  "description": "An rumahl OS launcher",
   "type": "plugin",
   "plugin_type": "integration",
   "permissions": [],
@@ -25,7 +25,7 @@ A launcher is an app or plugin manifest with a `launcher` object:
 }
 ```
 
-`base` must be `default`, `deck`, or `canvas`. The installed package can specialize the base layout through its name and accent while preserving ORA OS accessibility, touch, keyboard, portrait, and landscape behavior.
+`base` must be `default`, `deck`, or `canvas`. The installed package can specialize the base layout through its name and accent while preserving rumahl OS accessibility, touch, keyboard, portrait, and landscape behavior.
 
 ## Widget package
 
@@ -37,7 +37,7 @@ Widgets use the existing manifest `widgets` array:
   "name": "Example Widgets",
   "version": "1.0.0",
   "developer": "Example",
-  "description": "Widgets for the ORA OS homescreen",
+  "description": "Widgets for the rumahl OS homescreen",
   "type": "plugin",
   "plugin_type": "widget",
   "permissions": [],
@@ -57,15 +57,15 @@ Relative component URLs are served from the installed package assets endpoint. L
 
 ## Installation and removal
 
-Package installation, updates, trust decisions, and removal use the existing ORA App Store. Enabled packages appear automatically in the Launcher settings. Disabled or removed packages are no longer offered.
+Package installation, updates, trust decisions, and removal use the existing rumahl App Store. Enabled packages appear automatically in the Launcher settings. Disabled or removed packages are no longer offered.
 
 ## Cross-device synchronization
 
 The selected launcher, imported launcher manifests, and enabled widget IDs are stored as user preferences:
 
-- `iora-os-launcher`
-- `iora-os-custom-launchers`
-- `iora-os-launcher-widgets`
+- `rumahl-os-launcher`
+- `rumahl-os-custom-launchers`
+- `rumahl-os-launcher-widgets`
 
-ORA OS restores these preferences on sign-in, refreshes them when the window regains focus, and checks for remote changes periodically. Local settings remain usable while the backend is unavailable.
+rumahl OS restores these preferences on sign-in, refreshes them when the window regains focus, and checks for remote changes periodically. Local settings remain usable while the backend is unavailable.
 

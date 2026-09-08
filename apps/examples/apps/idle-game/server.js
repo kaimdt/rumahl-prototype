@@ -1,5 +1,5 @@
 /* ============================================================
-   IORA Forge v3 – Unlimited Idle Village
+   rumahl Forge v3 – Unlimited Idle Village
    Seasons • Consumption • Path Formation • Per-House Upgrades
    Village Stages • 12+ Jobs • Event Algorithm • Big Map
    ============================================================ */
@@ -9,19 +9,19 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ---- IORA Storage ----
-const IORA_HOME = process.env.IORA_HOME_URL || 'http://iora-home:3001';
+// ---- rumahl Storage ----
+const RUMAHL_HOME = process.env.RUMAHL_HOME_URL || 'http://rumahl-home:3001';
 const SAVE_FILE = 'savegame.json';
 function getHeaders() {
   const h = { 'Content-Type': 'application/json' };
-  if (process.env.IORA_API_KEY) h['Authorization'] = 'Bearer ' + process.env.IORA_API_KEY;
+  if (process.env.RUMAHL_API_KEY) h['Authorization'] = 'Bearer ' + process.env.RUMAHL_API_KEY;
   return h;
 }
-async function saveIORA(d) {
-  try { const r = await fetch(IORA_HOME + '/api/apps/iora-forge/storage/files/' + SAVE_FILE, { method: 'PUT', headers: getHeaders(), body: JSON.stringify(d) }); return r.ok; } catch (e) { return false; }
+async function saveORA(d) {
+  try { const r = await fetch(RUMAHL_HOME + '/api/apps/rumahl-forge/storage/files/' + SAVE_FILE, { method: 'PUT', headers: getHeaders(), body: JSON.stringify(d) }); return r.ok; } catch (e) { return false; }
 }
-async function loadIORA() {
-  try { const r = await fetch(IORA_HOME + '/api/apps/iora-forge/storage/files/' + SAVE_FILE, { method: 'GET', headers: getHeaders() }); return r.ok ? await r.json() : null; } catch (e) { return null; }
+async function loadORA() {
+  try { const r = await fetch(RUMAHL_HOME + '/api/apps/rumahl-forge/storage/files/' + SAVE_FILE, { method: 'GET', headers: getHeaders() }); return r.ok ? await r.json() : null; } catch (e) { return null; }
 }
 
 // ---- Constants ----
@@ -721,7 +721,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/health', (req, res) => {
-  res.json({ status:'healthy', service:'iora-forge', version:'3.0.0', pop:gs.villagers.length, stage:gs.villageStage, season:gs.season.current, uptime:process.uptime(), timestamp:new Date().toISOString() });
+  res.json({ status:'healthy', service:'rumahl-forge', version:'3.0.0', pop:gs.villagers.length, stage:gs.villageStage, season:gs.season.current, uptime:process.uptime(), timestamp:new Date().toISOString() });
 });
 
 app.get('/api/game/state', (req, res) => {
@@ -848,9 +848,9 @@ app.post('/api/game/click', (req, res) => {
 });
 
 app.post('/api/game/prestige', (req, res) => { res.json(prestige()); });
-app.post('/api/game/save', async (req, res) => { const d={...gs,savedAt:Date.now()}; const ok=await saveIORA(d); try{fs.writeFileSync(path.join(__dirname,SAVE_FILE),JSON.stringify(d,null,2));}catch(e){} gs.stats.lastSaved=Date.now(); res.json({success:ok}); });
+app.post('/api/game/save', async (req, res) => { const d={...gs,savedAt:Date.now()}; const ok=await saveORA(d); try{fs.writeFileSync(path.join(__dirname,SAVE_FILE),JSON.stringify(d,null,2));}catch(e){} gs.stats.lastSaved=Date.now(); res.json({success:ok}); });
 app.post('/api/game/load', async (req, res) => {
-  let d=await loadIORA(); if(!d){try{if(fs.existsSync(path.join(__dirname,SAVE_FILE)))d=JSON.parse(fs.readFileSync(path.join(__dirname,SAVE_FILE),'utf-8'));}catch(e){}}
+  let d=await loadORA(); if(!d){try{if(fs.existsSync(path.join(__dirname,SAVE_FILE)))d=JSON.parse(fs.readFileSync(path.join(__dirname,SAVE_FILE),'utf-8'));}catch(e){}}
   if(d&&d.version>=7){gs={...createState(),...d};if(!gs.buildings||Object.keys(gs.buildings).length===0)initNewGame(gs);if(!gs.houses)gs.houses=[];if(!gs.pathWear)gs.pathWear={};if(!gs.season)gs.season={current:'spring',timer:SEASON_DURATION,year:1};if(!gs.events)gs.events={active:null,cooldown:0,history:[],lastEvent:0};if(!gs.mapTrees)gs.mapTrees={};if(gs.transportLevel===undefined)gs.transportLevel=0;if(!gs.dayCycle)gs.dayCycle={isDay:true,timer:DAY_LENGTH/2,hour:8};if(!gs.exploration)gs.exploration={islands:0,rareResources:{gems:0,spice:0,ore:0}};gs.stats.lastSaved=Date.now();res.json({success:true});}
   else res.json({success:false,reason:'Kein Spielstand'});
 });
@@ -860,7 +860,7 @@ app.get('*', (req, res) => { if(req.path.startsWith('/api/')) return res.status(
 
 // ---- Startup ----
 async function init() {
-  let d=await loadIORA(); if(!d){try{if(fs.existsSync(path.join(__dirname,SAVE_FILE)))d=JSON.parse(fs.readFileSync(path.join(__dirname,SAVE_FILE),'utf-8'));}catch(e){}}
+  let d=await loadORA(); if(!d){try{if(fs.existsSync(path.join(__dirname,SAVE_FILE)))d=JSON.parse(fs.readFileSync(path.join(__dirname,SAVE_FILE),'utf-8'));}catch(e){}}
   if(d&&d.version>=7){gs={...createState(),...d};if(!gs.buildings||Object.keys(gs.buildings).length===0)initNewGame(gs);if(!gs.houses)gs.houses=[];if(!gs.pathWear)gs.pathWear={};if(!gs.season)gs.season={current:'spring',timer:SEASON_DURATION,year:1};if(!gs.events)gs.events={active:null,cooldown:0,history:[],lastEvent:0};if(!gs.mapTrees)gs.mapTrees={};if(gs.transportLevel===undefined)gs.transportLevel=0;if(!gs.dayCycle)gs.dayCycle={isDay:true,timer:DAY_LENGTH/2,hour:8};if(!gs.exploration)gs.exploration={islands:0,rareResources:{gems:0,spice:0,ore:0}};console.log('[Forge] Loaded. Pop:'+gs.villagers.length+' Stage:'+gs.villageStage);}
   else { initNewGame(gs); console.log('[Forge] New game. 4 villagers ready!'); }
 
@@ -869,10 +869,10 @@ async function init() {
     const na = checkAch(); if (na.length) { pendingAch.push(...na); console.log('[Forge] Ach:', na.map(a=>a.n).join(', ')); }
   }, tickMs);
 
-  setInterval(async () => { const d={...gs,savedAt:Date.now()}; await saveIORA(d); try{fs.writeFileSync(path.join(__dirname,SAVE_FILE),JSON.stringify(d,null,2));}catch(e){} gs.stats.lastSaved=Date.now(); }, parseInt(process.env.AUTO_SAVE_INTERVAL||'60')*1000);
+  setInterval(async () => { const d={...gs,savedAt:Date.now()}; await saveORA(d); try{fs.writeFileSync(path.join(__dirname,SAVE_FILE),JSON.stringify(d,null,2));}catch(e){} gs.stats.lastSaved=Date.now(); }, parseInt(process.env.AUTO_SAVE_INTERVAL||'60')*1000);
 
   console.log('[Forge] Tick:'+tickMs+'ms | Auto-Save:'+(parseInt(process.env.AUTO_SAVE_INTERVAL||'60'))+'s');
 }
 
 const server = app.listen(PORT, () => { console.log('[Forge] Port '+PORT); init(); });
-process.on('SIGTERM', async () => { const d={...gs,savedAt:Date.now()}; await saveIORA(d); try{fs.writeFileSync(path.join(__dirname,SAVE_FILE),JSON.stringify(d,null,2));}catch(e){} server.close(()=>process.exit(0)); });
+process.on('SIGTERM', async () => { const d={...gs,savedAt:Date.now()}; await saveORA(d); try{fs.writeFileSync(path.join(__dirname,SAVE_FILE),JSON.stringify(d,null,2));}catch(e){} server.close(()=>process.exit(0)); });

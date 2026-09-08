@@ -24,6 +24,8 @@ export const SHORTCUTS: ShortcutDefinition[] = [
   { id: 'spotlight', labelKey: 'shortcuts.spotlight.label', descKey: 'shortcuts.spotlight.desc', defaultCombo: 'Mod+Space' },
   { id: 'clipboard', labelKey: 'shortcuts.clipboard.label', descKey: 'shortcuts.clipboard.desc', defaultCombo: 'Mod+Shift+V' },
   { id: 'task-switcher', labelKey: 'shortcuts.taskSwitcher.label', descKey: 'shortcuts.taskSwitcher.desc', defaultCombo: 'Alt+Tab' },
+  { id: 'workspace-left', labelKey: 'shortcuts.workspaceLeft.label', descKey: 'shortcuts.workspaceLeft.desc', defaultCombo: 'Mod+Alt+ArrowLeft' },
+  { id: 'workspace-right', labelKey: 'shortcuts.workspaceRight.label', descKey: 'shortcuts.workspaceRight.desc', defaultCombo: 'Mod+Alt+ArrowRight' },
   { id: 'snap-left', labelKey: 'shortcuts.snapLeft.label', descKey: 'shortcuts.snapLeft.desc', defaultCombo: 'Alt+ArrowLeft' },
   { id: 'snap-right', labelKey: 'shortcuts.snapRight.label', descKey: 'shortcuts.snapRight.desc', defaultCombo: 'Alt+ArrowRight' },
   { id: 'snap-maximize', labelKey: 'shortcuts.snapMaximize.label', descKey: 'shortcuts.snapMaximize.desc', defaultCombo: 'Alt+ArrowUp' },
@@ -32,7 +34,7 @@ export const SHORTCUTS: ShortcutDefinition[] = [
   { id: 'sleep', labelKey: 'shortcuts.sleep.label', descKey: 'shortcuts.sleep.desc', defaultCombo: 'Mod+Shift+S' },
 ]
 
-const STORAGE_KEY = 'iora-keyboard-shortcuts'
+const STORAGE_KEY = 'rumahl-keyboard-shortcuts'
 
 function readOverrides(): Record<string, string> {
   try {

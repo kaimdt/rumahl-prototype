@@ -1,0 +1,21 @@
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+
+# PHP backend — local configuration must never be committed
+backend/api/src/config.local.php
+backend/root/src/
+backend/root/frontend/
+backend/root/migrations/
+backend/api/uploads/
+backend/root/uploads/
+
+# Automatic upgrade backups (created by api/upgrade.php)
+backups/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

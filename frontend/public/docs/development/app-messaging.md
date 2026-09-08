@@ -1,6 +1,6 @@
 # Inter-App Messaging Guide
 
-Apps in IORA can communicate with each other through a publish/subscribe messaging system. This enables loose coupling between apps while maintaining isolation.
+Apps in rumahl can communicate with each other through a publish/subscribe messaging system. This enables loose coupling between apps while maintaining isolation.
 
 ## Overview
 
@@ -16,7 +16,7 @@ Three communication patterns are available:
 |------|-------------|
 | `public` | Any app with `MessagingSubscribe` can subscribe |
 | `protected` | Only apps on the allowlist can subscribe |
-| `system` | Reserved for IORA core system events |
+| `system` | Reserved for rumahl core system events |
 
 ## Declaring Channels in the Manifest
 
@@ -102,7 +102,7 @@ POST /api/apps/:app_id/messaging/subscribe
 {
   "channel": "myapp:alerts",
   "filter": "$.level == 'critical'",
-  "webhook_url": "http://iora.local:3000/webhook/alerts"
+  "webhook_url": "http://rumahl.local:3000/webhook/alerts"
 }
 
 // List subscriptions
@@ -144,9 +144,9 @@ GET /api/apps/messaging/events
 ## SDK Usage
 
 ```typescript
-import IoraClient from '@iora/sdk';
+import rumahlClient from '@rumahl/sdk';
 
-const client = new IoraClient('http://iora.local:8126', 'your-api-key');
+const client = new rumahlClient('http://rumahl.local:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Register a channel
@@ -167,7 +167,7 @@ await client.appMessaging.publish(
 const sub = await client.appMessaging.subscribe(
   'other-app:notifications',
   undefined,
-  'http://iora.local:3000/hooks/notifications'
+  'http://rumahl.local:3000/hooks/notifications'
 );
 
 // Send a direct message

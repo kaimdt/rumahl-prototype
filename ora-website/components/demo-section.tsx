@@ -14,10 +14,10 @@ export function DemoSection() {
         <div className="text-center mb-12">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3">Try it yourself</p>
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-            Real <span className="text-primary">ORA</span> widgets
+            Real <span className="text-primary">rumahl</span> widgets
           </h2>
           <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-            These are the actual IORA dashboard widgets — fully interactive.
+            These are the actual rumahl OS dashboard widgets — fully interactive.
             Click to toggle, the fill tracks brightness.
           </p>
         </div>

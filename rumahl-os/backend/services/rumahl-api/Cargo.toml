@@ -1,0 +1,45 @@
+[package]
+name = "rumahl-api"
+version = "0.1.0"
+edition = "2021"
+description = "rumahl API – extended interface layer providing GraphQL, WebDAV, MQTT API, and CalDAV/CardDAV endpoints for the rumahl ecosystem"
+
+[dependencies]
+rumahl-shared-heartbeat = { path = "../../shared/rumahl-shared-heartbeat" }
+rumahl-shared-config = { path = "../../shared/rumahl-shared-config" }
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+thiserror = "1.0"
+dotenv = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# HTTP client to proxy to rumahl Home
+reqwest = { version = "0.11", features = ["json", "rustls-tls", "multipart"], default-features = false }
+
+# GraphQL
+async-graphql = { version = "7", features = ["chrono", "uuid"] }
+async-graphql-axum = "7"
+
+# WebSocket for MQTT bridging
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+async-stream = "0.3"
+
+# XML for WebDAV/CalDAV/CardDAV responses
+quick-xml = { version = "0.36", features = ["serialize"] }
+
+# Authentication
+jsonwebtoken = "9.2"
+
+# Rate limiting
+governor = "0.6"
+
+# Database (local cache)
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }

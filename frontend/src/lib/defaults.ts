@@ -1,6 +1,11 @@
-export const DEFAULT_DASHBOARD_BACKGROUND_URL = 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=2070'
+export const DEFAULT_DASHBOARD_BACKGROUND_URL = '/assets/wallpapers/monstera.jpg'
 
 export const DEFAULT_BACKGROUND_PRESETS = [
+	{
+		id: 'midnight-monstera',
+		name: 'Midnight Monstera',
+		url: '/assets/wallpapers/monstera.jpg',
+	},
 	{
 		id: 'living-room',
 		name: 'Living Room',
@@ -40,7 +45,7 @@ export interface CardStylePreset {
 
 export const CARD_STYLE_PRESETS: CardStylePreset[] = [
 	// ─── Glass & Frosted ───────────────────────────────────
-	{ id: 'default',    label: 'Standard',      description: 'Classic IORA glass-morphism' },
+	{ id: 'default',    label: 'Standard',      description: 'Classic rumahl glass-morphism' },
 	{ id: 'frosted',    label: 'Frosted',       description: 'Heavy blur, milky white' },
 	{ id: 'crystal',    label: 'Crystal',       description: 'Ultra-clear, sharp glass edges' },
 	{ id: 'dark-glass', label: 'Dark Glass',    description: 'Deep tinted glass overlay' },

@@ -24,19 +24,19 @@ export interface RequestOptions {
 /**
  * Client configuration
  */
-export interface IoraClientConfig {
+export interface rumahlClientConfig {
   baseUrl?: string;
   apiKey?: string;
   defaultTimeout?: number;
   defaultRetries?: number;
   retryDelay?: number;
-  onError?: (error: IoraError) => void;
+  onError?: (error: rumahlError) => void;
 }
 
 /**
  * Enhanced error class with context
  */
-export class IoraError extends Error {
+export class rumahlError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
@@ -46,7 +46,7 @@ export class IoraError extends Error {
     public context?: any
   ) {
     super(message);
-    this.name = 'IoraError';
+    this.name = 'rumahlError';
   }
 
   /**
@@ -126,38 +126,38 @@ class CircuitBreaker {
 }
 
 /**
- * IORA API Client
+ * rumahl API Client
  *
- * Robust HTTP client for interacting with IORA APIs with:
+ * Robust HTTP client for interacting with rumahl APIs with:
  * - Automatic retry with exponential backoff
  * - Request timeouts
  * - Circuit breaker pattern
  * - Detailed error handling
  */
-export default class IoraClient {
+export default class rumahlClient {
   private baseUrl: string;
   private apiKey?: string;
   private appId?: string;
   private defaultTimeout: number;
   private defaultRetries: number;
   private retryDelay: number;
-  private onError?: (error: IoraError) => void;
+  private onError?: (error: rumahlError) => void;
   private circuitBreaker: CircuitBreaker;
 
-  constructor(config: IoraClientConfig);
+  constructor(config: rumahlClientConfig);
   constructor(baseUrl: string, apiKey?: string);
-  constructor(configOrBaseUrl?: IoraClientConfig | string, legacyApiKey?: string) {
+  constructor(configOrBaseUrl?: rumahlClientConfig | string, legacyApiKey?: string) {
     // Support both new and legacy constructor signatures
-    let config: IoraClientConfig;
+    let config: rumahlClientConfig;
 
     if (typeof configOrBaseUrl === 'string') {
-      // Legacy signature: new IoraClient(baseUrl, apiKey)
+      // Legacy signature: new rumahlClient(baseUrl, apiKey)
       config = {
         baseUrl: configOrBaseUrl,
         apiKey: legacyApiKey
       };
     } else {
-      // New signature: new IoraClient(config)
+      // New signature: new rumahlClient(config)
       config = configOrBaseUrl || {};
     }
 
@@ -182,7 +182,7 @@ export default class IoraClient {
    */
   setAppId(appId: string): void {
     if (!appId || typeof appId !== 'string') {
-      throw new IoraError('Invalid app ID provided', undefined, undefined, undefined, false);
+      throw new rumahlError('Invalid app ID provided', undefined, undefined, undefined, false);
     }
     this.appId = appId;
   }
@@ -198,7 +198,7 @@ export default class IoraClient {
   private requireAppId(): string {
     const id = this.getAppId();
     if (!id) {
-      throw new IoraError(
+      throw new rumahlError(
         'App ID is required — call setAppId() first',
         undefined,
         undefined,
@@ -220,7 +220,7 @@ export default class IoraClient {
   ): Promise<T> {
     // Validate inputs
     if (!path || typeof path !== 'string') {
-      throw new IoraError('Invalid request path', undefined, path, method, false);
+      throw new rumahlError('Invalid request path', undefined, path, method, false);
     }
 
     const timeout = options.timeout ?? this.defaultTimeout;
@@ -228,7 +228,7 @@ export default class IoraClient {
 
     // Check circuit breaker
     if (!this.circuitBreaker.canAttempt()) {
-      throw new IoraError(
+      throw new rumahlError(
         'Circuit breaker is open. Service may be unavailable.',
         503,
         path,
@@ -237,7 +237,7 @@ export default class IoraClient {
       );
     }
 
-    let lastError: IoraError | null = null;
+    let lastError: rumahlError | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -314,7 +314,7 @@ export default class IoraClient {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error');
-        throw new IoraError(
+        throw new rumahlError(
           `API Error: ${errorText}`,
           response.status,
           path,
@@ -334,7 +334,7 @@ export default class IoraClient {
       clearTimeout(timeoutId);
 
       if (error.name === 'AbortError') {
-        throw new IoraError(
+        throw new rumahlError(
           `Request timeout after ${timeout}ms`,
           408,
           path,
@@ -361,16 +361,16 @@ export default class IoraClient {
   }
 
   /**
-   * Normalize errors into IoraError
+   * Normalize errors into rumahlError
    */
-  private normalizeError(error: any, path: string, method: string): IoraError {
-    if (error instanceof IoraError) {
+  private normalizeError(error: any, path: string, method: string): rumahlError {
+    if (error instanceof rumahlError) {
       return error;
     }
 
     if (error instanceof TypeError && error.message.includes('fetch')) {
-      return new IoraError(
-        'Network error: Unable to connect to IORA',
+      return new rumahlError(
+        'Network error: Unable to connect to rumahl',
         undefined,
         path,
         method,
@@ -379,7 +379,7 @@ export default class IoraClient {
       );
     }
 
-    return new IoraError(
+    return new rumahlError(
       error.message || 'Unknown error occurred',
       undefined,
       path,
@@ -988,12 +988,12 @@ export default class IoraClient {
   /**
    * Voice & STT/TTS API
    *
-   * Speech-to-Text via IORA STT (faster-whisper) and Text-to-Speech via IORA TTS (Kokoro).
-   * The assistBase URL is used to reach the iora-assist service.
+   * Speech-to-Text via rumahl STT (faster-whisper) and Text-to-Speech via rumahl TTS (Kokoro).
+   * The assistBase URL is used to reach the rumahl-assist service.
    */
   voice = {
     /**
-     * Transcribe audio to text using local IORA STT (faster-whisper).
+     * Transcribe audio to text using local rumahl STT (faster-whisper).
      * Falls back to the current AI provider if STT service is unavailable.
      *
      * @param audioBlob - Audio blob (WebM, WAV, MP3, etc.)
@@ -1042,7 +1042,7 @@ export default class IoraClient {
     },
 
     /**
-     * Synthesize speech from text using local IORA TTS (Kokoro).
+     * Synthesize speech from text using local rumahl TTS (Kokoro).
      * Falls back to the current AI provider if TTS service is unavailable.
      *
      * @param text - Text to synthesize
@@ -1121,7 +1121,7 @@ export default class IoraClient {
    *
    * Downloads, file operations, backups, updates and installs run as
    * background jobs that survive app switches. See the Job Center in the
-   * OS shell and `iora_shared::system_jobs` for the wire format.
+   * OS shell and `rumahl_shared::system_jobs` for the wire format.
    */
   jobs = {
     /**
@@ -1293,7 +1293,7 @@ export default class IoraClient {
   };
 
   /**
-   * OS Files API (`ora.files`) — the user's personal files (iora-files).
+   * OS Files API (`ora.files`) — the user's personal files (rumahl-files).
    */
   files = {
     /**
@@ -1381,7 +1381,7 @@ export default class IoraClient {
           signal: controller.signal,
         });
         if (!res.ok) {
-          throw new IoraError(`Upload failed: HTTP ${res.status}`, res.status, '/api/files/upload', 'POST', false);
+          throw new rumahlError(`Upload failed: HTTP ${res.status}`, res.status, '/api/files/upload', 'POST', false);
         }
         return await res.json();
       } finally {
@@ -1424,7 +1424,7 @@ export default class IoraClient {
   };
 
   /**
-   * Devices API (`ora.devices`) — local network devices (iora-network-monitor).
+   * Devices API (`ora.devices`) — local network devices (rumahl-network-monitor).
    */
   devices = {
     list: async (): Promise<any[]> => {

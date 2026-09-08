@@ -1,5 +1,5 @@
 /**
- * IORA i18n Configuration
+ * rumahl i18n Configuration
  * 
  * Supports: English (default), German
  * RTL-ready: CSS logical properties + dir attribute
@@ -45,7 +45,7 @@ i18n
     detection: {
       order: ['localStorage', 'navigator', 'htmlTag'],
       caches: ['localStorage'],
-      lookupLocalStorage: 'iora-language',
+      lookupLocalStorage: 'rumahl-language',
     },
   })
 

@@ -7,9 +7,9 @@ interface SplashScreenProps {
 }
 
 const STATUS_MESSAGES = [
-  'IORA Core wird geladen...',
-  'IORA Home verbindet...',
-  'IORA Assist initialisiert...',
+  'rumahl Core wird geladen...',
+  'rumahl Home verbindet...',
+  'rumahl Assist initialisiert...',
   'System bereit.',
 ]
 
@@ -201,7 +201,7 @@ export function SplashScreen({ onComplete, duration = 2200 }: SplashScreenProps)
                   className="text-[1.75rem] font-extralight tracking-[0.3em] uppercase"
                   style={{ color: 'oklch(0.92 0.01 250)' }}
                 >
-                  IORA
+                  rumahl
                 </h1>
                 <p
                   className="text-[10px] font-medium tracking-[0.5em] uppercase"

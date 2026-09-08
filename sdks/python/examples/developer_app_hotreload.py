@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-IORA Developer App - Hot Reload Example
+rumahl Developer App - Hot Reload Example
 
-This example demonstrates using the IORA Developer App's hot-reload capabilities
+This example demonstrates using the rumahl Developer App's hot-reload capabilities
 to update a running app without full container restart.
 
 Requirements:
@@ -15,7 +15,7 @@ import asyncio
 import base64
 import json
 from pathlib import Path
-from iora_sdk import IoraClient
+from rumahl_sdk import rumahlClient
 
 
 async def build_and_package_app(app_path: Path) -> str:
@@ -39,7 +39,7 @@ async def build_and_package_app(app_path: Path) -> str:
         },
         "metadata": {
             "build_time": "2026-04-21T12:00:00Z",
-            "builder": "iora-dev-tool",
+            "builder": "rumahl-dev-tool",
         }
     }
 
@@ -55,12 +55,12 @@ async def main():
     """Demonstrate hot-reload workflow"""
 
     # Configuration
-    IORA_URL = "http://localhost:8080"
+    RUMAHL_URL = "http://localhost:8080"
     API_KEY = "your-api-key-here"
     APP_ID = "com.example.my-app"
 
-    async with IoraClient(IORA_URL, api_key=API_KEY) as client:
-        print("🚀 IORA Developer App - Hot Reload Demo\n")
+    async with rumahlClient(RUMAHL_URL, api_key=API_KEY) as client:
+        print("🚀 rumahl Developer App - Hot Reload Demo\n")
 
         # Step 1: Check Developer Mode status
         print("1️⃣ Checking Developer Mode status...")
@@ -163,7 +163,7 @@ async def ide_integration_example():
     This could be integrated into VS Code, PyCharm, or other IDEs
     to automatically push updates when files change.
     """
-    async with IoraClient("http://localhost:8080", api_key="dev-key") as client:
+    async with rumahlClient("http://localhost:8080", api_key="dev-key") as client:
         # Watch for file changes
         print("👁️  Watching for file changes...")
 
@@ -182,7 +182,7 @@ async def ide_integration_example():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("IORA Developer App - Hot Reload Example")
+    print("rumahl Developer App - Hot Reload Example")
     print("=" * 60)
     print()
 

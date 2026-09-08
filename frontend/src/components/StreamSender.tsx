@@ -11,7 +11,7 @@ import {
 import { Tip } from '@/components/ui/tip'
 import { useTranslation } from 'react-i18next'
 import { StreamWidget } from '@/components/widgets/StreamWidget'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 
 type StreamMode = 'av' | 'video' | 'audio'
@@ -336,7 +336,7 @@ export function StreamSender() {
             <div>
               <h1 className="text-xl font-bold text-foreground">Streaming</h1>
               <p className="text-sm text-foreground/50 mt-1">
-                Kamera, Mikrofon oder Bildschirm live über IORA streamen
+                Kamera, Mikrofon oder Bildschirm live über rumahl streamen
               </p>
             </div>
           </div>

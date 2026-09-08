@@ -19,12 +19,12 @@
     var boot=document.querySelector('.terminal-boot-log');
     if(!boot) return;
     var lines=[
-      '[  OK  ] Started IORA Core Service',
+      '[  OK  ] Started rumahl Core Service',
       '[  OK  ] Reached target Smart Home Interface',
-      '[  OK  ] Listening on /var/run/iora.sock',
+      '[  OK  ] Listening on /var/run/ora.sock',
       '[  OK  ] 42 entities discovered',
       '[ INFO ] Home Assistant connected',
-      '[  OK  ] Started IORA Terminal Edition'
+      '[  OK  ] Started rumahl Terminal Edition'
     ];
     lines.forEach(function(l,i){
       setTimeout(function(){
@@ -71,7 +71,7 @@
   function initPrompt(){
     // Add PS1 prompt to any .terminal-prompt elements
     document.querySelectorAll('.terminal-prompt').forEach(function(el){
-      el.setAttribute('data-prompt','iora@home:~$ ');
+      el.setAttribute('data-prompt','ora@home:~$ ');
     });
   }
 
@@ -220,7 +220,7 @@
       bar=document.createElement('div');
       bar.id='terminal-cmd-bar';
       bar.style.cssText='position:fixed;bottom:48px;left:0;right:0;height:28px;background:#0d0d0d;border-top:1px solid #50fa7b;display:flex;align-items:center;padding:0 8px;z-index:1000;font-family:"IBM Plex Mono",monospace;font-size:13px;';
-      bar.innerHTML='<span style="color:#50fa7b;font-weight:700;margin-right:8px;">iora@home:~$</span><input id="terminal-cmd-input" style="flex:1;background:transparent;border:none;color:#f8f8f2;font-family:inherit;font-size:inherit;outline:none;caret-color:#50fa7b;" autofocus placeholder="type command...">';
+      bar.innerHTML='<span style="color:#50fa7b;font-weight:700;margin-right:8px;">ora@home:~$</span><input id="terminal-cmd-input" style="flex:1;background:transparent;border:none;color:#f8f8f2;font-family:inherit;font-size:inherit;outline:none;caret-color:#50fa7b;" autofocus placeholder="type command...">';
       document.body.appendChild(bar);
       setTimeout(function(){
         var inp=document.getElementById('terminal-cmd-input');

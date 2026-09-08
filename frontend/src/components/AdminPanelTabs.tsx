@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Cpu, HardDrive, Globe, Plus, Cube, Lightning, ArrowClockwise, Play, Pause, TrashSimple, MagnifyingGlass, Gear, ShieldCheck } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
+import { startAppAndWatch } from '@/lib/appLifecycle'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 
 // Export Phase 2 components
 export { RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab } from './AdminPanelPhase2'
@@ -47,6 +49,7 @@ interface NetworkInterfaceInfo {
 }
 
 export function SystemInfoTab({ token }: { token: string }) {
+  const { t } = useTranslation()
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -66,7 +69,7 @@ export function SystemInfoTab({ token }: { token: string }) {
 
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorMessage>{error}</ErrorMessage>
-  if (!systemInfo) return <ErrorMessage>Keine Systeminformationen verfügbar</ErrorMessage>
+  if (!systemInfo) return <ErrorMessage>{t('admin.systemInfo.unavailable')}</ErrorMessage>
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B'
@@ -86,22 +89,22 @@ export function SystemInfoTab({ token }: { token: string }) {
   return (
     <div className="space-y-3">
       {/* System Overview */}
-      <AdminCard title="System" icon={Cpu}>
+      <AdminCard title={t('admin.systemInfo.system')} icon={Cpu}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="p-3 rounded-lg bg-foreground/3">
-            <div className="text-[10px] text-foreground/40 mb-1">Hostname</div>
+            <div className="text-[10px] text-foreground/40 mb-1">{t('admin.systemInfo.hostname')}</div>
             <div className="text-xs font-semibold text-foreground">{systemInfo.hostname}</div>
           </div>
           <div className="p-3 rounded-lg bg-foreground/3">
-            <div className="text-[10px] text-foreground/40 mb-1">Betriebssystem</div>
+            <div className="text-[10px] text-foreground/40 mb-1">{t('admin.systemInfo.os')}</div>
             <div className="text-xs font-semibold text-foreground">{systemInfo.os_name} {systemInfo.os_version}</div>
           </div>
           <div className="p-3 rounded-lg bg-foreground/3">
-            <div className="text-[10px] text-foreground/40 mb-1">Kernel</div>
+            <div className="text-[10px] text-foreground/40 mb-1">{t('admin.systemInfo.kernel')}</div>
             <div className="text-xs font-semibold text-foreground">{systemInfo.kernel_version}</div>
           </div>
           <div className="p-3 rounded-lg bg-foreground/3">
-            <div className="text-[10px] text-foreground/40 mb-1">Uptime</div>
+            <div className="text-[10px] text-foreground/40 mb-1">{t('admin.systemInfo.uptime')}</div>
             <div className="text-xs font-semibold text-foreground">{formatUptime(systemInfo.uptime)}</div>
           </div>
         </div>
@@ -111,12 +114,12 @@ export function SystemInfoTab({ token }: { token: string }) {
       <AdminCard title="CPU" icon={Cpu}>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-foreground/60">Kerne</span>
+            <span className="text-xs text-foreground/60">{t('admin.systemInfo.cores')}</span>
             <span className="text-xs font-semibold text-foreground">{systemInfo.cpu_count}</span>
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-foreground/60">Auslastung</span>
+              <span className="text-xs text-foreground/60">{t('admin.systemInfo.usage')}</span>
               <span className="text-xs font-semibold text-foreground">{systemInfo.cpu_usage.toFixed(1)}%</span>
             </div>
             <div className="h-2 bg-foreground/5 rounded-full overflow-hidden">
@@ -127,25 +130,25 @@ export function SystemInfoTab({ token }: { token: string }) {
       </AdminCard>
 
       {/* Memory */}
-      <AdminCard title="Arbeitsspeicher" icon={Cpu}>
+      <AdminCard title={t('admin.systemInfo.memory')} icon={Cpu}>
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="p-2 rounded-lg bg-foreground/3">
-              <div className="text-[10px] text-foreground/40 mb-0.5">Gesamt</div>
+              <div className="text-[10px] text-foreground/40 mb-0.5">{t('admin.systemInfo.total')}</div>
               <div className="text-xs font-semibold text-foreground">{formatBytes(systemInfo.total_memory)}</div>
             </div>
             <div className="p-2 rounded-lg bg-foreground/3">
-              <div className="text-[10px] text-foreground/40 mb-0.5">Belegt</div>
+              <div className="text-[10px] text-foreground/40 mb-0.5">{t('admin.systemInfo.used')}</div>
               <div className="text-xs font-semibold text-foreground">{formatBytes(systemInfo.used_memory)}</div>
             </div>
             <div className="p-2 rounded-lg bg-foreground/3">
-              <div className="text-[10px] text-foreground/40 mb-0.5">Verfügbar</div>
+              <div className="text-[10px] text-foreground/40 mb-0.5">{t('admin.systemInfo.available')}</div>
               <div className="text-xs font-semibold text-foreground">{formatBytes(systemInfo.available_memory)}</div>
             </div>
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-foreground/60">Auslastung</span>
+              <span className="text-xs text-foreground/60">{t('admin.systemInfo.usage')}</span>
               <span className="text-xs font-semibold text-foreground">{systemInfo.memory_usage_percent.toFixed(1)}%</span>
             </div>
             <div className="h-2 bg-foreground/5 rounded-full overflow-hidden">
@@ -156,7 +159,7 @@ export function SystemInfoTab({ token }: { token: string }) {
       </AdminCard>
 
       {/* Disks */}
-      <AdminCard title={`Festplatten (${systemInfo.disks.length})`} icon={HardDrive}>
+      <AdminCard title={t('admin.systemInfo.disks', { count: systemInfo.disks.length })} icon={HardDrive}>
         <div className="space-y-2">
           {systemInfo.disks.map((disk, i) => (
             <div key={i} className="p-3 rounded-lg bg-foreground/3">
@@ -171,8 +174,8 @@ export function SystemInfoTab({ token }: { token: string }) {
                 <div className="h-full bg-accent transition-all" style={{ width: `${disk.usage_percent}%` }} />
               </div>
               <div className="flex items-center justify-between text-[10px] text-foreground/40">
-                <span>{formatBytes(disk.used_space)} belegt</span>
-                <span>{formatBytes(disk.available_space)} frei von {formatBytes(disk.total_space)}</span>
+                <span>{t('admin.systemInfo.usedSuffix', { value: formatBytes(disk.used_space) })}</span>
+                <span>{t('admin.systemInfo.freeOf', { value: formatBytes(disk.available_space), total: formatBytes(disk.total_space) })}</span>
               </div>
             </div>
           ))}
@@ -180,7 +183,7 @@ export function SystemInfoTab({ token }: { token: string }) {
       </AdminCard>
 
       {/* Network Interfaces */}
-      <AdminCard title={`Netzwerk (${systemInfo.network_interfaces.length})`} icon={Globe}>
+      <AdminCard title={t('admin.systemInfo.network', { count: systemInfo.network_interfaces.length })} icon={Globe}>
         <div className="space-y-2">
           {systemInfo.network_interfaces.map((iface, i) => (
             <div key={i} className="p-3 rounded-lg bg-foreground/3">
@@ -197,7 +200,7 @@ export function SystemInfoTab({ token }: { token: string }) {
               </div>
               {iface.ip_addresses.length > 0 && (
                 <div className="mb-2">
-                  <div className="text-[10px] text-foreground/40 mb-1">IP-Adressen:</div>
+                  <div className="text-[10px] text-foreground/40 mb-1">{t('admin.systemInfo.ipAddresses')}</div>
                   {iface.ip_addresses.map((ip, j) => (
                     <div key={j} className="text-xs font-mono text-foreground/70">{ip}</div>
                   ))}
@@ -219,8 +222,8 @@ export function SystemInfoTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
-          {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
+          className="rumahl-secondary-button-sm">
+          {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} {t('admin.systemInfo.refresh')}
         </button>
       </div>
     </div>
@@ -247,6 +250,7 @@ interface AppMetadata {
 }
 
 export function AppsTab({ token }: { token: string }) {
+  const { t } = useTranslation()
   const [apps, setApps] = useState<AppMetadata[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -290,7 +294,7 @@ export function AppsTab({ token }: { token: string }) {
 
   const startApp = async (appId: string) => {
     try {
-      await adminFetch(`/api/supervisor/apps/${appId}/start`, token, { method: 'POST' })
+      await startAppAndWatch(appId)
       await load()
     } catch (e) { setError((e as Error).message) }
   }
@@ -303,7 +307,7 @@ export function AppsTab({ token }: { token: string }) {
   }
 
   const uninstallApp = async (appId: string) => {
-    if (!confirm('App wirklich deinstallieren?')) return
+    if (!(await confirmDialog({ title: 'App deinstallieren', message: 'App wirklich deinstallieren?', confirmLabel: 'Deinstallieren', danger: true }))) return
     try {
       await adminFetch(`/api/supervisor/apps/${appId}`, token, { method: 'DELETE' })
       await load()
@@ -316,31 +320,31 @@ export function AppsTab({ token }: { token: string }) {
   return (
     <div className="space-y-3">
       {/* Install App */}
-      <AdminCard title="App installieren" icon={Plus}>
+      <AdminCard title={t('admin.appsTab.installTitle')} icon={Plus}>
         <div className="space-y-2">
           <div>
-            <label className="text-[10px] text-foreground/40 mb-1 block">App Name</label>
+            <label className="text-[10px] text-foreground/40 mb-1 block">{t('admin.appsTab.appName')}</label>
             <input type="text" value={newAppName} onChange={e => setNewAppName(e.target.value)}
-              className="w-full px-3 py-2 bg-foreground/5 border border-foreground/10 rounded-lg text-xs text-foreground placeholder:text-foreground/30"
-              placeholder="z.B. my-weather-app" />
+              className="rumahl-field-sm w-full text-xs"
+              placeholder={t('admin.appsTab.appNamePlaceholder')} />
           </div>
           <div>
-            <label className="text-[10px] text-foreground/40 mb-1 block">Docker Image</label>
+            <label className="text-[10px] text-foreground/40 mb-1 block">{t('admin.appsTab.dockerImage')}</label>
             <input type="text" value={newAppImage} onChange={e => setNewAppImage(e.target.value)}
-              className="w-full px-3 py-2 bg-foreground/5 border border-foreground/10 rounded-lg text-xs text-foreground placeholder:text-foreground/30"
-              placeholder="z.B. ghcr.io/user/weather-app:latest" />
+              className="rumahl-field-sm w-full text-xs"
+              placeholder={t('admin.appsTab.dockerImagePlaceholder')} />
           </div>
           <button onClick={installApp} disabled={installing || !newAppImage || !newAppName}
             className="w-full flex items-center justify-center gap-1.5 px-4 py-2 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/90 transition-colors disabled:opacity-40">
-            {installing ? <InlineSpinner size={14} /> : <Plus size={14} />} Installieren
+            {installing ? <InlineSpinner size={14} /> : <Plus size={14} />} {t('admin.appsTab.install')}
           </button>
         </div>
       </AdminCard>
 
       {/* Apps List */}
-      <AdminCard title={`Installierte Apps (${apps.length})`} icon={Cube}>
+      <AdminCard title={t('admin.appsTab.installedApps', { count: apps.length })} icon={Cube}>
         {apps.length === 0 ? (
-          <p className="text-xs text-foreground/50 text-center py-4">Keine Apps installiert.</p>
+          <p className="text-xs text-foreground/50 text-center py-4">{t('admin.appsTab.noneInstalled')}</p>
         ) : (
           <div className="space-y-2">
             {apps.map((app, i) => (
@@ -365,22 +369,22 @@ export function AppsTab({ token }: { token: string }) {
                   {app.status === 'running' ? (
                     <button onClick={() => stopApp(app.id)}
                       className="flex items-center gap-1 px-2 py-1 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors">
-                      <Pause size={12} /> Stoppen
+                      <Pause size={12} /> {t('admin.appsTab.stop')}
                     </button>
                   ) : (
                     <button onClick={() => startApp(app.id)}
                       className="flex items-center gap-1 px-2 py-1 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors">
-                      <Play size={12} /> Starten
+                      <Play size={12} /> {t('admin.appsTab.start')}
                     </button>
                   )}
                   <button onClick={() => uninstallApp(app.id)}
                     className="flex items-center gap-1 px-2 py-1 bg-red-500/15 text-red-400 rounded text-[10px] font-semibold hover:bg-red-500/25 transition-colors">
-                    <TrashSimple size={12} /> Deinstallieren
+                    <TrashSimple size={12} /> {t('admin.appsTab.uninstall')}
                   </button>
                 </div>
                 {app.ports.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-foreground/5">
-                    <div className="text-[10px] text-foreground/40 mb-1">Ports:</div>
+                    <div className="text-[10px] text-foreground/40 mb-1">{t('admin.appsTab.ports')}</div>
                     <div className="flex flex-wrap gap-1">
                       {app.ports.map((port, j) => (
                         <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/5 text-foreground/60 font-mono">{port}</span>
@@ -397,8 +401,8 @@ export function AppsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
-          {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
+          className="rumahl-secondary-button-sm">
+          {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} {t('admin.appsTab.refresh')}
         </button>
       </div>
     </div>
@@ -488,32 +492,32 @@ export function PluginsTab({ token }: { token: string }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('navigation.plugins')}</div>
           <div className="text-lg font-semibold text-foreground">{plugins.length}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.executions')}</div>
           <div className="text-lg font-semibold text-accent">{executions}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.failures')}</div>
           <div className="text-lg font-semibold text-red-300">{failures}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.network')}</div>
           <div className="text-lg font-semibold text-cyan-300">{networkEnabled}</div>
         </div>
       </div>
 
-      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+      <div className="rumahl-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
         <div className="relative flex-1">
           <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('plugins.overview.search')}
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+            className="rumahl-field-sm w-full pl-9 pr-3 text-xs"
           />
         </div>
         <div className="flex gap-1 overflow-x-auto">
@@ -546,13 +550,13 @@ export function PluginsTab({ token }: { token: string }) {
 
                 {/* Sandbox Config */}
                 <div className="mt-2 pt-2 border-t border-foreground/5">
-                  <div className="text-[10px] text-foreground/40 mb-1">Sandbox:</div>
+                  <div className="text-[10px] text-foreground/40 mb-1">{t('admin.pluginsTab.sandbox')}</div>
                   <div className="grid grid-cols-2 gap-1 text-[10px]">
                     <div className="p-1 rounded bg-foreground/5">
-                      <span className="text-foreground/40">Max Zeit:</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.max_execution_time_ms}ms</span>
+                      <span className="text-foreground/40">{t('admin.pluginsTab.maxTime')}</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.max_execution_time_ms}ms</span>
                     </div>
                     <div className="p-1 rounded bg-foreground/5">
-                      <span className="text-foreground/40">Max RAM:</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.max_memory_mb}MB</span>
+                      <span className="text-foreground/40">{t('admin.pluginsTab.maxRam')}</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.max_memory_mb}MB</span>
                     </div>
                     <div className="p-1 rounded bg-foreground/5">
                       <span className="text-foreground/40">{t('plugins.overview.network')}:</span> <span className={`font-semibold ${plugin.sandbox_config.allow_network ? 'text-cyan-300' : 'text-foreground/50'}`}>{plugin.sandbox_config.allow_network ? t('plugins.overview.allowed') : t('plugins.overview.blocked')}</span>
@@ -566,18 +570,18 @@ export function PluginsTab({ token }: { token: string }) {
                 {/* Statistics */}
                 {stats && (
                   <div className="mt-2 pt-2 border-t border-foreground/5">
-                    <div className="text-[10px] text-foreground/40 mb-1">Statistiken:</div>
+                    <div className="text-[10px] text-foreground/40 mb-1">{t('admin.pluginsTab.statistics')}</div>
                     <div className="grid grid-cols-3 gap-1 text-[10px]">
                       <div className="p-1.5 rounded bg-foreground/5 text-center">
-                        <div className="text-foreground/40">Gesamt</div>
+                        <div className="text-foreground/40">{t('admin.pluginsTab.total')}</div>
                         <div className="font-semibold text-foreground/70">{stats.total_executions}</div>
                       </div>
                       <div className="p-1.5 rounded bg-green-500/10 text-center">
-                        <div className="text-green-400/70">Erfolg</div>
+                        <div className="text-green-400/70">{t('admin.pluginsTab.success')}</div>
                         <div className="font-semibold text-green-400">{stats.successful_executions}</div>
                       </div>
                       <div className="p-1.5 rounded bg-red-500/10 text-center">
-                        <div className="text-red-400/70">Fehler</div>
+                        <div className="text-red-400/70">{t('admin.pluginsTab.failure')}</div>
                         <div className="font-semibold text-red-400">{stats.failed_executions}</div>
                       </div>
                     </div>
@@ -627,8 +631,8 @@ export function PluginsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
-          {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
+          className="rumahl-secondary-button-sm">
+          {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} {t('admin.pluginsTab.refresh')}
         </button>
       </div>
     </div>

@@ -1,28 +1,28 @@
-# IORA App Manifests
+# rumahl App Manifests
 
-This directory contains app manifests for the IORA App Store.
+This directory contains app manifests for the rumahl App Store.
 
 ## Available Apps
 
 ### Home Assistant (`homeassistant.json`)
 
-Open source home automation platform with full IORA integration.
+Open source home automation platform with full rumahl integration.
 
 **Features:**
 - Complete Home Assistant installation
 - Real-time entity state synchronization via WebSocket
 - Dashboard widgets for entities, lights, climate control
-- Direct integration with IORA smart home features
+- Direct integration with rumahl smart home features
 - Auto-discovery of devices on local network
 
 **Requirements:**
-- IORA OS with iora-supervisor (recommended)
+- rumahl OS with rumahl-supervisor (recommended)
 - 2GB+ RAM
 - 8GB+ disk space
 
 **Installation:**
 ```bash
-# Via IORA App Store (IORA OS only)
+# Via rumahl App Store (rumahl OS only)
 # Navigate to App Store > Smart Home > Home Assistant > Install
 
 # Manual installation (both methods)
@@ -33,7 +33,7 @@ curl -X POST http://localhost:8098/api/appstore/install \
 
 ### Tailscale (`tailscale.json`)
 
-Zero-config VPN for secure remote access to your IORA system.
+Zero-config VPN for secure remote access to your rumahl system.
 
 **Features:**
 - Secure remote access without port forwarding
@@ -43,13 +43,13 @@ Zero-config VPN for secure remote access to your IORA system.
 - Tailscale SSH support
 
 **Requirements:**
-- IORA OS with iora-supervisor (recommended)
+- rumahl OS with rumahl-supervisor (recommended)
 - Tailscale account (free tier available)
 - Authentication key from Tailscale admin console
 
 **Installation:**
 ```bash
-# Via IORA App Store (IORA OS only)
+# Via rumahl App Store (rumahl OS only)
 # Navigate to App Store > Network & Security > Tailscale > Install
 
 # Manual installation (both methods)
@@ -60,7 +60,7 @@ curl -X POST http://localhost:8098/api/appstore/install \
 
 ## App Manifest Schema
 
-See `backend/iora-shared/src/app_manifest.rs` for the complete manifest schema.
+See `backend/rumahl-shared/src/app_manifest.rs` for the complete manifest schema.
 
 ### Key Fields
 
@@ -74,7 +74,7 @@ See `backend/iora-shared/src/app_manifest.rs` for the complete manifest schema.
 - `docker`: Docker configuration (image, ports, volumes, etc.)
 - `settings_schema`: Settings fields for user configuration
 - `widgets`: Dashboard widgets provided by the app
-- `custom_pages`: Custom pages to add to IORA navigation
+- `custom_pages`: Custom pages to add to rumahl navigation
 
 ## Creating New Apps
 
@@ -118,11 +118,11 @@ curl -X DELETE http://localhost:8098/api/appstore/uninstall/my-app
 
 ### 3. Submit to App Store
 
-Once tested, submit your app manifest to the IORA App Store:
+Once tested, submit your app manifest to the rumahl App Store:
 
 ```bash
-# Submit to appstore.kaimdt.com
-curl -X POST https://appstore.kaimdt.com/api/submit \
+# Submit to appstore.rumahl.com
+curl -X POST https://appstore.rumahl.com/api/submit \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d @apps/my-app.json
@@ -130,9 +130,9 @@ curl -X POST https://appstore.kaimdt.com/api/submit \
 
 ## Installation Methods
 
-### IORA OS (Recommended)
+### rumahl OS (Recommended)
 
-On IORA OS, apps are managed automatically by `iora-supervisor`:
+On rumahl OS, apps are managed automatically by `rumahl-supervisor`:
 
 - **Automatic container management** - No manual docker commands needed
 - **Health monitoring** - Automatic restart on failure
@@ -166,7 +166,7 @@ Apps must declare required permissions in their manifest:
 
 ### Trust Levels
 
-- **Trusted** - Apps from official IORA App Store
+- **Trusted** - Apps from official rumahl App Store
 - **Verified** - Manually verified by admin
 - **Untrusted** - User-uploaded apps (require explicit permission grants)
 
@@ -186,14 +186,14 @@ Apps can specify allowed domains and local IPs:
 
 ## Documentation
 
-- **Full manifest schema**: `backend/iora-shared/src/app_manifest.rs`
-- **App store API**: `backend/iora-appstore/src/main.rs`
+- **Full manifest schema**: `backend/rumahl-shared/src/app_manifest.rs`
+- **App store API**: `backend/rumahl-appstore/src/main.rs`
 - **Installation guide**: `INSTALLATION_VALIDATION.md`
 - **Architecture**: `ARCHITECTURE.md`
 
 ## Support
 
 For app development support:
-- GitHub Issues: https://github.com/your-org/iora/issues
-- Documentation: https://docs.iora.io
-- App Store: https://appstore.kaimdt.com
+- GitHub Issues: https://github.com/your-org/ora/issues
+- Documentation: https://docs.ora.io
+- App Store: https://appstore.rumahl.com

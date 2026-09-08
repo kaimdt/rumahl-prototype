@@ -1,6 +1,6 @@
 # Permissions Reference
 
-A concise reference of all available permissions for apps and plugins in IORA.
+A concise reference of all available permissions for apps and plugins in rumahl.
 
 > For a comprehensive guide including risk levels, approval flow, and security model, see [Security: Permission System](../security/permissions.md).
 
@@ -69,7 +69,7 @@ A concise reference of all available permissions for apps and plugins in IORA.
 
 | Permission | App | Plugin | Description |
 |-----------|:---:|:------:|-------------|
-| `SendNotifications` | ✅ | ✅ | Send notifications to IORA users |
+| `SendNotifications` | ✅ | ✅ | Send notifications to rumahl users |
 
 ### System Permissions
 

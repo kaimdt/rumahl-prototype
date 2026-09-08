@@ -1,14 +1,14 @@
 #!/bin/bash
-# ORA Pre-Commit Hook
+# rumahl Pre-Commit Hook
 # Runs cargo check before each commit to catch errors early.
 # Skip with: git commit --no-verify
 
-echo "🔍 ORA Pre-Commit: Checking code quality..."
+echo "🔍 rumahl Pre-Commit: Checking code quality..."
 
 # --- Rust Backend ---
 echo ""
 echo "─── Rust Backend (cargo check) ───"
-cd iora-os/backend
+cd rumahl-os/backend
 
 # Use timeout to avoid blocking commits on a slow rebuild
 if ! timeout 60 cargo check 2>&1; then

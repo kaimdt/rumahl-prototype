@@ -1,9 +1,9 @@
-// ORA Ideas Board – Tracks planned features for future implementation
+// rumahl Ideas Board – Tracks planned features for future implementation
 
 import { KanbanBoard, KanbanTask } from '@/components/KanbanBoard'
 import { useState } from 'react'
 
-const ORA_IDEAS: KanbanTask[] = [
+const RUMAHL_IDEAS: KanbanTask[] = [
   {
     id: 'idea-04', title: 'Multi-Agent Collaboration', column: 'backlog', priority: 'high', source: 'system',
     tags: ['feature'],
@@ -19,7 +19,7 @@ const ORA_IDEAS: KanbanTask[] = [
   {
     id: 'idea-06', title: 'Voice-First Development', column: 'backlog', priority: 'medium', source: 'system',
     tags: ['feature'],
-    description: 'Vollständige Sprachsteuerung für Coding: "ORA, baue ein Login-Formular", "ORA, was macht diese Funktion?".',
+    description: 'Vollständige Sprachsteuerung für Coding: "rumahl, baue ein Login-Formular", "rumahl, was macht diese Funktion?".',
     createdAt: new Date().toISOString(), subtasks: [],
   },
   {
@@ -29,9 +29,9 @@ const ORA_IDEAS: KanbanTask[] = [
     createdAt: new Date().toISOString(), subtasks: [],
   },
   {
-    id: 'idea-08', title: 'IORA Self-Healing', column: 'backlog', priority: 'high', source: 'system',
+    id: 'idea-08', title: 'rumahl Self-Healing', column: 'backlog', priority: 'high', source: 'system',
     tags: ['feature'],
-    description: 'Überwacht IORAs eigene Gesundheit, erkennt Memory-Leaks, Error-Spikes, Performance-Probleme. Auto-fixt oder schlägt Fixes vor.',
+    description: 'Überwacht rumahls eigene Gesundheit, erkennt Memory-Leaks, Error-Spikes, Performance-Probleme. Auto-fixt oder schlägt Fixes vor.',
     createdAt: new Date().toISOString(), subtasks: [],
   },
   {
@@ -70,7 +70,7 @@ const IMPLEMENTED: KanbanTask[] = [
     completedAt: new Date().toISOString(),
   },
   {
-    id: 'idea-02', title: 'ORA Memory System', column: 'done', priority: 'high', source: 'system',
+    id: 'idea-02', title: 'rumahl Memory System', column: 'done', priority: 'high', source: 'system',
     tags: ['feature'],
     description: 'Persistentes Lernen: Codebase-Wissen, User-Präferenzen, Fehler-Patterns, automatische Wissensextraktion.',
     createdAt: new Date().toISOString(), subtasks: [],
@@ -86,7 +86,7 @@ const IMPLEMENTED: KanbanTask[] = [
 ]
 
 export function ORAIdeasBoard() {
-  const [tasks, setTasks] = useState<KanbanTask[]>([...IMPLEMENTED, ...ORA_IDEAS])
+  const [tasks, setTasks] = useState<KanbanTask[]>([...IMPLEMENTED, ...RUMAHL_IDEAS])
 
   return (
     <div className="h-full">

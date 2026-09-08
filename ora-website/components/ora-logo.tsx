@@ -4,7 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /* ═══════════════════════════════════════════════════════════
-   ORA Logo — normalized paths, viewBox 144.092 x 52.292
+   rumahl Logo — normalized paths, viewBox 144.092 x 52.292
    ═══════════════════════════════════════════════════════════ */
 
 const O_PATH =
@@ -57,8 +57,8 @@ export function ProductName({ name, className, logoSize = 72 }: ProductNameProps
       </span>
       <span
         style={{
-          fontFamily: "'Plus Jakarta Sans', var(--font-geist-sans), Inter, sans-serif",
-          fontWeight: 300,
+          fontFamily: "var(--font-sans), 'Manrope', sans-serif",
+          fontWeight: 400,
           fontSize: "inherit",
           lineHeight: "inherit",
           color: "inherit",

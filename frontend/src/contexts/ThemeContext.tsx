@@ -1,10 +1,19 @@
 import { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useLocalStorage } from '@/lib/storage'
+import { storage, useLocalStorage } from '@/lib/storage'
+import { readTimeThemePalette } from '@/lib/timeThemePalette'
 import { authFetch } from '@/lib/authHelpers'
 import { getBackendUrl } from '@/lib/config'
 import type { ThemeMode } from '@/lib/types'
 import { loadTranslationBundlesFromAssets } from '@/i18n/external'
+
+function readableForeground(background: string) {
+  const hex = background.replace('#', '')
+  if (!/^[\da-f]{6}$/i.test(hex)) return undefined
+  const [r, g, b] = [0, 2, 4].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  return luminance > 0.58 ? '#171922' : '#f3f4f8'
+}
 
 // ─── Type definitions ──────────────────────────────────────────────
 
@@ -431,10 +440,38 @@ interface ThemeActionContextType {
 const ThemeActionContext = createContext<ThemeActionContextType | undefined>(undefined)
 
 function getThemeFromTime(): string {
+  const cfg = readTimeThemeConfig()
   const hour = new Date().getHours()
-  if (hour >= 6 && hour < 18) return 'day'
-  if (hour >= 18 && hour < 21) return 'evening'
+  if (hour >= cfg.dayStart && hour < cfg.eveningStart) return 'day'
+  if (hour >= cfg.eveningStart && hour < cfg.nightStart) return 'evening'
   return 'night'
+}
+
+// ─── Configurable day/evening/night boundaries (per user) ───────────────
+export interface TimeThemeConfig {
+  dayStart: number
+  eveningStart: number
+  nightStart: number
+}
+
+const TIME_THEME_KEY = 'rumahl-time-theme-boundaries'
+const DEFAULT_TIME_THEME: TimeThemeConfig = { dayStart: 6, eveningStart: 18, nightStart:21 }
+
+export function readTimeThemeConfig(): TimeThemeConfig {
+  const stored = storage.get<Partial<TimeThemeConfig>>(TIME_THEME_KEY)
+  if (stored) {
+    return {
+      dayStart: typeof stored.dayStart === 'number' ? stored.dayStart : DEFAULT_TIME_THEME.dayStart,
+      eveningStart: typeof stored.eveningStart === 'number' ? stored.eveningStart : DEFAULT_TIME_THEME.eveningStart,
+      nightStart: typeof stored.nightStart === 'number' ? stored.nightStart : DEFAULT_TIME_THEME.nightStart,
+    }
+  }
+  return DEFAULT_TIME_THEME
+}
+
+export function writeTimeThemeConfig(config: TimeThemeConfig): void {
+  storage.set(TIME_THEME_KEY, config)
+  window.dispatchEvent(new CustomEvent('rumahl:time-theme-change'))
 }
 
 /** Get the design mode for the current time based on theme capabilities */
@@ -465,13 +502,14 @@ function getDesignModeFromTime(modes: ThemeDesignMode[]): string | null {
 }
 
 const DEFAULT_BUILTIN_THEMES: ThemeDefinition[] = [
-  { id: 'auto', name: 'Automatisch', version: '1.0.0', developer: 'IORA', description: 'Wechselt nach Tageszeit', icon: 'ArrowsClockwise', system: true, order: 0, css_variables: {} },
-  { id: 'light', name: 'Hell', version: '1.0.0', developer: 'IORA', description: 'Maximale Helligkeit', icon: 'Sun', system: true, order: 5, css_variables: {} },
-  { id: 'day', name: 'Tag', version: '1.0.0', developer: 'IORA', description: 'Helles Design', icon: 'CloudSun', system: true, order: 10, css_variables: {} },
-  { id: 'day-classic', name: 'Klassisch', version: '1.0.0', developer: 'IORA', description: 'Dunkler Hintergrund', icon: 'Monitor', system: true, order: 20, css_variables: {} },
-  { id: 'evening', name: 'Abend', version: '1.0.0', developer: 'IORA', description: 'Warme Töne', icon: 'SunDim', system: true, order: 30, css_variables: {} },
-  { id: 'night', name: 'Nacht', version: '1.0.0', developer: 'IORA', description: 'Dunkles Design', icon: 'MoonStars', system: true, order: 40, css_variables: {} },
-  { id: 'sleep', name: 'Schlaf', version: '1.0.0', developer: 'IORA', description: 'OLED Schwarz', icon: 'Moon', system: true, order: 50, css_variables: {} },
+  { id: 'auto', name: 'Automatisch', version: '1.0.0', developer: 'rumahl', description: 'Wechselt nach Tageszeit', icon: 'ArrowsClockwise', system: true, order: 0, css_variables: {} },
+  { id: 'light', name: 'Hell', version: '1.0.0', developer: 'rumahl', description: 'Maximale Helligkeit', icon: 'Sun', system: true, order: 5, css_variables: {} },
+  { id: 'day', name: 'Tag', version: '1.0.0', developer: 'rumahl', description: 'Helles Design', icon: 'CloudSun', system: true, order: 10, css_variables: {} },
+  { id: 'day-classic', name: 'Klassisch', version: '1.0.0', developer: 'rumahl', description: 'Dunkler Hintergrund', icon: 'Monitor', system: true, order: 20, css_variables: {} },
+  { id: 'evening', name: 'Abend', version: '1.0.0', developer: 'rumahl', description: 'Warme Töne', icon: 'SunDim', system: true, order: 30, css_variables: {} },
+  { id: 'night', name: 'Nacht', version: '1.0.0', developer: 'rumahl', description: 'Dunkles Design', icon: 'MoonStars', system: true, order: 40, css_variables: {} },
+  { id: 'sleep', name: 'Schlaf', version: '1.0.0', developer: 'rumahl', description: 'OLED Schwarz', icon: 'Moon', system: true, order: 50, css_variables: {} },
+  { id: 'midnight', name: 'rumahl Midnight UI', version: '1.0.0', developer: 'rumahl', description: 'Pure black with white accents', icon: 'CircleHalfTilt', system: true, order: 60, css_variables: {} },
 ]
 
 function getThemePreview(themeId: string): string {
@@ -481,8 +519,9 @@ function getThemePreview(themeId: string): string {
     day: 'linear-gradient(135deg, #e0e4ec 0%, #c8cdd8 50%, #b8bfcc 100%)',
     'day-classic': 'linear-gradient(135deg, #2a2d3e 0%, #1a1d2e 50%, #0f1118 100%)',
     evening: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)',
-    night: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)',
+    night: 'linear-gradient(135deg, #0d0d0d 0%, #070707 50%, #050505 100%)',
     sleep: 'linear-gradient(135deg, #050508 0%, #000000 100%)',
+    midnight: 'linear-gradient(135deg, #242424 0%, #080808 42%, #000000 100%)',
   }
   return previews[themeId] || 'linear-gradient(135deg, #1a1d2e 0%, #0f1220 100%)'
 }
@@ -490,11 +529,11 @@ function getThemePreview(themeId: string): string {
 // ─── Font & Style injection helpers ─────────────────────────────────
 
 /** IDs used for injected elements so we can clean them up on theme switch */
-const FONT_CONTAINER_ID = 'iora-theme-fonts'
-const STYLE_CONTAINER_ID = 'iora-theme-css'
-const ICON_FONT_ID = 'iora-theme-icon-font'
-const JS_CONTAINER_ID = 'iora-theme-js'
-const CSS_FILES_PREFIX = 'iora-theme-css-file-'
+const FONT_CONTAINER_ID = 'rumahl-theme-fonts'
+const STYLE_CONTAINER_ID = 'rumahl-theme-css'
+const ICON_FONT_ID = 'rumahl-theme-icon-font'
+const JS_CONTAINER_ID = 'rumahl-theme-js'
+const CSS_FILES_PREFIX = 'rumahl-theme-css-file-'
 
 /** Inject <link> tags for custom fonts into <head> */
 function injectFonts(fonts: ThemeFont[]) {
@@ -617,7 +656,7 @@ function injectJsFiles(urls: string[]) {
   }
 
   urls.forEach((url, index) => {
-    const scriptId = `iora-theme-js-${index}`
+    const scriptId = `rumahl-theme-js-${index}`
     // Remove previous script with same ID
     const existing = document.getElementById(scriptId)
     if (existing) existing.remove()
@@ -645,8 +684,8 @@ function injectIconFont(config: ThemeIconConfig) {
   }
 
   // Store icon map on document for runtime use
-  ;(window as any).__iora_icon_map = config.icon_map
-  ;(window as any).__iora_icon_prefix = config.class_prefix
+  ;(window as any).__rumahl_icon_map = config.icon_map
+  ;(window as any).__rumahl_icon_prefix = config.class_prefix
 }
 
 /** Remove all injected theme styles/fonts/scripts */
@@ -669,7 +708,7 @@ function clearThemeInjections() {
   // Remove all JS scripts
   const jsContainer = document.getElementById(JS_CONTAINER_ID)
   if (jsContainer) jsContainer.remove()
-  document.querySelectorAll(`script[id^="iora-theme-js-"]`).forEach(el => el.remove())
+  document.querySelectorAll(`script[id^="rumahl-theme-js-"]`).forEach(el => el.remove())
 
   // Reset body font
   document.body.style.fontFamily = ''
@@ -679,13 +718,13 @@ function clearThemeInjections() {
   document.documentElement.style.removeProperty('--font-mono')
 
   // Clear icon map
-  delete (window as any).__iora_icon_map
-  delete (window as any).__iora_icon_prefix
+  delete (window as any).__rumahl_icon_map
+  delete (window as any).__rumahl_icon_prefix
 }
 
 // ─── FOUC Protection - sessionStorage CSS cache ───────────────────
 
-const THEME_CSS_CACHE_KEY = 'iora-theme-css-cache'
+const THEME_CSS_CACHE_KEY = 'rumahl-theme-css-cache'
 function cacheThemeCss(id: string, vars: Record<string, string>) {
   try { sessionStorage.setItem(THEME_CSS_CACHE_KEY, JSON.stringify({ id, vars })) } catch {}
 }
@@ -697,8 +736,30 @@ function applyCachedThemeCss(): string | null {
     const root = document.documentElement
     Object.entries(vars).forEach(([k, v]) => root.style.setProperty(`--${k}`, v))
     root.setAttribute('data-theme', id)
+    // Track which keys/id came from the FOUC cache so they can be removed
+    // once the authoritative theme data resolves (see clearStaleFoucVars).
+    root.setAttribute('data-fouc-theme-cache', JSON.stringify({ id, keys: Object.keys(vars) }))
     return id
   } catch { return null }
+}
+
+/**
+ * Remove FOUC-cache inline vars when they belong to a different theme than
+ * the one that is now active. The cache is only a flash guard for the moment
+ * before theme data loads — if it is never cleared, stale (e.g. light custom
+ * theme) vars stay inline and override the current theme's stylesheet on
+ * every page, system-wide.
+ */
+function clearStaleFoucVars(root: HTMLElement, currentThemeId: string) {
+  const foucRaw = root.getAttribute('data-fouc-theme-cache')
+  if (!foucRaw) return
+  try {
+    const fouc = JSON.parse(foucRaw) as { id?: string; keys?: string[] }
+    if (fouc.id && fouc.id !== currentThemeId && Array.isArray(fouc.keys)) {
+      fouc.keys.forEach((key) => root.style.removeProperty(`--${key}`))
+    }
+    root.removeAttribute('data-fouc-theme-cache')
+  } catch {}
 }
 
 // ─── Theme Provider ─────────────────────────────────────────────────
@@ -724,7 +785,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Theme capabilities
   const [capabilities, setCapabilities] = useState<ThemeCapabilities | null>(null)
-  const [activeDesignMode, setActiveDesignModeState] = useState<string>('default')
+  const [activeDesignMode, setActiveDesignModeState] = useState<string>(() => {
+    // Restore a manually selected design mode across reloads (the modes are
+    // per-theme; a mode the active theme does not provide is reset below).
+    try {
+      const raw = localStorage.getItem('rumahl-active-design-mode')
+      if (raw) {
+        const parsed = JSON.parse(raw) as { mode?: string }
+        if (parsed && typeof parsed.mode === 'string') return parsed.mode
+      }
+    } catch {}
+    return 'default'
+  })
   const [customSettings, setCustomSettings] = useState<Record<string, unknown>>({})
 
   // Track which theme's resources are currently injected
@@ -733,9 +805,44 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const abortRef = useRef<AbortController | null>(null)
 
   const { user } = useAuth()
+
+  // Resolve the configuration profile id that theme selections/settings are
+  // keyed on server-side. configuration_profiles.id is a UUID distinct from
+  // the auth user id — sending user.id as profile_id violates the FK
+  // (user_theme_selections_profile_id_fkey) and every theme save returns 500.
+  // Same load-or-create endpoint as ConfigurationContext; the backend reuses
+  // the existing default user profile, so this is idempotent.
+  const loadOrCreateThemeProfile = useCallback(async (userId: string): Promise<string | null> => {
+    try {
+      const res = await authFetch('/api/config/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Theme Settings',
+          profile_type: 'user',
+          owner_id: userId,
+        }),
+      })
+      if (!res.ok) return null
+      const profile = await res.json() as { id?: unknown }
+      return typeof profile?.id === 'string' ? profile.id : null
+    } catch (e) {
+      console.warn('Failed to resolve theme profile:', e)
+      return null
+    }
+  }, [])
+
   useEffect(() => {
-    setProfileId(user?.id || null)
-  }, [user?.id])
+    if (!user?.id) {
+      setProfileId(null)
+      return
+    }
+    let cancelled = false
+    void loadOrCreateThemeProfile(user.id).then((id) => {
+      if (!cancelled) setProfileId(id)
+    })
+    return () => { cancelled = true }
+  }, [user?.id, loadOrCreateThemeProfile])
 
   const refreshThemes = useCallback(async () => {
     try {
@@ -748,7 +855,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }))
         const autoThemeDef: ThemeDefinition = {
           id: 'auto', name: 'Automatisch', version: '1.0.0',
-          developer: 'IORA', description: 'Wechselt nach Tageszeit',
+          developer: 'rumahl', description: 'Wechselt nach Tageszeit',
           icon: 'ArrowsClockwise', system: true, order: 0, css_variables: {},
         }
         setAvailableThemes([autoThemeDef, ...builtin, ...(data.installed || [])])
@@ -798,7 +905,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       const timeTheme = getThemeFromTime()
       setTheme(timeTheme)
       
-      // If the theme has custom design modes, pick the right one for current time
+      // Design modes with time windows: pick the mode matching the current
+      // time. `capabilities` is in the effect deps so this re-runs when the
+      // theme data arrives — the previous closure captured the mount-time
+      // (empty) capabilities, so the time-of-day mode was never applied and
+      // the theme stayed on its lightest/base mode.
       if (capabilities?.design_modes && capabilities.design_modes.length > 0) {
         const modeFromTime = getDesignModeFromTime(capabilities.design_modes)
         if (modeFromTime) {
@@ -815,20 +926,45 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       }
     }
     update()
+    window.addEventListener('rumahl:time-theme-change', update)
     const interval = setInterval(update, 60000)
-    return () => clearInterval(interval)
-  }, [sleepMode, autoTheme, selectedTheme])
+    return () => { clearInterval(interval); window.removeEventListener('rumahl:time-theme-change', update) }
+  }, [sleepMode, autoTheme, selectedTheme, capabilities])
 
   // Fetch theme data when theme changes
+  useEffect(() => {
+    const applyTimePalette = () => {
+      if (!['day', 'evening', 'night'].includes(theme)) return
+      const colors = readTimeThemePalette()[theme as 'day' | 'evening' | 'night']
+      document.documentElement.style.setProperty('--background', colors.background)
+      document.documentElement.style.setProperty('--accent', colors.accent)
+      const foreground = readableForeground(colors.background)
+      if (foreground) document.documentElement.style.setProperty('--foreground', foreground)
+    }
+    applyTimePalette()
+    window.addEventListener('rumahl:time-theme-palette-change', applyTimePalette)
+    return () => window.removeEventListener('rumahl:time-theme-palette-change', applyTimePalette)
+  }, [theme])
+
   useEffect(() => {
     const root = document.documentElement
     root.setAttribute('data-theme', theme)
 
-    const isBuiltin = ['day', 'day-classic', 'light', 'evening', 'night', 'sleep', 'auto'].includes(theme)
+    const isBuiltin = ['day', 'day-classic', 'light', 'evening', 'night', 'sleep', 'midnight', 'auto'].includes(theme)
 
     if (!isBuiltin && profileId) {
       fetchThemeData(profileId)
     } else {
+      // Builtin theme: the stylesheet is authoritative — drop any FOUC-cache
+      // inline vars that came from a different (custom) theme.
+      clearStaleFoucVars(root, theme)
+      if (['day', 'evening', 'night'].includes(theme)) {
+        const colors = readTimeThemePalette()[theme as 'day' | 'evening' | 'night']
+        root.style.setProperty('--background', colors.background)
+        root.style.setProperty('--accent', colors.accent)
+        const foreground = readableForeground(colors.background)
+        if (foreground) root.style.setProperty('--foreground', foreground)
+      }
       setThemeResponse(null)
       setActiveCssVariables({})
     }
@@ -839,6 +975,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (themeResponse?.theme_id === injectedThemeRef.current) return
 
     const root = document.documentElement
+
+    // Drop FOUC-cache inline vars from a previously cached theme before
+    // applying this theme's authoritative variables.
+    if (themeResponse?.theme_id) {
+      clearStaleFoucVars(root, themeResponse.theme_id)
+    }
 
     // Clear previous custom theme variables
     const customVars = root.getAttribute('data-custom-theme-vars')
@@ -929,8 +1071,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       } else {
         const iconLink = document.getElementById(ICON_FONT_ID)
         if (iconLink) iconLink.remove()
-        delete (window as any).__iora_icon_map
-        delete (window as any).__iora_icon_prefix
+        delete (window as any).__rumahl_icon_map
+        delete (window as any).__rumahl_icon_prefix
       }
 
       injectedThemeRef.current = themeResponse.theme_id
@@ -963,18 +1105,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const caps = themeResponse?.capabilities || null
     setCapabilities(caps)
 
-    // Reset design mode when theme changes
-    if (caps?.design_modes && caps.design_modes.length > 0) {
-      const firstMode = caps.design_modes[0].id
-      setActiveDesignModeState(firstMode)
-      // Apply mode-specific CSS variables
-      const mode = caps.design_modes.find(m => m.id === firstMode)
-      if (mode) {
-        Object.entries(mode.css_variables).forEach(([key, value]) => {
-          document.documentElement.style.setProperty(`--${key}`, value)
-        })
-      }
-    } else {
+    // The design mode itself is resolved by the theme/design-mode effects
+    // (time-based auto switch for auto_behavior "time", otherwise the user's
+    // stored selection). Forcing the first mode here overrode the time-of-day
+    // mode on every theme-data load and left the lightest mode active.
+    if (!caps?.design_modes || caps.design_modes.length === 0) {
       setActiveDesignModeState('default')
     }
 
@@ -1084,9 +1219,33 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [profileId, themeResponse?.theme_id, customSettings, capabilities])
 
+  // Restore/validate the design mode after theme data (capabilities) loads:
+  // apply the stored mode's CSS variables (state alone survives a reload,
+  // inline styles do not) and reset modes the active theme does not provide.
+  useEffect(() => {
+    const modes = capabilities?.design_modes
+    if (!modes || modes.length === 0) return
+    const mode = modes.find((m) => m.id === activeDesignMode)
+    if (!mode) {
+      setActiveDesignModeState('default')
+      try { localStorage.removeItem('rumahl-active-design-mode') } catch {}
+      return
+    }
+    Object.keys(prevModeVarsRef.current).forEach((key) => {
+      document.documentElement.style.removeProperty(`--${key}`)
+    })
+    prevModeVarsRef.current = mode.css_variables
+    Object.entries(mode.css_variables).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(`--${key}`, value)
+    })
+  }, [capabilities, activeDesignMode])
+
   // Set active design mode (for themes with custom modes)
   const setActiveDesignMode = useCallback((modeId: string) => {
     setActiveDesignModeState(modeId)
+    try {
+      localStorage.setItem('rumahl-active-design-mode', JSON.stringify({ mode: modeId }))
+    } catch {}
     // Clean up previous mode variables
     Object.keys(prevModeVarsRef.current).forEach(key => {
       document.documentElement.style.removeProperty(`--${key}`)
@@ -1155,7 +1314,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Inject custom CSS keyframes from theme animation config
   useEffect(() => {
-    const KEYFRAME_STYLE_ID = 'iora-theme-keyframes'
+    const KEYFRAME_STYLE_ID = 'rumahl-theme-keyframes'
     let styleEl = document.getElementById(KEYFRAME_STYLE_ID)
     
     if (capabilities?.animation?.keyframes && Object.keys(capabilities.animation.keyframes).length > 0) {

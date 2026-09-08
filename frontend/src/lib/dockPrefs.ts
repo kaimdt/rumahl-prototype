@@ -1,8 +1,8 @@
 // Dock pin preferences shared between the OS dock and the launcher quick actions.
-const DOCK_PINS_KEY = 'iora-os-dock-pins'
-const DOCK_PINS_EVENT = 'iora:dock-pins-changed'
+const DOCK_PINS_KEY = 'rumahl-os-dock-pins'
+const DOCK_PINS_EVENT = 'rumahl:dock-pins-changed'
 
-export const DEFAULT_DOCK_PINS = ['iora-home', 'iora-files', 'iora-app-store', 'iora-settings']
+export const DEFAULT_DOCK_PINS = ['rumahl-home', 'rumahl-files', 'rumahl-app-store', 'rumahl-settings']
 
 export const DOCK_PINS_EVENT_NAME = DOCK_PINS_EVENT
 

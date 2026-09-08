@@ -2,7 +2,7 @@
   "id": "notification-formatter",
   "name": "Benachrichtigungs-Formatierer",
   "version": "1.0.0",
-  "developer": "IORA Team",
+  "developer": "rumahl Team",
   "description": "Ein Plugin zur Formatierung und Anreicherung von Benachrichtigungen. Nimmt einfache Benachrichtigungen entgegen und formatiert sie mit Emojis, Prioritäten und strukturierten Daten. Läuft on-demand in einer Sandbox.",
   "icon": "https://example.com/notification-icon.png",
   "type": "plugin",

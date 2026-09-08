@@ -90,7 +90,7 @@ export function ClipboardManager({ open, onClose }: { open: boolean; onClose: ()
         return
       }
       const data = await res.json() as { entries?: ClipboardEntry[] }
-      setEntries(data.entries || [])
+      setEntries(Array.isArray(data?.entries) ? data.entries : [])
     } catch {
       // backend unreachable — keep last list
     }
@@ -165,7 +165,7 @@ export function ClipboardManager({ open, onClose }: { open: boolean; onClose: ()
             initial={{ opacity: 0, y: -14, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            className="glass-card fixed right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[57] flex max-h-[min(32rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-white/15 shadow-2xl sm:right-6 sm:top-[4.5rem]"
+            className="glass-card fixed right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[65] flex max-h-[min(32rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-white/15 shadow-2xl sm:right-6 sm:top-[4.5rem]"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">

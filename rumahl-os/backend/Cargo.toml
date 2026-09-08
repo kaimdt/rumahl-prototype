@@ -1,0 +1,104 @@
+[workspace]
+# Crates are grouped by role on disk so it's obvious what each piece is:
+#   shared/      — cross-crate library code
+#   services/    — long-running systemd-managed daemons (always shipped)
+#   apps/system/ — system applications shipped with rumahl OS (run on demand)
+#   tools/       — on-device CLI utilities (`ora`, signing, verification)
+#   dev/         — pieces shipped ONLY on the rumahl OS Dev image
+#
+# Crate names follow the `rumahl-*` convention, so `cargo build -p rumahl-X` (and the
+# image build pipeline) keeps working as before.
+members = [
+    "shared/rumahl-shared-types",
+    "shared/rumahl-shared-heartbeat",
+    "shared/rumahl-shared-config",
+    "shared/rumahl-shared-upload",
+    "shared/rumahl-shared",
+
+    # services
+    "services/rumahl-home",
+    "services/rumahl-core",
+    "services/rumahl-control",
+    "services/rumahl-assist",
+    "services/rumahl-secrets",
+    "services/rumahl-watchdog",
+    "services/rumahl-installer",
+    "services/rumahl-security",
+    "services/rumahl-security-helper",
+    "services/rumahl-runtime-sensor",
+    "services/rumahl-runtime-identity",
+    "services/rumahl-runtime-policy",
+    "services/rumahl-incident-engine",
+    "services/rumahl-gateway",
+    "services/rumahl-files",
+    "services/rumahl-connector",
+    "services/rumahl-api",
+    "services/rumahl-supervisor",
+    "services/rumahl-appstore",
+    "services/rumahl-nginx",
+    "services/rumahl-network-monitor",
+    "services/rumahl-domain-validator",
+    "services/rumahl-resource-manager",
+    "services/rumahl-intelligence",
+    "services/rumahl-updater",
+    "services/rumahl-backup",
+    "services/rumahl-browserd",
+
+    # system apps
+    "apps/system/rumahl-developer-app",
+
+    # on-device CLI tools
+    "tools/rumahl-cli",
+    "tools/rumahl-sign",
+    "tools/rumahl-verify",
+    "tools/rumahl-db-manager",
+    "tools/rumahl-migrate",
+    "tools/rumahl-dev-watch",
+    "tools/rumahl-dev-manager",
+
+    # dev-image-only on-device pieces
+    "dev/rumahl-dev-bridge",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Pinned dependencies to resolve version conflicts
+libsqlite3-sys = "0.30.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+incremental = false
+
+# Fast release profile – production-safe but ~3-5× faster to compile.
+#   lto = false          → no fat link-time optimisation (biggest speed win)
+#   codegen-units = 16   → parallel LLVM codegen across 16 units
+#   opt-level = 2        → near-identical perf to 3, much faster compile
+#   strip = true         → keep binary small
+#   incremental = true   → reuse intermediate artefacts across rebuilds
+[profile.release-fast]
+inherits = "release"
+opt-level = 2
+lto = false
+codegen-units = 16
+incremental = true
+strip = true
+
+# Development profile optimized for fast compilation
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+codegen-units = 256
+
+# Fast dev profile – quicker iteration than dev, faster runtime than dev
+#   opt-level = 1        → minimal optimizations for better performance
+#   incremental = true   → faster rebuilds
+#   codegen-units = 64   → balance between compile speed and optimization
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 1
+incremental = true
+codegen-units = 64

@@ -123,13 +123,13 @@ export type WidgetType =
   | 'map'
   | 'iframe'
   | 'stream'
-  // ORA OS system widgets (Home Dashboard v2, Package 3)
-  | 'ora_storage'
-  | 'ora_system'
-  | 'ora_jobs'
-  | 'ora_recent_files'
-  | 'ora_presence'
-  | 'ora_media'
+  // rumahl OS system widgets (Home Dashboard v2, Package 3)
+  | 'rumahl_storage'
+  | 'rumahl_system'
+  | 'rumahl_jobs'
+  | 'rumahl_recent_files'
+  | 'rumahl_presence'
+  | 'rumahl_media'
 
 export interface DashboardWidget {
   id: string
@@ -158,7 +158,7 @@ export interface DashboardPage {
   pageType?: 'dashboard' | 'app' | 'system' | 'custom'
   // Optional source metadata (e.g. app-id for app pages).
   pageSource?: {
-    kind: 'app' | 'iora' | 'user' | 'external'
+    kind: 'app' | 'rumahl' | 'user' | 'external'
     id?: string
   }
   showInNav?: boolean // Whether to show in navigation bar

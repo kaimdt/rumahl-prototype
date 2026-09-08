@@ -1,6 +1,6 @@
 # Security Best Practices
 
-This guide provides security hardening recommendations for IORA administrators and developers.
+This guide provides security hardening recommendations for rumahl administrators and developers.
 
 ## For Administrators
 
@@ -8,7 +8,7 @@ This guide provides security hardening recommendations for IORA administrators a
 
 ```bash
 # Immediately after installation, change default credentials
-passwd root  # IORA OS
+passwd root  # rumahl OS
 # Update admin password in the Control Center UI
 
 # Generate strong secrets
@@ -28,10 +28,10 @@ ufw allow 22/tcp     # SSH for management
 ufw enable
 
 # Never expose these ports directly:
-# - 8126 (iora-home)
-# - 8090 (iora-core)
-# - 8092 (iora-assist)
-# - 8095 (iora-security)
+# - 8126 (rumahl-home)
+# - 8090 (rumahl-core)
+# - 8092 (rumahl-assist)
+# - 8095 (rumahl-security)
 ```
 
 ### 3. TLS Configuration
@@ -41,8 +41,8 @@ Always use TLS in production:
 ```nginx
 server {
     listen 443 ssl http2;
-    ssl_certificate /etc/letsencrypt/live/iora.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/iora.example.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/ora.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ora.example.com/privkey.pem;
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
@@ -61,7 +61,7 @@ server {
 docker compose pull
 docker compose up -d
 
-# IORA OS
+# rumahl OS
 rauc update /path/to/update.raucb
 
 # Check current version
@@ -72,7 +72,7 @@ curl http://localhost:8126/health
 
 ```bash
 # Database backup
-pg_dump -U iora iora_home > backup_$(date +%Y%m%d).sql
+pg_dump -U ora rumahl_home > backup_$(date +%Y%m%d).sql
 
 # Encrypt backup
 gpg --encrypt --recipient admin@example.com backup_20260601.sql
@@ -122,10 +122,10 @@ Regularly review installed apps:
 
 ```bash
 # Watch security logs
-journalctl -u iora-security -f
+journalctl -u rumahl-security -f
 
 # Watch gateway logs
-journalctl -u iora-gateway -f
+journalctl -u rumahl-gateway -f
 
 # Set up log aggregation (e.g., Loki, ELK)
 ```
@@ -155,7 +155,7 @@ journalctl -u iora-gateway -f
 ### 2. API Key Handling
 
 ```javascript
-// GOOD: Use environment variables or iora-secrets
+// GOOD: Use environment variables or rumahl-secrets
 const apiKey = process.env.API_KEY;
 
 // BAD: Hardcoded API keys
@@ -208,7 +208,7 @@ await client.appDatabase.execute(
 // Use app storage for non-sensitive data
 await client.appStorage.setKv('user_prefs', { theme: 'dark' });
 
-// Use iora-secrets for sensitive data
+// Use rumahl-secrets for sensitive data
 await client.secrets.create({
   name: 'External API Key',
   value: apiKey,

@@ -395,7 +395,7 @@ export function EntitiesTab({ token }: { token: string }) {
           <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && doSearch()}
             placeholder="Entity-ID oder Name suchen..."
-            className="flex-1 bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+            className="rumahl-field-sm flex-1 text-xs" />
           <button onClick={doSearch} disabled={searching}
             className="px-4 py-2 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/85 transition-colors disabled:opacity-50">
             {searching ? '...' : 'Suchen'}
@@ -546,7 +546,7 @@ export function LogbookTab({ token }: { token: string }) {
           <MagnifyingGlass size={14} className="text-foreground/40" />
           <input value={entityFilter} onChange={e => setEntityFilter(e.target.value)}
             placeholder="Entity oder Name filtern..."
-            className="flex-1 bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+            className="rumahl-field-sm flex-1 text-xs" />
           <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
             className="text-foreground/40 hover:text-accent transition-colors p-1 disabled:opacity-40">
             {refreshing ? <InlineSpinner size={16} /> : <ArrowClockwise size={16} />}
@@ -727,7 +727,7 @@ export function CalendarsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          className="rumahl-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
         </button>
       </div>
@@ -841,7 +841,7 @@ export function ProtocolsOverviewTab({ token }: { token: string }) {
 
       <div className="flex justify-center">
         <button onClick={load} disabled={loading}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          className="rumahl-secondary-button-sm">
           <ArrowClockwise size={14} /> Aktualisieren
         </button>
       </div>
@@ -861,7 +861,7 @@ export function HaDeveloperToolsTab({ token }: { token: string }) {
   const [tplBusy, setTplBusy] = useState(false)
   const [tplError, setTplError] = useState<string | null>(null)
 
-  const [evtType, setEvtType] = useState('iora_test_event')
+  const [evtType, setEvtType] = useState('rumahl_test_event')
   const [evtData, setEvtData] = useState('{"source":"admin","value":42}')
   const [evtBusy, setEvtBusy] = useState(false)
   const [evtMsg, setEvtMsg] = useState<string | null>(null)
@@ -938,7 +938,7 @@ export function HaDeveloperToolsTab({ token }: { token: string }) {
         />
         <div className="mt-2 flex items-center gap-2">
           <button onClick={renderTpl} disabled={tplBusy || !tpl.trim()}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            className="rumahl-ghost-button-sm">
             {tplBusy ? 'Rendere…' : 'Rendern'}
           </button>
           {tplError && <span className="text-[11px] text-red-300">{tplError}</span>}
@@ -971,7 +971,7 @@ export function HaDeveloperToolsTab({ token }: { token: string }) {
         </div>
         <div className="mt-2 flex items-center gap-2">
           <button onClick={fireEvt} disabled={evtBusy || !evtType.trim()}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            className="rumahl-ghost-button-sm">
             {evtBusy ? 'Sende…' : 'Event feuern'}
           </button>
           {evtMsg && <span className="text-[11px] text-green-300">{evtMsg}</span>}
@@ -1008,4 +1008,4 @@ export function HaDeveloperToolsTab({ token }: { token: string }) {
 //
 // Sets / clears the cluster-wide emergency banner that is broadcast to
 // every connected dashboard via WebSocket. Backed by ACTIVE_EMERGENCY in
-// iora-home and the /api/admin/alert GET/PUT/DELETE trio.
+// rumahl-home and the /api/admin/alert GET/PUT/DELETE trio.

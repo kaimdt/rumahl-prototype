@@ -1,6 +1,6 @@
 # Scheduled Tasks Guide
 
-Apps in IORA can register recurring or one-shot scheduled tasks. The scheduler runs within the IORA core and triggers a webhook or internal event when a task fires.
+Apps in rumahl can register recurring or one-shot scheduled tasks. The scheduler runs within the rumahl core and triggers a webhook or internal event when a task fires.
 
 ## Overview
 
@@ -10,7 +10,7 @@ Three schedule types are supported:
 - **Interval** – Fixed-interval scheduling (e.g., every 3600 seconds)
 - **One-Shot** – Run once at a specific date/time
 
-When a scheduled task fires, IORA sends a POST request with the task payload to a configurable target.
+When a scheduled task fires, rumahl sends a POST request with the task payload to a configurable target.
 
 ## Declaring Default Schedules in the Manifest
 
@@ -104,9 +104,9 @@ GET /api/apps/:app_id/schedules/:task_id/logs
 ## SDK Usage
 
 ```typescript
-import IoraClient from '@iora/sdk';
+import rumahlClient from '@rumahl/sdk';
 
-const client = new IoraClient('http://localhost:8126', 'your-api-key');
+const client = new rumahlClient('http://localhost:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Create a cron task

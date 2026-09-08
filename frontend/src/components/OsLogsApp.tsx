@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowClockwise, FileText, ListBullets, Play, Square, Terminal, Triangle } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 
 interface LogSource {
   id: string
@@ -67,12 +68,13 @@ export function OsLogsApp() {
   }, [loadSources])
 
   useEffect(() => {
-    if (!activeSource) return
-    void loadLines(activeSource)
-    if (!autoRefresh) return
-    const timer = window.setInterval(() => { void loadLines(activeSource) }, 4000)
-    return () => window.clearInterval(timer)
-  }, [activeSource, autoRefresh, loadLines])
+    if (activeSource) void loadLines(activeSource)
+  }, [activeSource, loadLines])
+
+  // Poll log lines only while the tab is visible and auto-refresh is on.
+  useVisibleInterval(() => {
+    if (activeSource && autoRefresh) void loadLines(activeSource)
+  }, activeSource && autoRefresh ? 4000 : null)
 
   const selectSource = (sourceId: string) => {
     setActiveSource(sourceId)
@@ -82,26 +84,28 @@ export function OsLogsApp() {
   const active = sources.find((source) => source.id === activeSource)
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl p-4 pb-10 sm:p-6">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{t('logsApp.title')}</h1>
-          <p className="mt-1 text-sm text-foreground/45">{t('logsApp.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-foreground/55">
-            <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
-            {t('logsApp.autoRefresh')}
-          </label>
-          <button type="button" onClick={() => { void loadSources(); if (activeSource) void loadLines(activeSource) }} disabled={loading} className="glass-card rounded-full p-3" title={t('logsApp.refresh')}>
-            <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <OsWindowActions pageId="os-logs" />
-        </div>
-      </header>
+    <section className="rumahl-app-frame overflow-hidden">
+      <OsAppNavbar
+        pageId="os-logs"
+        title={t('os.apps.logs.name')}
+        description={t('os.apps.logs.description')}
+        icon={<Terminal size={24} weight="duotone" />}
+        accent="oklch(0.6 0.14 40)"
+        trailing={
+          <>
+            <label className="flex items-center gap-2 text-xs text-foreground/55">
+              <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
+              {t('logsApp.autoRefresh')}
+            </label>
+            <button type="button" onClick={() => { void loadSources(); if (activeSource) void loadLines(activeSource) }} disabled={loading} className="rumahl-icon-button" title={t('logsApp.refresh')}>
+              <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </>
+        }
+      />
 
-      {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <div className="p-4">
+      {error && <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
         {/* Source list */}
@@ -115,7 +119,7 @@ export function OsLogsApp() {
               className={`w-full rounded-2xl border p-4 text-left transition-colors ${activeSource === source.id ? 'border-accent/40 bg-accent/10' : 'border-white/8 bg-foreground/4 hover:bg-foreground/7'}`}
             >
               <div className="flex items-center gap-2">
-                {source.kind === 'service' ? <Square size={14} className="text-cyan-300" /> : source.kind === 'file' ? <FileText size={14} className="text-amber-300" /> : <ListBullets size={14} className="text-foreground/50" />}
+                {source.kind === 'service' ? <Square size={14} className="text-cyan-300" /> : source.kind === 'file' ? <FileText size={14} className="text-warning" /> : <ListBullets size={14} className="text-foreground/50" />}
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{source.name}</span>
                 {source.running && <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" />}
               </div>
@@ -140,7 +144,7 @@ export function OsLogsApp() {
                 const text = line.raw || (line.message || '')
                 const level = (line.level || '').toLowerCase()
                 const timestamp = line.timestamp || ''
-                const color = level.includes('error') ? 'text-red-300' : level.includes('warn') ? 'text-amber-300' : level.includes('info') ? 'text-cyan-200' : 'text-foreground/75'
+                const color = level.includes('error') ? 'text-destructive' : level.includes('warn') ? 'text-warning' : level.includes('info') ? 'text-cyan-200' : 'text-foreground/75'
                 return (
                   <div key={index} className="whitespace-pre-wrap break-words">
                     {timestamp && <span className="text-foreground/35">{timestamp} </span>}
@@ -151,6 +155,7 @@ export function OsLogsApp() {
             )}
           </div>
         </div>
+      </div>
       </div>
     </section>
   )

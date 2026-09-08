@@ -2,7 +2,7 @@
 Example: Simple data processor plugin
 """
 
-from iora_sdk import DataProcessorPlugin, PluginContext
+from rumahl_sdk import DataProcessorPlugin, PluginContext
 from typing import Any
 
 

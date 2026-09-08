@@ -12,18 +12,18 @@ const realLocation = globalThis.location
 
 describe('appRuntimeUrl', () => {
   test('builds the app subdomain URL on a real desktop host', () => {
-    const url = appRuntimeUrl('nextcloud', { scheme: 'https', host: 'ora.local', port: '443' })
-    expect(url).toBe('https://nextcloud.apps.ora.local/')
+    const url = appRuntimeUrl('nextcloud', { scheme: 'https', host: 'rumahl.local', port: '443' })
+    expect(url).toBe('https://nextcloud.apps.rumahl.local/')
   })
 
   test('keeps a non-default port', () => {
-    const url = appRuntimeUrl('files', { scheme: 'http', host: 'ora.local', port: '3001' })
-    expect(url).toBe('http://files.apps.ora.local:3001/')
+    const url = appRuntimeUrl('files', { scheme: 'http', host: 'rumahl.local', port: '3001' })
+    expect(url).toBe('http://files.apps.rumahl.local:3001/')
   })
 
   test('drops the default port for the scheme', () => {
-    const url = appRuntimeUrl('files', { scheme: 'https', host: 'ora.local', port: '443' })
-    expect(url).toBe('https://files.apps.ora.local/')
+    const url = appRuntimeUrl('files', { scheme: 'https', host: 'rumahl.local', port: '443' })
+    expect(url).toBe('https://files.apps.rumahl.local/')
   })
 
   test('returns null on loopback hosts (dev fallback)', () => {
@@ -34,19 +34,19 @@ describe('appRuntimeUrl', () => {
 
   test('supports a custom suffix', () => {
     const url = appRuntimeUrl('grafana', { scheme: 'http', host: 'myhost.lan', port: '80' })
-    // uses the configured VITE_APPS_HOST_SUFFIX (default .apps.ora.local)
-    expect(url).toBe('http://grafana.apps.ora.local/')
+    // uses the configured VITE_APPS_HOST_SUFFIX (default .apps.rumahl.local)
+    expect(url).toBe('http://grafana.apps.rumahl.local/')
   })
 })
 
 describe('desktopHostOf', () => {
   test('strips the app prefix and apps root', () => {
-    expect(desktopHostOf('nextcloud.apps.ora.local')).toBe('ora.local')
+    expect(desktopHostOf('nextcloud.apps.rumahl.local')).toBe('rumahl.local')
   })
 
   test('returns unrelated hosts unchanged', () => {
     expect(desktopHostOf('example.com')).toBe('example.com')
-    expect(desktopHostOf('apps.ora.local')).toBe('apps.ora.local')
+    expect(desktopHostOf('apps.rumahl.local')).toBe('apps.rumahl.local')
   })
 })
 
@@ -80,7 +80,7 @@ describe('iframeSandboxFor', () => {
     expect(iframeSandboxFor({ isolation: 'relaxed' })).toBeUndefined()
   })
 
-  test('strict isolation maps to the defined ORA policy', () => {
+  test('strict isolation maps to the defined rumahl policy', () => {
     const sandbox = iframeSandboxFor({ isolation: 'strict' })
     expect(sandbox).toBe(STRICT_SANDBOX_TOKENS.join(' '))
     expect(sandbox).toContain('allow-scripts')

@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"time"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 // MotionLightAutomation turns on lights when motion is detected
 type MotionLightAutomation struct {
-	iora.AutomationPlugin
+	ora.AutomationPlugin
 }
 
 // OnEvent handles motion events
-func (mla *MotionLightAutomation) OnEvent(ctx context.Context, pluginCtx *iora.PluginContext, event map[string]interface{}) error {
+func (mla *MotionLightAutomation) OnEvent(ctx context.Context, pluginCtx *ora.PluginContext, event map[string]interface{}) error {
 	// Check if this is a state change event
 	if event["type"] != "entity_state_changed" {
 		return nil
@@ -95,8 +95,8 @@ func main() {
 	plugin := &MotionLightAutomation{}
 
 	// Create context
-	client := iora.NewClient("http://localhost:8080", "api-key")
-	pluginCtx := &iora.PluginContext{
+	client := ora.NewClient("http://localhost:8080", "api-key")
+	pluginCtx := &ora.PluginContext{
 		Client: client,
 		AppID:  "motion-light-automation",
 		Settings: map[string]interface{}{

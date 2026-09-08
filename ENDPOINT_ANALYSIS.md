@@ -1,4 +1,4 @@
-# API-Endpoint Analyse – IORA Monorepo
+# API-Endpoint Analyse – rumahl Monorepo
 
 > Erstellt: 2026-05-01  
 > Analyse aller API-Endpoints im gesamten Projekt mit Status `✅ OK`, `⚠️ Stub`, `❌ Fehlt`, `🔧 Teilweise`
@@ -13,7 +13,7 @@
 | ⚠️ | Nur als stub/unavailable implementiert (leeres oder 404-JSON) |
 | ❌ | Im Backend nicht vorhanden – Frontend ruft auf → 404 |
 | 🔧 | Teilweise implementiert (z.B. nur GET, kein POST/PUT/DELETE) |
-| 🧩 | Wird von externem Microservice bereitgestellt (nicht iora-home) |
+| 🧩 | Wird von externem Microservice bereitgestellt (nicht rumahl-home) |
 
 ---
 
@@ -241,7 +241,7 @@
 | `/api/admin/control/mode` | GET | ✅ `admin_control_get_mode` | `AdminPanel.tsx:1808` | ✅ |
 | `/api/admin/control/mode` | PUT | ✅ `admin_control_set_mode` | `AdminPanel.tsx:1820` | ✅ |
 | `/api/admin/control/overview` | GET | ✅ `admin_control_overview` | - | ✅ |
-| `/api/admin/iora-control/*path` | ALL | ✅ `admin_iora_control_proxy` | - | ✅ |
+| `/api/admin/rumahl-control/*path` | ALL | ✅ `admin_rumahl_control_proxy` | - | ✅ |
 
 ---
 
@@ -450,7 +450,7 @@
 
 | Endpoint | Methode | Backend | Frontend | Status |
 |----------|---------|---------|----------|--------|
-| `/api/supervisor/system/info` | GET | ✅ `proxy_supervisor` → iora-supervisor:8097 | - | ✅ Proxy |
+| `/api/supervisor/system/info` | GET | ✅ `proxy_supervisor` → rumahl-supervisor:8097 | - | ✅ Proxy |
 | `/api/supervisor/apps` | GET | ✅ `supervisor_apps_list` | `AppStoreTab.tsx:121` | ✅ |
 | `/api/supervisor/apps/install` | POST | ✅ `supervisor_apps_install` | - | ✅ |
 | `/api/supervisor/apps/:app_id` | GET | ✅ `supervisor_apps_get` | - | ✅ |
@@ -472,7 +472,7 @@
 | Endpoint | Methode | Backend | Frontend | Status |
 |----------|---------|---------|----------|--------|
 | `/api/appstore/installed` | GET | ✅ `local_appstore_installed` | `AppStoreTab.tsx:124,128`, `AppSettingsPage.tsx:173` | ✅ |
-| `/api/appstore/search` | GET | ✅ `proxy_appstore` → iora-appstore:8098 | - | ✅ Proxy |
+| `/api/appstore/search` | GET | ✅ `proxy_appstore` → rumahl-appstore:8098 | - | ✅ Proxy |
 | `/api/appstore/install` | POST | ✅ `local_appstore_install` | `AppStoreTab.tsx:645` | ✅ |
 | `/api/appstore/jobs` | GET | ✅ `local_appstore_jobs` | `AppStoreTab.tsx:823` | ✅ |
 | `/api/appstore/jobs/stream` | GET | ✅ `local_appstore_jobs_stream` | - | ✅ |
@@ -480,9 +480,9 @@
 | `/api/appstore/apps/:app_id` | DELETE | ✅ `local_appstore_app_delete` | - | ✅ |
 | `/api/appstore/apps/:app_id/enable` | POST | ✅ `local_appstore_app_enable` | `AppStoreTab.tsx:323` | ✅ |
 | `/api/appstore/apps/:app_id/disable` | POST | ✅ `local_appstore_app_disable` | `AppStoreTab.tsx:335` | ✅ |
-| `/api/appstore/apps/:app_id/settings` | GET/POST | ✅ `proxy_appstore` → iora-appstore:8098 | - | ✅ Proxy |
-| `/api/appstore/permissions/grant` | POST | ✅ `proxy_appstore` → iora-appstore:8098 | - | ✅ Proxy |
-| `/api/appstore/settings` | POST | ✅ `proxy_appstore` → iora-appstore:8098 | - | ✅ Proxy |
+| `/api/appstore/apps/:app_id/settings` | GET/POST | ✅ `proxy_appstore` → rumahl-appstore:8098 | - | ✅ Proxy |
+| `/api/appstore/permissions/grant` | POST | ✅ `proxy_appstore` → rumahl-appstore:8098 | - | ✅ Proxy |
+| `/api/appstore/settings` | POST | ✅ `proxy_appstore` → rumahl-appstore:8098 | - | ✅ Proxy |
 | `/api/local-store/register` | POST | ✅ `local_store_register` | - | ✅ |
 
 ---
@@ -506,14 +506,14 @@
 | `/api/core/registrations/:id/reject` | POST | ✅ `core_registrations_reject` | `AdminPanelPhase2.tsx:54` | ✅ |
 | `/api/core/registrations/:id/suspend` | POST | ✅ `core_registrations_suspend` | `AdminPanelPhase2.tsx:63` | ✅ |
 | `/api/core/registrations/:id/revoke` | POST | ✅ `core_registrations_revoke` | `AdminPanelPhase2.tsx:73` | ✅ |
-| `/api/core/security/events` | GET | ✅ `proxy_core_security` → iora-security:8095 `/api/security/events` | - | ✅ Proxy |
-| `/api/core/security/alerts` | GET | ✅ `proxy_core_security` → iora-security:8095 `/api/security/alerts` | - | ✅ Proxy |
-| `/api/core/security/resource-usage` | GET | ✅ `proxy_core_security` → iora-security:8095 `/api/security/resource-usage` (Linux: /proc + statvfs) | - | ✅ |
-| `/api/core/updates/check` | GET/POST | ✅ `core_updates_check` (HTTP zu IORA_UPDATE_SERVER, Default `update.kaimdt.com`) | `AdminPanelPhase2.tsx:436,467` | ✅ |
+| `/api/core/security/events` | GET | ✅ `proxy_core_security` → rumahl-security:8095 `/api/security/events` | - | ✅ Proxy |
+| `/api/core/security/alerts` | GET | ✅ `proxy_core_security` → rumahl-security:8095 `/api/security/alerts` | - | ✅ Proxy |
+| `/api/core/security/resource-usage` | GET | ✅ `proxy_core_security` → rumahl-security:8095 `/api/security/resource-usage` (Linux: /proc + statvfs) | - | ✅ |
+| `/api/core/updates/check` | GET/POST | ✅ `core_updates_check` (HTTP zu rumahl_UPDATE_SERVER, Default `update.rumahl.com`) | `AdminPanelPhase2.tsx:436,467` | ✅ |
 | `/api/core/updates/history` | GET | ✅ `core_updates_history` (PG `update_history`) | `AdminPanelPhase2.tsx:437` | ✅ |
-| `/api/core/updates/:provider_id/install` | POST | ✅ `core_updates_install` (spawn `iora-updater --yes`) | `AdminPanelPhase2.tsx:450` | ✅ |
+| `/api/core/updates/:provider_id/install` | POST | ✅ `core_updates_install` (spawn `rumahl-updater --yes`) | `AdminPanelPhase2.tsx:450` | ✅ |
 | `/api/core/updates/:update_id/rollback` | POST | ✅ `core_updates_rollback` | `AdminPanelPhase2.tsx:459` | ✅ |
-| `/api/core/widgets` | GET | ✅ `proxy_core` → iora-core:8090 | - | ✅ Proxy |
+| `/api/core/widgets` | GET | ✅ `proxy_core` → rumahl-core:8090 | - | ✅ Proxy |
 
 ---
 
@@ -631,12 +631,12 @@
 
 ---
 
-## 39. AI Assist – Core (iora-assist 🧩, Port 8092)
+## 39. AI Assist – Core (rumahl-assist 🧩, Port 8092)
 
-> Alle `/api/assist/*` Endpoints werden vom **iora-assist** Microservice bereitgestellt.
+> Alle `/api/assist/*` Endpoints werden vom **rumahl-assist** Microservice bereitgestellt.
 > Das Frontend routet diese via `adminFetch` (`baseUrlFor(path)` → `getAssistUrl()`) automatisch zur ASSIST_URL.
 
-| Endpoint | Methode | Backend (iora-assist) | Frontend | Status |
+| Endpoint | Methode | Backend (rumahl-assist) | Frontend | Status |
 |----------|---------|----------------------|----------|--------|
 | `/health` | GET | ✅ `health` | - | 🧩 ✅ |
 | `/api/assist/chat` | POST | ✅ `chat` | `ORAAssistant.tsx`, `AgentTab.tsx` | 🧩 ✅ |
@@ -662,9 +662,9 @@
 
 ---
 
-## 40. AI Assist – Providers & Model Registry (iora-assist 🧩) **NEU**
+## 40. AI Assist – Providers & Model Registry (rumahl-assist 🧩) **NEU**
 
-| Endpoint | Methode | Backend (iora-assist) | Frontend | Status |
+| Endpoint | Methode | Backend (rumahl-assist) | Frontend | Status |
 |----------|---------|----------------------|----------|--------|
 | `/api/assist/providers` | GET | ✅ `get_providers` | `AdminPanel.tsx (AI tab)`, `AgentTab.tsx` | 🧩 ✅ |
 | `/api/assist/providers/switch` | POST | ✅ `switch_provider` | `AdminPanel.tsx` | 🧩 ✅ |
@@ -680,9 +680,9 @@
 
 ---
 
-## 41. AI Assist – Tools, Memory & Cost (iora-assist 🧩)
+## 41. AI Assist – Tools, Memory & Cost (rumahl-assist 🧩)
 
-| Endpoint | Methode | Backend (iora-assist) | Frontend | Status |
+| Endpoint | Methode | Backend (rumahl-assist) | Frontend | Status |
 |----------|---------|----------------------|----------|--------|
 | `/api/assist/tools/execute` | POST | ✅ `execute_tool` | - | 🧩 ✅ |
 | `/api/assist/tools/search` | POST | ✅ `search_internet` | - | 🧩 ✅ |
@@ -702,9 +702,9 @@
 
 ---
 
-## 42. AI Assist – Tasks, Evolution & Subagents (iora-assist 🧩)
+## 42. AI Assist – Tasks, Evolution & Subagents (rumahl-assist 🧩)
 
-| Endpoint | Methode | Backend (iora-assist) | Frontend | Status |
+| Endpoint | Methode | Backend (rumahl-assist) | Frontend | Status |
 |----------|---------|----------------------|----------|--------|
 | `/api/assist/tasks/active` | GET | ✅ `list_active_tasks` | `ActiveTasksPanel.tsx` | 🧩 ✅ |
 | `/api/assist/tasks/active` | POST | ✅ `create_active_task` | `ActiveTasksPanel.tsx` | 🧩 ✅ |
@@ -738,9 +738,9 @@
 
 ---
 
-## 43. AI Assist – Workspaces & Git (iora-assist 🧩)
+## 43. AI Assist – Workspaces & Git (rumahl-assist 🧩)
 
-| Endpoint | Methode | Backend (iora-assist) | Frontend | Status |
+| Endpoint | Methode | Backend (rumahl-assist) | Frontend | Status |
 |----------|---------|----------------------|----------|--------|
 | `/api/assist/workspaces` | GET | ✅ `list_workspaces` | `AgentTab.tsx` | 🧩 ✅ |
 | `/api/assist/workspaces` | POST | ✅ `create_workspace` | `AgentTab.tsx` | 🧩 ✅ |
@@ -771,9 +771,9 @@
 
 ---
 
-## 44. AI Assist – LSP & ACP (iora-assist 🧩)
+## 44. AI Assist – LSP & ACP (rumahl-assist 🧩)
 
-| Endpoint | Methode | Backend (iora-assist) | Frontend | Status |
+| Endpoint | Methode | Backend (rumahl-assist) | Frontend | Status |
 |----------|---------|----------------------|----------|--------|
 | `/api/assist/lsp/servers` | GET | ✅ `lsp_available_servers` | - | 🧩 ✅ |
 | `/api/assist/lsp/workspaces/:id/start` | POST | ✅ `lsp_start_for_workspace` | - | 🧩 ✅ |
@@ -788,9 +788,9 @@
 
 ---
 
-## 45. AI Assist – GitHub Integration (iora-assist 🧩) **NEU**
+## 45. AI Assist – GitHub Integration (rumahl-assist 🧩) **NEU**
 
-| Endpoint | Methode | Backend (iora-assist) | Frontend | Status |
+| Endpoint | Methode | Backend (rumahl-assist) | Frontend | Status |
 |----------|---------|----------------------|----------|--------|
 | `/api/assist/github/auth` | GET | ✅ `github_auth_status` | `AgentTab.tsx`, `AdminPanel.tsx` | 🧩 ✅ NEU |
 | `/api/assist/github/auth` | POST | ✅ `github_auth_set` (PAT speichern) | `AgentTab.tsx`, `AdminPanel.tsx` | 🧩 ✅ NEU |
@@ -836,33 +836,33 @@
 
 ## 46. ✅ Microservice-Proxies (transparente Forwarder)
 
-Diese Endpoints werden vom Frontend aufgerufen und gehören zu externen IORA-Microservices.
-Sie sind in `iora-home` als **transparente HTTP-Proxies** registriert (Method, Pfad, Header und
-Body werden 1:1 weitergereicht). Wenn der Ziel-Microservice nicht läuft, liefert iora-home
+Diese Endpoints werden vom Frontend aufgerufen und gehören zu externen rumahl-Microservices.
+Sie sind in `rumahl-home` als **transparente HTTP-Proxies** registriert (Method, Pfad, Header und
+Body werden 1:1 weitergereicht). Wenn der Ziel-Microservice nicht läuft, liefert rumahl-home
 HTTP 503 + JSON `{ error, available: false, upstream }`.
 
-URL-Auflösung: pro Microservice via Env-Variable (`IORA_<NAME>_URL`) oder Default `127.0.0.1:<port>`.
+URL-Auflösung: pro Microservice via Env-Variable (`rumahl_<NAME>_URL`) oder Default `127.0.0.1:<port>`.
 
 | Microservice | Default-Port | Env-Variable | Endpoints |
 |--------------|--------------|--------------|-----------|
-| iora-secrets | 8093 | `IORA_SECRETS_URL` | `/api/secrets`, `/api/secrets/:id`, `/api/secrets/:id/rotate`, `/api/secrets/:id/audit` |
-| iora-files | 8100 | `IORA_FILES_URL` | `/api/files/`, `/api/files/upload`, `/api/files/shares`, `/api/files/shares/:id`, `/api/files/quota`, `/api/files/folders`, `/api/files/:id`, `/api/files/:id/download`, `/api/files/:id/move`, `/api/files/:id/rename`, `/api/files/:id/restore`, `/api/files/:id/versions`, `/api/files/permissions`, `/api/files/permissions/:fid`, `/api/files/permissions/revoke/:pid`, `/api/share/:download_token` (rewrite → `/api/files/shared/:token`) |
-| iora-gateway | 8096 | `IORA_GATEWAY_URL` | `/api/gateway/email`, `/api/gateway/search`, `/api/gateway/http/get`, `/api/gateway/requests`, `/api/gateway/ai-requests` |
-| iora-watchdog | 8094 | `IORA_WATCHDOG_URL` | `/api/watchdog/status`, `/api/watchdog/services`, `/api/watchdog/metrics`, `/api/watchdog/recovery` |
-| iora-connector | 8102 | `IORA_CONNECTOR_URL` | `/api/connector/tunnels`, `/api/connector/services`, `/api/connector/pairing-tokens`, `/api/connector/blocked-ips`, `/api/connector/tunnels/:id`, `/api/connector/pairing-tokens/:id` |
-| iora-domain-validator | 8104 | `IORA_DOMAIN_VALIDATOR_URL` | `/api/domain-validator/policy/:app_id`, `/api/domain-validator/logs/:app_id`, `/api/domain-validator/validate` |
-| iora-resource-manager | 8105 | `IORA_RESOURCE_MANAGER_URL` | `/api/resources/containers`, `/api/resources/system`, `/api/resources/history`, `/api/resources/reallocate` |
-| iora-network-monitor | 8103 | `IORA_NETWORK_MONITOR_URL` | `/api/network/peers`, `/api/network/devices`, `/api/network/devices/active`, `/api/network/stats`, `/api/network/scan`, `/api/metrics`, `/api/interfaces`, `/api/mqtt/topics` |
-| iora-cloud (extern) | 8120 | `IORA_CLOUD_URL` | `/api/admin/iora-cloud/config` |
+| rumahl-secrets | 8093 | `rumahl_SECRETS_URL` | `/api/secrets`, `/api/secrets/:id`, `/api/secrets/:id/rotate`, `/api/secrets/:id/audit` |
+| rumahl-files | 8100 | `rumahl_FILES_URL` | `/api/files/`, `/api/files/upload`, `/api/files/shares`, `/api/files/shares/:id`, `/api/files/quota`, `/api/files/folders`, `/api/files/:id`, `/api/files/:id/download`, `/api/files/:id/move`, `/api/files/:id/rename`, `/api/files/:id/restore`, `/api/files/:id/versions`, `/api/files/permissions`, `/api/files/permissions/:fid`, `/api/files/permissions/revoke/:pid`, `/api/share/:download_token` (rewrite → `/api/files/shared/:token`) |
+| rumahl-gateway | 8096 | `rumahl_GATEWAY_URL` | `/api/gateway/email`, `/api/gateway/search`, `/api/gateway/http/get`, `/api/gateway/requests`, `/api/gateway/ai-requests` |
+| rumahl-watchdog | 8094 | `rumahl_WATCHDOG_URL` | `/api/watchdog/status`, `/api/watchdog/services`, `/api/watchdog/metrics`, `/api/watchdog/recovery` |
+| rumahl-connector | 8102 | `rumahl_CONNECTOR_URL` | `/api/connector/tunnels`, `/api/connector/services`, `/api/connector/pairing-tokens`, `/api/connector/blocked-ips`, `/api/connector/tunnels/:id`, `/api/connector/pairing-tokens/:id` |
+| rumahl-domain-validator | 8104 | `rumahl_DOMAIN_VALIDATOR_URL` | `/api/domain-validator/policy/:app_id`, `/api/domain-validator/logs/:app_id`, `/api/domain-validator/validate` |
+| rumahl-resource-manager | 8105 | `rumahl_RESOURCE_MANAGER_URL` | `/api/resources/containers`, `/api/resources/system`, `/api/resources/history`, `/api/resources/reallocate` |
+| rumahl-network-monitor | 8103 | `rumahl_NETWORK_MONITOR_URL` | `/api/network/peers`, `/api/network/devices`, `/api/network/devices/active`, `/api/network/stats`, `/api/network/scan`, `/api/metrics`, `/api/interfaces`, `/api/mqtt/topics` |
+| rumahl-cloud (extern) | 8120 | `rumahl_CLOUD_URL` | `/api/admin/rumahl-cloud/config` |
 
-**Implementierung** ([iora-home/src/main.rs](iora-os/backend/services/iora-home/src/main.rs)):
+**Implementierung** ([rumahl-home/src/main.rs](rumahl-os/backend/services/rumahl-home/src/main.rs)):
 - `forward_request_to(state, base_url, req)` — generischer 1:1-Forwarder mit Hop-by-Hop-Header-Filterung, 30 s Timeout, 50 MB Body-Limit.
 - `microservice_url(env_var, default_port)` — URL-Resolver.
-- 9 Wrapper-Handler (`proxy_secrets`, `proxy_files`, `proxy_files_share`, `proxy_gateway`, `proxy_watchdog`, `proxy_connector`, `proxy_domain_validator`, `proxy_resources`, `proxy_network_monitor`, `proxy_iora_cloud`).
-- `proxy_files_share` schreibt `/api/share/:token` → `/api/files/shared/:token` um (iora-files Pfadkonvention).
+- 9 Wrapper-Handler (`proxy_secrets`, `proxy_files`, `proxy_files_share`, `proxy_gateway`, `proxy_watchdog`, `proxy_connector`, `proxy_domain_validator`, `proxy_resources`, `proxy_network_monitor`, `proxy_rumahl_cloud`).
+- `proxy_files_share` schreibt `/api/share/:token` → `/api/files/shared/:token` um (rumahl-files Pfadkonvention).
 
 > Hinweis: `/api/assist/*` ist seit der AI-Provider-Überarbeitung **vollständig
-> verfügbar** über den iora-assist Microservice (Port 8092). Frontend-Routing
+> verfügbar** über den rumahl-assist Microservice (Port 8092). Frontend-Routing
 > erfolgt automatisch über `adminFetch` → `baseUrlFor(path)` → `getAssistUrl()`.
 > Siehe Sektionen 39–45.
 
@@ -883,22 +883,22 @@ URL-Auflösung: pro Microservice via Env-Variable (`IORA_<NAME>_URL`) oder Defau
 ### Kritische Fehler (❌) – 0 Endpoints
 
 Alle ehemals fehlenden Endpoints sind entweder **echt implementiert** oder als
-**transparente Microservice-Proxies** in `iora-home` registriert (Sektion 46).
+**transparente Microservice-Proxies** in `rumahl-home` registriert (Sektion 46).
 404-Kaskaden im Admin-Panel sind ausgeschlossen.
 
-> ✅ **iora-assist** (`/api/assist/*`) ist vollständig integriert und über
+> ✅ **rumahl-assist** (`/api/assist/*`) ist vollständig integriert und über
 > `getAssistUrl()` (Port 8092) erreichbar — siehe Sektionen 39–45.
 
 ### Stubs (⚠️) – 0 Endpoints
 
 Alle ehemaligen Stubs wurden ersetzt durch:
 
-- **Echte Handler** mit Datenbankanbindung in iora-home
+- **Echte Handler** mit Datenbankanbindung in rumahl-home
   (`core_registrations_*`, `core_updates_*`).
 - **Transparente HTTP-Proxies** zu den passenden Microservices
   (`proxy_secrets`, `proxy_files`, `proxy_gateway`, `proxy_watchdog`,
   `proxy_connector`, `proxy_domain_validator`, `proxy_resources`,
-  `proxy_network_monitor`, `proxy_iora_cloud`, `proxy_supervisor`,
+  `proxy_network_monitor`, `proxy_rumahl_cloud`, `proxy_supervisor`,
   `proxy_appstore`, `proxy_core`, `proxy_core_security`).
 - **Entfernte Routen** für 2 Endpoints, die das Frontend nie aufruft
   (`PUT /api/supervisor/apps/:app_id`, `POST /api/core/plugins/:id`).
@@ -910,7 +910,7 @@ Alle Routen vollständig implementiert. Verbleibende Anmerkungen:
 | Endpoint | Anmerkung |
 |----------|-----------|
 | `/api/admin/mqtt/config` | GET+POST im Backend registriert; Frontend nutzt nur GET. Kein Bug — POST wird über die Wizard-/AdminPanel-Settings indirekt geschrieben. |
-| `/api/network/peers` | Wird zu iora-network-monitor geproxied. Upstream besitzt aktuell `/api/network/devices`/`stats`/`scan` aber **kein** `/peers`. Falls UI das Feature braucht, neue Route in iora-network-monitor ergänzen. |
+| `/api/network/peers` | Wird zu rumahl-network-monitor geproxied. Upstream besitzt aktuell `/api/network/devices`/`stats`/`scan` aber **kein** `/peers`. Falls UI das Feature braucht, neue Route in rumahl-network-monitor ergänzen. |
 
 ---
 
@@ -918,11 +918,11 @@ Alle Routen vollständig implementiert. Verbleibende Anmerkungen:
 
 1. **Microservices deployen**: Die meisten ehemaligen Stubs sind jetzt echte
    Proxies. Damit Daten fließen, müssen die jeweiligen Microservices laufen
-   (Default-Ports: iora-secrets 8093, iora-files 8100, iora-gateway 8096,
-   iora-watchdog 8094, iora-connector 8102, iora-domain-validator 8104,
-   iora-resource-manager 8105, iora-network-monitor 8103, iora-supervisor 8097,
-   iora-appstore 8098, iora-core 8090, iora-security 8095, iora-cloud 8120).
-   URL-Override pro Service via `IORA_<NAME>_URL` Env-Variable.
+   (Default-Ports: rumahl-secrets 8093, rumahl-files 8100, rumahl-gateway 8096,
+   rumahl-watchdog 8094, rumahl-connector 8102, rumahl-domain-validator 8104,
+   rumahl-resource-manager 8105, rumahl-network-monitor 8103, rumahl-supervisor 8097,
+   rumahl-appstore 8098, rumahl-core 8090, rumahl-security 8095, rumahl-cloud 8120).
+   URL-Override pro Service via `rumahl_<NAME>_URL` Env-Variable.
 
 2. **Falls ein Microservice nicht läuft**: `forward_request_to` liefert
    automatisch HTTP 503 + JSON `{ error, available: false, upstream }` —
@@ -930,10 +930,10 @@ Alle Routen vollständig implementiert. Verbleibende Anmerkungen:
    einer SPA-Fallback-Seite.
 
 3. **`update_history` und `service_registrations`** sind eigene Tabellen in
-   der iora-home-DB (Migration 023). Die Tabellen werden bei jedem
+   der rumahl-home-DB (Migration 023). Die Tabellen werden bei jedem
    `core_updates_install` bzw. Heartbeat-Approval gefüllt.
 
 4. **Assist-Endpoints (`/api/assist/*`)** werden über `adminFetch` automatisch
-   an `getAssistUrl()` (Port 8092, iora-assist Microservice) geroutet.
+   an `getAssistUrl()` (Port 8092, rumahl-assist Microservice) geroutet.
    Provider-, Model-Registry- und GitHub-Integration sind vollständig
    implementiert (siehe Sektionen 40 und 45).

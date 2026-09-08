@@ -106,14 +106,10 @@ export function NotificationBell() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-              className="fixed w-[340px] sm:w-[380px] max-h-[70vh] rounded-2xl border border-white/15 overflow-hidden z-[80]"
+              className="rumahl-popover fixed w-[min(340px,calc(100vw-24px))] sm:w-[380px] max-h-[70vh] overflow-hidden z-[var(--layer-flyout)]"
               style={{
                 bottom: panelPos.bottom,
                 left: panelPos.left,
-                backdropFilter: 'blur(40px) saturate(1.5)',
-                WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
-                background: 'oklch(from var(--card) l c h / 0.65)',
-                boxShadow: '0 16px 50px oklch(0 0 0 / 0.3), 0 0 0 1px oklch(from var(--foreground) l c h / 0.08)',
               }}
             >
               <NotificationPanel
@@ -235,6 +231,10 @@ function NotificationItem({
           ? 'border-transparent bg-foreground/2'
           : `${config.border} ${config.bg}`
       }`}
+      role="button"
+      tabIndex={0}
+      onClick={() => window.dispatchEvent(new CustomEvent('rumahl:notification-open', { detail: notification }))}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') window.dispatchEvent(new CustomEvent('rumahl:notification-open', { detail: notification })) }}
     >
       <div className="flex gap-2.5">
         <div className={`mt-0.5 flex-shrink-0 ${config.color}`}>
@@ -265,7 +265,7 @@ function NotificationItem({
         {!notification.read && (
           <Tip content="Als gelesen markieren">
             <button
-              onClick={onRead}
+              onClick={(event) => { event.stopPropagation(); onRead() }}
               className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-accent transition-colors"
             >
               <Check size={12} />
@@ -274,7 +274,7 @@ function NotificationItem({
         )}
         <Tip content="Entfernen">
           <button
-            onClick={onDismiss}
+            onClick={(event) => { event.stopPropagation(); onDismiss() }}
             className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-red-400 transition-colors"
           >
             <X size={12} />

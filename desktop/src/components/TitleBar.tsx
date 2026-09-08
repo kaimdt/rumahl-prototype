@@ -1,5 +1,5 @@
 /**
- * TitleBar – platform-native window chrome for IORA Desktop.
+ * TitleBar – platform-native window chrome for rumahl Desktop.
  *
  * Adapts to the host OS:
  *   Windows 11 – acrylic backdrop, controls right, maximize shows snap menu
@@ -251,7 +251,7 @@ function AppBadge({ platform }: { platform: string }) {
         platform === 'linux' ? 'bg-emerald-400' : 'bg-sky-400'
       } shadow-[0_0_8px_rgba(59,130,246,0.4)]`} />
       <span className="text-xs font-semibold uppercase tracking-[0.22em] text-foreground/80">
-        IORA
+        rumahl
       </span>
     </div>
   )
@@ -274,10 +274,10 @@ function ActionButtons({ showReload }: { showReload: boolean }) {
         </button>
       )}
       <button
-        aria-label="IORA Home"
+        aria-label="rumahl Home"
         onClick={() => setCurrentPageId('home')}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground/50 hover:bg-foreground/8 hover:text-foreground/80 active:bg-foreground/12 transition-colors"
-        title="IORA Home"
+        title="rumahl Home"
       >
         <House size={15} weight="bold" />
       </button>

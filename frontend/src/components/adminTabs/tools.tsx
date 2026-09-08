@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Archive, ArrowClockwise, Bell, Broadcast, CheckCircle, Clock, CloudArrowUp, CloudWarning, Copy, Cpu, Cube, Database, Dog, Eye, Globe, HardDrive, Heartbeat, Key, Lightning, ListBullets, ListChecks, MagnifyingGlass, Megaphone, PaperPlaneTilt, Play, Plug, Plus, Pulse, ShieldWarning, Siren, Stack, Terminal, Timer, ToggleLeft, ToggleRight, Trash, TrendUp, UserMinus, Users, Warning, WebhooksLogo, X, XCircle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { Tip } from '@/components/ui/tip'
 import { getBackendUrl } from '@/lib/config'
 import { AdminCard, ErrorMessage, InlineSpinner, LoadingSpinner, StatItem, adminFetch, backendBase, cachedFetch, ccBtnIcon, ccBtnPrimary, ccBtnSecondary, ccCard, ccInput, ccLabel, ccSelect, ccTextarea, formatUptime, notifyError, CLOUD_ENABLE_REVERSE_PROXY_KEY, CLOUD_HOST_KEY, CLOUD_PRIVATE_PORT_KEY, CLOUD_PUBLIC_PORT_KEY, CLOUD_REQUIRE_VPN_KEY, CLOUD_USE_TLS_KEY, type ApiKeyEntry, ApiKeyWithSecret, CloudSettings, WarningLogEntry } from '../AdminPanel'
-import { EventGroup, EventOccurrence, EventStats, IoraLogEntry, Origin, Severity } from './network'
+import { EventGroup, EventOccurrence, EventStats, rumahlLogEntry, Origin, Severity } from './network'
 export function CloudSettingsTab({ token }: { token: string }) {
   const [settings, setSettings] = useState<CloudSettings>({
     connectorHost: '',
@@ -55,7 +56,7 @@ export function CloudSettingsTab({ token }: { token: string }) {
     }
 
     try {
-      await adminFetch('/api/admin/iora-cloud/config', token, {
+      await adminFetch('/api/admin/rumahl-cloud/config', token, {
         method: 'PUT',
         body: JSON.stringify(payload),
       })
@@ -70,7 +71,7 @@ export function CloudSettingsTab({ token }: { token: string }) {
     localStorage.setItem(CLOUD_ENABLE_REVERSE_PROXY_KEY, String(settings.enableReverseProxy))
     localStorage.setItem(CLOUD_REQUIRE_VPN_KEY, String(settings.requireVpnOnly))
 
-    toast.success('IORA Cloud Einstellungen gespeichert')
+    toast.success('rumahl Cloud Einstellungen gespeichert')
     setSaving(false)
   }, [settings, token])
 
@@ -114,7 +115,7 @@ export function CloudSettingsTab({ token }: { token: string }) {
             <CloudArrowUp size={18} className="text-accent" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-foreground">IORA Cloud Connector</p>
+            <p className="text-sm font-semibold text-foreground">rumahl Cloud Connector</p>
             <p className="text-[11px] text-foreground/40">Konfiguriere den Connector mit IP, Ports und Verschlüsselung.</p>
           </div>
         </div>
@@ -157,7 +158,7 @@ export function CloudSettingsTab({ token }: { token: string }) {
           <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-4 text-sm text-foreground/70">
             <p className="font-semibold text-foreground flex items-center gap-1"><Warning size={14} className="text-amber-400" /> Wichtig</p>
             <p className="mt-2 text-[12px]">Der Connector soll auf allen ihm zugewiesenen IP-Adressen hören. Der private API-Port ist für interne Cloud-Verbindungen vorgesehen, der öffentliche Proxy-Port nur für verschlüsselte Zugriffe.</p>
-            <p className="mt-1.5 text-[12px]">Diese Seite ist die einzige Stelle zur Einrichtung und Anpassung des IORA Cloud Connectors.</p>
+            <p className="mt-1.5 text-[12px]">Diese Seite ist die einzige Stelle zur Einrichtung und Anpassung des rumahl Cloud Connectors.</p>
           </div>
 
           <div className="grid gap-1.5">
@@ -289,7 +290,7 @@ export function ApiKeysTab({ token }: { token: string }) {
           <span className="text-sm font-medium text-foreground">{keys.length} API Key{keys.length !== 1 ? 's' : ''}</span>
           <button
             onClick={() => setShowCreate(!showCreate)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-white shadow-md shadow-accent/25 hover:bg-accent/85 transition-all"
+            className="rumahl-primary-button-sm"
           >
             <Plus size={14} weight="bold" /> Neuer Key
           </button>
@@ -306,7 +307,7 @@ export function ApiKeysTab({ token }: { token: string }) {
                 value={form.name}
                 onChange={e => setForm({ ...form, name: e.target.value })}
                 placeholder="z.B. Mein ESP32 Gerät"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                className="rumahl-field-sm w-full text-sm"
               />
             </div>
             <div>
@@ -339,7 +340,7 @@ export function ApiKeysTab({ token }: { token: string }) {
                   type="number"
                   value={form.rate_limit}
                   onChange={e => setForm({ ...form, rate_limit: parseInt(e.target.value) || 60 })}
-                  className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                  className="rumahl-field-sm w-full text-sm"
                 />
               </div>
               <div className="flex-1">
@@ -348,21 +349,21 @@ export function ApiKeysTab({ token }: { token: string }) {
                   type="number"
                   value={form.expires_in_days}
                   onChange={e => setForm({ ...form, expires_in_days: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground"
+                  className="rumahl-field-sm w-full text-sm"
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowCreate(false)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all"
+                className="rumahl-secondary-button-sm"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleCreate}
                 disabled={!form.name.trim() || actionLoading === 'create'}
-                className="px-4 py-1.5 rounded-lg text-xs font-medium bg-accent text-white disabled:opacity-40 hover:bg-accent/80 transition-all flex items-center gap-1.5"
+                className="rumahl-primary-button-sm"
               >
                 {actionLoading === 'create' && <InlineSpinner size={12} />}
                 Erstellen
@@ -478,7 +479,7 @@ export function BackupsTab({ token }: { token: string }) {
 
 export function LogsTab({ token }: { token: string }) {
   const { t } = useTranslation()
-  const [logs, setLogs] = useState<IoraLogEntry[]>([])
+  const [logs, setLogs] = useState<rumahlLogEntry[]>([])
   const [haLogs, setHaLogs] = useState<Array<{ line: string; severity: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -486,7 +487,7 @@ export function LogsTab({ token }: { token: string }) {
   const [search, setSearch] = useState('')
   const [targetFilter, setTargetFilter] = useState('')
   const [liveMode, setLiveMode] = useState(false)
-  const [activeView, setActiveView] = useState<'iora' | 'ha' | 'sources'>('iora')
+  const [activeView, setActiveView] = useState<'rumahl' | 'ha' | 'sources'>('rumahl')
   const [autoScroll, setAutoScroll] = useState(true)
   const logContainerRef = { current: null as HTMLDivElement | null }
 
@@ -494,14 +495,14 @@ export function LogsTab({ token }: { token: string }) {
   const load = useCallback(async () => {
     setError('')
     try {
-      const [ioraData, haData] = await Promise.all([
+      const [rumahlData, haData] = await Promise.all([
         adminFetch('/api/admin/logs?limit=500' +
           (filter !== 'all' ? `&level=${filter}` : '') +
           (targetFilter ? `&target=${encodeURIComponent(targetFilter)}` : '') +
           (search ? `&search=${encodeURIComponent(search)}` : ''), token),
         adminFetch('/api/admin/ha/logs', token).catch(() => ({ log: [] })),
       ])
-      setLogs((ioraData.entries ?? []) as IoraLogEntry[])
+      setLogs((rumahlData.entries ?? []) as rumahlLogEntry[])
       setHaLogs(haData.log ?? [])
     } catch (e) { setError((e as Error).message) }
     setLoading(false)
@@ -511,11 +512,11 @@ export function LogsTab({ token }: { token: string }) {
 
   // Live SSE mode
   useEffect(() => {
-    if (!liveMode || activeView !== 'iora') return
+    if (!liveMode || activeView !== 'rumahl') return
     const es = new EventSource(`${backendBase()}/api/admin/logs/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
     es.addEventListener('log', (e) => {
       try {
-        const entry = JSON.parse((e as MessageEvent).data) as IoraLogEntry
+        const entry = JSON.parse((e as MessageEvent).data) as rumahlLogEntry
         setLogs(prev => {
           const next = [entry, ...prev]
           return next.length > 1000 ? next.slice(0, 1000) : next
@@ -564,8 +565,8 @@ export function LogsTab({ token }: { token: string }) {
         <div className="flex justify-between items-center flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <div className="flex rounded-lg bg-foreground/5 p-0.5">
-              <button onClick={() => setActiveView('iora')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'iora' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
-                IORA System
+              <button onClick={() => setActiveView('rumahl')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'rumahl' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
+                rumahl System
               </button>
               <button onClick={() => setActiveView('ha')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'ha' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
                 Home Assistant
@@ -576,7 +577,7 @@ export function LogsTab({ token }: { token: string }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {activeView === 'iora' && (
+            {activeView === 'rumahl' && (
               <>
                 <button onClick={() => setLiveMode(!liveMode)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
@@ -599,7 +600,7 @@ export function LogsTab({ token }: { token: string }) {
         </div>
       </AdminCard>
 
-      {activeView === 'iora' && (
+      {activeView === 'rumahl' && (
         <>
           {/* Stats & Filters */}
           <AdminCard>
@@ -632,7 +633,7 @@ export function LogsTab({ token }: { token: string }) {
                 <div className="relative flex-1">
                   <MagnifyingGlass size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/40" />
                   <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Logs durchsuchen..."
-                    className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 font-mono" />
+                    className="rumahl-field-sm w-full pl-7 pr-2 text-[11px] font-mono" />
                 </div>
                 {liveMode && (
                   <div className="flex items-center gap-1.5">
@@ -644,7 +645,7 @@ export function LogsTab({ token }: { token: string }) {
             </div>
           </AdminCard>
 
-          {/* IORA Log Entries */}
+          {/* rumahl Log Entries */}
           <AdminCard>
             <div ref={el => { logContainerRef.current = el }} className="max-h-[600px] overflow-y-auto font-mono text-[10px] leading-relaxed space-y-0.5">
               {displayed.length === 0 ? (
@@ -723,7 +724,7 @@ export interface LogSource {
 export function SourceLogsView({ token }: { token: string }) {
   const { t } = useTranslation()
   const [sources, setSources] = useState<LogSource[]>([])
-  const [selected, setSelected] = useState<string>('self:iora-home')
+  const [selected, setSelected] = useState<string>('self:rumahl-home')
   const [lines, setLines] = useState<number>(500)
   const [logLines, setLogLines] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -778,7 +779,7 @@ export function SourceLogsView({ token }: { token: string }) {
 
   const kindLabel = (k: string) => {
     switch (k) {
-      case 'self': return t('admin.logsSources.kind.self', 'IORA Home')
+      case 'self': return t('admin.logsSources.kind.self', 'rumahl Home')
       case 'service': return t('admin.logsSources.kind.service', 'Dienste (systemd)')
       case 'app': return t('admin.logsSources.kind.app', 'Apps')
       case 'plugin': return t('admin.logsSources.kind.plugin', 'Plugins')
@@ -862,7 +863,7 @@ export function SourceLogsView({ token }: { token: string }) {
             </div>
             <div className="flex items-center gap-2">
               <select value={lines} onChange={e => setLines(Number(e.target.value))}
-                className="px-2 py-1 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground/80 focus:outline-none focus:border-accent/50">
+                className="rumahl-field-sm text-[10px]">
                 {[100, 200, 500, 1000, 2000, 5000].map(n => (
                   <option key={n} value={n}>{n} {t('admin.logsSources.lines', 'Zeilen')}</option>
                 ))}
@@ -881,7 +882,7 @@ export function SourceLogsView({ token }: { token: string }) {
             <MagnifyingGlass size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/40" />
             <input value={filter} onChange={e => setFilter(e.target.value)}
               placeholder={t('admin.logsSources.filterPlaceholder', 'Logs filtern...')}
-              className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 font-mono" />
+              className="rumahl-field-sm w-full pl-7 pr-2 text-[11px] font-mono" />
           </div>
         </AdminCard>
 
@@ -1046,21 +1047,21 @@ export function DatabaseTab({ token }: { token: string }) {
                   placeholder="Benutzername (a-z, 0-9, _)"
                   value={newUser.username}
                   onChange={e => setNewUser(u => ({ ...u, username: e.target.value }))}
-                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                  className="rumahl-field-sm text-xs"
                 />
                 <input
                   type="password"
                   placeholder="Passwort (min. 8 Zeichen)"
                   value={newUser.password}
                   onChange={e => setNewUser(u => ({ ...u, password: e.target.value }))}
-                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                  className="rumahl-field-sm text-xs"
                 />
                 <input
                   type="text"
                   placeholder="Beschreibung (optional)"
                   value={newUser.description}
                   onChange={e => setNewUser(u => ({ ...u, description: e.target.value }))}
-                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                  className="rumahl-field-sm text-xs"
                 />
                 <select
                   value={newUser.permissions}
@@ -1463,7 +1464,7 @@ export function WarningsTab({ token }: { token: string }) {
   useEffect(() => { fetchWarnings() }, [fetchWarnings])
 
   const handleClearLog = async () => {
-    if (!confirm('Alle Warnungsprotokolle unwiderruflich löschen?')) return
+    if (!(await confirmDialog({ title: 'Warnungsprotokolle löschen', message: 'Alle Warnungsprotokolle unwiderruflich löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch('/api/admin/warnings/log', token, { method: 'DELETE' })
       setPage(0)
@@ -1636,7 +1637,7 @@ export function WarningsTab({ token }: { token: string }) {
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
                 activeOnly
                   ? 'bg-accent/20 text-accent border border-accent/30'
-                  : 'bg-white/5 text-foreground/60 border border-white/10 hover:bg-white/10'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10 hover:bg-foreground/10'
               }`}
             >
               {activeOnly ? <ToggleRight size={14} weight="fill" /> : <ToggleLeft size={14} />}
@@ -1644,7 +1645,7 @@ export function WarningsTab({ token }: { token: string }) {
             </button>
             <button
               onClick={() => fetchWarnings()}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/5 text-foreground/60 border border-white/10 hover:bg-white/10 transition-colors"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-foreground/5 text-foreground/60 border border-foreground/10 hover:bg-foreground/10 transition-colors"
             >
               <ArrowClockwise size={14} />
               Aktualisieren
@@ -1677,7 +1678,7 @@ export function WarningsTab({ token }: { token: string }) {
             <AdminCard key={w.id}>
               <div className="flex items-start gap-3">
                 {/* Level icon */}
-                <div className="flex-shrink-0 mt-0.5 w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+                <div className="flex-shrink-0 mt-0.5 w-8 h-8 rounded-lg bg-foreground/5 border border-foreground/10 flex items-center justify-center">
                   {levelIcon(w.level)}
                 </div>
 
@@ -1723,7 +1724,7 @@ export function WarningsTab({ token }: { token: string }) {
               <button
                 onClick={() => setPage(p => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-foreground/60 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="rumahl-secondary-button-sm"
               >
                 Zurück
               </button>
@@ -1733,7 +1734,7 @@ export function WarningsTab({ token }: { token: string }) {
               <button
                 onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
-                className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-foreground/60 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="rumahl-secondary-button-sm"
               >
                 Weiter
               </button>
@@ -1883,7 +1884,7 @@ export function WebhooksTab({ token }: { token: string }) {
           <span className="text-sm font-medium text-foreground">{webhooks.length} Webhook{webhooks.length !== 1 ? 's' : ''}</span>
           <button
             onClick={() => setShowCreate(!showCreate)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-white shadow-md shadow-accent/25 hover:bg-accent/85 transition-all"
+            className="rumahl-primary-button-sm"
           >
             <Plus size={14} weight="bold" /> Neuer Webhook
           </button>
@@ -1897,34 +1898,34 @@ export function WebhooksTab({ token }: { token: string }) {
               <label className="text-xs text-foreground/80 mb-1 block">Name</label>
               <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
                 placeholder="z.B. Discord Benachrichtigung"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                className="rumahl-field-sm w-full text-sm" />
             </div>
             <div>
               <label className="text-xs text-foreground/80 mb-1 block">URL</label>
               <input type="url" value={form.url} onChange={e => setForm({ ...form, url: e.target.value })}
                 placeholder="https://example.com/webhook"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                className="rumahl-field-sm w-full text-sm" />
             </div>
             <div>
               <label className="text-xs text-foreground/80 mb-1 block">Secret (optional, für HMAC-SHA256 Signatur)</label>
               <input type="text" value={form.secret} onChange={e => setForm({ ...form, secret: e.target.value })}
                 placeholder="Geheimes Token..."
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                className="rumahl-field-sm w-full text-sm font-mono" />
             </div>
             <div>
               <label className="text-xs text-foreground/80 mb-1 block">Event-Filter (kommagetrennt, * = alle)</label>
               <input type="text" value={form.events} onChange={e => setForm({ ...form, events: e.target.value })}
                 placeholder="* oder state_changed, domain.light"
-                className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                className="rumahl-field-sm w-full text-sm font-mono" />
               <p className="text-[10px] text-foreground/50 mt-1">Filter: *, state_changed, domain.light, light.wohnzimmer, state_changed.light.wohnzimmer</p>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowCreate(false)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground/10 text-foreground hover:bg-foreground/20 transition-all">
+                className="rumahl-secondary-button-sm">
                 Abbrechen
               </button>
               <button onClick={handleCreate} disabled={!form.name.trim() || !form.url.trim() || actionLoading === 'create'}
-                className="px-4 py-1.5 rounded-lg text-xs font-medium bg-accent text-white disabled:opacity-40 hover:bg-accent/80 transition-all flex items-center gap-1.5">
+                className="rumahl-primary-button-sm">
                 {actionLoading === 'create' && <InlineSpinner size={12} />}
                 Erstellen
               </button>
@@ -2215,7 +2216,7 @@ export function RealtimeTab({ token }: { token: string }) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Heartbeat size={16} weight="fill" className="text-accent" />
-                <span className="text-sm font-semibold text-foreground">IORA Metrics Dashboard</span>
+                <span className="text-sm font-semibold text-foreground">rumahl Metrics Dashboard</span>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setMetricsLive(!metricsLive)}
@@ -2237,20 +2238,20 @@ export function RealtimeTab({ token }: { token: string }) {
             <>
               {/* Key Metrics Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="rumahl-card rounded-2xl p-4 theme-transition text-center">
                   <div className="text-2xl font-bold text-foreground">{metrics.http.requests_total.toLocaleString()}</div>
                   <div className="text-[10px] text-foreground/50 mt-0.5">HTTP Requests</div>
                   {metrics.http.errors_total > 0 && <div className="text-[9px] text-red-400 mt-0.5">{metrics.http.errors_total} Fehler</div>}
                 </div>
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="rumahl-card rounded-2xl p-4 theme-transition text-center">
                   <div className="text-2xl font-bold text-foreground">{metrics.entities.state_changes.toLocaleString()}</div>
                   <div className="text-[10px] text-foreground/50 mt-0.5">State Changes</div>
                 </div>
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="rumahl-card rounded-2xl p-4 theme-transition text-center">
                   <div className="text-2xl font-bold text-foreground">{metrics.services.calls_total.toLocaleString()}</div>
                   <div className="text-[10px] text-foreground/50 mt-0.5">Service Calls</div>
                 </div>
-                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                <div className="rumahl-card rounded-2xl p-4 theme-transition text-center">
                   <div className={`text-2xl font-bold ${metrics.live?.ha_connected ? 'text-green-400' : 'text-red-400'}`}>
                     {metrics.live?.ha_connected ? 'Online' : 'Offline'}
                   </div>
@@ -2365,7 +2366,7 @@ export function RealtimeTab({ token }: { token: string }) {
                   <input type="text" value={sseFilter} onChange={e => setSseFilter(e.target.value)}
                     placeholder="Domain-Filter: light,switch,sensor (leer = alle)"
                     disabled={sseConnected}
-                    className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono disabled:opacity-50" />
+                    className="rumahl-field-sm w-full text-xs font-mono" />
                 </div>
                 <button onClick={toggleSse}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
@@ -2444,7 +2445,7 @@ export function RealtimeTab({ token }: { token: string }) {
                   <input type="text" value={wsDomainFilter} onChange={e => setWsDomainFilter(e.target.value)}
                     placeholder="light,switch,sensor"
                     disabled={wsConnected}
-                    className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono disabled:opacity-50" />
+                    className="rumahl-field-sm w-full text-xs font-mono" />
                 </div>
               )}
               <div className="flex items-center gap-2">
@@ -2611,7 +2612,7 @@ export function SchedulerTab({ token }: { token: string }) {
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-xs font-semibold text-foreground">Zeitpläne</h4>
               <button onClick={() => setShowCreateSchedule(!showCreateSchedule)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-accent text-white rounded-lg text-[10px] font-semibold hover:bg-accent/85 transition-colors">
+                className="rumahl-primary-button-sm">
                 <Plus size={12} /> Neuer Zeitplan
               </button>
             </div>
@@ -2619,23 +2620,23 @@ export function SchedulerTab({ token }: { token: string }) {
             {showCreateSchedule && (
               <div className="space-y-2 p-3 rounded-lg bg-foreground/5 border border-foreground/10 mb-3">
                 <input value={newSchedule.name} onChange={e => setNewSchedule(s => ({...s, name: e.target.value}))}
-                  placeholder="Name (optional)" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                  placeholder="Name (optional)" className="rumahl-field-sm w-full text-xs" />
                 <input value={newSchedule.entity_id} onChange={e => setNewSchedule(s => ({...s, entity_id: e.target.value}))}
-                  placeholder="Entity ID (z.B. light.wohnzimmer)" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                  placeholder="Entity ID (z.B. light.wohnzimmer)" className="rumahl-field-sm w-full text-xs font-mono" />
                 <div className="grid grid-cols-2 gap-2">
                   <select value={newSchedule.action} onChange={e => setNewSchedule(s => ({...s, action: e.target.value}))}
-                    className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground">
+                    className="rumahl-field-sm text-xs">
                     <option value="turn_on">Einschalten</option>
                     <option value="turn_off">Ausschalten</option>
                     <option value="toggle">Umschalten</option>
                   </select>
                   <input value={newSchedule.cron} onChange={e => setNewSchedule(s => ({...s, cron: e.target.value}))}
-                    placeholder="Cron (z.B. 0 8 * * *)" className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                    placeholder="Cron (z.B. 0 8 * * *)" className="rumahl-field-sm text-xs font-mono" />
                 </div>
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setShowCreateSchedule(false)} className="px-3 py-1.5 text-xs text-foreground/50 hover:text-foreground transition-colors">Abbrechen</button>
                   <button onClick={createSchedule} disabled={!newSchedule.entity_id || !newSchedule.cron || actionLoading === 'create-schedule'}
-                    className="px-4 py-1.5 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                    className="rumahl-primary-button-sm">
                     {actionLoading === 'create-schedule' && <InlineSpinner size={12} />}
                     Erstellen</button>
                 </div>
@@ -2696,7 +2697,7 @@ export function SchedulerTab({ token }: { token: string }) {
                   {actionLoading === 'check-watchdogs' ? <InlineSpinner size={12} /> : <Heartbeat size={12} />} Jetzt prüfen
                 </button>
                 <button onClick={() => setShowCreateWatchdog(!showCreateWatchdog)}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-accent text-white rounded-lg text-[10px] font-semibold hover:bg-accent/85 transition-colors">
+                  className="rumahl-primary-button-sm">
                   <Plus size={12} /> Neuer Watchdog
                 </button>
               </div>
@@ -2705,16 +2706,16 @@ export function SchedulerTab({ token }: { token: string }) {
             {showCreateWatchdog && (
               <div className="space-y-2 p-3 rounded-lg bg-foreground/5 border border-foreground/10 mb-3">
                 <input value={newWatchdog.name} onChange={e => setNewWatchdog(w => ({...w, name: e.target.value}))}
-                  placeholder="Name (optional)" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                  placeholder="Name (optional)" className="rumahl-field-sm w-full text-xs" />
                 <input value={newWatchdog.entity_id} onChange={e => setNewWatchdog(w => ({...w, entity_id: e.target.value}))}
-                  placeholder="Entity ID" className="w-full bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground font-mono" />
+                  placeholder="Entity ID" className="rumahl-field-sm w-full text-xs font-mono" />
                 <div className="grid grid-cols-3 gap-2">
                   <input value={newWatchdog.expected_state} onChange={e => setNewWatchdog(w => ({...w, expected_state: e.target.value}))}
-                    placeholder="Erwarteter Zustand" className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                    placeholder="Erwarteter Zustand" className="rumahl-field-sm text-xs" />
                   <input type="number" value={newWatchdog.timeout_minutes} onChange={e => setNewWatchdog(w => ({...w, timeout_minutes: parseInt(e.target.value) || 30}))}
-                    placeholder="Timeout (Min)" className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground" />
+                    placeholder="Timeout (Min)" className="rumahl-field-sm text-xs" />
                   <select value={newWatchdog.action} onChange={e => setNewWatchdog(w => ({...w, action: e.target.value}))}
-                    className="bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-accent/30 text-foreground">
+                    className="rumahl-field-sm text-xs">
                     <option value="notify">Benachrichtigen</option>
                     <option value="restart">Neustarten</option>
                     <option value="turn_on">Einschalten</option>
@@ -2723,7 +2724,7 @@ export function SchedulerTab({ token }: { token: string }) {
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setShowCreateWatchdog(false)} className="px-3 py-1.5 text-xs text-foreground/50 hover:text-foreground transition-colors">Abbrechen</button>
                   <button onClick={createWatchdog} disabled={!newWatchdog.entity_id || actionLoading === 'create-watchdog'}
-                    className="px-4 py-1.5 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/85 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                    className="rumahl-primary-button-sm">
                     {actionLoading === 'create-watchdog' && <InlineSpinner size={12} />}
                     Erstellen</button>
                 </div>
@@ -2804,7 +2805,7 @@ export function AnalyticsTab({ token }: { token: string }) {
       {dashboard && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {Object.entries(dashboard).filter(([, v]) => typeof v === 'number' || typeof v === 'string').slice(0, 8).map(([key, val]) => (
-            <div key={key} className="glass-card rounded-xl p-3 text-center">
+            <div key={key} className="rumahl-card rounded-xl p-3 text-center">
               <div className="text-lg font-bold text-accent">{String(val)}</div>
               <div className="text-[10px] text-foreground/50 mt-0.5">{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
             </div>
@@ -2859,7 +2860,7 @@ export function AnalyticsTab({ token }: { token: string }) {
       {/* Refresh */}
       <div className="flex justify-center">
         <button onClick={async () => { setRefreshing(true); try { await load() } finally { setRefreshing(false) } }} disabled={refreshing}
-          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          className="rumahl-secondary-button-sm">
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
         </button>
       </div>
@@ -2968,7 +2969,7 @@ export function GlobalAlertTab({ token }: { token: string }) {
                 }`}>{l}</button>
             ))}
             <button onClick={send} disabled={busy || !title.trim() || !message.trim()}
-              className="ml-auto px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="rumahl-ghost-button-sm ml-auto">
               {busy ? 'Sende…' : 'Senden'}
             </button>
           </div>
@@ -3042,7 +3043,7 @@ export function NotificationsTab({ token }: { token: string }) {
   }
 
   const clearAll = async () => {
-    if (!confirm('Wirklich alle Benachrichtigungen löschen?')) return
+    if (!(await confirmDialog({ title: 'Benachrichtigungen löschen', message: 'Wirklich alle Benachrichtigungen löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch('/api/admin/notifications', token, { method: 'DELETE' })
       setItems([])
@@ -3134,10 +3135,10 @@ export function NotificationsTab({ token }: { token: string }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// IORA AI MANAGEMENT TABS
+// rumahl AI MANAGEMENT TABS
 // ════════════════════════════════════════════════════════════════════════
 //
-// The AI subsystem (iora-assist) exposes a rich `/api/assist/*` API that
+// The AI subsystem (rumahl-assist) exposes a rich `/api/assist/*` API that
 // previously had no admin UI. These six tabs cover the full surface:
 //
 //   - AiOverviewTab       /api/assist/health, /api/assist/config/stats
@@ -3149,7 +3150,7 @@ export function NotificationsTab({ token }: { token: string }) {
 //   - AiVoiceTab          /api/assist/voice/{transcribe,synthesize}
 //
 // All requests go through the same `adminFetch` helper because the nginx
-// front-door proxies `/api/assist/*` to iora-assist transparently.
+// front-door proxies `/api/assist/*` to rumahl-assist transparently.
 
 // ─── AI Overview ────────────────────────────────────────────────────────
 
@@ -3264,7 +3265,7 @@ export function SystemLogsTab({ token }: { token: string }) {
   }
 
   const deleteGroup = async (fp: string) => {
-    if (!window.confirm('Diese Fehlergruppe inklusive aller Vorkommen löschen?')) return
+    if (!(await confirmDialog({ title: 'Fehlergruppe löschen', message: 'Diese Fehlergruppe inklusive aller Vorkommen löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}`, {
         method: 'DELETE',
@@ -3277,7 +3278,7 @@ export function SystemLogsTab({ token }: { token: string }) {
   }
 
   const clearAll = async () => {
-    if (!window.confirm('Wirklich ALLE gespeicherten System-Events löschen? Dies kann nicht rückgängig gemacht werden.')) return
+    if (!(await confirmDialog({ title: 'System-Events löschen', message: 'Wirklich ALLE gespeicherten System-Events löschen? Dies kann nicht rückgängig gemacht werden.', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await fetch(`${getBackendUrl()}/api/admin/system-events`, {
         method: 'DELETE',
@@ -3316,7 +3317,7 @@ export function SystemLogsTab({ token }: { token: string }) {
       )}
 
       <AdminCard
-        title="IORA Control Center · System-Events"
+        title="rumahl Control Center · System-Events"
         description="Alle Fehler, Warnungen und Infos aus dem gesamten Stack — Backend-Tracing, Hintergrund-Tasks, Frontend, SDK-Clients. Gleiche Fehler werden gruppiert mit Zähler; im Verlauf bleibt jedes Vorkommen einzeln erhalten."
       >
         {/* View tabs */}

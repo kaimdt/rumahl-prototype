@@ -1,6 +1,6 @@
 # Port Management Guide
 
-IORA manages 10,000+ ports across its system services and app containers. This guide covers how ports are assigned, configured, and managed.
+rumahl manages 10,000+ ports across its system services and app containers. This guide covers how ports are assigned, configured, and managed.
 
 ## Table of Contents
 
@@ -12,20 +12,20 @@ IORA manages 10,000+ ports across its system services and app containers. This g
 
 ## System Port Map
 
-IORA system services use ports in the 8080–8099 range:
+rumahl system services use ports in the 8080–8099 range:
 
 | Service | Port (Dev) | Port (Prod) | Protocol |
 |---------|-----------|-------------|----------|
-| iora-home | 3001 | 8126 | HTTP, WebSocket, SSE |
-| iora-core | 8090 | 8090 | HTTP, SSE |
-| iora-control | 8091 | 8091 | HTTP |
-| iora-assist | 8092 | 8092 | HTTP |
-| iora-secrets | 8093 | 8093 | HTTP |
-| iora-watchdog | 8094 | 8094 | HTTP, SSE |
-| iora-security | 8095 | 8095 | HTTP |
-| iora-gateway | 8096 | 8096 | HTTP |
-| iora-supervisor | 8097 | 8097 | HTTP |
-| iora-appstore | – | 8098 | HTTP |
+| rumahl-home | 3001 | 8126 | HTTP, WebSocket, SSE |
+| rumahl-core | 8090 | 8090 | HTTP, SSE |
+| rumahl-control | 8091 | 8091 | HTTP |
+| rumahl-assist | 8092 | 8092 | HTTP |
+| rumahl-secrets | 8093 | 8093 | HTTP |
+| rumahl-watchdog | 8094 | 8094 | HTTP, SSE |
+| rumahl-security | 8095 | 8095 | HTTP |
+| rumahl-gateway | 8096 | 8096 | HTTP |
+| rumahl-supervisor | 8097 | 8097 | HTTP |
+| rumahl-appstore | – | 8098 | HTTP |
 
 See the [Port Reference](../system/ports.md) for the complete port map.
 
@@ -152,7 +152,7 @@ PORT=8080   # Override default
 docker compose -f deploy/docker-compose.yml up -d
 
 # Or restart individual service
-docker compose restart iora-home
+docker compose restart rumahl-home
 ```
 
 ### App Ports
@@ -172,7 +172,7 @@ Apps declare ports in their manifest. To change:
 lsof -i :8126
 ss -tlnp | grep 8126
 
-# Check all IORA ports
+# Check all rumahl ports
 ss -tlnp | grep -E ':(808[0-9]|809[0-9]|8126)'
 ```
 
@@ -183,7 +183,7 @@ ss -tlnp | grep -E ':(808[0-9]|809[0-9]|8126)'
 docker ps --format "table {{.Names}}\t{{.Ports}}"
 
 # Check specific container
-docker port iora-home
+docker port rumahl-home
 ```
 
 ### Common Issues
@@ -193,8 +193,8 @@ docker port iora-home
 - Solution: Change the `PORT` variable or stop the conflicting service
 
 **App proxy not working:**
-- Check if the app container is running: `docker ps | grep iora-app-`
-- Check the assigned random port: `docker port iora-app-{app_id}`
+- Check if the app container is running: `docker ps | grep rumahl-app-`
+- Check the assigned random port: `docker port rumahl-app-{app_id}`
 - Verify the health check is passing
 
 **Can't access app on fixed port:**
@@ -206,8 +206,8 @@ docker port iora-home
 
 ```bash
 # View supervisor logs for port assignment
-docker compose logs iora-supervisor | grep -i port
-journalctl -u iora-supervisor | grep -i port
+docker compose logs rumahl-supervisor | grep -i port
+journalctl -u rumahl-supervisor | grep -i port
 ```
 
 ## Best Practices

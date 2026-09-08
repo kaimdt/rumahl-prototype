@@ -1,6 +1,6 @@
 # Encryption
 
-IORA uses industry-standard encryption to protect sensitive data at rest and in transit. This document details the encryption mechanisms, key management, and best practices.
+rumahl uses industry-standard encryption to protect sensitive data at rest and in transit. This document details the encryption mechanisms, key management, and best practices.
 
 ## Encryption Standards
 
@@ -12,9 +12,9 @@ IORA uses industry-standard encryption to protect sensitive data at rest and in 
 | JWT tokens | HMAC | SHA-256 | – |
 | Password hashing | Argon2id | – | – |
 
-## Secrets Storage (iora-secrets)
+## Secrets Storage (rumahl-secrets)
 
-The `iora-secrets` service provides centralized encrypted storage for sensitive data.
+The `rumahl-secrets` service provides centralized encrypted storage for sensitive data.
 
 ### Encryption Details
 
@@ -43,7 +43,7 @@ Each secret is stored with:
   "nonce": "<base64-encoded 96-bit nonce>",
   "created_at": "2026-06-01T12:00:00Z",
   "expires_at": null,
-  "allowed_services": ["iora-home", "iora-assist"]
+  "allowed_services": ["rumahl-home", "rumahl-assist"]
 }
 ```
 
@@ -67,7 +67,7 @@ export SECRETS_MASTER_KEY="a1b2c3d4e5f6..."
 
 **Never commit the master key to version control.** Use environment variables or a secrets manager.
 
-## Security Audit Logs (iora-security)
+## Security Audit Logs (rumahl-security)
 
 The security audit database uses encrypted, hash-chained logging.
 
@@ -91,7 +91,7 @@ Entry 3: { data: "...", prev_hash: "def456...", hash: "789ghi..." }
 
 - **Algorithm**: AES-256-GCM
 - **Key**: 32 bytes from `SECURITY_DB_KEY` environment variable
-- **Database**: SQLite file at `/var/lib/iora/security.db`
+- **Database**: SQLite file at `/var/lib/ora/security.db`
 - **Without the key**: Database file is completely unreadable
 
 ### Verification
@@ -119,10 +119,10 @@ All external traffic should be encrypted with TLS:
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name iora.example.com;
+    server_name ora.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/iora.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/iora.example.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/ora.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ora.example.com/privkey.pem;
 
     # Modern configuration
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -191,7 +191,7 @@ openssl rand -hex 32
 
 ### For Developers
 
-1. **Never hardcode secrets** – Use environment variables or iora-secrets
+1. **Never hardcode secrets** – Use environment variables or rumahl-secrets
 2. **Use parameterized queries** – Prevent SQL injection
 3. **Validate all input** – Even from authenticated sources
 4. **Rotate keys regularly** – Especially after personnel changes
@@ -212,13 +212,13 @@ openssl rand -hex 32
 NEW_KEY=$(openssl rand -hex 32)
 
 # 2. Re-encrypt all secrets with new key
-iora-cli secrets rekey --old-key $OLD_KEY --new-key $NEW_KEY
+rumahl-cli secrets rekey --old-key $OLD_KEY --new-key $NEW_KEY
 
 # 3. Update environment variable
 export SECRETS_MASTER_KEY="$NEW_KEY"
 
-# 4. Restart iora-secrets service
-systemctl restart iora-secrets
+# 4. Restart rumahl-secrets service
+systemctl restart rumahl-secrets
 
 # 5. Verify
 curl http://localhost:8093/health

@@ -1,6 +1,6 @@
 import React from "react";
 
-export type TabId = "ai" | "iora-home" | "connection" | "settings";
+export type TabId = "ai" | "rumahl-home" | "connection" | "settings";
 
 interface Tab {
   id: TabId;
@@ -10,7 +10,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: "ai", label: "KI", icon: "🤖" },
-  { id: "iora-home", label: "IORA Home", icon: "🏠" },
+  { id: "rumahl-home", label: "rumahl Home", icon: "🏠" },
   { id: "connection", label: "Verbindung", icon: "🌐" },
   { id: "settings", label: "Einstellungen", icon: "⚙" },
 ];

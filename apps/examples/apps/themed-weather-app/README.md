@@ -1,10 +1,10 @@
 # Themed Weather App
 
-> Beispiel-App, die zeigt, wie man das IORA Theme-System verwendet und anpasst
+> Beispiel-App, die zeigt, wie man das rumahl Theme-System verwendet und anpasst
 
 ## Features
 
-- **IORA Theme Inheritance** - Verwendet automatisch das aktuelle IORA Theme
+- **rumahl Theme Inheritance** - Verwendet automatisch das aktuelle rumahl Theme
 - **Custom Color Variables** - Definiert eigene Wetter-spezifische Farben
 - **Dynamic Theme Updates** - Reagiert auf Theme-Änderungen in Echtzeit
 - **Interactive Controls** - Buttons zum Ändern der Akzentfarbe
@@ -13,7 +13,7 @@
 ## Verwendete Theme-Features
 
 ### 1. Theme Inheritance
-Die App übernimmt alle CSS-Variablen von IORA:
+Die App übernimmt alle CSS-Variablen von rumahl:
 
 ```json
 {
@@ -39,7 +39,7 @@ Zusätzliche wetterspezifische Farben:
 ```
 
 ### 3. Theme Client Usage
-Die App verwendet den `IoraThemeClient` (vereinfachte Inline-Version):
+Die App verwendet den `rumahlThemeClient` (vereinfachte Inline-Version):
 
 ```javascript
 const themeClient = new SimpleThemeClient('themed-weather-app', {
@@ -59,7 +59,7 @@ themeClient.setVariables({ accent: '#ff0000' })
 
 ## CSS Variables Verwendet
 
-### Standard IORA Variables
+### Standard rumahl Variables
 - `--background`, `--foreground` - Haupt-Hintergrund und Text
 - `--card`, `--card-foreground` - Karten-Styling
 - `--muted`, `--muted-foreground` - Sekundäre Elemente
@@ -78,7 +78,7 @@ themeClient.setVariables({ accent: '#ff0000' })
 
 1. Kopiere den Ordner nach `apps/installed/themed-weather-app/`
 2. Die App wird automatisch im App Store erkannt
-3. Installiere die App über den IORA App Store
+3. Installiere die App über den rumahl App Store
 4. Die App läuft im Iframe und übernimmt das aktuelle Theme
 
 ## Struktur
@@ -130,7 +130,7 @@ themeClient.setVariables({
 
 Diese App demonstriert:
 
-1. ✅ **Theme Inheritance** - Wie man das IORA Theme übernimmt
+1. ✅ **Theme Inheritance** - Wie man das rumahl Theme übernimmt
 2. ✅ **Variable Overrides** - Wie man einzelne Variablen anpasst
 3. ✅ **Custom Variables** - Wie man eigene Variablen definiert
 4. ✅ **Dynamic Updates** - Wie man auf Theme-Änderungen reagiert
@@ -141,8 +141,8 @@ Diese App demonstriert:
 
 - [App Theming Guide](../../../docs/development/app-theming.md)
 - [Theme System Dokumentation](../../../docs/development/theme-system.md)
-- [IORA SDK Dokumentation](../../../sdks/javascript/)
+- [rumahl SDK Dokumentation](../../../sdks/javascript/)
 
 ## Lizenz
 
-MIT - Teil der IORA Beispiel-Apps
+MIT - Teil der rumahl Beispiel-Apps

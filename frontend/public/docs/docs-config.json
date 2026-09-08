@@ -1,8 +1,8 @@
 {
-  "title": "IORA Documentation",
-  "description": "Complete documentation for the IORA home automation platform",
-  "logo": "/assets/iora-logo.png",
-  "repository": "https://github.com/kaimdt/home-assistant-dashb",
+  "title": "rumahl Documentation",
+  "description": "Complete documentation for the rumahl home automation platform",
+  "logo": "/assets/rumahl-logo.png",
+  "repository": "https://github.com/rumahl/home-assistant-dashb",
   "navigation": [
     {
       "section": "Getting Started",
@@ -50,6 +50,10 @@
       "section": "Development",
       "icon": "code",
       "items": [
+        {
+          "title": "OS Design System",
+          "path": "development/os-design-system.md"
+        },
         {
           "title": "App Development",
           "path": "development/app-development.md",
@@ -148,6 +152,35 @@
           "path": "security/README.md"
         },
         {
+          "title": "rumahl OS Security Center",
+          "path": "security/security-center.md",
+          "highlight": true
+        },
+        {
+          "title": "Security Foundation Baseline",
+          "path": "security/security-foundation-baseline.md"
+        },
+        {
+          "title": "Runtime Sensor 2.1",
+          "path": "security/runtime-sensor.md"
+        },
+        {
+          "title": "Runtime Identity 2.2",
+          "path": "security/runtime-identity.md"
+        },
+        {
+          "title": "App Security Profiles 2.3",
+          "path": "security/app-security-profiles.md"
+        },
+        {
+          "title": "Runtime Detection 2.4",
+          "path": "security/runtime-detection.md"
+        },
+        {
+          "title": "Incident Correlation 2.5",
+          "path": "security/incident-correlation.md"
+        },
+        {
           "title": "Permission System",
           "path": "security/permissions.md"
         },
@@ -223,17 +256,17 @@
     "links": [
       {
         "title": "GitHub",
-        "url": "https://github.com/kaimdt/home-assistant-dashb"
+        "url": "https://github.com/rumahl/home-assistant-dashb"
       },
       {
         "title": "Issues",
-        "url": "https://github.com/kaimdt/home-assistant-dashb/issues"
+        "url": "https://github.com/rumahl/home-assistant-dashb/issues"
       },
       {
         "title": "Discussions",
-        "url": "https://github.com/kaimdt/home-assistant-dashb/discussions"
+        "url": "https://github.com/rumahl/home-assistant-dashb/discussions"
       }
     ],
-    "copyright": "© 2026 IORA Project"
+    "copyright": "© 2026 rumahl Project"
   }
 }

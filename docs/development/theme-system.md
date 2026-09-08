@@ -1,10 +1,10 @@
 # Theme System
 
-> IORA unterstützt ein vollständiges Theme-System, mit dem das visuelle Erscheinungsbild des gesamten Dashboards angepasst werden kann.
+> rumahl unterstützt ein vollständiges Theme-System, mit dem das visuelle Erscheinungsbild des gesamten Dashboards angepasst werden kann.
 
 ## Übersicht
 
-Das Theme-System erlaubt es, das Design von **IORA Home**, **Custom Pages** und **Control Center** zu verändern. Themes können wie Apps installiert werden und sind pro Benutzer wählbar.
+Das Theme-System erlaubt es, das Design von **rumahl Home**, **Custom Pages** und **Control Center** zu verändern. Themes können wie Apps installiert werden und sind pro Benutzer wählbar.
 
 ### Features
 
@@ -19,7 +19,7 @@ Das Theme-System erlaubt es, das Design von **IORA Home**, **Custom Pages** und 
 
 ### Funktionsweise
 
-1. **Basisthemes**: IORA kommt mit 7 integrierten Themes (Tag, Nacht, Hell, Abend, Schlaf, Klassisch, Automatisch)
+1. **Basisthemes**: rumahl kommt mit 7 integrierten Themes (Tag, Nacht, Hell, Abend, Schlaf, Klassisch, Automatisch)
 2. **Custom Themes**: Apps und Plugins können eigene Themes bereitstellen
 3. **File-based Themes (empfohlen)**: ZIP-Paket mit `manifest.json` + separaten CSS/JS/HTML-Dateien
 4. **Inline Themes (einfach)**: Alles in der `manifest.json` für schnelle Prototypen
@@ -202,7 +202,7 @@ my-theme/
 // Läuft NUR im Browser – kein Server-Zugriff
 (function() {
   'use strict';
-  window.__iora_theme = { id: 'my-custom-theme', version: '1.0.0' };
+  window.__rumahl_theme = { id: 'my-custom-theme', version: '1.0.0' };
   
   // Ripple-Effekt auf Klicks
   document.addEventListener('click', (e) => {
@@ -495,13 +495,13 @@ geladen werden:
 Die JS-Dateien werden in Reihenfolge als `<script>`-Tags geladen und können:
 - DOM-Manipulationen durchführen
 - Event-Listener für Theme-Interaktionen registrieren
-- Auf `window.__iora_theme` zugreifen (Theme-Metadaten)
+- Auf `window.__rumahl_theme` zugreifen (Theme-Metadaten)
 - CSS-Variablen dynamisch ändern
 
 **Beispiel `js/theme.js`:**
 ```js
 // Theme-Initialisierung
-console.log('[Theme] Geladen:', window.__iora_theme?.id)
+console.log('[Theme] Geladen:', window.__rumahl_theme?.id)
 
 // Partikel-Effekt auf Hintergrund
 document.addEventListener('DOMContentLoaded', () => {

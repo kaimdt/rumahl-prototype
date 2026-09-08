@@ -1,0 +1,31 @@
+{
+  "id": "io.rumahl.share",
+  "name": "rumahl Share",
+  "version": "1.0.0",
+  "developer": "rumahl Project",
+  "description": "Teile Dateien & Links zwischen Geräten im lokalen Netzwerk — eigene Pairdrop-Implementation ohne externe Dienste. Unterstützt Direktverbindung, Zwischenablage und Cloud Connect für weltweiten Zugriff.",
+  "type": "app",
+  "icon": "share-network",
+  "permissions": [
+    "NetworkLocalAccess",
+    "AppStorageRead",
+    "AppStorageWrite",
+    "SendNotifications"
+  ],
+  "custom_pages": [
+    {
+      "id": "share",
+      "title": "rumahl Share",
+      "icon": "ShareNetwork",
+      "url": "/share",
+      "show_in_nav": true,
+      "order": 500
+    }
+  ],
+  "store_metadata": {
+    "category": "Productivity",
+    "tags": ["share", "file-transfer", "local-network", "pairdrop", "airdrop"],
+    "homepage": "https://ora.home",
+    "license": "Apache-2.0"
+  }
+}

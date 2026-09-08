@@ -63,7 +63,7 @@ export const FILE_TYPE_CATEGORIES: FileTypeCategory[] = [
 
 // ── Default-app persistence (per user, localStorage) ──────────────────────
 
-const DEFAULT_APPS_KEY = 'iora-default-apps'
+const DEFAULT_APPS_KEY = 'rumahl-default-apps'
 
 function readDefaults(): Record<string, string> {
   try {
@@ -124,8 +124,8 @@ export function registerFileTypeApp(extension: string, app: FileTypeApp) {
     appName: 'Bilder',
     appIcon: '/icons/Images.png',
     open: (file) => {
-      window.dispatchEvent(new CustomEvent('iora:open-image', { detail: file }))
-      window.dispatchEvent(new CustomEvent('iora:navigate', { detail: { pageId: 'os-images' } }))
+      window.dispatchEvent(new CustomEvent('rumahl:open-image', { detail: file }))
+      window.dispatchEvent(new CustomEvent('rumahl:navigate', { detail: { pageId: 'os-images' } }))
     },
   }
   const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic', 'avif']
@@ -138,7 +138,8 @@ export function registerFileTypeApp(extension: string, app: FileTypeApp) {
 /** Resolve the app that should open a file: configured default first, then
  * the reserved-app fallback. */
 export function fileTypeAppFor(mime: string | null, name: string): FileTypeApp | undefined {
-  const category = categoryForFile(mime, name)
+  const safeName = name || ''
+  const category = categoryForFile(mime, safeName)
   if (category) {
     const defaultId = getDefaultAppForType(category.key)
     if (defaultId) {
@@ -146,7 +147,7 @@ export function fileTypeAppFor(mime: string | null, name: string): FileTypeApp |
       if (app) return app
     }
   }
-  const ext = name.split('.').pop()?.toLowerCase() || ''
+  const ext = safeName.split('.').pop()?.toLowerCase() || ''
   return reservedApps.get(ext)
 }
 
@@ -166,10 +167,11 @@ const RULES: FileTypeRule[] = [
  * then the generic file.png.
  */
 export function fileTypeIcon(mime: string | null, name: string): string {
-  const app = fileTypeAppFor(mime, name)
+  const safeName = name || ''
+  const app = fileTypeAppFor(mime, safeName)
   if (app) return app.appIcon
   for (const rule of RULES) {
-    if (rule.match(mime, name)) return rule.icon
+    if (rule.match(mime, safeName)) return rule.icon
   }
   return '/icons/file.png'
 }

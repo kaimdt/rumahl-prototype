@@ -4,14 +4,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="iora-sdk",
+    name="rumahl-sdk",
     version="0.1.0",
-    author="IORA Team",
-    author_email="dev@iora.io",
-    description="Official Python SDK for IORA app and plugin development",
+    author="rumahl Team",
+    author_email="dev@ora.io",
+    description="Official Python SDK for rumahl app and plugin development",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/iora/iora-sdk-python",
+    url="https://github.com/ora/rumahl-sdk-python",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",

@@ -19,21 +19,21 @@ export function AppInstallProgress({
 
   return (
     <span
-      className={`ora-install-progress is-${size}`}
+      className={`rumahl-install-progress is-${size}`}
       role="progressbar"
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={value}
     >
-      <span className="ora-install-progress-icon" style={iconUrl ? undefined : { background: appGradient(appId) }}>
+      <span className="rumahl-install-progress-icon" style={iconUrl ? undefined : { background: appGradient(appId) }}>
         {iconUrl ? <img src={iconUrl} alt="" /> : label.trim().charAt(0).toUpperCase()}
       </span>
-      <span className="ora-install-progress-shade" />
+      <span className="rumahl-install-progress-shade" />
       <svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle className="ora-install-progress-track" cx="50" cy="50" r={radius} />
+        <circle className="rumahl-install-progress-track" cx="50" cy="50" r={radius} />
         <circle
-          className="ora-install-progress-value"
+          className="rumahl-install-progress-value"
           cx="50"
           cy="50"
           r={radius}

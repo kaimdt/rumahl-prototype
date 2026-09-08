@@ -2,7 +2,7 @@
   "id": "macro-tracker",
   "name": "Macro Tracker",
   "version": "1.0.0",
-  "developer": "IORA Community",
+  "developer": "rumahl Community",
   "description": "Protein-, Kalorien- und Fett-Rechner für Kraftsportler. Verfolge deine täglichen Makros, plane Mahlzeiten und sieh auf einen Blick, was du noch essen solltest.",
   "type": "app",
   "permissions": [
@@ -142,7 +142,7 @@
       "muskelaufbau",
       "bodybuilding"
     ],
-    "min_iora_version": "2.1.0",
+    "min_rumahl_version": "2.1.0",
     "license": "MIT"
   },
   "lifecycle_hooks": {

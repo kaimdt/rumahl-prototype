@@ -1,4 +1,4 @@
-//! Window control commands for IORA Desktop.
+//! Window control commands for rumahl Desktop.
 //!
 //! Provides:
 //!   - Window tiling (left/right/top/bottom half, maximize, center)

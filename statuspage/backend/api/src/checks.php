@@ -1,0 +1,987 @@
+<?php
+/**
+ * Monitor — runs the checks (HTTP/TCP/ping), derives component status,
+ * maintains the daily uptime table, queues alerts on status changes and
+ * creates/resolves incidents automatically on outages.
+ */
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/status.php';
+require_once __DIR__ . '/incidents.php';
+
+/** Parse the custom headers column (JSON array of "Name: value" lines). */
+function check_headers(array $component): array
+{
+    $raw = (string) ($component['headers'] ?? '');
+    if ($raw === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+    $headers = [];
+    foreach ($decoded as $line) {
+        if (is_string($line) && trim($line) !== '' && str_contains($line, ':')) {
+            $headers[] = trim($line);
+        }
+    }
+    return $headers;
+}
+
+/**
+ * Perform a single check. Returns
+ * [ok, latency_ms, status_code, error, softfail, dns_ms, connect_ms, tls_ms, server_ms]
+ *
+ * latency_ms is the TOTAL wall time; dns/connect/tls are the network phases
+ * and server_ms is the time the target itself needed (TTFB minus network) —
+ * the UI shows server_ms (falling back to latency_ms when unavailable, e.g.
+ * on failures or non-HTTP checks), because DNS/TCP/TLS are infrastructure
+ * and say nothing about the monitored service.
+ */
+function run_check(array $component): array
+{
+    $type = (string) ($component['check_type'] ?? 'http');
+    return match ($type) {
+        'tcp' => tcp_check($component),
+        'ping' => ping_check($component),
+        'dns' => dns_check($component),
+        'ssl' => ssl_check($component),
+        'smtp' => smtp_check($component),
+        default => http_check($component),
+    };
+}
+
+/** HTTP(S) check with custom headers + per-phase timing. */
+function http_check(array $component): array
+{
+    $url = $component['endpoint_url'];
+    if ($url === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    if (!filter_var($url, FILTER_VALIDATE_URL)) {
+        return [false, null, null, 'Invalid endpoint URL', false, null, null, null, null];
+    }
+
+    $curlHeaders = array_merge(['Accept: */*'], check_headers($component));
+    $responseHeaders = [];
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT_MS => max(500, (int) $component['timeout_ms']),
+        CURLOPT_CONNECTTIMEOUT_MS => max(500, (int) $component['timeout_ms']),
+        CURLOPT_NOBODY => ($component['method'] ?? 'GET') === 'HEAD',
+        CURLOPT_CUSTOMREQUEST => strtoupper((string) ($component['method'] ?? 'GET')),
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_MAXREDIRS => 0,
+        CURLOPT_USERAGENT => 'rumahl-status-monitor/1.0',
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_HTTPHEADER => $curlHeaders,
+        CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$responseHeaders): int {
+            $trimmed = trim($line);
+            if ($trimmed !== '') {
+                $responseHeaders[] = $trimmed;
+            }
+            return strlen($line);
+        },
+    ]);
+
+    $start = hrtime(true);
+    $body = curl_exec($ch);
+    $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
+    $statusCode = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($ch);
+
+    // Per-phase timing (seconds → ms). Network phases (DNS/TCP/TLS) are
+    // infrastructure — the interesting value is server_ms (TTFB minus
+    // network), which is what the UI shows.
+    $info = curl_getinfo($ch);
+    $dnsMs = (float) ($info['namelookup_time'] ?? 0);
+    $connectMs = (float) ($info['connect_time'] ?? 0);
+    $appConnectMs = (float) ($info['appconnect_time'] ?? 0);
+    $startTransferMs = (float) ($info['starttransfer_time'] ?? 0);
+
+    $dns = max(0, (int) round($dnsMs * 1000));
+    $connect = $connectMs > 0 ? max(0, (int) round(($connectMs - $dnsMs) * 1000)) : null;
+    $tls = $appConnectMs > 0 ? max(0, (int) round(($appConnectMs - $connectMs) * 1000)) : null;
+    $server = $startTransferMs > 0
+        ? max(0, (int) round(($startTransferMs - ($appConnectMs > 0 ? $appConnectMs : $connectMs)) * 1000))
+        : null;
+    $diagnostic = [
+        'effective_url' => diagnostic_mask_url((string) ($info['url'] ?? $url)),
+        'primary_ip' => (string) ($info['primary_ip'] ?? ''),
+        'primary_port' => (int) ($info['primary_port'] ?? 0),
+        'local_ip' => (string) ($info['local_ip'] ?? ''),
+        'redirect_count' => (int) ($info['redirect_count'] ?? 0),
+        'content_type' => $info['content_type'] ?? null,
+        'download_bytes' => (int) ($info['size_download'] ?? 0),
+        'request_headers' => diagnostic_mask_headers($curlHeaders),
+        'response_headers' => diagnostic_mask_headers($responseHeaders),
+        'body_excerpt' => diagnostic_body_excerpt(is_string($body) ? $body : ''),
+        'captured_at' => now_utc(),
+    ];
+    curl_close($ch);
+
+    if ($error !== '') {
+        return [false, $latencyMs, $statusCode, $error, false, $dns, $connect, $tls, $server, $diagnostic];
+    }
+    $expected = (int) $component['expected_status'];
+    $ok = $statusCode === $expected;
+    return [
+        $ok,
+        $latencyMs,
+        $statusCode,
+        $ok ? null : "Unexpected HTTP status {$statusCode} (expected {$expected})",
+        true, // answered → softfail, not a connectivity failure
+        $dns,
+        $connect,
+        $tls,
+        $server,
+        $ok ? null : $diagnostic,
+    ];
+}
+
+/** Keep enough of a secret to identify it without exposing the full value. */
+function diagnostic_mask_value(string $value): string
+{
+    $length = strlen($value);
+    if ($length <= 6) {
+        return str_repeat('*', $length);
+    }
+    if ($length < 16) {
+        return substr($value, 0, 2) . str_repeat('*', $length - 4) . substr($value, -2);
+    }
+    $middleStart = max(5, intdiv($length - 4, 2));
+    return substr($value, 0, 5) . str_repeat('*', $middleStart - 5)
+        . substr($value, $middleStart, 4)
+        . str_repeat('*', max(0, $length - $middleStart - 9)) . substr($value, -5);
+}
+
+function diagnostic_mask_headers(array $headers): array
+{
+    $sensitive = '/^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token)$/i';
+    $masked = [];
+    foreach ($headers as $line) {
+        if (!is_string($line) || !str_contains($line, ':')) {
+            $masked[] = (string) $line;
+            continue;
+        }
+        [$name, $value] = array_map('trim', explode(':', $line, 2));
+        $isSensitive = preg_match($sensitive, $name) === 1 || preg_match('/(token|secret|api[-_]?key)/i', $name) === 1;
+        $masked[] = $name . ': ' . ($isSensitive ? diagnostic_mask_value($value) : substr($value, 0, 2048));
+    }
+    return array_slice($masked, 0, 100);
+}
+
+function diagnostic_mask_url(string $url): string
+{
+    return preg_replace_callback(
+        '/([?&](?:token|secret|api[-_]?key|password|access_token)=)([^&#]+)/i',
+        static fn (array $match): string => $match[1] . rawurlencode(diagnostic_mask_value(rawurldecode($match[2]))),
+        $url
+    ) ?? $url;
+}
+
+function diagnostic_body_excerpt(string $body): ?string
+{
+    if ($body === '') {
+        return null;
+    }
+    $content = preg_replace('/\s+/', ' ', strip_tags($body)) ?? '';
+    $content = preg_replace('/((?:token|secret|api[-_]?key|password)["\'\s:=]+)([^&\s,"\']+)/i', '$1[masked]', $content) ?? $content;
+    return substr(trim($content), 0, 4096);
+}
+
+function capture_failure_screenshot(string $url): ?string
+{
+    $settings = statuspage_config()['screenshot'] ?? [];
+    $endpoint = trim((string) ($settings['endpoint'] ?? ''));
+    if ($endpoint === '' || !filter_var($endpoint, FILTER_VALIDATE_URL)) {
+        return null;
+    }
+    $ch = curl_init($endpoint);
+    $headers = ['Content-Type: application/json', 'Accept: application/json'];
+    if (($settings['token'] ?? '') !== '') {
+        $headers[] = 'Authorization: Bearer ' . $settings['token'];
+    }
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT_MS => max(1000, (int) ($settings['timeout_ms'] ?? 15000)),
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_POSTFIELDS => json_encode(['url' => $url, 'full_page' => true]),
+        CURLOPT_SSL_VERIFYPEER => !array_key_exists('tls_verify', $component) || !empty($component['tls_verify']),
+        CURLOPT_SSL_VERIFYHOST => (!array_key_exists('tls_verify', $component) || !empty($component['tls_verify'])) ? 2 : 0,
+    ]);
+    if (($component['body'] ?? '') !== '' && in_array(strtoupper((string) ($component['method'] ?? 'GET')), ['POST', 'PUT', 'PATCH'], true)) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, (string) $component['body']);
+    }
+    if (($component['basic_auth_username'] ?? '') !== '') {
+        curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+        curl_setopt($ch, CURLOPT_USERPWD, (string) $component['basic_auth_username'] . ':' . (string) ($component['basic_auth_password'] ?? ''));
+    }
+    if (($component['proxy_host'] ?? '') !== '') {
+        curl_setopt($ch, CURLOPT_PROXY, (string) $component['proxy_host']);
+        if ((int) ($component['proxy_port'] ?? 0) > 0) curl_setopt($ch, CURLOPT_PROXYPORT, (int) $component['proxy_port']);
+    }
+    if (($component['ip_version'] ?? 'both') === 'ipv4') curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    if (($component['ip_version'] ?? 'both') === 'ipv6') curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V6);
+    $response = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    $decoded = is_string($response) ? json_decode($response, true) : null;
+    $screenshotUrl = is_array($decoded) ? (string) ($decoded['url'] ?? '') : '';
+    return $status >= 200 && $status < 300 && str_starts_with($screenshotUrl, 'https://') ? $screenshotUrl : null;
+}
+
+/** TCP connect check — endpoint is "host" or "host:port" (default 80). */
+function tcp_check(array $component): array
+{
+    $target = trim((string) $component['endpoint_url']);
+    if ($target === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+
+    $host = $target;
+    $port = 80;
+    $scheme = null;
+    if (preg_match('#^([a-z][a-z0-9+.-]*)://#i', $target, $m)) {
+        $scheme = strtolower($m[1]);
+        $parts = parse_url($target);
+        if ($parts === false || empty($parts['host'])) {
+            return [false, null, null, 'Invalid TCP endpoint URL', false, null, null, null, null];
+        }
+        $host = (string) $parts['host'];
+        $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+    } elseif (preg_match('/^(.*):(\d{1,5})$/', $target, $m)) {
+        $host = $m[1];
+        $port = (int) $m[2];
+        if ($port < 1 || $port > 65535) {
+            return [false, null, null, "Invalid port {$port}", false, null, null, null, null];
+        }
+    }
+    if ($host === '' || preg_match('/[\s;|&`$<>]/', $host)) {
+        return [false, null, null, 'Invalid TCP host', false, null, null, null, null];
+    }
+
+    $timeout = max(0.5, (int) $component['timeout_ms'] / 1000);
+    $address = $scheme === 'https' ? 'ssl://' . $host : $host;
+    $start = hrtime(true);
+    $fp = @fsockopen($address, $port, $errno, $errstr, $timeout);
+    $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
+    if ($fp === false) {
+        return [false, $latencyMs, null, "TCP connection to {$host}:{$port} failed ({$errstr})", false, null, null, null, null];
+    }
+    fclose($fp);
+    // For TCP checks the connect time IS the service time.
+    return [true, $latencyMs, null, null, false, null, $latencyMs, null, $latencyMs];
+}
+
+/** ICMP ping check — endpoint is a hostname or IP address. */
+function ping_check(array $component): array
+{
+    $host = trim((string) $component['endpoint_url']);
+    if ($host === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    // Whitelist: hostnames and IPv4 addresses only — never pass anything
+    // else to the shell.
+    if (!preg_match('/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/', $host)) {
+        return [false, null, null, 'Invalid ping host', false, null, null, null, null];
+    }
+    if (!function_exists('exec')) {
+        return [false, null, null, 'Ping unavailable (exec disabled)', false, null, null, null, null];
+    }
+
+    $isWindows = strtoupper(PHP_OS_FAMILY ?? '') === 'WINDOWS';
+    // Linux: ping -n -c 1 -W 2 host  |  Windows: ping -n 1 -w 2000 host
+    $cmd = $isWindows
+        ? sprintf('ping -n 1 -w 2000 %s 2>&1', escapeshellarg($host))
+        : sprintf('ping -n -c 1 -W 2 %s 2>&1', escapeshellarg($host));
+
+    $start = hrtime(true);
+    $output = [];
+    $exitCode = 0;
+    exec($cmd, $output, $exitCode);
+    $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
+    $text = implode("\n", $output);
+
+    if ($exitCode !== 0) {
+        $detail = trim((string) end($output));
+        $error = $detail !== '' ? "Ping to {$host} failed: {$detail}" : "Ping to {$host} failed";
+        return [false, $latencyMs, null, $error, false, null, null, null, null];
+    }
+
+    // Parse round-trip time: "time=12.3 ms" (Linux) / "time<1ms" (Windows).
+    $roundTrip = null;
+    if (preg_match('/time[=<]([\d.]+)/i', $text, $m)) {
+        $roundTrip = (int) round((float) $m[1]);
+    }
+    // For ping checks the round-trip IS the service time.
+    return [true, $roundTrip ?? $latencyMs, null, null, false, null, null, null, $roundTrip ?? $latencyMs];
+}
+
+/** DNS resolution check — endpoint is a hostname; status_code = IP count. */
+function dns_check(array $component): array
+{
+    $host = trim((string) $component['endpoint_url']);
+    if ($host === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    if (!preg_match('/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/', $host)) {
+        return [false, null, null, 'Invalid DNS host', false, null, null, null, null];
+    }
+    if (!function_exists('dns_get_record')) {
+        return [false, null, null, 'DNS lookup unavailable (dns_get_record disabled)', false, null, null, null, null];
+    }
+
+    $start = hrtime(true);
+    $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+    $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
+
+    if ($records === false || $records === []) {
+        return [false, $latencyMs, null, "DNS resolution failed for {$host}", false, null, null, null, null];
+    }
+    $ipCount = count(array_filter($records, fn (array $r) => isset($r['ip'])));
+    // DNS lookup time IS the service time here.
+    return [true, $latencyMs, $ipCount, null, false, null, null, null, $latencyMs];
+}
+
+/**
+ * SSL/TLS certificate expiry check — endpoint is "host[:port]" (default 443).
+ * The certificate is fetched without verifying the chain (so self-signed
+ * certs do not fail the check); FAIL = expired, status_code = days left.
+ */
+function ssl_check(array $component): array
+{
+    $target = trim((string) $component['endpoint_url']);
+    if ($target === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    $host = $target;
+    $port = 443;
+    if (preg_match('/^(.*):(\d{1,5})$/', $target, $m)) {
+        $host = $m[1];
+        $port = (int) $m[2];
+        if ($port < 1 || $port > 65535) {
+            return [false, null, null, "Invalid port {$port}", false, null, null, null, null];
+        }
+    }
+    if ($host === '' || preg_match('/[\s;|&`$<>]/', $host)) {
+        return [false, null, null, 'Invalid SSL host', false, null, null, null, null];
+    }
+    if (!function_exists('openssl_x509_parse')) {
+        return [false, null, null, 'Certificate check unavailable (openssl disabled)', false, null, null, null, null];
+    }
+
+    $timeout = max(0.5, (int) $component['timeout_ms'] / 1000);
+    $context = stream_context_create([
+        'ssl' => [
+            'capture_peer_cert' => true,
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+            'allow_self_signed' => true,
+        ],
+    ]);
+    $start = hrtime(true);
+    $fp = @stream_socket_client(
+        "ssl://{$host}:{$port}",
+        $errno,
+        $errstr,
+        $timeout,
+        STREAM_CLIENT_CONNECT,
+        $context
+    );
+    $latencyMs = (int) round((hrtime(true) - $start) / 1e6);
+    if ($fp === false) {
+        return [false, $latencyMs, null, "TLS handshake to {$host}:{$port} failed ({$errstr})", false, null, $latencyMs, $latencyMs, null];
+    }
+    $params = stream_context_get_params($fp);
+    fclose($fp);
+
+    $cert = $params['options']['ssl']['peer_certificate'] ?? null;
+    if ($cert === null) {
+        return [false, $latencyMs, null, "No certificate presented by {$host}:{$port}", false, null, $latencyMs, $latencyMs, null];
+    }
+    $parsed = openssl_x509_parse($cert);
+    $validTo = (int) ($parsed['validTo_time_t'] ?? 0);
+    $daysLeft = (int) floor(($validTo - time()) / 86400);
+    if ($daysLeft <= 0) {
+        return [
+            false,
+            $latencyMs,
+            $daysLeft,
+            'Certificate expired on ' . gmdate('Y-m-d', $validTo),
+            false,
+            null,
+            $latencyMs,
+            $latencyMs,
+            null,
+        ];
+    }
+    // TLS handshake time IS the service time here.
+    return [true, $latencyMs, $daysLeft, null, false, null, $latencyMs, $latencyMs, $latencyMs];
+}
+
+/** SMTP check — connects, waits for the banner and answers EHLO. */
+function smtp_check(array $component): array
+{
+    $target = trim((string) $component['endpoint_url']);
+    if ($target === '') {
+        return [false, null, null, 'No endpoint configured', false, null, null, null, null];
+    }
+    $host = $target;
+    $port = 25;
+    if (preg_match('/^(.*):(\d{1,5})$/', $target, $m)) {
+        $host = $m[1];
+        $port = (int) $m[2];
+        if ($port < 1 || $port > 65535) {
+            return [false, null, null, "Invalid port {$port}", false, null, null, null, null];
+        }
+    }
+    if ($host === '' || preg_match('/[\s;|&`$<>]/', $host)) {
+        return [false, null, null, 'Invalid SMTP host', false, null, null, null, null];
+    }
+
+    $timeout = max(0.5, (int) $component['timeout_ms'] / 1000);
+    $start = hrtime(true);
+    $fp = @fsockopen($host, $port, $errno, $errstr, $timeout);
+    $connectMs = (int) round((hrtime(true) - $start) / 1e6);
+    if ($fp === false) {
+        return [false, $connectMs, null, "SMTP connection to {$host}:{$port} failed ({$errstr})", false, null, $connectMs, null, null];
+    }
+    stream_set_timeout($fp, (int) ceil($timeout));
+
+    $banner = fgets($fp, 512);
+    if ($banner === false || !preg_match('/^2\d\d/', trim((string) $banner))) {
+        fclose($fp);
+        $detail = trim((string) ($banner ?: ''));
+        return [
+            false,
+            $connectMs,
+            null,
+            "SMTP banner error from {$host}:{$port}" . ($detail !== '' ? ": {$detail}" : ' (no response)'),
+            false,
+            null,
+            $connectMs,
+            null,
+            null,
+        ];
+    }
+
+    $bannerMs = (int) round((hrtime(true) - $start) / 1e6);
+    fwrite($fp, "EHLO rumahl-status\r\n");
+    $last = '';
+    while (($line = fgets($fp, 512)) !== false) {
+        $last = $line;
+        if (preg_match('/^\d{3} /', $line)) {
+            break; // final reply line
+        }
+    }
+    fwrite($fp, "QUIT\r\n");
+    fclose($fp);
+
+    if (!preg_match('/^2\d\d/', trim((string) $last))) {
+        return [false, $bannerMs, null, "SMTP EHLO failed on {$host}:{$port}", false, null, $connectMs, null, null];
+    }
+    // Time until the banner IS the service time here.
+    return [true, $bannerMs, null, null, false, null, $connectMs, null, $bannerMs];
+}
+
+/**
+ * Derive a component status from its recent check results.
+ * Rules (window = last N results):
+ *   - all ok, avg latency <= threshold           → operational
+ *   - all ok, avg latency > threshold            → degraded
+ *   - >= 60% ok                                  → degraded
+ *   - >= 20% ok                                  → partial_outage
+ *   - < 20% ok                                   → major_outage
+ *
+ * Latency is the EFFECTIVE service time (server_ms, falling back to the
+ * total for non-HTTP checks / old rows) — network phases are not counted.
+ * The threshold is the component's override (0 = global setting).
+ */
+function derive_status(string $componentId, int $window, ?array $component = null): string
+{
+    $settings = settings_get();
+    $rows = db_all(
+        'SELECT ok, COALESCE(server_ms, latency_ms) AS latency_ms FROM check_results
+          WHERE component_id = ?
+          ORDER BY checked_at DESC, id DESC LIMIT ?',
+        [$componentId, $window]
+    );
+    $count = count($rows);
+    if ($count === 0) {
+        return 'operational';
+    }
+
+    $okCount = 0;
+    $latencySum = 0;
+    foreach ($rows as $row) {
+        if ((int) $row['ok'] === 1) {
+            $okCount++;
+            $latencySum += (int) $row['latency_ms'];
+        }
+    }
+
+    $avgLatency = $okCount > 0 ? (int) round($latencySum / $okCount) : 0;
+    $override = (int) ($component['latency_threshold_ms'] ?? 0);
+    $threshold = $override > 0 ? $override : (int) $settings['latency_threshold_ms'];
+    $allOk = $okCount === $count;
+
+    if ($allOk) {
+        return $avgLatency > $threshold ? 'degraded' : 'operational';
+    }
+    if ($okCount >= (int) ceil($count * 0.6)) {
+        return 'degraded';
+    }
+    if ($okCount >= (int) ceil($count * 0.2)) {
+        return 'partial_outage';
+    }
+    return 'major_outage';
+}
+
+/** Record one check result + update the daily uptime counter. */
+function record_check(string $componentId, array $result): void
+{
+    $diagnostic = $result[9] ?? null;
+    $component = !$result[0] ? db_row('SELECT endpoint_url FROM components WHERE id = ?', [$componentId]) : null;
+    $screenshotUrl = $component !== null ? capture_failure_screenshot((string) $component['endpoint_url']) : null;
+    db_exec(
+        'INSERT INTO check_results (component_id, ok, softfail, latency_ms, dns_ms, connect_ms,
+                                    tls_ms, server_ms, status_code, error, diagnostic_json, screenshot_url, checked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $componentId,
+            $result[0] ? 1 : 0,
+            $result[4] ? 1 : 0,
+            $result[1],
+            $result[5],
+            $result[6],
+            $result[7],
+            $result[8],
+            $result[2],
+            $result[3],
+            $diagnostic === null ? null : json_encode($diagnostic, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            $screenshotUrl,
+            now_utc(),
+        ]
+    );
+    db_exec(
+        'INSERT INTO uptime_daily (component_id, day, ok_count, total_count)
+         VALUES (?, CURDATE(), ?, 1)
+         ON DUPLICATE KEY UPDATE ok_count = ok_count + ?, total_count = total_count + 1',
+        [$componentId, $result[0] ? 1 : 0, $result[0] ? 1 : 0]
+    );
+}
+
+/** Persist a component status change and queue an alert if it changed. */
+function apply_status(string $componentId, string $newStatus, bool $manual = false): void
+{
+    $current = db_row(
+        'SELECT status FROM component_status WHERE component_id = ?',
+        [$componentId]
+    );
+
+    if ($current !== null && $current['status'] === $newStatus) {
+        return;
+    }
+
+    db_exec(
+        'INSERT INTO component_status (component_id, status, changed_at)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), changed_at = VALUES(changed_at)',
+        [$componentId, $newStatus, now_utc()]
+    );
+    db_exec(
+        'UPDATE monitoring_services SET status = ?, updated_at = ? WHERE legacy_component_id = ?',
+        [$newStatus, now_utc(), $componentId]
+    );
+
+    if ($manual) {
+        return; // manual changes are admin actions, no alert
+    }
+
+    $component = db_row('SELECT name FROM components WHERE id = ?', [$componentId]);
+    $from = $current['status'] ?? 'operational';
+    if ($from === $newStatus) {
+        return;
+    }
+
+    // Maintenance transitions are planned and therefore silent — no alerts,
+    // no automatic incidents (the monitor pauses checks for these components).
+    if ($from === 'maintenance' || $newStatus === 'maintenance') {
+        return;
+    }
+
+    // Automatic incidents on outages (and automatic resolution on recovery).
+    sync_auto_incident($componentId, $component['name'] ?? 'Component', $from, $newStatus);
+
+    $settings = settings_get();
+    $rank = array_flip(COMPONENT_STATUSES);
+    $worsening = $rank[$newStatus] > $rank[$from];
+
+    $subject = $worsening
+        ? "[rumahl Status] {$component['name']} is now {$newStatus}"
+        : "[rumahl Status] {$component['name']} recovered to {$newStatus}";
+    $body = sprintf(
+        "Component: %s\nStatus: %s → %s\nTime: %s UTC\nPage: %s",
+        $component['name'],
+        $from,
+        $newStatus,
+        now_utc(),
+        $settings['page_url']
+    );
+
+    queue_alerts('component_status', $subject, $body);
+}
+
+/**
+ * Create / update / resolve automatic incidents based on status changes.
+ *
+ * - Worsening to partial_outage or major_outage: create an auto incident
+ *   (or append a status update to the still-open one for this component).
+ * - Recovery back to operational/degraded: resolve all open auto incidents
+ *   for the component with a final update.
+ */
+function sync_auto_incident(string $componentId, string $name, string $from, string $to): void
+{
+    $settings = settings_get();
+    if (!(int) ($settings['auto_incidents_enabled'] ?? 1)) {
+        return;
+    }
+
+    $rank = array_flip(COMPONENT_STATUSES);
+    $worsening = $rank[$to] > $rank[$from];
+    $outage = in_array($to, ['partial_outage', 'major_outage'], true);
+
+    if ($worsening && $outage) {
+        $open = db_all(
+            "SELECT i.* FROM incidents i
+              JOIN incident_components ic ON ic.incident_id = i.id
+             WHERE ic.component_id = ?
+               AND i.source = 'auto'
+               AND i.type = 'incident'
+               AND i.status NOT IN ('resolved','completed')
+             ORDER BY i.starts_at DESC LIMIT 1",
+            [$componentId]
+        );
+
+        $impact = $to === 'major_outage' ? 'critical' : 'major';
+        if ($open !== []) {
+            $incident = $open[0];
+            db_exec(
+                'UPDATE incidents SET impact = ?, updated_at = ? WHERE id = ?',
+                [$impact, now_utc(), $incident['id']]
+            );
+            $message = sprintf(
+                'Status changed from %s to %s (automatic check).',
+                str_replace('_', ' ', $from),
+                str_replace('_', ' ', $to)
+            );
+            add_incident_update($incident['id'], $incident['status'], $message);
+            $incident['impact'] = $impact;
+            queue_incident_alert($incident, (string) $incident['status'], $message);
+            return;
+        }
+
+        $id = uuid4();
+        $title = $to === 'major_outage'
+            ? "{$name} is down"
+            : "{$name} is experiencing a partial outage";
+        db_exec(
+            'INSERT INTO incidents (id, type, source, title, status, impact, starts_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$id, 'incident', 'auto', $title, 'investigating', $impact, now_utc(), now_utc(), now_utc()]
+        );
+        db_exec(
+            'INSERT INTO incident_components (incident_id, component_id) VALUES (?, ?)',
+            [$id, $componentId]
+        );
+        db_exec(
+            "INSERT IGNORE INTO status_page_incidents (status_page_id, incident_id)
+             SELECT id, ? FROM status_pages WHERE slug = 'default'",
+            [$id]
+        );
+        $message = sprintf(
+            'Detected automatically: %s changed from %s to %s.',
+            $name,
+            str_replace('_', ' ', $from),
+            str_replace('_', ' ', $to)
+        );
+        add_incident_update($id, 'investigating', $message);
+
+        $row = db_row('SELECT * FROM incidents WHERE id = ?', [$id]);
+        if ($row !== null) {
+            queue_incident_alert($row, 'investigating', $message);
+        }
+        return;
+    }
+
+    if (!$worsening && $rank[$to] < $rank['partial_outage']) {
+        // Recovery: resolve open auto incidents for this component.
+        $open = db_all(
+            "SELECT i.* FROM incidents i
+              JOIN incident_components ic ON ic.incident_id = i.id
+             WHERE ic.component_id = ?
+               AND i.source = 'auto'
+               AND i.type = 'incident'
+               AND i.status NOT IN ('resolved','completed')
+             ORDER BY i.starts_at DESC",
+            [$componentId]
+        );
+        foreach ($open as $incident) {
+            $message = sprintf(
+                'Recovered — %s is back to %s.',
+                $name,
+                str_replace('_', ' ', $to)
+            );
+            db_exec(
+                'UPDATE incidents SET status = ?, resolves_at = ?, updated_at = ? WHERE id = ?',
+                ['resolved', now_utc(), now_utc(), $incident['id']]
+            );
+            add_incident_update($incident['id'], 'resolved', $message);
+            $incident['status'] = 'resolved';
+            queue_incident_alert($incident, 'resolved', $message);
+        }
+    }
+}
+
+/** Queue email + webhook alerts for all configured channels. */
+function queue_alerts(string $type, string $subject, string $body): void
+{
+    $settings = settings_get();
+    foreach ($settings['alert_emails'] as $email) {
+        db_exec(
+            'INSERT INTO alert_log (type, subject, body, channel, recipient, status, attempts, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?)',
+            [$type, $subject, $body, 'email', $email, 'pending', now_utc()]
+        );
+    }
+    foreach ($settings['webhook_urls'] as $url) {
+        db_exec(
+            'INSERT INTO alert_log (type, subject, body, channel, recipient, status, attempts, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?)',
+            [$type, $subject, $body, 'webhook', $url, 'pending', now_utc()]
+        );
+    }
+}
+
+/** Full monitor cycle. Returns a summary for callers (CLI / HTTP cron). */
+function run_monitor(): array
+{
+    $settings = settings_get();
+    $components = db_all(
+        "SELECT * FROM components WHERE enabled = 1 AND kind = 'auto' ORDER BY position ASC"
+    );
+
+    // Components covered by an active maintenance window are NOT checked —
+    // their status is set to 'maintenance' (silently) and restored by the
+    // next normal check once the window ends.
+    $maintenanceIds = db_all(
+        "SELECT DISTINCT ic.component_id FROM incident_components ic
+          JOIN incidents i ON i.id = ic.incident_id
+         WHERE i.type = 'maintenance' AND i.status IN ('scheduled','in_progress')"
+    );
+    $skipIds = [];
+    foreach ($maintenanceIds as $m) {
+        $skipIds[$m['component_id']] = true;
+    }
+
+    $results = [];
+    foreach ($components as $component) {
+        if (isset($skipIds[$component['id']])) {
+            apply_status($component['id'], 'maintenance', manual: true);
+            $results[] = [
+                'component_id' => $component['id'],
+                'name' => $component['name'],
+                'check_type' => (string) ($component['check_type'] ?? 'http'),
+                'ok' => true,
+                'softfail' => false,
+                'latency_ms' => null,
+                'server_ms' => null,
+                'status_code' => null,
+                'error' => null,
+                'status' => 'maintenance',
+                'skipped' => true,
+            ];
+            continue;
+        }
+        $result = run_check($component);
+        record_check($component['id'], $result);
+        $newStatus = derive_status($component['id'], (int) $settings['failure_window'], $component);
+        apply_status($component['id'], $newStatus);
+        $results[] = [
+            'component_id' => $component['id'],
+            'name' => $component['name'],
+            'check_type' => (string) ($component['check_type'] ?? 'http'),
+            'ok' => $result[0],
+            'softfail' => $result[4],
+            'latency_ms' => $result[1],
+            'server_ms' => $result[8],
+            'status_code' => $result[2],
+            'error' => $result[3],
+            'status' => $newStatus,
+        ];
+    }
+
+    // The monitoring center stores its checks separately from legacy components.
+    // Run all checks that are due so monitors created in the new admin UI are
+    // real monitors rather than configuration-only records.
+    $platformResults = run_platform_checks();
+    foreach ($platformResults as $platformResult) {
+        $results[] = $platformResult;
+    }
+    db_exec('DELETE FROM monitoring_check_results WHERE checked_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 DAY)');
+
+    // Best-effort cleanup of raw check results (kept 31 days — long enough
+    // for the per-day outage episode details behind the uptime bars).
+    db_exec('DELETE FROM check_results WHERE checked_at < DATE_SUB(NOW(), INTERVAL 31 DAY)');
+
+    $sent = process_alerts();
+
+    return [
+        'checked' => count($results),
+        'ok' => count(array_filter($results, fn (array $r) => $r['ok'])),
+        'failed' => count(array_filter($results, fn (array $r) => !$r['ok'])),
+        'alerts_sent' => $sent,
+        'results' => $results,
+    ];
+}
+
+/** Execute due checks created by the monitoring center and persist their state. */
+function run_platform_checks(?string $onlyCheckId = null): array
+{
+    $checks = $onlyCheckId === null
+        ? db_all(
+            "SELECT * FROM monitor_checks
+              WHERE enabled = 1
+                AND (last_checked_at IS NULL OR DATE_ADD(last_checked_at, INTERVAL interval_seconds SECOND) <= UTC_TIMESTAMP())
+              ORDER BY created_at ASC"
+        )
+        : db_all('SELECT * FROM monitor_checks WHERE enabled=1 AND id=? LIMIT 1', [$onlyCheckId]);
+    $results = [];
+    foreach ($checks as $check) {
+        $config = json_decode((string) ($check['config'] ?? '{}'), true);
+        $config = is_array($config) ? $config : [];
+        $headers = preg_split('/\r?\n/', (string) ($config['headers'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $type = match ((string) $check['check_type']) {
+            'icmp' => 'ping',
+            'tls' => 'ssl',
+            default => (string) $check['check_type'],
+        };
+        if ($type === 'custom') {
+            $result = [false, null, null, 'Custom checks require an external monitoring agent', false, null, null, null, null];
+        } else {
+            $component = [
+                'check_type' => $type,
+                'endpoint_url' => (string) $check['target'],
+                'timeout_ms' => (int) $check['timeout_ms'],
+                'method' => strtoupper((string) ($config['method'] ?? 'GET')),
+                'headers' => json_encode(array_values($headers)),
+                'expected_status' => (int) ($config['expected_status'] ?? 200),
+                'body' => (string) ($config['body'] ?? ''),
+                'tls_verify' => !array_key_exists('tls_verify', $config) || !empty($config['tls_verify']),
+                'ip_version' => (string) ($config['ip_version'] ?? 'both'),
+                'basic_auth_username' => (string) ($config['basic_auth_username'] ?? ''),
+                'basic_auth_password' => (string) ($config['basic_auth_password'] ?? ''),
+                'proxy_host' => (string) ($config['proxy_host'] ?? ''),
+                'proxy_port' => (int) ($config['proxy_port'] ?? 0),
+            ];
+            $result = run_check($component);
+            for ($attempt = 0; !$result[0] && $attempt < (int) $check['retry_count']; $attempt++) {
+                $result = run_check($component);
+            }
+            for ($attempt = 0; !$result[0] && $attempt < (int) $check['retry_count']; $attempt++) {
+                $result = run_check($component);
+            }
+        }
+
+        $ok = (bool) $result[0];
+        $failures = $ok ? 0 : ((int) $check['consecutive_failures'] + 1);
+        $successes = $ok ? ((int) $check['consecutive_successes'] + 1) : 0;
+        $status = (string) $check['status'];
+        if ($ok && $successes >= max(1, (int) $check['recovery_threshold'])) $status = 'operational';
+        if (!$ok && $failures >= max(1, (int) $check['failure_threshold'])) $status = 'major_outage';
+        $now = now_utc();
+        db_exec(
+            'UPDATE monitor_checks SET status=?,consecutive_failures=?,consecutive_successes=?,last_checked_at=?,last_success_at=IF(?, ?, last_success_at),last_failure_at=IF(?, ?, last_failure_at),updated_at=? WHERE id=?',
+            [$status, $failures, $successes, $now, $ok ? 1 : 0, $now, $ok ? 0 : 1, $now, $now, $check['id']]
+        );
+        if ($result[1] !== null) {
+            db_exec(
+                "INSERT INTO monitoring_metrics (host_id,service_id,check_id,metric_key,value,unit,granularity,recorded_at) VALUES (?,?,?,'response_time_ms',?,'ms','raw',?)",
+                [$check['host_id'], $check['service_id'], $check['id'], $result[1], $now]
+            );
+        }
+        db_exec(
+            'INSERT INTO monitoring_check_results (check_id,ok,softfail,status,latency_ms,dns_ms,connect_ms,tls_ms,server_ms,status_code,error_text,diagnostic_json,checked_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [$check['id'], $ok ? 1 : 0, !empty($result[4]) ? 1 : 0, $status, $result[1], $result[5], $result[6], $result[7], $result[8], $result[2], $result[3], isset($result[9]) ? json_encode($result[9]) : null, $now]
+        );
+        if (!empty($check['service_id'])) {
+            $serviceStatus = db_row(
+                "SELECT status FROM monitor_checks WHERE service_id=? AND enabled=1
+                  ORDER BY FIELD(status,'major_outage','partial_outage','degraded','maintenance','unknown','operational') ASC LIMIT 1",
+                [$check['service_id']]
+            );
+            db_exec('UPDATE monitoring_services SET status=?,updated_at=? WHERE id=?', [$serviceStatus['status'] ?? $status, $now, $check['service_id']]);
+            if ($status !== (string) $check['status'] && !empty($check['auto_incident_enabled'])) {
+                sync_monitor_incident($check, (string) $check['status'], $status, (string) ($result[3] ?? ''));
+            }
+        }
+        $results[] = [
+            'check_id' => $check['id'], 'component_id' => null, 'name' => $check['name'],
+            'check_type' => $check['check_type'], 'ok' => $ok, 'softfail' => (bool) $result[4],
+            'latency_ms' => $result[1], 'server_ms' => $result[8], 'status_code' => $result[2],
+            'error' => $result[3], 'status' => $status,
+        ];
+    }
+    return $results;
+}
+
+/** Create and resolve editable incidents for checks managed by Monitoring. */
+function sync_monitor_incident(array $check, string $from, string $to, string $error): void
+{
+    $serviceId = trim((string) ($check['service_id'] ?? ''));
+    if ($serviceId === '') return;
+    $open = db_row(
+        "SELECT * FROM incidents WHERE monitor_id=? AND source='monitor'
+          AND status NOT IN ('resolved','completed') ORDER BY starts_at DESC LIMIT 1",
+        [$check['id']]
+    );
+    if ($to === 'major_outage') {
+        $service = db_row('SELECT public_name,internal_name FROM monitoring_services WHERE id=?', [$serviceId]);
+        $name = trim((string) ($service['public_name'] ?? $service['internal_name'] ?? $check['name'] ?? 'Service'));
+        $message = $error !== ''
+            ? sprintf('Automatic monitoring detected a failure: %s', $error)
+            : sprintf('Automatic monitoring detected that %s is unavailable.', $name);
+        if ($open !== null) {
+            add_incident_update((string) $open['id'], (string) $open['status'], $message, 'Monitoring', [
+                ['service_id' => $serviceId, 'status' => 'major_outage'],
+            ]);
+            db_exec('UPDATE incidents SET updated_at=? WHERE id=?', [now_utc(), $open['id']]);
+            return;
+        }
+        $id = uuid4();
+        $now = now_utc();
+        db_exec(
+            'INSERT INTO incidents (id,type,source,title,description,status,impact,starts_at,monitor_id,created_at,updated_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [$id, 'incident', 'monitor', $name . ' is unavailable', $message, 'investigating', 'critical', $now, $check['id'], $now, $now]
+        );
+        replace_incident_services($id, [['service_id' => $serviceId, 'status' => 'major_outage']]);
+        add_incident_update($id, 'investigating', $message, 'Monitoring', [
+            ['service_id' => $serviceId, 'status' => 'major_outage'],
+        ]);
+        return;
+    }
+    if ($open !== null && $to === 'operational') {
+        $message = sprintf('Automatic monitoring confirmed recovery after the status changed from %s to operational.', str_replace('_', ' ', $from));
+        db_exec('UPDATE incidents SET status=?,resolves_at=?,actual_end=?,updated_at=? WHERE id=?', ['resolved', now_utc(), now_utc(), now_utc(), $open['id']]);
+        add_incident_update((string) $open['id'], 'resolved', $message, 'Monitoring', [
+            ['service_id' => $serviceId, 'status' => 'operational'],
+        ]);
+    }
+}

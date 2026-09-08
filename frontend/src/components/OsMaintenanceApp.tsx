@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Archive, ArrowClockwise, DownloadSimple, ShieldCheck } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
+import { createPortal } from 'react-dom'
 import { authFetch } from '@/lib/authHelpers'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 
 interface UpdateInfo {
   provider_id: string
@@ -106,34 +108,37 @@ export function OsMaintenanceApp({ kind }: { kind: 'updates' | 'backups' }) {
   }
 
   return (
-    <section className="ora-app-frame mx-auto max-w-5xl p-4 pb-10 sm:p-6">
-      <header className="mb-6 flex items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{t(`os.apps.${kind}.name`)}</h1>
-          <p className="mt-1 text-sm text-foreground/45">{t(`os.apps.${kind}.description`)}</p>
-        </div>
-        <button type="button" onClick={load} disabled={loading} className="glass-card rounded-full p-3">
-          <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </header>
+    <section className="rumahl-app-frame overflow-hidden">
+      <OsAppNavbar
+        pageId={`os-${kind}`}
+        title={t(`os.apps.${kind}.name`)}
+        description={t(`os.apps.${kind}.description`)}
+        icon={kind === 'updates' ? <DownloadSimple size={24} weight="duotone" /> : <Archive size={24} weight="duotone" />}
+        accent={kind === 'updates' ? 'oklch(0.66 0.18 255)' : 'oklch(0.66 0.16 45)'}
+        trailing={
+          <button type="button" onClick={load} disabled={loading} className="rumahl-icon-button" title={t('common.refresh')}>
+            <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+        }
+      />
 
-      {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <div className="p-4">
+      {error && <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
 
       {kind === 'updates' ? (
         <div className="space-y-3">
-          {updates.length === 0 && !loading && <div className="glass-card rounded-3xl p-8 text-center text-sm text-foreground/45">{t('os.maintenance.noUpdateData')}</div>}
+          {updates.length === 0 && !loading && <div className="rumahl-card p-8 text-center text-sm text-foreground/45">{t('os.maintenance.noUpdateData')}</div>}
           {updates.map((update) => (
-            <article key={update.provider_id} className="glass-card rounded-3xl p-5">
+            <article key={update.provider_id} className="rumahl-card p-5">
               <div className="flex items-start gap-4">
-                <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${update.update_available ? 'bg-accent/15 text-accent' : 'bg-emerald-500/10 text-emerald-300'}`}>
+                <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${update.update_available ? 'bg-accent/15 text-accent' : 'bg-success/10 text-success'}`}>
                   {update.update_available ? <DownloadSimple size={25} weight="duotone" /> : <ShieldCheck size={25} weight="duotone" />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-semibold">{update.provider_id}</h2>
                     <span className="rounded-full bg-foreground/7 px-2 py-0.5 text-[10px]">{update.channel}</span>
-                    {update.is_critical && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-300">{t('os.maintenance.critical')}</span>}
+                    {update.is_critical && <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-semibold text-destructive">{t('os.maintenance.critical')}</span>}
                   </div>
                   <p className="mt-1 text-xs text-foreground/45">{update.current_version} → {update.latest_version}</p>
                   {update.release_notes && <p className="mt-3 text-sm text-foreground/60">{update.release_notes}</p>}
@@ -148,7 +153,7 @@ export function OsMaintenanceApp({ kind }: { kind: 'updates' | 'backups' }) {
           <button type="button" onClick={createBackup} disabled={working} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
             <Archive size={18} /> {t('os.maintenance.createBackup')}
           </button>
-          <div className="glass-card overflow-hidden rounded-3xl">
+          <div className="rumahl-card overflow-hidden ">
             {backups.length === 0 && !loading ? <p className="p-8 text-center text-sm text-foreground/45">{t('os.maintenance.noBackups')}</p> : backups.map((backup) => (
               <div key={backup.id} className="flex items-center gap-3 border-b border-foreground/7 p-4 last:border-0">
                 <Archive size={22} weight="duotone" className="text-accent" />
@@ -160,15 +165,17 @@ export function OsMaintenanceApp({ kind }: { kind: 'updates' | 'backups' }) {
         </div>
       )}
 
-      {confirm && (
+      {confirm && createPortal(
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md" onClick={() => !working && setConfirm(null)}>
-          <div className="glass-card w-full max-w-sm rounded-3xl p-6" onClick={(event) => event.stopPropagation()}>
+          <div className="rumahl-card w-full max-w-sm p-6" onClick={(event) => event.stopPropagation()}>
             <h2 className="text-lg font-semibold">{confirm.action === 'install' ? t('os.maintenance.confirmUpdate') : t('os.maintenance.confirmRestore')}</h2>
             <p className="mt-2 text-sm text-foreground/50">{confirm.action === 'install' ? t('os.maintenance.confirmUpdateHint') : t('os.maintenance.confirmRestoreHint')}</p>
             <div className="mt-5 flex gap-2"><button type="button" disabled={working} onClick={() => setConfirm(null)} className="flex-1 rounded-xl bg-foreground/8 px-3 py-2 text-sm">{t('common.cancel')}</button><button type="button" disabled={working} onClick={executeConfirmedAction} className="flex-1 rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{t('common.confirm')}</button></div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
+      </div>
     </section>
   )
 }

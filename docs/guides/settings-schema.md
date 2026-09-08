@@ -1,6 +1,6 @@
 # Settings Schema Guide
 
-Apps can define a settings schema in their manifest to provide user-configurable options. IORA automatically generates a settings UI based on this schema.
+Apps can define a settings schema in their manifest to provide user-configurable options. rumahl automatically generates a settings UI based on this schema.
 
 ## Defining a Settings Schema
 
@@ -291,7 +291,7 @@ Content-Type: application/json
 ### SDK
 
 ```javascript
-const client = new IoraClient('http://localhost:8126', 'api-key');
+const client = new rumahlClient('http://localhost:8126', 'api-key');
 client.setAppId('my-app');
 
 // Get current settings
@@ -316,7 +316,7 @@ await client.appConfig.reset('api_key');
 4. **Validate on the server too** – Don't trust client-side validation alone
 5. **Mark required fields clearly** – Don't surprise users with validation errors
 6. **Use conditional fields** – Hide irrelevant options
-7. **Store secrets as `password` type** – They're encrypted in iora-secrets
+7. **Store secrets as `password` type** – They're encrypted in rumahl-secrets
 8. **Keep it simple** – Too many settings overwhelm users
 
 ## Complete Example

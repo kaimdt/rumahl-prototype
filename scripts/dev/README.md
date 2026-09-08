@@ -1,12 +1,12 @@
-# IORA Development Scripts
+# rumahl Development Scripts
 
-> Automation scripts for IORA development workflows
+> Automation scripts for rumahl development workflows
 
 ## Quick Start Scripts
 
 ### `start-full` — Frontend + Backend (Automated) ⚡
 
-**Start both Vite dev server and iora-home backend with one command:**
+**Start both Vite dev server and rumahl-home backend with one command:**
 
 ```bash
 # From frontend directory
@@ -26,9 +26,9 @@ scripts\dev\start-full.bat
 1. Starts Vite dev server on port 5173
 2. Waits for Vite to be ready
 3. Starts the existing PostgreSQL development container when port 5432 is not reachable
-4. Starts iora-home backend on port 3001 with dev bootstrap credentials
-5. Sets `IORA_FRONTEND_DEV_URL=http://localhost:5173` automatically
-6. Shows the IORA and OS development credentials in the console
+4. Starts rumahl-home backend on port 3001 with dev bootstrap credentials
+5. Sets `RUMAHL_FRONTEND_DEV_URL=http://localhost:5173` automatically
+6. Shows the rumahl and OS development credentials in the console
 7. Aggregates logs from both processes
 8. Graceful shutdown with Ctrl+C
 
@@ -36,10 +36,10 @@ scripts\dev\start-full.bat
 - Frontend (with HMR): http://localhost:5173
 - Backend API: http://localhost:3001
 - Dev Info Page: http://localhost:3001/
-- IORA dev login: `admin` / `iora-dev-admin` (override with `IORA_BOOTSTRAP_ADMIN_USER` and `IORA_BOOTSTRAP_ADMIN_PASSWORD`)
-- OS dev login display: current host user / `iora-dev-os` (override with `IORA_DEV_OS_USER` and `IORA_DEV_OS_PASSWORD`)
+- rumahl dev login: `admin` / `rumahl-dev-admin` (override with `RUMAHL_BOOTSTRAP_ADMIN_USER` and `RUMAHL_BOOTSTRAP_ADMIN_PASSWORD`)
+- OS dev login display: current host user / `rumahl-dev-os` (override with `RUMAHL_DEV_OS_USER` and `RUMAHL_DEV_OS_PASSWORD`)
 
-### `iora-dev.mjs` — Interactive Service Manager
+### `rumahl-dev.mjs` — Interactive Service Manager
 
 **Full-featured interactive service manager with hot reload:**
 
@@ -74,7 +74,7 @@ npm run dev:list
 | Script | Command | Description |
 |--------|---------|-------------|
 | **start-full** | `npm run dev:full` | Start frontend + backend (automated) |
-| **iora-dev** | `npm run dev:all` | Interactive service manager |
+| **rumahl-dev** | `npm run dev:all` | Interactive service manager |
 | **dev:start** | `npm run dev:start` | Start all services (non-interactive) |
 | **dev:watch** | `npm run dev:watch` | Start all with hot reload |
 | **dev:list** | `npm run dev:list` | List available services |
@@ -133,8 +133,8 @@ npm run dev
 ```bash
 # Environment variables
 VITE_PORT=5173                    # Vite dev server port
-BACKEND_PORT=3001                 # iora-home port
-RUST_LOG=info,iora_home=debug    # Backend log level
+BACKEND_PORT=3001                 # rumahl-home port
+RUST_LOG=info,rumahl_home=debug    # Backend log level
 
 # Command line
 node start-full.mjs --port=3002   # Custom backend port
@@ -144,8 +144,8 @@ node start-full.mjs --port=3002   # Custom backend port
 1. Verify directories exist
 2. Start Vite dev server
 3. Monitor Vite startup (timeout: 30s)
-4. Start iora-home with `cargo run`
-5. Set `IORA_FRONTEND_DEV_URL` automatically
+4. Start rumahl-home with `cargo run`
+5. Set `RUMAHL_FRONTEND_DEV_URL` automatically
 6. Display access URLs
 7. Stream logs with prefixes
 8. Handle Ctrl+C for clean shutdown
@@ -156,21 +156,21 @@ node start-full.mjs --port=3002   # Custom backend port
 [HH:MM:SS] BACKEND  Server listening on 0.0.0.0:3001
 ```
 
-### iora-dev.mjs
+### rumahl-dev.mjs
 
 **Purpose:** Full-featured interactive development service manager
 
 **Auto-discovery:**
-- Scans `iora-os/backend/services/` for Rust services
+- Scans `rumahl-os/backend/services/` for Rust services
 - Detects `frontend/package.json` for Vite
-- Lists system apps, the IORA Dev VM, and development-image services without automatically starting them
+- Lists system apps, the rumahl Dev VM, and development-image services without automatically starting them
 
 **Reliable local lifecycle:**
 - Uses the monorepo root and the nested Cargo workspace instead of the legacy backend path
 - Starts the existing PostgreSQL Compose service when port 5432 is unavailable
-- Supplies service-specific development ports, initialized database URLs, and iora-home bootstrap credentials
-- Displays frontend/backend URLs, IORA/OS development credentials, Dev VM lifecycle, last sync time, and watcher status in the manager and info views
-- The IORA Dev VM entry starts `dev-local.ps1 -NoWatch` via Start/Space and runs a safe reinstall with `dev-local.ps1 -Rebuild -NoWatch` via Restart/Reinstall (`r`)
+- Supplies service-specific development ports, initialized database URLs, and rumahl-home bootstrap credentials
+- Displays frontend/backend URLs, rumahl/OS development credentials, Dev VM lifecycle, last sync time, and watcher status in the manager and info views
+- The rumahl Dev VM entry starts `dev-local.ps1 -NoWatch` via Start/Space and runs a safe reinstall with `dev-local.ps1 -Rebuild -NoWatch` via Restart/Reinstall (`r`)
 - Keeps a service in `START` until its TCP port is reachable and reports `WAIT` when a running process loses health
 - Stops the complete Cargo process group so restarts do not leave orphaned binaries behind
 - Uses native per-directory watchers on Linux, macOS, and Windows; Vite remains responsible for frontend HMR
@@ -180,7 +180,7 @@ node start-full.mjs --port=3002   # Custom backend port
 
 **Features:**
 - ✨ TUI with mouse support
-- 🔄 Hot reload for Rust services (via iora-dev-bridge)
+- 🔄 Hot reload for Rust services (via rumahl-dev-bridge)
 - 📊 Real-time service status
 - 📝 Log streaming per service
 - 🎨 Color-coded output
@@ -230,7 +230,7 @@ cargo --version
 
 # Dependencies installed
 cd frontend && npm install
-cd iora-os/backend && cargo build
+cd rumahl-os/backend && cargo build
 ```
 
 ### Port already in use
@@ -276,9 +276,9 @@ NO_COLOR=1 npm run dev:full
 rustup update
 
 # Clean and rebuild
-cd iora-os/backend
+cd rumahl-os/backend
 cargo clean
-cargo build -p iora-home
+cargo build -p rumahl-home
 ```
 
 ## Advanced Usage
@@ -287,7 +287,7 @@ cargo build -p iora-home
 
 ```bash
 # Create .env.local in frontend/
-VITE_IORA_BACKEND_URL=http://custom-host:3001
+VITE_RUMAHL_BACKEND_URL=http://custom-host:3001
 
 # Or set inline
 RUST_LOG=trace npm run dev:full
@@ -297,7 +297,7 @@ RUST_LOG=trace npm run dev:full
 
 ```bash
 # Enable verbose logging
-RUST_LOG=debug,iora_home=trace npm run dev:full
+RUST_LOG=debug,rumahl_home=trace npm run dev:full
 
 # Enable Vite debug
 DEBUG=vite:* npm run dev:full
@@ -310,7 +310,7 @@ DEBUG=vite:* npm run dev:full
 cd frontend && npm run build
 
 # Run backend (serves from dist/)
-cd ../iora-os/backend/services/iora-home
+cd ../rumahl-os/backend/services/rumahl-home
 cargo run
 
 # Access at http://localhost:3001
@@ -318,8 +318,8 @@ cargo run
 
 ## Related Documentation
 
-- [Frontend Hot Reload](../../iora-os/docs/frontend-hot-reload.md) — Detailed hot reload guide
-- [Backend Dev Bridge](../../iora-os/docs/dev-bridge-hot-reload.md) — Backend hot reload system
+- [Frontend Hot Reload](../../rumahl-os/docs/frontend-hot-reload.md) — Detailed hot reload guide
+- [Backend Dev Bridge](../../rumahl-os/docs/dev-bridge-hot-reload.md) — Backend hot reload system
 - [Frontend README](../../frontend/README.md) — Frontend development guide
 
 ## Contributing
@@ -334,4 +334,4 @@ When adding new scripts:
 
 ## License
 
-MIT License — Part of IORA smart home system
+MIT License — Part of rumahl smart home system

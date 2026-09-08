@@ -1,13 +1,13 @@
-# IORA Port Management and System Enhancements
+# rumahl Port Management and System Enhancements
 
-This document describes the enhanced port management system, NGINX reverse proxy, and SSH management features added to IORA.
+This document describes the enhanced port management system, NGINX reverse proxy, and SSH management features added to rumahl.
 
 ## Overview
 
 Three major enhancements have been implemented:
 
 1. **Enhanced Port Manager** - Improved port allocation with higher ranges, well-known port reservations, and dual-mode assignment
-2. **IORA NGINX Service** - Reverse proxy for all web traffic with dynamic configuration
+2. **rumahl NGINX Service** - Reverse proxy for all web traffic with dynamic configuration
 3. **SSH Management** - Control Center integration for SSH service and user management
 
 ---
@@ -19,7 +19,7 @@ Three major enhancements have been implemented:
 | Purpose | Range | Description |
 |---------|-------|-------------|
 | User Apps/Plugins | 10000-20000 | 10,000 available ports for dynamic allocation |
-| IORA Services | 8080-8099 | Reserved for IORA system services |
+| rumahl Services | 8080-8099 | Reserved for rumahl system services |
 | Well-Known Ports | Various | Auto-reserved standard service ports |
 
 ### Well-Known Ports (Auto-Reserved)
@@ -89,7 +89,7 @@ Apps can choose between two port assignment modes in their manifest:
 #### Allocate a Port
 
 ```rust
-use iora_shared::port_manager::{PortManager, PortProtocol, PortAssignmentMode};
+use rumahl_shared::port_manager::{PortManager, PortProtocol, PortAssignmentMode};
 
 let manager = PortManager::new();
 
@@ -128,13 +128,13 @@ println!("Reserved: {}", stats.reserved);
 
 ---
 
-## 2. IORA NGINX Service
+## 2. rumahl NGINX Service
 
-The NGINX service acts as a reverse proxy for all HTTP/HTTPS traffic in IORA.
+The NGINX service acts as a reverse proxy for all HTTP/HTTPS traffic in rumahl.
 
 ### Features
 
-- **Static Routes** - All IORA services accessible through consistent paths
+- **Static Routes** - All rumahl services accessible through consistent paths
 - **Dynamic App Routes** - Auto-generated routes for installed apps
 - **Security Headers** - X-Frame-Options, CSP, XSS Protection, etc.
 - **Rate Limiting** - API (10 req/s), General (50 req/s)
@@ -147,16 +147,16 @@ The NGINX service acts as a reverse proxy for all HTTP/HTTPS traffic in IORA.
 
 | Path | Service | Port |
 |------|---------|------|
-| `/` | iora-home | 8080 |
-| `/api/core/` | iora-core | 8090 |
-| `/api/control/` | iora-control | 8091 |
-| `/api/assist/` | iora-assist | 8092 |
-| `/api/secrets/` | iora-secrets | 8093 |
-| `/api/watchdog/` | iora-watchdog | 8094 |
-| `/api/security/` | iora-security | 8095 |
-| `/api/gateway/` | iora-gateway | 8096 |
-| `/api/supervisor/` | iora-supervisor | 8097 |
-| `/api/appstore/` | iora-appstore | 8098 |
+| `/` | rumahl-home | 8080 |
+| `/api/core/` | rumahl-core | 8090 |
+| `/api/control/` | rumahl-control | 8091 |
+| `/api/assist/` | rumahl-assist | 8092 |
+| `/api/secrets/` | rumahl-secrets | 8093 |
+| `/api/watchdog/` | rumahl-watchdog | 8094 |
+| `/api/security/` | rumahl-security | 8095 |
+| `/api/gateway/` | rumahl-gateway | 8096 |
+| `/api/supervisor/` | rumahl-supervisor | 8097 |
+| `/api/appstore/` | rumahl-appstore | 8098 |
 
 ### Dynamic App Routes
 
@@ -169,7 +169,7 @@ Installed apps are automatically accessible at:
 Example: If you install an app with ID `weather-dashboard`, it will be accessible at:
 
 ```
-http://your-iora-instance/apps/weather-dashboard/
+http://your-rumahl-instance/apps/weather-dashboard/
 ```
 
 The NGINX service automatically:
@@ -208,7 +208,7 @@ systemctl status nginx
 
 ## 3. SSH Management
 
-The Control Center now includes API endpoints for managing SSH access to the IORA OS.
+The Control Center now includes API endpoints for managing SSH access to the rumahl OS.
 
 ### API Endpoints
 
@@ -319,7 +319,7 @@ Response:
 
 ### Security Considerations
 
-1. **Root Access** - The IORA Control service must run with appropriate privileges to manage users
+1. **Root Access** - The rumahl Control service must run with appropriate privileges to manage users
 2. **Key Permissions** - SSH keys automatically get 600 permissions, `.ssh` directory gets 700
 3. **User Filtering** - Only shows real users (UID >= 1000, valid shell, /home directory)
 4. **Service Management** - Uses systemctl for safe SSH service control
@@ -400,7 +400,7 @@ nginx -t
 ### SSH Management Issues
 
 **Problem**: SSH enable/disable fails
-**Solution**: Ensure iora-control service has proper permissions to run systemctl commands
+**Solution**: Ensure rumahl-control service has proper permissions to run systemctl commands
 
 **Problem**: User creation fails
 **Solution**: Check that username follows validation rules (alphanumeric, hyphens, underscores only)
@@ -427,7 +427,7 @@ ls -la /home/username/.ssh/
 
 ### NGINX
 
-- Keepalive connections to upstreams (32 for IORA services, 8 for apps)
+- Keepalive connections to upstreams (32 for rumahl services, 8 for apps)
 - Gzip compression reduces bandwidth
 - Rate limiting prevents abuse
 - Shared memory zones for efficient rate limit tracking
@@ -457,10 +457,10 @@ Potential future improvements:
 ## Related Documentation
 
 - [App Store Guide](APP_STORE_GUIDE.md)
-- [App Manifest Schema](../backend/iora-shared/src/app_manifest.rs)
-- [Port Manager Source](../backend/iora-shared/src/port_manager.rs)
-- [NGINX Service README](../backend/iora-nginx/README.md)
-- [Control Center Source](../backend/iora-control/src/main.rs)
+- [App Manifest Schema](../backend/rumahl-shared/src/app_manifest.rs)
+- [Port Manager Source](../backend/rumahl-shared/src/port_manager.rs)
+- [NGINX Service README](../backend/rumahl-nginx/README.md)
+- [Control Center Source](../backend/rumahl-control/src/main.rs)
 
 ---
 
@@ -469,4 +469,4 @@ Potential future improvements:
 For issues or questions:
 1. Check the troubleshooting section above
 2. Review the source code documentation
-3. Submit an issue on the IORA repository
+3. Submit an issue on the rumahl repository

@@ -1,6 +1,6 @@
-# IORA Architecture Overview
+# rumahl Architecture Overview
 
-**IORA – Interface for Optimized Residential Autonomy** is an autonomous AI system designed
+**rumahl – Interface for Optimized Residential Autonomy** is an autonomous AI system designed
 to manage and support both a smart home and the people living in it. The system is fully
 independent of external services: Home Assistant is an optional integration, not a
 dependency.
@@ -11,22 +11,22 @@ dependency.
 
 ```
   ┌─────────────────────────────────────────────────────────────────────┐
-  │                         IORA OS (Browser UI)                         │
+  │                         rumahl OS (Browser UI)                         │
   │                                                                       │
   │   ┌─────────────────┐   ┌──────────────────┐   ┌───────────────┐    │
-  │   │  IORA Dashboard  │   │  IORA Control    │   │  IORA Assist  │    │
+  │   │  rumahl Dashboard  │   │  rumahl Control    │   │  rumahl Assist  │    │
   │   │  (Smart Home)    │   │  (Admin Panel)   │   │  (AI Chat)    │    │
   │   └────────┬────────┘   └────────┬─────────┘   └───────┬───────┘    │
   └────────────┼────────────────────┼──────────────────────┼────────────┘
                │          HTTP / WebSocket / SSE            │
   ┌────────────┼────────────────────┼────────────┐         │
-  │ iora-home  │  iora-core  iora-  │  iora-     │         │ AI requests
+  │ rumahl-home  │  rumahl-core  rumahl-  │  rumahl-     │         │ AI requests
   │  :8080     │  :8090     control │  assist    │         │
   │            │            :8091   │  :8092     │         │
   └────────────┴────────────────────┴────────────┘         │
                                                             ▼
   ┌────────────────────────────────────────────────────────────────────┐
-  │                    IORA Desktop (Tauri v2)                          │
+  │                    rumahl Desktop (Tauri v2)                          │
   │                                                                      │
   │  System Tray App (background)  ·  Settings Window (React)           │
   │  ┌──────────────────────────────────────────────────────────────┐   │
@@ -36,13 +36,13 @@ dependency.
   └────────────────────────────────────────────────────────────────────┘
                │
 
-### `iora-desktop` — Desktop Shell (Tauri)
+### `rumahl-desktop` — Desktop Shell (Tauri)
 
-Desktop shell for IORA Home and admin tools, built with Tauri and React.
+Desktop shell for rumahl Home and admin tools, built with Tauri and React.
 
 **Responsibilities:**
 - Transparent glass titlebar and tray integration
-- Remote IORA Home embedding with desktop viewport rendering
+- Remote rumahl Home embedding with desktop viewport rendering
 - Desktop-only settings for brightness, kiosk, always-on-top, proxy and diagnostics
 - Local system metrics, proxy health and desktop lifecycle management
 - LM Studio proxy startup and connection for local AI services
@@ -63,33 +63,33 @@ an independent Rust binary that can be deployed and scaled separately.
 ```
 backend/
 ├── Cargo.toml          ← workspace manifest
-├── iora-shared/        ← shared library (plugin system, types)
-├── iora-home/          ← Smart Home server (port 8080)
-├── iora-core/          ← Central orchestrator (port 8090)
-├── iora-control/       ← Admin panel backend (port 8091)
-├── iora-assist/        ← AI assistant skeleton (port 8092)
-├── iora-secrets/       ← Encrypted secrets storage (port 8093)
-├── iora-watchdog/      ← Health monitoring and failover (port 8094)
-├── iora-security/      ← Security monitoring and PostgreSQL management (port 8095)
-├── iora-files/         ← Secure file sharing backend with share links and WebDAV access
-├── iora-gateway/       ← Sandboxed external integration gateway (port 8096)
-├── iora-supervisor/    ← Docker orchestration and container management (port 8097)
-└── iora-installer/     ← Installation and update management (CLI)
+├── rumahl-shared/        ← shared library (plugin system, types)
+├── rumahl-home/          ← Smart Home server (port 8080)
+├── rumahl-core/          ← Central orchestrator (port 8090)
+├── rumahl-control/       ← Admin panel backend (port 8091)
+├── rumahl-assist/        ← AI assistant skeleton (port 8092)
+├── rumahl-secrets/       ← Encrypted secrets storage (port 8093)
+├── rumahl-watchdog/      ← Health monitoring and failover (port 8094)
+├── rumahl-security/      ← Security monitoring and PostgreSQL management (port 8095)
+├── rumahl-files/         ← Secure file sharing backend with share links and WebDAV access
+├── rumahl-gateway/       ← Sandboxed external integration gateway (port 8096)
+├── rumahl-supervisor/    ← Docker orchestration and container management (port 8097)
+└── rumahl-installer/     ← Installation and update management (CLI)
 ```
 
-### `iora-shared` – Shared Library
+### `rumahl-shared` – Shared Library
 
-Common types and infrastructure used by every IORA program.
+Common types and infrastructure used by every rumahl program.
 
 | Module | Contents |
 |--------|----------|
-| `types` | `EntityState`, `IoraEvent`, `ServiceHealth`, `HealthStatus` |
+| `types` | `EntityState`, `rumahlEvent`, `ServiceHealth`, `HealthStatus` |
 | `plugin` | `IPlugin`, `IApiPlugin`, `IServicePlugin`, `IIntegrationPlugin` traits; `PluginRegistry` |
 
-### `iora-home` – Smart Home (port 8080)
+### `rumahl-home` – Smart Home (port 8080)
 
 The core Smart Home server. Manages the connection to Home Assistant and exposes a full
-REST + WebSocket API consumed by the IORA OS dashboard.
+REST + WebSocket API consumed by the rumahl OS dashboard.
 
 **Responsibilities:**
 - Home Assistant REST / WebSocket client
@@ -116,16 +116,16 @@ GET  /api/docs                 ← Swagger UI
 - `PersonTracker` – polls HA every 30 s for all `person.*` entities, writes location transitions to `person_location_history`, aggregates into `person_daily_summary`
 - `AutomationEngine` – evaluates `arrival_light` / `departure_light` rules on each person state change and calls HA services automatically
 
-### `iora-core` – Central Orchestrator (port 8090)
+### `rumahl-core` – Central Orchestrator (port 8090)
 
-The system-wide command centre. All other IORA programs register themselves here on
+The system-wide command centre. All other rumahl programs register themselves here on
 startup so the dashboard and admin panel have a single source of truth for the whole
 ecosystem.
 
 **Responsibilities:**
-- Service registry (other IORA programs self-register)
+- Service registry (other rumahl programs self-register)
 - Background health polling (every 30 s)
-- Plugin registry (`PluginRegistry` from `iora-shared`)
+- Plugin registry (`PluginRegistry` from `rumahl-shared`)
 - System-wide SSE event bus
 - Optional PostgreSQL storage for analytics snapshots and system event log
 
@@ -142,15 +142,15 @@ GET  /api/core/events                      ← SSE event bus
 POST /api/core/events                      ← broadcast event
 ```
 
-### `iora-control` – Admin Panel Backend (port 8091)
+### `rumahl-control` – Admin Panel Backend (port 8091)
 
-The backend for the IORA Control admin dashboard. Aggregates data from `iora-core` and
-`iora-home` to provide a single admin API.
+The backend for the rumahl Control admin dashboard. Aggregates data from `rumahl-core` and
+`rumahl-home` to provide a single admin API.
 
 **Responsibilities:**
 - System stats (CPU, RAM, OS info via `sysinfo`)
-- Proxied service and plugin management (via iora-core)
-- Proxied user management (via iora-home)
+- Proxied service and plugin management (via rumahl-core)
+- Proxied user management (via rumahl-home)
 - Home Assistant integration endpoints for config, connection status, entities, scenes and automations
 - Network, backup, database and admin notification support
 - MQTT / Zigbee / Z-Wave / Matter / BLE / HomeKit status aggregation
@@ -162,10 +162,10 @@ The backend for the IORA Control admin dashboard. Aggregates data from `iora-cor
 GET  /health
 GET  /api/control/dashboard    ← overview (services + plugins)
 GET  /api/control/system       ← CPU / memory / OS stats
-GET  /api/control/services     ← all IORA services (via iora-core)
+GET  /api/control/services     ← all rumahl services (via rumahl-core)
 GET  /api/control/tasks        ← control task status and queue overview
 GET  /api/control/mode         ← active control mode and available modes
-GET  /api/control/users        ← users (via iora-home)
+GET  /api/control/users        ← users (via rumahl-home)
 GET  /api/control/api-keys     ← API keys and rate limits
 GET  /api/control/webhooks     ← registered webhooks
 GET  /api/control/ha/config    ← Home Assistant configuration
@@ -186,13 +186,13 @@ GET  /api/control/warnings     ← system warnings
 GET  /api/control/notifications← system notification feed
 ```
 
-### `iora-assist` – ORA AI / IORA Assist (port 8092)
+### `rumahl-assist` – rumahl AI / rumahl Assist (port 8092)
 
-**ORA AI (IORA Assist)** is the AI platform for IORA, providing access to AI capabilities
+**rumahl AI (rumahl Assist)** is the AI platform for rumahl, providing access to AI capabilities
 through multiple providers: external AI services (OpenAI, Anthropic Claude), local AI
-models (Ollama, LocalAI, LM Studio), or AI provided by the IORA Desktop client.
+models (Ollama, LocalAI, LM Studio), or AI provided by the rumahl Desktop client.
 
-ORA AI functions as both a text-based AI assistant and a voice assistant, supporting:
+rumahl AI functions as both a text-based AI assistant and a voice assistant, supporting:
 - Speech-to-text (STT) for voice input
 - Text-to-speech (TTS) for voice output
 - Live audio AI processing
@@ -214,7 +214,7 @@ ORA AI functions as both a text-based AI assistant and a voice assistant, suppor
 | OpenAI | ✅ | ✅ (Whisper) | ✅ | Yes | GPT-4, GPT-3.5, Whisper, TTS-1 |
 | Anthropic | ✅ | ❌ | ❌ | Yes | Claude 3.5 Sonnet, Claude 3 |
 | LocalAI | ✅ | ✅ | ✅ | No | Ollama, LM Studio, LocalAI |
-| DesktopAI | ✅ | ✅ | ✅ | No | Via IORA Desktop proxy |
+| DesktopAI | ✅ | ✅ | ✅ | No | Via rumahl Desktop proxy |
 
 **Key endpoints:**
 ```
@@ -233,17 +233,17 @@ POST /api/assist/voice/synthesize         ← Text-to-speech (returns audio)
 
 **Configuration:**
 
-Configure ORA AI via environment variables:
+Configure rumahl AI via environment variables:
 
 ```env
 # Provider selection (openai, anthropic, local, desktop)
-ORA_AI_PROVIDER=local
+RUMAHL_AI_PROVIDER=local
 
 # Provider-specific settings
-ORA_AI_API_KEY=sk-your-api-key-here      # For OpenAI/Anthropic
-ORA_AI_BASE_URL=http://localhost:11434   # For Local/Desktop
-ORA_AI_MODEL=llama3.2                    # Model name
-ORA_AI_API_VERSION=2023-06-01            # For Anthropic
+RUMAHL_AI_API_KEY=sk-your-api-key-here      # For OpenAI/Anthropic
+RUMAHL_AI_BASE_URL=http://localhost:11434   # For Local/Desktop
+RUMAHL_AI_MODEL=llama3.2                    # Model name
+RUMAHL_AI_API_VERSION=2023-06-01            # For Anthropic
 
 # Service port
 PORT=8092
@@ -253,34 +253,34 @@ PORT=8092
 
 OpenAI:
 ```env
-ORA_AI_PROVIDER=openai
-ORA_AI_API_KEY=sk-proj-...
-ORA_AI_MODEL=gpt-4o-mini
+RUMAHL_AI_PROVIDER=openai
+RUMAHL_AI_API_KEY=sk-proj-...
+RUMAHL_AI_MODEL=gpt-4o-mini
 ```
 
 Anthropic Claude:
 ```env
-ORA_AI_PROVIDER=anthropic
-ORA_AI_API_KEY=sk-ant-...
-ORA_AI_MODEL=claude-3-5-sonnet-20241022
+RUMAHL_AI_PROVIDER=anthropic
+RUMAHL_AI_API_KEY=sk-ant-...
+RUMAHL_AI_MODEL=claude-3-5-sonnet-20241022
 ```
 
 Local AI (Ollama):
 ```env
-ORA_AI_PROVIDER=local
-ORA_AI_BASE_URL=http://localhost:11434
-ORA_AI_MODEL=llama3.2
+RUMAHL_AI_PROVIDER=local
+RUMAHL_AI_BASE_URL=http://localhost:11434
+RUMAHL_AI_MODEL=llama3.2
 ```
 
-Desktop AI (via IORA Desktop):
+Desktop AI (via rumahl Desktop):
 ```env
-ORA_AI_PROVIDER=desktop
-ORA_AI_BASE_URL=http://localhost:11435
+RUMAHL_AI_PROVIDER=desktop
+RUMAHL_AI_BASE_URL=http://localhost:11435
 ```
 
 **Voice Capabilities:**
 
-ORA AI supports full voice interaction:
+rumahl AI supports full voice interaction:
 
 1. **Speech-to-Text (STT)**: Upload audio files (WebM, MP3, WAV, OGG) to `/api/assist/voice/transcribe`
    - Returns transcribed text and detected language
@@ -299,7 +299,7 @@ ORA AI supports full voice interaction:
 
 **Architecture:**
 
-ORA AI uses a trait-based provider abstraction layer:
+rumahl AI uses a trait-based provider abstraction layer:
 
 ```rust
 trait AIProvider {
@@ -314,15 +314,15 @@ trait AIProvider {
 Each provider implements this trait, allowing runtime switching between AI backends
 without code changes.
 
-**Integration with IORA Desktop:**
+**Integration with rumahl Desktop:**
 
-The Desktop AI provider connects to the IORA Desktop client, which:
+The Desktop AI provider connects to the rumahl Desktop client, which:
 - Runs LM Studio locally on the user's machine
 - Proxies requests to local AI models
 - Provides OpenAI-compatible API endpoint
 - Enables fully offline AI operation
 
-See `iora-desktop` documentation for proxy setup.
+See `rumahl-desktop` documentation for proxy setup.
 
 **Future Enhancements:**
 - Streaming chat responses (SSE)
@@ -333,7 +333,7 @@ See `iora-desktop` documentation for proxy setup.
 - Automated entity discovery and control
 - Personalized automation suggestions
 
-### `iora-secrets` – Encrypted Secrets Storage (port 8093)
+### `rumahl-secrets` – Encrypted Secrets Storage (port 8093)
 
 Centralized encrypted storage for sensitive data like API keys, passwords, and tokens.
 Essential for AI-powered autonomous tasks that need to access external services securely.
@@ -362,18 +362,18 @@ GET    /api/secrets/:id/audit    ← view access audit log
 - Each secret encrypted with unique nonce
 - No secrets in logs or error messages
 - Audit trail for all operations
-- PostgreSQL database: `iora_secrets`
+- PostgreSQL database: `rumahl_secrets`
 
-### `iora-watchdog` – Health Monitoring & Failover (port 8094)
+### `rumahl-watchdog` – Health Monitoring & Failover (port 8094)
 
-High-availability monitoring service that tracks all IORA programs and provides
-failover event routing when `iora-core` is unavailable. Designed for maximum
+High-availability monitoring service that tracks all rumahl programs and provides
+failover event routing when `rumahl-core` is unavailable. Designed for maximum
 stability with minimal complexity.
 
 **Responsibilities:**
 - Health check polling every 10 seconds for all registered services
 - Detect service failures and recovery
-- Backup event bus when `iora-core` is down
+- Backup event bus when `rumahl-core` is down
 - System metrics collection (CPU, memory)
 - Broadcast notifications on service state changes
 - Circuit breaker to prevent cascade failures
@@ -397,48 +397,48 @@ POST /api/watchdog/events        ← broadcast event (backup for core)
 - System CPU and memory usage
 
 **Failover behavior:**
-- Normal: `iora-core` handles events, watchdog monitors passively
+- Normal: `rumahl-core` handles events, watchdog monitors passively
 - Core down: Watchdog detects failure, takes over event broadcasting
 - Core recovered: Watchdog returns event bus control to core
 
-### `iora-installer` – Installation & Update Manager (CLI)
+### `rumahl-installer` – Installation & Update Manager (CLI)
 
-Command-line tool for automated installation, updates, and management of IORA
+Command-line tool for automated installation, updates, and management of rumahl
 on Debian servers. Handles dependencies, database setup, systemd integration,
 and zero-downtime updates.
 
 **Commands:**
 ```bash
-iora-installer install              # Fresh installation
-iora-installer update               # Update to latest version
-iora-installer update --version X   # Update to specific version
-iora-installer rollback             # Rollback to previous version
-iora-installer config               # Interactive configuration
-iora-installer status               # Show service status
-iora-installer backup               # Create system backup
-iora-installer restore <file>       # Restore from backup
-iora-installer migrate              # Run database migrations
-iora-installer validate             # Validate installation
+rumahl-installer install              # Fresh installation
+rumahl-installer update               # Update to latest version
+rumahl-installer update --version X   # Update to specific version
+rumahl-installer rollback             # Rollback to previous version
+rumahl-installer config               # Interactive configuration
+rumahl-installer status               # Show service status
+rumahl-installer backup               # Create system backup
+rumahl-installer restore <file>       # Restore from backup
+rumahl-installer migrate              # Run database migrations
+rumahl-installer validate             # Validate installation
 ```
 
 **Installation process:**
 1. Pre-flight checks (Debian version, permissions, disk space)
 2. Install dependencies (PostgreSQL, build tools, SSL)
-3. Create `iora` system user
-4. Install IORA binaries to `/opt/iora/bin/`
+3. Create `ora` system user
+4. Install rumahl binaries to `/opt/rumahl/bin/`
 5. Create PostgreSQL databases
-6. Generate configuration files in `/etc/iora/`
+6. Generate configuration files in `/etc/ora/`
 7. Create systemd service units
 8. Start and enable all services
 9. Validate health of all services
 
 **Files created:**
-- `/opt/iora/bin/` – IORA binaries
-- `/etc/iora/*.env` – Configuration files per service
-- `/etc/systemd/system/iora-*.service` – Systemd units
-- `/var/lib/iora/` – Runtime data (optional)
+- `/opt/rumahl/bin/` – rumahl binaries
+- `/etc/ora/*.env` – Configuration files per service
+- `/etc/systemd/system/rumahl-*.service` – Systemd units
+- `/var/lib/ora/` – Runtime data (optional)
 
-### `iora-security` – Security Monitoring & PostgreSQL Management (port 8095)
+### `rumahl-security` – Security Monitoring & PostgreSQL Management (port 8095)
 
 **THE MOST CRITICAL COMPONENT** - Comprehensive security system with encrypted audit logging,
 PostgreSQL connection monitoring, automatic database user management with credential rotation,
@@ -470,7 +470,7 @@ POST /api/security/users               ← Create PostgreSQL user
 ```
 
 **Encrypted SQLite Database:**
-- Location: `/var/lib/iora/security.db`
+- Location: `/var/lib/ora/security.db`
 - Encryption: AES-256-GCM with master key from `SECURITY_DB_KEY`
 - **COMPLETELY UNREADABLE** if database file is copied without the key
 - Hash-chained events prevent tampering
@@ -478,7 +478,7 @@ POST /api/security/users               ← Create PostgreSQL user
 
 **PostgreSQL Management:**
 - Full control over PostgreSQL server via admin connection
-- Automatic user creation per service: `iora_servicename_<uuid>`
+- Automatic user creation per service: `rumahl_servicename_<uuid>`
 - Secure password generation (32-byte random hex)
 - Automatic 30-day credential rotation
 - Granular permission management (read, write, full)
@@ -526,11 +526,11 @@ POST /api/security/users               ← Create PostgreSQL user
 
 **Environment Configuration:**
 ```env
-SECURITY_DB_PATH=/var/lib/iora/security.db
-SECURITY_DB_KEY=<64-hex-char-key>     # From iora-secrets
-# Uses DATABASE_URL for PostgreSQL (same as iora-home). Optional override:
+SECURITY_DB_PATH=/var/lib/ora/security.db
+SECURITY_DB_KEY=<64-hex-char-key>     # From rumahl-secrets
+# Uses DATABASE_URL for PostgreSQL (same as rumahl-home). Optional override:
 # POSTGRES_ADMIN_URL=postgres://postgres:<admin-pass>@localhost:5432/postgres
-IORA_ENV=production                   # Or 'development' (default)
+RUMAHL_ENV=production                   # Or 'development' (default)
 AUTO_LOCKDOWN_ENABLED=true
 LOCKDOWN_THRESHOLD_CRITICAL=5
 THREAT_LEVEL_THRESHOLD=7
@@ -539,11 +539,11 @@ PORT=8095
 ```
 
 **Integration:**
-- Works with `iora-secrets` for key management
-- Monitored by `iora-watchdog` for health
-- Sends alerts to `iora-home` frontend
+- Works with `rumahl-secrets` for key management
+- Monitored by `rumahl-watchdog` for health
+- Sends alerts to `rumahl-home` frontend
 - Controls access for all services
-- Coordinates with `iora-core` during lockdown
+- Coordinates with `rumahl-core` during lockdown
 
 **Database Schema Highlights:**
 - `security_events`: Hash-chained immutable event log
@@ -564,7 +564,7 @@ PORT=8095
 - Fail-secure: locks down on suspicious activity
 - Comprehensive audit trail for forensics
 
-### `iora-gateway` – Sandboxed External Integration Gateway (port 8096)
+### `rumahl-gateway` – Sandboxed External Integration Gateway (port 8096)
 
 **Secure gateway for external integrations** - Provides sandboxed access to email sending, web search,
 and HTTP data retrieval with comprehensive content validation, malware detection, and AI request monitoring.
@@ -657,7 +657,7 @@ GET  /api/gateway/ai-requests          ← AI request monitoring
 
 **Environment Configuration:**
 ```env
-GATEWAY_DB_PATH=/var/lib/iora/gateway.db
+GATEWAY_DB_PATH=/var/lib/ora/gateway.db
 SMTP_SERVER=smtp.example.com:587
 SMTP_USERNAME=noreply@example.com
 SMTP_PASSWORD=<secure-password>
@@ -679,14 +679,14 @@ PORT=8096
 - AI request monitoring and analysis
 
 **Integration:**
-- Available to `iora-assist` for AI tool usage
-- Monitored by `iora-watchdog` for health
-- Uses `iora-security` for threat intelligence
+- Available to `rumahl-assist` for AI tool usage
+- Monitored by `rumahl-watchdog` for health
+- Uses `rumahl-security` for threat intelligence
 - Logs critical events to security system
 
-### `iora-supervisor` – Docker Orchestration (port 8097)
+### `rumahl-supervisor` – Docker Orchestration (port 8097)
 
-**THE CONTAINER MANAGER** - Controls the entire IORA Docker ecosystem. Manages all service containers, handles updates, restarts, and provides a unified API for container operations.
+**THE CONTAINER MANAGER** - Controls the entire rumahl Docker ecosystem. Manages all service containers, handles updates, restarts, and provides a unified API for container operations.
 
 **Responsibilities:**
 - Docker container orchestration and lifecycle management
@@ -702,7 +702,7 @@ PORT=8096
 ```
 GET  /health
 GET  /api/supervisor/status              ← Supervisor and system status
-GET  /api/supervisor/containers          ← List all IORA containers
+GET  /api/supervisor/containers          ← List all rumahl containers
 POST /api/supervisor/containers/{name}/start   ← Start container
 POST /api/supervisor/containers/{name}/stop    ← Stop container
 POST /api/supervisor/containers/{name}/restart ← Restart container
@@ -711,7 +711,7 @@ GET  /api/supervisor/containers/{name}/logs    ← Get container logs
 ```
 
 **Container Management:**
-- Lists all containers with `iora.managed=true` label
+- Lists all containers with `ora.managed=true` label
 - Monitors container state (running, stopped, unhealthy)
 - Provides start/stop/restart operations
 - Aggregates logs from all services
@@ -728,7 +728,7 @@ GET  /api/supervisor/containers/{name}/logs    ← Get container logs
 - Runs with privileged access to Docker socket
 - Required for container management operations
 - Protected by AppArmor profile
-- Only accessible from within IORA network
+- Only accessible from within rumahl network
 
 **Environment Configuration:**
 ```env
@@ -738,29 +738,29 @@ RUST_LOG=info
 
 **Integration:**
 - Managed by RAUC for system updates
-- Monitored by `iora-watchdog` for health
-- Controls all other IORA service containers
+- Monitored by `rumahl-watchdog` for health
+- Controls all other rumahl service containers
 - Critical service - must always be running
-- Coordinates with `iora-core` for service registry
+- Coordinates with `rumahl-core` for service registry
 
 **Docker Compose Configuration:**
 ```yaml
-iora-supervisor:
-  container_name: iora-supervisor
+rumahl-supervisor:
+  container_name: rumahl-supervisor
   ports: ["8097:8097"]
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
   privileged: true
   labels:
-    iora.managed: "true"
-    iora.service: "supervisor"
-    iora.critical: "true"
+    ora.managed: "true"
+    ora.service: "supervisor"
+    ora.critical: "true"
 ```
 
 **Security Considerations:**
 - Requires Docker socket access (high privilege)
 - Protected by AppArmor mandatory access control
-- Only allows container operations on IORA services
+- Only allows container operations on rumahl services
 - No arbitrary container creation allowed
 - Logs all operations for audit trail
 - Rate limiting on update operations
@@ -769,8 +769,8 @@ iora-supervisor:
 
 ## Plugin System
 
-Every IORA program can be extended with plugins using the traits defined in
-`iora-shared::plugin`.
+Every rumahl program can be extended with plugins using the traits defined in
+`rumahl-shared::plugin`.
 
 ### Plugin Types
 
@@ -811,7 +811,7 @@ pub enum PluginPermission {
 ### Writing a Plugin (Rust)
 
 ```rust
-use iora_shared::plugin::{IPlugin, PluginMetadata, PluginType, PluginPermission};
+use rumahl_shared::plugin::{IPlugin, PluginMetadata, PluginType, PluginPermission};
 use async_trait::async_trait;
 
 struct MyPlugin { meta: PluginMetadata }
@@ -826,14 +826,14 @@ impl IPlugin for MyPlugin {
     }
 }
 
-// Register with iora-core via POST /api/core/plugins
+// Register with rumahl-core via POST /api/core/plugins
 ```
 
 ---
 
 ## Person Tracking & Presence Automation
 
-`iora-home` runs a `PersonTracker` background service that provides long-term analytics
+`rumahl-home` runs a `PersonTracker` background service that provides long-term analytics
 and autonomous device control based on person movements.
 
 ### How it works
@@ -842,7 +842,7 @@ and autonomous device control based on person movements.
 Home Assistant (person.* entities)
   │  polled every 30 s via REST API
   ▼
-PersonTracker (iora-home background task)
+PersonTracker (rumahl-home background task)
   │  detects location changes
   ├──► person_location_history (PostgreSQL)
   │       → who, where, when, how long
@@ -903,28 +903,28 @@ GET /api/automation-rules/:id/executions   ← execution history
 
 ---
 
-## Frontend (IORA OS)
+## Frontend (rumahl OS)
 
-The React frontend is the IORA OS user interface. It is served by `iora-home` and
+The React frontend is the rumahl OS user interface. It is served by `rumahl-home` and
 communicates with all backend programs.
 
 ```
 src/
 ├── components/
-│   ├── AdminPanel.tsx        ← IORA Control UI
+│   ├── AdminPanel.tsx        ← rumahl Control UI
 │   ├── PageDesigner.tsx      ← drag-and-drop dashboard editor
 │   └── widgets/              ← smart-home widget library
 ├── hooks/                    ← data-fetching hooks
 └── lib/                      ← shared utilities
 ```
 
-**IORA OS sections:**
+**rumahl OS sections:**
 
 | Section | Description | Backend |
 |---------|-------------|---------|
-| Dashboard | Smart Home widget grid | iora-home |
-| IORA Control | Admin panel (users, system, plugins) | iora-control + iora-core |
-| IORA Assist | AI chat interface *(future)* | iora-assist |
+| Dashboard | Smart Home widget grid | rumahl-home |
+| rumahl Control | Admin panel (users, system, plugins) | rumahl-control + rumahl-core |
+| rumahl Assist | AI chat interface *(future)* | rumahl-assist |
 
 ---
 
@@ -936,7 +936,7 @@ src/
 Home Assistant
   │  WebSocket event_state_changed
   ▼
-iora-home (EntityStateCache)
+rumahl-home (EntityStateCache)
   │  in-memory update
   ├──► WebSocket broadcast → connected browsers
   └──► SSE /api/events/stream → browsers
@@ -946,7 +946,7 @@ iora-home (EntityStateCache)
 
 ```
 Browser → POST /api/services/light/turn_on
-  → iora-home (ServiceCallBuffer coalesces rapid calls)
+  → rumahl-home (ServiceCallBuffer coalesces rapid calls)
   → HA REST API
   → SSE/WS state-changed broadcast
   → Browser updates UI
@@ -956,8 +956,8 @@ Browser → POST /api/services/light/turn_on
 
 ```
 Admin Panel → POST /api/control/plugins
-  → iora-control proxies to iora-core
-  → iora-core: PluginRegistry::register()
+  → rumahl-control proxies to rumahl-core
+  → rumahl-core: PluginRegistry::register()
   → SSE event "plugin.installed" broadcast
 ```
 
@@ -967,14 +967,14 @@ Admin Panel → POST /api/control/plugins
 
 ### Authentication
 
-- JWT tokens issued by `iora-home` (`/api/auth/login`)
+- JWT tokens issued by `rumahl-home` (`/api/auth/login`)
 - Optional short PIN for kiosk / terminal devices
 - API keys for machine-to-machine access
 - Admin endpoints protected by `is_admin` flag
 
 ### Plugin Security
 
-Plugins declare required permissions in their metadata. `iora-core` validates these
+Plugins declare required permissions in their metadata. `rumahl-core` validates these
 before registration and enforces them at runtime. Plugins with `PluginManager` permission
 can install/remove other plugins.
 
@@ -984,16 +984,16 @@ can install/remove other plugins.
 
 | Service | Default Port | Protocol |
 |---------|-------------|----------|
-| iora-home | 8080 | HTTP, WebSocket, SSE |
-| iora-core | 8090 | HTTP, SSE |
-| iora-control | 8091 | HTTP |
-| iora-assist | 8092 | HTTP |
-| iora-secrets | 8093 | HTTP |
-| iora-watchdog | 8094 | HTTP, SSE |
-| iora-security | 8095 | HTTP |
-| iora-gateway | 8096 | HTTP |
-| iora-supervisor | 8097 | HTTP |
-| iora-installer | N/A | CLI only |
+| rumahl-home | 8080 | HTTP, WebSocket, SSE |
+| rumahl-core | 8090 | HTTP, SSE |
+| rumahl-control | 8091 | HTTP |
+| rumahl-assist | 8092 | HTTP |
+| rumahl-secrets | 8093 | HTTP |
+| rumahl-watchdog | 8094 | HTTP, SSE |
+| rumahl-security | 8095 | HTTP |
+| rumahl-gateway | 8096 | HTTP |
+| rumahl-supervisor | 8097 | HTTP |
+| rumahl-installer | N/A | CLI only |
 
 Ports can be overridden with the `PORT` environment variable in each service.
 
@@ -1003,18 +1003,18 @@ Ports can be overridden with the `PORT` environment variable in each service.
 
 ### Docker Compose (recommended for production)
 
-IORA is designed to run as a fully containerized system. All services are Docker containers managed by `iora-supervisor`.
+rumahl is designed to run as a fully containerized system. All services are Docker containers managed by `rumahl-supervisor`.
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/iora.git
-cd iora
+git clone https://github.com/your-org/ora.git
+cd ora
 
 # Configure environment
 cp .env.example .env
 # Edit .env with your settings
 
-# Start entire IORA stack
+# Start entire rumahl stack
 docker compose up -d
 
 # Check status
@@ -1023,7 +1023,7 @@ docker compose ps
 # View logs
 docker compose logs -f
 
-# Access IORA
+# Access rumahl
 # - Home: http://localhost:8080
 # - Control: http://localhost:8091
 # - Supervisor: http://localhost:8097
@@ -1031,21 +1031,21 @@ docker compose logs -f
 
 The full docker-compose.yml includes:
 - PostgreSQL database with automatic initialization
-- All 9 IORA services as containers
-- iora-supervisor for Docker orchestration
+- All 9 rumahl services as containers
+- rumahl-supervisor for Docker orchestration
 - AppArmor security profiles
 - Health checks and auto-restart
 - Persistent volumes for data
 
-### IORA OS (production hardware deployment)
+### rumahl OS (production hardware deployment)
 
-**IORA OS** is a custom operating system based on Buildroot, similar to Home Assistant OS. It provides a complete, secure, and optimized environment for running IORA.
+**rumahl OS** is a custom operating system based on Buildroot, similar to Home Assistant OS. It provides a complete, secure, and optimized environment for running rumahl.
 
 #### Key Features:
 - **Buildroot LTS Linux** - Minimal, secure kernel
 - **SquashFS root filesystem** - Read-only, compressed (LZ4)
 - **ZRAM** - Compressed RAM for /tmp, /var, swap
-- **Docker Engine** - All IORA services run in containers
+- **Docker Engine** - All rumahl services run in containers
 - **RAUC updates** - A/B partitions with atomic updates and rollback
 - **AppArmor** - Mandatory Access Control for all services
 - **GRUB/U-Boot** - Support for x86_64 and ARM devices
@@ -1059,17 +1059,17 @@ The full docker-compose.yml includes:
 #### Quick Start:
 ```bash
 # Download pre-built image
-wget https://github.com/your-org/iora/releases/latest/iora-os.img.xz
+wget https://github.com/your-org/ora/releases/latest/rumahl-os.img.xz
 
 # Flash to device (replace /dev/sdX with your device)
-xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+xzcat rumahl-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 
 # Boot device
-# Default credentials: root / iora (change immediately!)
+# Default credentials: root / ora (change immediately!)
 # Web interface: http://[device-ip]:8080
 ```
 
-See [iora-os/README.md](iora-os/README.md) for building from source.
+See [rumahl-os/README.md](rumahl-os/README.md) for building from source.
 
 ### Development (run services directly)
 
@@ -1077,45 +1077,45 @@ For development without Docker:
 
 ```bash
 cd backend
-cargo run -p iora-core     &   # start orchestrator first
-cargo run -p iora-security &   # security monitoring (requires PostgreSQL admin access)
-cargo run -p iora-watchdog &   # health monitoring
-cargo run -p iora-secrets  &   # encrypted secrets storage
-cargo run -p iora-gateway  &   # sandboxed external integrations
-cargo run -p iora-home     &   # smart home service
-cargo run -p iora-control  &   # admin panel backend
-cargo run -p iora-assist   &   # AI assistant (optional)
+cargo run -p rumahl-core     &   # start orchestrator first
+cargo run -p rumahl-security &   # security monitoring (requires PostgreSQL admin access)
+cargo run -p rumahl-watchdog &   # health monitoring
+cargo run -p rumahl-secrets  &   # encrypted secrets storage
+cargo run -p rumahl-gateway  &   # sandboxed external integrations
+cargo run -p rumahl-home     &   # smart home service
+cargo run -p rumahl-control  &   # admin panel backend
+cargo run -p rumahl-assist   &   # AI assistant (optional)
 ```
 
 ### Build individual programs
 
 ```bash
 cd backend
-cargo build --release -p iora-home
-cargo build --release -p iora-core
-cargo build --release -p iora-control
-cargo build --release -p iora-assist
-cargo build --release -p iora-secrets
-cargo build --release -p iora-watchdog
-cargo build --release -p iora-security
-cargo build --release -p iora-gateway
-cargo build --release -p iora-installer
+cargo build --release -p rumahl-home
+cargo build --release -p rumahl-core
+cargo build --release -p rumahl-control
+cargo build --release -p rumahl-assist
+cargo build --release -p rumahl-secrets
+cargo build --release -p rumahl-watchdog
+cargo build --release -p rumahl-security
+cargo build --release -p rumahl-gateway
+cargo build --release -p rumahl-installer
 ```
 
 ### Production Installation (Debian)
 
-Use the `iora-installer` tool for automated installation:
+Use the `rumahl-installer` tool for automated installation:
 
 ```bash
 # Download installer
-wget https://github.com/your-org/iora/releases/latest/download/iora-installer
-chmod +x iora-installer
+wget https://github.com/your-org/ora/releases/latest/download/rumahl-installer
+chmod +x rumahl-installer
 
 # Run installation
-sudo ./iora-installer install
+sudo ./rumahl-installer install
 
 # Check status
-./iora-installer status
+./rumahl-installer status
 ```
 
 ---
@@ -1124,28 +1124,28 @@ sudo ./iora-installer install
 
 | Technique | Where |
 |-----------|-------|
-| In-memory entity state cache | iora-home |
-| ServiceCallBuffer (coalesces slider drags) | iora-home |
-| PostgreSQL connection pooling (sqlx) | iora-home, iora-core |
+| In-memory entity state cache | rumahl-home |
+| ServiceCallBuffer (coalesces slider drags) | rumahl-home |
+| PostgreSQL connection pooling (sqlx) | rumahl-home, rumahl-core |
 | JSONB columns for flexible attributes | person_location_history |
 | Partial index on open location records | person_location_history |
-| Broadcast channel for SSE / WS | iora-home, iora-core |
-| Separate poll/cmd HTTP clients | iora-home HA client |
-| Native OS APIs via Tauri (no Electron overhead) | iora-desktop |
+| Broadcast channel for SSE / WS | rumahl-home, rumahl-core |
+| Separate poll/cmd HTTP clients | rumahl-home HA client |
+| Native OS APIs via Tauri (no Electron overhead) | rumahl-desktop |
 
 ---
 
-## IORA Desktop
+## rumahl Desktop
 
-IORA Desktop is a **Tauri v2** application that runs silently in the system tray and acts
-as a bridge between IORA and a locally running **LM Studio** instance.
+rumahl Desktop is a **Tauri v2** application that runs silently in the system tray and acts
+as a bridge between rumahl and a locally running **LM Studio** instance.
 
 ### Why a desktop client?
 
-- **Local AI processing** — LM Studio runs AI models fully on-device. IORA Desktop proxies
-  requests from `iora-assist` to LM Studio, keeping all data local.
+- **Local AI processing** — LM Studio runs AI models fully on-device. rumahl Desktop proxies
+  requests from `rumahl-assist` to LM Studio, keeping all data local.
 - **Background service** — the app runs invisibly after login; no terminal required.
-- **Remote IORA Home shell** — the desktop window can embed the remote IORA Home UI with native window chrome and quick actions.
+- **Remote rumahl Home shell** — the desktop window can embed the remote rumahl Home UI with native window chrome and quick actions.
 - **System integration** — desktop settings now expose brightness, always-on-top, kiosk mode, screensaver, notifications and proxy controls.
 - **Admin sidebar** — the built-in Admin Panel now uses a side navigation layout for faster access to system, HA, network, logs and realtime tools.
 - **Settings persistence** — desktop configuration is stored centrally and loaded on app startup.
@@ -1165,7 +1165,7 @@ desktop/
 │   ├── components/
 │   │   ├── ConnectionStatus.tsx    # green/red indicator
 │   │   ├── ModelSelector.tsx       # model dropdown + refresh
-│   │   └── SettingsForm.tsx        # LM Studio + IORA settings
+│   │   └── SettingsForm.tsx        # LM Studio + rumahl settings
 │   ├── hooks/
 │   │   └── useLmStudio.ts          # config, models, connection state
 │   └── lib/
@@ -1190,14 +1190,14 @@ desktop/
 | `lm_studio_url` | `http://localhost:1234` | LM Studio base URL |
 | `lm_studio_api_key` | *(empty)* | API key (optional for local instances) |
 | `selected_model` | *(empty)* | Model identifier selected from LM Studio |
-| `iora_backend_url` | `http://localhost:8092` | iora-assist URL |
+| `rumahl_backend_url` | `http://localhost:8092` | rumahl-assist URL |
 | `auto_start_proxy` | `true` | Start proxy on desktop app startup |
-| `proxy_port` | `11435` | Local port for the IORA→LM Studio proxy |
+| `proxy_port` | `11435` | Local port for the rumahl→LM Studio proxy |
 
 Settings are persisted as JSON in the OS app-config directory:
-- **Linux**: `~/.config/iora-desktop/config.json`
-- **macOS**: `~/Library/Application Support/iora-desktop/config.json`
-- **Windows**: `%APPDATA%\iora-desktop\config.json`
+- **Linux**: `~/.config/rumahl-desktop/config.json`
+- **macOS**: `~/Library/Application Support/rumahl-desktop/config.json`
+- **Windows**: `%APPDATA%\rumahl-desktop\config.json`
 
 ### Building
 
@@ -1218,9 +1218,9 @@ npm run tauri dev
 
 ## Database
 
-Both `iora-home` and `iora-core` use **PostgreSQL**. SQLite is no longer used.
+Both `rumahl-home` and `rumahl-core` use **PostgreSQL**. SQLite is no longer used.
 
-### iora-home database (`iora_home`)
+### rumahl-home database (`rumahl_home`)
 
 | Migration | Tables created/altered |
 |-----------|------------------------|
@@ -1241,7 +1241,7 @@ Both `iora-home` and `iora-core` use **PostgreSQL**. SQLite is no longer used.
 | **015** | **person_location_history**, **person_daily_summary** |
 | **016** | **automation_rules**, **automation_executions** |
 
-### iora-core database (`iora_core`)
+### rumahl-core database (`rumahl_core`)
 
 | Migration | Tables |
 |-----------|--------|
@@ -1254,28 +1254,28 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: iora
-      POSTGRES_PASSWORD: iora_password
-      POSTGRES_DB: iora_home
+      POSTGRES_USER: ora
+      POSTGRES_PASSWORD: rumahl_password
+      POSTGRES_DB: rumahl_home
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  iora-home:
-    build: { context: ./backend, target: iora-home }
+  rumahl-home:
+    build: { context: ./backend, target: rumahl-home }
     ports: ["8080:8080"]
     environment:
-      DATABASE_URL: postgres://iora:iora_password@postgres:5432/iora_home
+      DATABASE_URL: postgres://ora:rumahl_password@postgres:5432/rumahl_home
       HA_URL: http://homeassistant.local:8123
       HA_TOKEN: ${HA_TOKEN}
     depends_on: [postgres]
 
-  iora-core:
-    build: { context: ./backend, target: iora-core }
+  rumahl-core:
+    build: { context: ./backend, target: rumahl-core }
     ports: ["8090:8090"]
     environment:
-      DATABASE_URL: postgres://iora:iora_password@postgres:5432/iora_core
+      DATABASE_URL: postgres://ora:rumahl_password@postgres:5432/rumahl_core
     depends_on: [postgres]
 
 volumes:
@@ -1287,8 +1287,8 @@ volumes:
 ## Contributing
 
 - See [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md) for plugin development.
-- Add new IORA programs as additional workspace members in `backend/Cargo.toml`.
-- Shared types belong in `iora-shared`; program-specific logic stays in the program crate.
+- Add new rumahl programs as additional workspace members in `backend/Cargo.toml`.
+- Shared types belong in `rumahl-shared`; program-specific logic stays in the program crate.
 
 For core contributions:
 1. Fork repository

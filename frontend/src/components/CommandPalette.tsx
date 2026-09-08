@@ -13,6 +13,7 @@ import {
   WifiHigh,
   WifiSlash,
   CircleNotch,
+  CircleHalfTilt,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { usePageNavigation, iconMap } from '@/contexts/PageNavigationContext'
@@ -23,6 +24,7 @@ import { useInstalledApps } from '@/hooks/useInstalledApps'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { authFetch } from '@/lib/authHelpers'
+import { formatCombo, getCombo } from '@/lib/shortcutRegistry'
 
 /**
  * CommandPalette – Spotlight-style ⌘K / Ctrl+Space launcher.
@@ -41,6 +43,8 @@ export function CommandPalette() {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   // ── Remote search state (files, devices) ────────────────────────────────
   const [remoteResults, setRemoteResults] = useState<{ files: Command[]; devices: Command[] }>({
@@ -54,7 +58,10 @@ export function CommandPalette() {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        setOpen((value) => !value)
+        setOpen((value) => {
+          if (!value) previousFocusRef.current = document.activeElement as HTMLElement | null
+          return !value
+        })
         setQuery('')
         setSelected(0)
       }
@@ -62,15 +69,18 @@ export function CommandPalette() {
     }
     // Spotlight trigger from the OS shell shortcut registry (Mod+Space).
     const onSpotlight = () => {
-      setOpen((value) => !value)
+      setOpen((value) => {
+        if (!value) previousFocusRef.current = document.activeElement as HTMLElement | null
+        return !value
+      })
       setQuery('')
       setSelected(0)
     }
     window.addEventListener('keydown', onKey)
-    window.addEventListener('iora:spotlight-toggle', onSpotlight)
+    window.addEventListener('rumahl:spotlight-toggle', onSpotlight)
     return () => {
       window.removeEventListener('keydown', onKey)
-      window.removeEventListener('iora:spotlight-toggle', onSpotlight)
+      window.removeEventListener('rumahl:spotlight-toggle', onSpotlight)
     }
   }, [])
 
@@ -78,7 +88,9 @@ export function CommandPalette() {
     if (open) {
       // Focus the input on the next frame so the animation doesn't steal it.
       requestAnimationFrame(() => inputRef.current?.focus())
+      return
     }
+    previousFocusRef.current?.focus()
   }, [open])
 
   const pageApps = useMemo(
@@ -177,7 +189,7 @@ export function CommandPalette() {
       label: t('cmd.lock'),
       icon: <LockKey size={16} />,
       group: t('cmd.actions'),
-      action: () => { window.dispatchEvent(new Event('iora:lock-session')); setOpen(false) },
+      action: () => { window.dispatchEvent(new Event('rumahl:lock-session')); setOpen(false) },
     })
     list.push({
       id: 'act-theme-night',
@@ -185,6 +197,13 @@ export function CommandPalette() {
       icon: <Moon size={16} />,
       group: t('cmd.actions'),
       action: () => { void setSelectedTheme('night'); setOpen(false) },
+    })
+    list.push({
+      id: 'act-theme-midnight',
+      label: t('cmd.themeMidnight'),
+      icon: <CircleHalfTilt size={16} />,
+      group: t('cmd.actions'),
+      action: () => { void setSelectedTheme('midnight'); setOpen(false) },
     })
     return list
   }, [t, sleepMode, setSleepMode, setCurrentPageId, setSelectedTheme])
@@ -279,6 +298,10 @@ export function CommandPalette() {
 
   useEffect(() => setSelected(0), [query, remoteResults])
 
+  useEffect(() => {
+    resultRefs.current[selected]?.scrollIntoView({ block: 'nearest' })
+  }, [selected])
+
   const run = (command: Command) => command.action()
 
   return (
@@ -288,7 +311,7 @@ export function CommandPalette() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[90] flex items-start justify-center bg-black/60 px-4 pt-[12vh] backdrop-blur-sm"
+          className="rumahl-command-palette-backdrop fixed inset-0 z-[90] flex items-start justify-center px-4 pt-[12vh]"
           onClick={() => setOpen(false)}
         >
           <motion.div
@@ -296,12 +319,15 @@ export function CommandPalette() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: -6 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-neutral-900/95 shadow-2xl shadow-black/50 backdrop-blur-2xl"
+            className="rumahl-command-palette w-full max-w-lg overflow-hidden"
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('cmd.title')}
           >
             {/* Search input */}
-            <div className="flex items-center gap-3 border-b border-white/5 px-4 py-3.5">
-              <MagnifyingGlass size={18} className="shrink-0 text-neutral-500" />
+            <div className="rumahl-command-palette-search flex items-center gap-3 px-4 py-3.5">
+              <MagnifyingGlass size={18} className="shrink-0" aria-hidden="true" />
               <input
                 ref={inputRef}
                 value={query}
@@ -312,14 +338,21 @@ export function CommandPalette() {
                   if (e.key === 'Enter' && filtered[selected]) run(filtered[selected])
                 }}
                 placeholder={t('cmd.placeholder')}
-                className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                aria-label={t('cmd.placeholder')}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="rumahl-command-results"
+                aria-expanded="true"
+                aria-busy={remoteLoading}
+                aria-activedescendant={filtered[selected] ? `rumahl-command-${filtered[selected].id}` : undefined}
               />
-              {remoteLoading && <CircleNotch size={14} className="shrink-0 animate-spin text-neutral-500" />}
-              <kbd className="shrink-0 rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-500">ESC</kbd>
+              {remoteLoading && <CircleNotch size={14} className="rumahl-system-spinner shrink-0 animate-spin" aria-label={t('cmd.searching')} />}
+              <kbd className="rumahl-command-key shrink-0">Esc</kbd>
             </div>
 
             {/* Results */}
-            <div className="max-h-[46vh] overflow-y-auto p-2">
+            <div id="rumahl-command-results" className="rumahl-command-results max-h-[46vh] overflow-y-auto p-2" role="listbox">
               {filtered.length === 0 ? (
                 <p className="px-3 py-8 text-center text-xs text-neutral-600">
                   {remoteLoading ? t('cmd.searching') : t('cmd.noResults')}
@@ -333,28 +366,31 @@ export function CommandPalette() {
                     return (
                       <div key={command.id}>
                         {showGroup && (
-                          <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+                          <p className="rumahl-command-group px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider">
                             {command.group}
                           </p>
                         )}
                         <button
+                          ref={(node) => { resultRefs.current[index] = node }}
+                          id={`rumahl-command-${command.id}`}
                           type="button"
                           onClick={() => run(command)}
                           onMouseEnter={() => setSelected(index)}
-                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
-                            index === selected ? 'bg-white/10 text-white' : 'text-neutral-300'
-                          }`}
+                          className={`rumahl-command-result flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm ${index === selected ? 'is-selected' : ''}`}
+                          role="option"
+                          aria-selected={index === selected}
+                          tabIndex={-1}
                         >
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-400">
+                          <span className="rumahl-command-result-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
                             {command.icon}
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate">{command.label}</span>
                             {command.sublabel && (
-                              <span className="block truncate text-[11px] text-neutral-500">{command.sublabel}</span>
+                              <span className="rumahl-command-result-description block truncate text-[11px]">{command.sublabel}</span>
                             )}
                           </span>
-                          {index === selected && <ArrowRight size={14} className="shrink-0 text-neutral-500" />}
+                          {index === selected && <ArrowRight size={14} className="rumahl-command-result-arrow shrink-0" aria-hidden="true" />}
                         </button>
                       </div>
                     )
@@ -362,6 +398,13 @@ export function CommandPalette() {
                 })()
               )}
             </div>
+            <footer className="rumahl-command-footer flex items-center justify-between gap-3 px-4 py-2">
+              <span>{t('cmd.shortcutHint', { shortcut: formatCombo(getCombo('spotlight')) })}</span>
+              <span className="flex items-center gap-2">
+                <span><kbd className="rumahl-command-key">↑↓</kbd> {t('cmd.navigate')}</span>
+                <span><kbd className="rumahl-command-key">↵</kbd> {t('cmd.open')}</span>
+              </span>
+            </footer>
           </motion.div>
         </motion.div>
       )}

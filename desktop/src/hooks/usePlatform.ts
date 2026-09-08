@@ -1,5 +1,5 @@
 /**
- * Platform detection hook for IORA Desktop.
+ * Platform detection hook for rumahl Desktop.
  *
  * Detects the host OS (Windows, macOS, Linux) and exposes it
  * for platform-adaptive UI rendering. Falls back to user-agent

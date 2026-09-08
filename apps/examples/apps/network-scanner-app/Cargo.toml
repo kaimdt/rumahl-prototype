@@ -2,11 +2,11 @@
 name = "network-scanner-app"
 version = "1.0.0"
 edition = "2021"
-authors = ["IORA Team"]
-description = "Network scanner app for IORA - demonstrates SDK usage"
+authors = ["rumahl Team"]
+description = "Network scanner app for rumahl - demonstrates SDK usage"
 
 [dependencies]
-iora-sdk = { path = "../../../sdks/rust" }
+rumahl-sdk = { path = "../../../sdks/rust" }
 tokio = { version = "1.0", features = ["full"] }
 axum = "0.7"
 serde = { version = "1.0", features = ["derive"] }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'motion/react'
+import { DUR_BASE, MOTION_HERO } from '@/lib/motion'
 import { useAuth } from '@/contexts/AuthContext'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -12,17 +13,28 @@ import {
   NumberCircleOne,
   Backspace,
   ArrowLeft,
-  ShieldCheck,
   Sparkle,
   Eye,
   EyeSlash,
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
+import { RumahlMark } from '@/components/RumahlMark'
+import { useClock } from '@/hooks/useClock'
+import { useLocalStorage } from '@/lib/storage'
+import { DEFAULT_SESSION_SCREEN_SETTINGS, normalizeSessionScreenSettings, SESSION_CLOCK_FONT_STACKS, type SessionScreenSettings } from '@/lib/sessionScreenSettings'
+
+async function runAuthTransition(action: () => Promise<void>) {
+  const documentWithTransitions = document as Document & { startViewTransition?: (callback: () => Promise<void>) => { finished: Promise<void> } }
+  if (!documentWithTransitions.startViewTransition) { await action(); return }
+  const transition = documentWithTransitions.startViewTransition(action)
+  await transition.finished
+}
 
 // ── Zod schemas ──────────────────────────────────────────
 const loginSchema = z.object({
@@ -123,7 +135,7 @@ function PinPad({
           <motion.div
             key={i}
             animate={i < pin.length ? { scale: [1, 1.3, 1] } : {}}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: DUR_BASE }}
             className={cn(
               'w-3.5 h-3.5 rounded-full transition-all duration-200',
               i < pin.length
@@ -189,8 +201,11 @@ interface AuthModeOption {
 
 // ── LoginPage ────────────────────────────────────────────
 export function LoginPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { login, loginAsGuest, loginWithPin, register } = useAuth()
+  const now = useClock()
+  const [storedSessionScreen] = useLocalStorage<SessionScreenSettings>('rumahl-session-screen-settings', DEFAULT_SESSION_SCREEN_SETTINGS)
+  const sessionScreen = normalizeSessionScreenSettings(storedSessionScreen)
 
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [isLoading, setIsLoading] = useState(false)
@@ -207,7 +222,7 @@ export function LoginPage() {
   const onGuestLogin = async () => {
     setIsLoading(true)
     try {
-      await loginAsGuest()
+      await runAuthTransition(loginAsGuest)
       toast.success(t('auth.guestSuccess'))
     } catch (error) {
       const message = error instanceof Error ? error.message : t('auth.guestFailed')
@@ -245,7 +260,7 @@ export function LoginPage() {
   const onLogin = async (data: LoginFormData) => {
     setIsLoading(true)
     try {
-      await login(data.username, data.password, data.rememberMe)
+      await runAuthTransition(() => login(data.username, data.password, data.rememberMe))
       toast.success(t('auth.loginSuccess'))
     } catch (error) {
       const message = error instanceof Error ? error.message : t('auth.loginFailed')
@@ -265,7 +280,7 @@ export function LoginPage() {
   const onRegister = async (data: RegisterFormData) => {
     setIsLoading(true)
     try {
-      await register(data.username, data.password, data.displayName || undefined)
+      await runAuthTransition(() => register(data.username, data.password, data.displayName || undefined))
       toast.success(t('auth.registerSuccess'))
     } catch (error) {
       const message = error instanceof Error ? error.message : t('auth.registerFailed')
@@ -281,7 +296,7 @@ export function LoginPage() {
       if (!selectedUser) return
       setIsLoading(true)
       try {
-        await loginWithPin(selectedUser.id, pin)
+        await runAuthTransition(() => loginWithPin(selectedUser.id, pin))
         toast.success(`${t('auth.welcomeBack')}, ${selectedUser.display_name || selectedUser.username}!`)
         setSelectedUser(null)
       } catch (error) {
@@ -306,13 +321,13 @@ export function LoginPage() {
   ]
 
   return (
-    <div className="min-h-screen relative overflow-hidden flex items-center justify-center">
+    <div data-clock-position={sessionScreen.clockPosition} data-clock-font={sessionScreen.clockFont} className="rumahl-auth-screen min-h-screen relative overflow-hidden flex items-center justify-center" style={{ '--session-clock-scale': sessionScreen.clockScale / 100, '--session-text-scale': sessionScreen.textScale / 100, '--session-clock-font': SESSION_CLOCK_FONT_STACKS[sessionScreen.clockFont] } as React.CSSProperties}>
       {/* Background */}
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
         style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1558036117-15d82a90b9b1?w=1920&q=80')`,
-          filter: 'brightness(0.15) saturate(0.6)',
+          backgroundImage: `url('${DEFAULT_DASHBOARD_BACKGROUND_URL}')`,
+          filter: 'brightness(0.3) saturate(0.7)',
         }}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/70" />
@@ -332,31 +347,33 @@ export function LoginPage() {
         />
       </div>
 
-      {/* Brand watermark */}
-      <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none">
-        <p className="text-sm font-light tracking-[0.3em] uppercase text-white/25">IORA</p>
-      </div>
+      {/* Brand watermark — rumahl mark in the splash design language */}
+      {sessionScreen.showBrand && <div className="rumahl-session-positioned z-10 text-center pointer-events-none" style={{ left: `${sessionScreen.positions.brand.x}%`, top: `${sessionScreen.positions.brand.y}%` }}>
+        <RumahlMark className="mx-auto h-6 text-white/25" />
+      </div>}
+
+      <p className="rumahl-session-clock rumahl-session-positioned pointer-events-none z-10 font-semibold tabular-nums tracking-tight text-white" style={{ left: `${sessionScreen.positions.clock.x}%`, top: `${sessionScreen.positions.clock.y}%` }}>{now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}</p>
+      {sessionScreen.showDate && <p className="rumahl-session-date rumahl-session-positioned pointer-events-none z-10 font-medium text-white/55" style={{ left: `${sessionScreen.positions.date.x}%`, top: `${sessionScreen.positions.date.y}%` }}>{now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}</p>}
+      {sessionScreen.showStatusWidget && <span className="rumahl-session-status-widget rumahl-session-positioned pointer-events-none z-10" style={{ left: `${sessionScreen.positions.status.x}%`, top: `${sessionScreen.positions.status.y}%` }}><Lock size={13} />rumahl OS</span>}
 
       {/* Auth card */}
       <motion.div
         initial={{ opacity: 0, y: 24, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="relative z-10 w-full max-w-[420px] mx-4"
+        transition={MOTION_HERO}
+        className="relative z-10 mt-[18vh] w-full max-w-[390px] mx-4"
       >
-        <div className="backdrop-blur-2xl bg-white/4 border border-white/10 rounded-3xl shadow-2xl overflow-hidden">
+        <div className="backdrop-blur-2xl bg-black/20 border border-white/10 rounded-[1.9rem] shadow-2xl shadow-black/35 ring-1 ring-white/5 overflow-hidden">
           {/* Header */}
           <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-accent/15 via-accent/6 to-transparent" />
             <div className="relative p-6 pb-5">
-              <div className="flex items-center gap-3.5">
-                <div className="p-2.5 rounded-2xl bg-accent/15 ring-1 ring-accent/20">
-                  <ShieldCheck size={24} weight="duotone" className="text-accent" />
+              <div className="flex flex-col items-center gap-2 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/8 ring-1 ring-white/15 shadow-lg">
+                  <RumahlMark className="h-7 text-white" />
                 </div>
                 <div>
-                  <span className="text-lg font-semibold block text-white">
-                    {t('auth.welcomeToIora')}
-                  </span>
+                  <span className="block text-xl font-semibold text-white">rumahl OS</span>
                   <span className="text-xs font-normal text-white/50">
                     {authMode === 'login'
                       ? t('auth.loginSubtitle')
@@ -384,9 +401,9 @@ export function LoginPage() {
                     registerForm.clearErrors()
                   }}
                   className={cn(
-                    'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all',
+                    'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all duration-200',
                     authMode === opt.mode
-                      ? 'bg-accent/15 text-accent shadow-sm'
+                      ? 'bg-accent text-white shadow-lg shadow-accent/25'
                       : 'text-white/50 hover:text-white/80 hover:bg-white/5'
                   )}
                   type="button"
@@ -406,7 +423,7 @@ export function LoginPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: DUR_BASE }}
                 >
                   {selectedUser ? (
                     <PinPad
@@ -435,7 +452,7 @@ export function LoginPage() {
                               <button
                                 key={u.id}
                                 onClick={() => setSelectedUser(u)}
-                                className="flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-white/4 hover:bg-accent/8 active:bg-accent/12 transition-all border border-white/5 hover:border-accent/15"
+                                className="flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-white/4 hover:bg-accent/8 active:bg-accent/12 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/25 transition-all border border-white/5 hover:border-accent/15"
                                 type="button"
                               >
                                 <div className="w-14 h-14 rounded-2xl bg-accent/12 ring-1 ring-accent/15 flex items-center justify-center text-accent font-bold text-lg">
@@ -461,7 +478,7 @@ export function LoginPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: DUR_BASE }}
                   className="space-y-4"
                   noValidate
                 >
@@ -582,7 +599,7 @@ export function LoginPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: DUR_BASE }}
                   className="space-y-4"
                   noValidate
                 >

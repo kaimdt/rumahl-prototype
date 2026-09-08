@@ -1,10 +1,10 @@
-//! # IORA SDK for Rust
+//! # rumahl SDK for Rust
 //!
-//! Official Rust SDK for developing IORA apps and plugins.
+//! Official Rust SDK for developing rumahl apps and plugins.
 //!
 //! ## Features
 //!
-//! - Type-safe API client for IORA services
+//! - Type-safe API client for rumahl services
 //! - Plugin trait implementations
 //! - App manifest builder
 //! - Permission management helpers
@@ -14,11 +14,11 @@
 //! ## Example
 //!
 //! ```rust
-//! use iora_sdk::{IoraClient, Permission};
+//! use rumahl_sdk::{RumahlClient, Permission};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     let client = IoraClient::new("http://localhost:8080")
+//!     let client = RumahlClient::new("http://localhost:8080")
 //!         .with_api_key("your-api-key");
 //!
 //!     // Get all entities
@@ -45,14 +45,14 @@ pub mod types;
 pub mod runtime;
 pub mod runtime_manager;
 
-pub use client::IoraClient;
+pub use client::RumahlClient;
 pub use manifest::{ManifestBuilder, AppManifest, PluginType};
 pub use permissions::Permission;
 pub use plugin::{Plugin, PluginContext, PluginResult};
 pub use widget::{Widget, WidgetConfig};
-pub use error::{IoraError, Result};
+pub use error::{RumahlError, Result};
 pub use types::*;
-pub use runtime::{AppStatus, LogLevel, IoraMessage, PermissionToken};
+pub use runtime::{AppStatus, LogLevel, RumahlMessage, PermissionToken};
 pub use runtime_manager::{RuntimeManager, RuntimeManagerBuilder, RuntimeConfig};
 
 /// SDK version
@@ -60,13 +60,13 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Prelude module for common imports
 pub mod prelude {
-    pub use crate::client::IoraClient;
+    pub use crate::client::RumahlClient;
     pub use crate::manifest::{ManifestBuilder, AppManifest};
     pub use crate::permissions::Permission;
     pub use crate::plugin::{Plugin, PluginContext, PluginResult};
     pub use crate::widget::{Widget, WidgetConfig};
-    pub use crate::error::{IoraError, Result};
-    pub use crate::runtime::{AppStatus, LogLevel, IoraMessage, PermissionToken};
+    pub use crate::error::{RumahlError, Result};
+    pub use crate::runtime::{AppStatus, LogLevel, RumahlMessage, PermissionToken};
     pub use crate::runtime_manager::{RuntimeManager, RuntimeManagerBuilder, RuntimeConfig};
     pub use async_trait::async_trait;
     pub use serde::{Deserialize, Serialize};

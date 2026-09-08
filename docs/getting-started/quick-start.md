@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get IORA running in under 5 minutes.
+Get rumahl running in under 5 minutes.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Get IORA running in under 5 minutes.
 ## 1. Clone and Start
 
 ```bash
-git clone https://github.com/kaimdt/home-assistant-dashb.git
+git clone https://github.com/rumahl/home-assistant-dashb.git
 cd home-assistant-dashb/deploy
 cp ../.env.example ../.env
 docker compose up -d
@@ -43,8 +43,8 @@ Open your browser:
 The left sidebar provides navigation to all sections:
 
 - **Dashboard** – Smart home widget grid
-- **IORA Control** – Admin panel (users, system, plugins)
-- **IORA Assist** – AI chat interface
+- **rumahl Control** – Admin panel (users, system, plugins)
+- **rumahl Assist** – AI chat interface
 - **App Store** – Install apps and plugins
 
 ### Add a Widget
@@ -57,7 +57,7 @@ The left sidebar provides navigation to all sections:
 
 ### Connect Home Assistant (Optional)
 
-1. Go to **IORA Control** → **Home Assistant**
+1. Go to **rumahl Control** → **Home Assistant**
 2. Enter your Home Assistant URL (e.g., `http://homeassistant.local:8123`)
 3. Enter your [Long-Lived Access Token](https://www.home-assistant.io/docs/authentication/#your-account-profile)
 4. Click **Connect**
@@ -82,7 +82,7 @@ Your Home Assistant entities will now appear in the entity picker when adding wi
 
 ## 6. Try the AI Assistant
 
-1. Go to **IORA Assist** in the sidebar
+1. Go to **rumahl Assist** in the sidebar
 2. Type a question or command
    - "Turn on the living room lights"
    - "What's the temperature in the house?"
@@ -90,8 +90,8 @@ Your Home Assistant entities will now appear in the entity picker when adding wi
 
 **For local AI (offline):**
 - Install [LM Studio](https://lmstudio.ai/)
-- IORA Desktop automatically proxies to it on port 11435
-- See [ORA AI Configuration](../ai/README.md)
+- rumahl Desktop automatically proxies to it on port 11435
+- See [rumahl AI Configuration](../ai/README.md)
 
 ## 7. Key Concepts
 
@@ -118,7 +118,7 @@ Your Home Assistant entities will now appear in the entity picker when adding wi
 docker compose -f deploy/docker-compose.yml logs -f
 
 # Restart a specific service
-docker compose -f deploy/docker-compose.yml restart iora-home
+docker compose -f deploy/docker-compose.yml restart rumahl-home
 
 # Stop everything
 docker compose -f deploy/docker-compose.yml down

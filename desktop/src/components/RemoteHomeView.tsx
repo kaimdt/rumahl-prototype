@@ -82,8 +82,8 @@ export function RemoteHomeView() {
             <div className="flex items-center gap-3 mb-4">
               <Warning size={24} className="text-destructive" />
               <div>
-                <p className="text-base font-semibold">Remote IORA Home nicht verfügbar</p>
-                <p className="text-sm text-foreground/60">Bitte konfiguriere die IORA Home URL in den Einstellungen.</p>
+                <p className="text-base font-semibold">Remote rumahl Home nicht verfügbar</p>
+                <p className="text-sm text-foreground/60">Bitte konfiguriere die rumahl Home URL in den Einstellungen.</p>
               </div>
             </div>
           </div>
@@ -92,7 +92,7 @@ export function RemoteHomeView() {
         <iframe
           ref={iframeRef}
           src={remoteUrl}
-          title="Remote IORA Home"
+          title="Remote rumahl Home"
           allow="clipboard-read clipboard-write fullscreen"
           allowFullScreen
           className="absolute inset-0 min-h-full min-w-full h-full w-full border-0"
@@ -107,8 +107,8 @@ export function RemoteHomeView() {
       {!loaded && remoteUrl && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           <div className="rounded-3xl border border-foreground/10 bg-background/95 px-6 py-5 text-center shadow-xl shadow-black/5">
-            <p className="text-sm font-medium text-foreground">Lade IORA Home…</p>
-            <p className="text-xs text-foreground/60 mt-2">Wenn du localhost:3001 verwendest, stelle sicher, dass der IORA Home-Server gestartet ist.</p>
+            <p className="text-sm font-medium text-foreground">Lade rumahl Home…</p>
+            <p className="text-xs text-foreground/60 mt-2">Wenn du localhost:3001 verwendest, stelle sicher, dass der rumahl Home-Server gestartet ist.</p>
           </div>
         </div>
       )}

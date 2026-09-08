@@ -1,6 +1,6 @@
-# IORA PHP SDK
+# rumahl PHP SDK
 
-Official PHP SDK for developing IORA apps and plugins.
+Official PHP SDK for developing rumahl apps and plugins.
 
 ## Features
 
@@ -9,7 +9,7 @@ Official PHP SDK for developing IORA apps and plugins.
 - 📦 **Plugin Framework** - Base classes for plugin development
 - 🔑 **Permission Management** - Built-in permission enums and helpers
 - 📝 **Manifest Builder** - Fluent API for manifest creation
-- 🎯 **REST API Client** - Complete IORA API client using Guzzle
+- 🎯 **REST API Client** - Complete rumahl API client using Guzzle
 
 ## Requirements
 
@@ -20,7 +20,7 @@ Official PHP SDK for developing IORA apps and plugins.
 ## Installation
 
 ```bash
-composer require iora/sdk
+composer require ora/sdk
 ```
 
 ## Quick Start
@@ -32,8 +32,8 @@ composer require iora/sdk
 
 require 'vendor/autoload.php';
 
-use Iora\Client;
-use Iora\NotificationPayload;
+use rumahl\Client;
+use rumahl\NotificationPayload;
 
 // Initialize client
 $client = new Client('http://localhost:8080', 'your-api-key');
@@ -47,7 +47,7 @@ $client->turnOn('light.living_room', ['brightness' => 255]);
 
 // Send notification
 $client->sendNotification(new NotificationPayload(
-    title: 'Hello IORA',
+    title: 'Hello rumahl',
     message: 'App is running!',
     priority: 'normal'
 ));
@@ -65,8 +65,8 @@ print_r($data);
 ```php
 <?php
 
-use Iora\Plugin;
-use Iora\PluginContext;
+use rumahl\Plugin;
+use rumahl\PluginContext;
 
 class MyPlugin extends Plugin
 {
@@ -110,7 +110,7 @@ class MyPlugin extends Plugin
 }
 
 // Execute plugin
-$client = new \Iora\Client('http://localhost:8080', 'api-key');
+$client = new \rumahl\Client('http://localhost:8080', 'api-key');
 $context = new PluginContext(
     client: $client,
     appId: 'my-plugin',
@@ -127,8 +127,8 @@ print_r($result);
 ```php
 <?php
 
-use Iora\DataProcessorPlugin;
-use Iora\PluginContext;
+use rumahl\DataProcessorPlugin;
+use rumahl\PluginContext;
 
 class TemperatureConverter extends DataProcessorPlugin
 {
@@ -151,8 +151,8 @@ class TemperatureConverter extends DataProcessorPlugin
 ```php
 <?php
 
-use Iora\AutomationPlugin;
-use Iora\PluginContext;
+use rumahl\AutomationPlugin;
+use rumahl\PluginContext;
 
 class MotionLightAutomation extends AutomationPlugin
 {
@@ -194,12 +194,12 @@ class MotionLightAutomation extends AutomationPlugin
 
 ### Client
 
-Main HTTP client for IORA API interactions.
+Main HTTP client for rumahl API interactions.
 
 #### Constructor
 
 ```php
-$client = new Iora\Client(string $baseUrl = 'http://localhost:8080', ?string $apiKey = null);
+$client = new rumahl\Client(string $baseUrl = 'http://localhost:8080', ?string $apiKey = null);
 ```
 
 #### Entity Methods
@@ -212,7 +212,7 @@ $entities = $client->getEntities();
 $entity = $client->getEntity('light.bedroom');
 
 // Call service
-use Iora\ServiceCall;
+use rumahl\ServiceCall;
 
 $client->callService(new ServiceCall(
     domain: 'light',
@@ -229,8 +229,8 @@ $client->turnOff('light.bedroom');
 #### Notification Methods
 
 ```php
-use Iora\NotificationPayload;
-use Iora\NotificationAction;
+use rumahl\NotificationPayload;
+use rumahl\NotificationAction;
 
 // Send notification
 $client->sendNotification(new NotificationPayload(
@@ -279,14 +279,14 @@ $client->updateSettings('app-id', [
 Build app manifests with a fluent API.
 
 ```php
-use Iora\ManifestBuilder;
-use Iora\Permission;
-use Iora\PluginType;
+use rumahl\ManifestBuilder;
+use rumahl\Permission;
+use rumahl\PluginType;
 
 $manifest = (new ManifestBuilder('my-app', 'My App'))
     ->version('1.0.0')
     ->developer('Your Name')
-    ->description('An awesome IORA app')
+    ->description('An awesome rumahl app')
     ->permissions([
         Permission::READ_ENTITIES,
         Permission::CONTROL_ENTITIES,
@@ -360,10 +360,10 @@ $jsonString = $manifest->toJson();
 ### Permissions
 
 ```php
-use Iora\Permission;
-use Iora\RiskLevel;
-use function Iora\getPermissionRiskLevel;
-use function Iora\getPermissionDescription;
+use rumahl\Permission;
+use rumahl\RiskLevel;
+use function rumahl\getPermissionRiskLevel;
+use function rumahl\getPermissionDescription;
 
 // Use permissions
 $perms = [
@@ -401,9 +401,9 @@ Permission::NETWORK_LOCAL_ACCESS
 All types are PHP 8 classes with promoted properties:
 
 ```php
-use Iora\Entity;
-use Iora\ServiceCall;
-use Iora\NotificationPayload;
+use rumahl\Entity;
+use rumahl\ServiceCall;
+use rumahl\NotificationPayload;
 
 $entity = new Entity(
     entityId: 'light.bedroom',
@@ -426,19 +426,19 @@ $call = new ServiceCall(
 
 require 'vendor/autoload.php';
 
-use Iora\Client;
-use Iora\NotificationPayload;
-use Iora\ManifestBuilder;
-use Iora\Permission;
+use rumahl\Client;
+use rumahl\NotificationPayload;
+use rumahl\ManifestBuilder;
+use rumahl\Permission;
 
 class WeatherApp
 {
     private Client $client;
     private string $appId = 'weather-app';
 
-    public function __construct(string $ioraUrl, string $apiKey)
+    public function __construct(string $oraUrl, string $apiKey)
     {
-        $this->client = new Client($ioraUrl, $apiKey);
+        $this->client = new Client($oraUrl, $apiKey);
     }
 
     public function run(): void
@@ -533,7 +533,7 @@ $app->run();
 
 ```bash
 composer init
-composer require iora/sdk
+composer require ora/sdk
 ```
 
 ### 2. Create Dockerfile
@@ -638,6 +638,6 @@ MIT
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/iora/iora-sdk-php
-- Documentation: https://docs.iora.io
-- Community: https://community.iora.io
+- GitHub Issues: https://github.com/ora/rumahl-sdk-php
+- Documentation: https://docs.ora.io
+- Community: https://community.ora.io

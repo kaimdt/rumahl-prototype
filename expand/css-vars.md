@@ -1,7 +1,7 @@
 # CSS Variables Expansion — Findings
 
 ## Summary
-Added 22 new CSS variables to all 10 IORA theme `manifest.json` files under `theme.css_variables`.
+Added 22 new CSS variables to all 10 rumahl theme `manifest.json` files under `theme.css_variables`.
 
 ## Files Changed (10)
 | Theme | Path | Theme Type | Shadow Strategy |

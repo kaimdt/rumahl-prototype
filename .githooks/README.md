@@ -1,6 +1,6 @@
-# ORA Git Hooks
+# rumahl Git Hooks
 
-This directory contains git hooks for the ORA project.
+This directory contains git hooks for the rumahl project.
 
 ## Setup
 

@@ -1,6 +1,6 @@
 # App Database (SQLite) Guide
 
-Apps in IORA can optionally use their own SQLite database instead of the shared PostgreSQL database. This is ideal for apps that need to store large amounts of relational data, use SQLite-specific features, or operate offline.
+Apps in rumahl can optionally use their own SQLite database instead of the shared PostgreSQL database. This is ideal for apps that need to store large amounts of relational data, use SQLite-specific features, or operate offline.
 
 ## Overview
 
@@ -18,7 +18,7 @@ Each app can provision **one** SQLite database. The system manages creation, bac
 
 - Your app needs concurrent write access from multiple instances
 - You need row-level security or PostgreSQL-specific extensions
-- Your app is already using the shared IORA database
+- Your app is already using the shared rumahl database
 
 ## Declaring a Database in the Manifest
 
@@ -135,9 +135,9 @@ GET /api/apps/:app_id/database/backups
 ## SDK Usage (JavaScript/TypeScript)
 
 ```typescript
-import IoraClient from '@iora/sdk';
+import rumahlClient from '@rumahl/sdk';
 
-const client = new IoraClient('http://iora.local:8126', 'your-api-key');
+const client = new rumahlClient('http://rumahl.local:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Provision database with initial schema

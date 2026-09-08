@@ -2,14 +2,14 @@
 name = "notification-formatter"
 version = "1.0.0"
 edition = "2021"
-authors = ["IORA Team"]
+authors = ["rumahl Team"]
 
 [lib]
 name = "notification_formatter"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-iora-shared = { path = "../../backend/iora-shared" }
+rumahl-shared = { path = "../../backend/rumahl-shared" }
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

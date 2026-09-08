@@ -1,13 +1,13 @@
-# IORA Platform - Plugin AI Integration & Infrastructure Visualization
+# rumahl Platform - Plugin AI Integration & Infrastructure Visualization
 
 ## 🎯 Implementierungsübersicht
 
 Erfolgreich implementiert wurden zwei Hauptfeatures:
 
 ### 1. Infrastruktur-Visualisierung 🔄
-**Live-Diagramm der gesamten IORA-Infrastruktur**
+**Live-Diagramm der gesamten rumahl-Infrastruktur**
 
-- ✅ Echtzeit-Status aller IORA-Dienste
+- ✅ Echtzeit-Status aller rumahl-Dienste
 - ✅ Animierte Datenflüsse zwischen Services
 - ✅ Farbcodierte Status-Indikatoren (grün/gelb/rot)
 - ✅ Monitoring-Modus mit Live-Animationen
@@ -15,12 +15,12 @@ Erfolgreich implementiert wurden zwei Hauptfeatures:
 - ✅ Integration im Admin Panel unter "Infrastruktur"
 
 **Angezeigte Services:**
-- IORA Home (Frontend)
-- IORA Core (Backend)
-- ORA AI (AI Assistant)
-- IORA API (Gateway)
-- IORA Connector
-- IORA AppStore
+- rumahl Home (Frontend)
+- rumahl Core (Backend)
+- rumahl AI (AI Assistant)
+- rumahl API (Gateway)
+- rumahl Connector
+- rumahl AppStore
 - Home Assistant
 - PostgreSQL
 
@@ -31,7 +31,7 @@ Erfolgreich implementiert wurden zwei Hauptfeatures:
 - ✅ `chat()` - AI mit benutzerdefinierten Prompts aufrufen
 - ✅ `chatStream()` - Echtzeit-Streaming-Antworten
 - ✅ `registerTool()` - Eigene AI-Tools registrieren
-- ✅ `searchInternet()` - Web-Suche via ORA AI
+- ✅ `searchInternet()` - Web-Suche via rumahl AI
 - ✅ `analyzeImage()` - Bildanalyse mit Vision AI
 - ✅ Konversationsverlauf (Historie laden/löschen)
 - ✅ Erweitert `PluginContext` mit `ai` Property
@@ -57,7 +57,7 @@ home-assistant-dashb/
 │       ├── plugin.json
 │       └── README.md
 └── docs/
-    ├── ORA_AI_PLUGIN_INTEGRATION.md (✨ neu)
+    ├── RUMAHL_AI_PLUGIN_INTEGRATION.md (✨ neu)
     └── INFRASTRUCTURE_AND_AI_INTEGRATION_SUMMARY.md (✨ neu)
 ```
 
@@ -141,7 +141,7 @@ Vollständiges Beispiel in `examples/energy-optimizer-plugin/`
 **Benutzer fragt:**
 "Wann soll ich meine Waschmaschine laufen lassen?"
 
-**ORA AI antwortet:**
+**rumahl AI antwortet:**
 *[ruft `create_energy_schedule` Tool auf]*
 
 "Ich empfehle, die Waschmaschine **heute um 22:00 Uhr** zu starten.
@@ -231,7 +231,7 @@ Wenn Sie dringend waschen müssen, können Sie jetzt starten, aber das Warten sp
 
 ### Hauptdokumente
 
-1. **`ORA_AI_PLUGIN_INTEGRATION.md`** (440 Zeilen)
+1. **`RUMAHL_AI_PLUGIN_INTEGRATION.md`** (440 Zeilen)
    - Komplette API-Referenz
    - Beispiele und Best Practices
    - Sicherheitshinweise
@@ -315,10 +315,10 @@ const results = await ai.searchInternet('neueste Smart Home Trends 2026')
 ## 🐛 Troubleshooting
 
 ### "Tool registration failed: 401"
-**Lösung:** IORA Assist Backend läuft nicht oder ist nicht erreichbar
+**Lösung:** rumahl Assist Backend läuft nicht oder ist nicht erreichbar
 ```bash
 # Backend starten
-cd backend/iora-assist
+cd backend/rumahl-assist
 cargo run
 ```
 
@@ -343,7 +343,7 @@ description: 'Schaltet alle Lichter im angegebenen Raum ein oder aus'
 ## 👥 Entwickler-Team
 
 **Implementiert von:** Claude Code Agent
-**Branch:** `claude/add-ora-ai-to-iora`
+**Branch:** `claude/add-rumahl-ai-to-ora`
 **Commits:** 3 (d02801d, 91d67be, c0e3a9a)
 **Datum:** 21. April 2026
 
@@ -374,8 +374,8 @@ description: 'Schaltet alle Lichter im angegebenen Raum ein oder aus'
 Neue Plugins entwickeln:
 
 1. `examples/` Verzeichnis als Template nutzen
-2. `ORA_AI_PLUGIN_INTEGRATION.md` lesen
-3. Plugin testen mit lokalem IORA
+2. `RUMAHL_AI_PLUGIN_INTEGRATION.md` lesen
+3. Plugin testen mit lokalem rumahl
 4. Pull Request erstellen
 
 ---
@@ -391,7 +391,7 @@ MIT License - Siehe Repository für Details
 **Beide Hauptfeatures erfolgreich implementiert:**
 
 ✅ **Infrastruktur-Visualisierung**
-- Schönes, animiertes Diagramm aller IORA-Dienste
+- Schönes, animiertes Diagramm aller rumahl-Dienste
 - Live-Status-Überwachung
 - Animierte Datenflüsse
 - Integration im Admin Control Center
@@ -403,7 +403,7 @@ MIT License - Siehe Repository für Details
 - Beispiel-Plugin mit Energie-Optimierung
 
 **Plugins und Apps können jetzt:**
-- ORA AI aufrufen mit Kontext
+- rumahl AI aufrufen mit Kontext
 - Eigene Tools registrieren
 - AI-Antworten streamen
 - Web-Suche nutzen
@@ -413,5 +413,5 @@ MIT License - Siehe Repository für Details
 ---
 
 **Status:** ✅ Abgeschlossen und getestet
-**Branch:** `claude/add-ora-ai-to-iora`
+**Branch:** `claude/add-rumahl-ai-to-ora`
 **Bereit für:** Pull Request / Merge

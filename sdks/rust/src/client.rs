@@ -1,22 +1,22 @@
-use crate::error::{IoraError, Result};
+use crate::error::{RumahlError, Result};
 use crate::types::*;
 use reqwest::{Client, header};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use base64::{Engine as _, engine::general_purpose};
 
-/// Main IORA API client
-pub struct IoraClient {
+/// Main rumahl API client
+pub struct RumahlClient {
     base_url: String,
     client: Client,
     api_key: Option<String>,
 }
 
-impl IoraClient {
-    /// Create a new IORA client
+impl RumahlClient {
+    /// Create a new rumahl client
     ///
     /// # Arguments
-    /// * `base_url` - The base URL of the IORA instance (e.g., "http://localhost:8080")
+    /// * `base_url` - The base URL of the rumahl instance (e.g., "http://localhost:8080")
     pub fn new(base_url: impl Into<String>) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -56,7 +56,7 @@ impl IoraClient {
         SettingsApi { client: self }
     }
 
-    /// Get the files API (iora-share)
+    /// Get the files API (rumahl-share)
     pub fn files(&self) -> FilesApi {
         FilesApi { client: self }
     }
@@ -89,7 +89,7 @@ impl IoraClient {
         if !res.status().is_success() {
             let status = res.status();
             let error_text = res.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(IoraError::ApiError(format!("Status {}: {}", status, error_text)));
+            return Err(RumahlError::ApiError(format!("Status {}: {}", status, error_text)));
         }
 
         Ok(res.json().await?)
@@ -98,7 +98,7 @@ impl IoraClient {
 
 /// Entities API
 pub struct EntitiesApi<'a> {
-    client: &'a IoraClient,
+    client: &'a RumahlClient,
 }
 
 impl<'a> EntitiesApi<'a> {
@@ -132,7 +132,7 @@ impl<'a> EntitiesApi<'a> {
 
 /// Notifications API
 pub struct NotificationsApi<'a> {
-    client: &'a IoraClient,
+    client: &'a RumahlClient,
 }
 
 impl<'a> NotificationsApi<'a> {
@@ -153,7 +153,7 @@ impl<'a> NotificationsApi<'a> {
 
 /// Storage API for persistent data
 pub struct StorageApi<'a> {
-    client: &'a IoraClient,
+    client: &'a RumahlClient,
 }
 
 impl<'a> StorageApi<'a> {
@@ -178,7 +178,7 @@ impl<'a> StorageApi<'a> {
 
 /// Settings API for app configuration
 pub struct SettingsApi<'a> {
-    client: &'a IoraClient,
+    client: &'a RumahlClient,
 }
 
 impl<'a> SettingsApi<'a> {
@@ -201,10 +201,10 @@ impl<'a> SettingsApi<'a> {
     }
 }
 
-/// Files API for iora-share file management
+/// Files API for rumahl-share file management
 /// Requires FileShareRead, FileShareWrite, FileShareDelete, or FileShareManage permissions
 pub struct FilesApi<'a> {
-    client: &'a IoraClient,
+    client: &'a RumahlClient,
 }
 
 impl<'a> FilesApi<'a> {
@@ -237,7 +237,7 @@ impl<'a> FilesApi<'a> {
         if !res.status().is_success() {
             let status = res.status();
             let error_text = res.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(IoraError::ApiError(format!("Status {}: {}", status, error_text)));
+            return Err(RumahlError::ApiError(format!("Status {}: {}", status, error_text)));
         }
 
         Ok(res.bytes().await?.to_vec())
@@ -288,7 +288,7 @@ impl<'a> FilesApi<'a> {
 /// Automations API for creating and managing automations
 /// Requires Automations permission (App-only)
 pub struct AutomationsApi<'a> {
-    client: &'a IoraClient,
+    client: &'a RumahlClient,
 }
 
 impl<'a> AutomationsApi<'a> {

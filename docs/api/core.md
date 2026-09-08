@@ -1,8 +1,8 @@
 # Core API
 
-The Core API is served by `iora-home` (port 8126) and `iora-core` (port 8090). It provides access to entities, users, pages, plugins, and the service registry.
+The Core API is served by `rumahl-home` (port 8126) and `rumahl-core` (port 8090). It provides access to entities, users, pages, plugins, and the service registry.
 
-## iora-home Endpoints (Port 8126 / 3001)
+## rumahl-home Endpoints (Port 8126 / 3001)
 
 ### Health Check
 
@@ -455,7 +455,7 @@ Content-Type: application/json
 
 {
   "profile_type": "child",
-  "restrictions": { "allowed_app_ids": ["iora-files", "os-images"] }
+  "restrictions": { "allowed_app_ids": ["rumahl-files", "os-images"] }
 }
 ```
 
@@ -590,7 +590,7 @@ media widget shows continue-watching items and detected servers.
 
 ```http
 # Public share link (no auth — the download token is the credential)
-# Mapped to iora-files /api/files/shared/:token for external access
+# Mapped to rumahl-files /api/files/shared/:token for external access
 GET /share/{token}
 
 # External base URL for share links (domain/TLS, saved in remote.external_url)
@@ -614,7 +614,7 @@ returned tailnet IP.
 WS  /api/os/terminal/ws?token=…
 
 # Browser: new WebSocket(wsUrl + '/api/os/terminal/ws?token=' + token)
-# The session runs `bash` in a PTY (util-linux `script`) on the ORA host;
+# The session runs `bash` in a PTY (util-linux `script`) on the rumahl host;
 # the server streams the terminal output (ANSI included) and accepts raw
 # input. Cancel = Ctrl+C (\u0003), exit = Ctrl+D.
 ```
@@ -634,7 +634,7 @@ permission) lists and controls systemd units.
 GET /api/os/logs/sources
 GET /api/os/logs/source/{source_id}?lines=300
 
-# systemd services (delegated to iora-control; os.services permission)
+# systemd services (delegated to rumahl-control; os.services permission)
 GET  /api/os/control/os/services
 POST /api/os/control/os/services/{unit.service}/{start|stop|restart}
 ```
@@ -644,7 +644,7 @@ command injection; only `start`/`stop`/`restart` are accepted. `os.services`
 is granted to admins and the maintenance role by default and appears in the
 permission request catalog.
 
-## iora-core Endpoints (Port 8090)
+## rumahl-core Endpoints (Port 8090)
 
 ### Health
 
@@ -663,7 +663,7 @@ POST /api/core/services/register
 Content-Type: application/json
 
 {
-  "name": "iora-home",
+  "name": "rumahl-home",
   "port": 8126,
   "health_endpoint": "/health",
   "metadata": {
@@ -725,13 +725,13 @@ Content-Type: application/json
 
 {
   "type": "service.started",
-  "data": { "service": "iora-home" }
+  "data": { "service": "rumahl-home" }
 }
 ```
 
 ## App Runtime Endpoints
 
-These are served by `iora-home` under the `/api/apps/{app_id}` prefix.
+These are served by `rumahl-home` under the `/api/apps/{app_id}` prefix.
 
 ### App Pages
 

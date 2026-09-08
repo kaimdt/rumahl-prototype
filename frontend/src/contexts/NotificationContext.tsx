@@ -1,6 +1,9 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { wsOnMessage } from '@/lib/wsConnection'
+import { readNotifications, subscribeNotifications, markNotificationRead, removeNotification, clearNotifications as clearStoredNotifications, type StoredNotification } from '@/lib/notificationStore'
+import { notifySystem, type SystemNotificationOptions } from '@/lib/toast'
+import { NotificationDetailDialog } from '@/components/NotificationDetailDialog'
 
 export interface Notification {
   id: string
@@ -13,6 +16,8 @@ export interface Notification {
   created_at: string
   read: boolean
   auto_dismiss_secs: number
+  persistent?: boolean
+  actions?: Array<{ id: string; label: string; href?: string }>
 }
 
 export interface EmergencyAlert {
@@ -45,7 +50,27 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [emergencyAlert, setEmergencyAlert] = useState<EmergencyAlert | null>(null)
   const [latestNotification, setLatestNotification] = useState<Notification | null>(null)
+  const [detailNotification, setDetailNotification] = useState<Notification | null>(null)
   const latestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Merge OS toasts (journaled in the notification store) into the notification
+  // center. Toasts become first-class notifications and survive reloads.
+  useEffect(() => {
+    const merge = () => {
+      const stored = readNotifications()
+      if (stored.length === 0) return
+      setNotifications((prev) => {
+        const known = new Set(prev.map((n) => n.id))
+        const newOnes = stored
+          .filter((n) => !known.has(n.id))
+          .map((n) => ({ ...n, icon: n.icon || 'bell' } as Notification))
+        return [...newOnes, ...prev]
+      })
+    }
+    merge()
+    const unsub = subscribeNotifications(merge)
+    return unsub
+  }, [])
 
   // Fetch initial state
   useEffect(() => {
@@ -62,7 +87,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       fetch('/api/alert/active', { headers }).then(r => r.ok ? r.json() : { active: false }),
     ]).then(([notifs, alertData]) => {
       if (!mounted) return
-      setNotifications(notifs as Notification[])
+      setNotifications((current) => {
+        const incoming = notifs as Notification[]
+        const incomingIds = new Set(incoming.map((notification) => notification.id))
+        return [...incoming, ...current.filter((notification) => !incomingIds.has(notification.id))]
+      })
       if (alertData.active && alertData.alert) {
         setEmergencyAlert(alertData.alert as EmergencyAlert)
       }
@@ -155,8 +184,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const markAsRead = useCallback(async (id: string) => {
-    if (!token) return
+    markNotificationRead(id)
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+    if (!token) return
     try {
       await fetch(`/api/notifications/${id}/read`, {
         method: 'PUT',
@@ -165,7 +195,29 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     } catch { /* optimistic update already applied */ }
   }, [token])
 
+  useEffect(() => {
+    const openDetail = (event: Event) => {
+      const notification = (event as CustomEvent<Notification>).detail
+      if (notification) {
+        setDetailNotification(notification)
+        void markAsRead(notification.id)
+      }
+    }
+    const showToast = (event: Event) => {
+      const detail = (event as CustomEvent<SystemNotificationOptions | { message: string }>).detail
+      if (!detail?.message) return
+      notifySystem({ ...detail, message: detail.message })
+    }
+    window.addEventListener('rumahl:notification-open', openDetail)
+    window.addEventListener('rumahl:toast', showToast)
+    return () => {
+      window.removeEventListener('rumahl:notification-open', openDetail)
+      window.removeEventListener('rumahl:toast', showToast)
+    }
+  }, [markAsRead])
+
   const dismissNotification = useCallback(async (id: string) => {
+    removeNotification(id)
     if (!token) return
     setNotifications(prev => prev.filter(n => n.id !== id))
     try {
@@ -196,6 +248,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const clearAll = useCallback(async () => {
+    clearStoredNotifications()
     if (!token) return
     setNotifications([])
     try {
@@ -226,6 +279,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   return (
     <NotificationContext.Provider value={value}>
       {children}
+      <NotificationDetailDialog
+        notification={detailNotification}
+        onClose={() => setDetailNotification(null)}
+        onAction={(actionId, href) => {
+          window.dispatchEvent(new CustomEvent('rumahl:notification-action', { detail: { actionId, notification: detailNotification } }))
+          if (href) window.open(href, '_blank', 'noopener,noreferrer')
+          setDetailNotification(null)
+        }}
+      />
     </NotificationContext.Provider>
   )
 }

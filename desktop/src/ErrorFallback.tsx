@@ -1,5 +1,5 @@
 /**
- * IORA Desktop – Custom Error Page (500)
+ * rumahl Desktop – Custom Error Page (500)
  *
  * Branded fallback shown when a runtime error occurs.
  * Replaces the default "This spark has encountered a runtime error" screen.
@@ -24,11 +24,11 @@ export const ErrorFallback = ({
         {/* Heading */}
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold text-foreground">
-            IORA Desktop – Fehler
+            rumahl Desktop – Fehler
           </h1>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto leading-relaxed">
             Ein unerwarteter Fehler ist aufgetreten. Die Anwendung konnte nicht
-            fortgesetzt werden. Versuche es erneut oder starte IORA Desktop neu.
+            fortgesetzt werden. Versuche es erneut oder starte rumahl Desktop neu.
           </p>
         </div>
 

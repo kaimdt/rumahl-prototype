@@ -5,7 +5,7 @@
 import { getBackendUrl } from '@/lib/config'
 
 const apiBase = () => getBackendUrl() || ''
-const AUTH_SESSION_STORAGE_KEY = 'iora-auth-session'
+const AUTH_SESSION_STORAGE_KEY = 'rumahl-auth-session'
 
 function readStoredSession(): { token: string; refreshToken: string } | null {
   // Prefer localStorage; fall back to sessionStorage (some browsers block
@@ -36,6 +36,7 @@ export function persistAuthSession(token: string, refreshToken: string): void {
 export function clearAuthSession(): void {
   try { localStorage.removeItem(AUTH_SESSION_STORAGE_KEY) } catch { /* ignore */ }
   try { localStorage.removeItem('ha-auth-token') } catch { /* ignore */ }
+  try { localStorage.removeItem('ha-user-id') } catch { /* ignore */ }
   try { sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY) } catch { /* ignore */ }
   try { sessionStorage.removeItem('ha-auth-token') } catch { /* ignore */ }
 }
@@ -61,7 +62,7 @@ export function parseStoredToken(raw: string | null): string | null {
 /** Read the auth cookie (primary storage — survives cache clears). */
 function readAuthCookie(): string | null {
   try {
-    const match = document.cookie.match(/(?:^|;\s*)iora_token=([^;]+)/)
+    const match = document.cookie.match(/(?:^|;\s*)rumahl_token=([^;]+)/)
     return match ? decodeURIComponent(match[1]) : null
   } catch {
     return null
@@ -115,7 +116,7 @@ export function currentUsername(): string | null {
 }
 
 /**
- * Intelligent IORA path resolver: turns every IORA path form into a working
+ * Intelligent rumahl path resolver: turns every rumahl path form into a working
  * browser URL. The stored value stays untouched — only the render URL changes.
  *
  *  - `http(s)://`, `blob:`, `data:`  → returned unchanged
@@ -125,7 +126,7 @@ export function currentUsername(): string | null {
  *    current user's root
  *  - everything else (`/icons/…`, `/assets/…`, `/api/…`) → unchanged
  */
-export function resolveIoraUrl(input: string): string {
+export function resolverumahlUrl(input: string): string {
   const raw = String(input ?? '').trim()
   if (!raw) return raw
   if (/^(https?:|blob:|data:)/i.test(raw)) return raw
@@ -142,13 +143,13 @@ export function resolveIoraUrl(input: string): string {
 }
 
 /**
- * Async version of `resolveIoraUrl` — for absolute paths the backend decides
- * whether the path is an IORA path (found in the user's file tree) or a web
+ * Async version of `resolverumahlUrl` — for absolute paths the backend decides
+ * whether the path is an rumahl path (found in the user's file tree) or a web
  * path. This resolves ambiguities like a user-created root folder `/icons`
- * vs. the web namespace `/icons/`. Host filesystem paths (`/var/lib/iora/…`,
- * `/opt/iora/…`) are served through the guarded `system-path` endpoint.
+ * vs. the web namespace `/icons/`. Host filesystem paths (`/var/lib/rumahl/…`,
+ * `/opt/rumahl/…`) are served through the guarded `system-path` endpoint.
  */
-export async function resolveIoraUrlAsync(input: string): Promise<string> {
+export async function resolverumahlUrlAsync(input: string): Promise<string> {
   const raw = String(input ?? '').trim()
   if (!raw) return raw
   if (/^(https?:|blob:|data:)/i.test(raw)) return raw
@@ -166,12 +167,12 @@ export async function resolveIoraUrlAsync(input: string): Promise<string> {
     const res = await authFetch(`/api/files/resolve-path?path=${encodeURIComponent(raw)}`)
     if (res.ok) {
       const data = await res.json() as { found?: boolean; file_id?: string; is_folder?: boolean }
-      // Folders cannot be loaded as media — a path pointing at an IORA folder
+      // Folders cannot be loaded as media — a path pointing at an rumahl folder
       // falls through to the web-path handling so web resources keep working.
       if (data.found && data.file_id && !data.is_folder) return getAuthenticatedFileUrl(`/api/files/${data.file_id}/download`)
     }
   } catch { /* backend unreachable → treat as web path */ }
-  if (/^\/(opt\/iora|var\/lib\/iora|home\/iora\/iora|tmp)(\/|$)/.test(raw)) {
+  if (/^\/(opt\/rumahl|var\/lib\/rumahl|home\/rumahl\/rumahl|tmp)(\/|$)/.test(raw)) {
     const token = getAuthToken()
     return `${apiBase()}/api/files/system-path?path=${encodeURIComponent(raw)}${token ? `&token=${encodeURIComponent(token)}` : ''}`
   }
@@ -200,7 +201,7 @@ export function refreshAccessToken(): Promise<string | null> {
       const data = await response.json() as { access_token?: unknown; refresh_token?: unknown }
       if (typeof data.access_token !== 'string' || typeof data.refresh_token !== 'string') return null
       persistAuthSession(data.access_token, data.refresh_token)
-      window.dispatchEvent(new CustomEvent('iora:auth-token-refreshed', { detail: { token: data.access_token } }))
+      window.dispatchEvent(new CustomEvent('rumahl:auth-token-refreshed', { detail: { token: data.access_token } }))
       return data.access_token
     })
     .catch(() => null)
@@ -259,7 +260,7 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
   // must never kill the session: previously ANY 401 fired this event, which
   // turned a single bad endpoint into a login loop.
   if (response.status === 401 && !refreshed) {
-    window.dispatchEvent(new CustomEvent('iora:auth-unauthorized', { detail: { url } }))
+    window.dispatchEvent(new CustomEvent('rumahl:auth-unauthorized', { detail: { url } }))
   } else if (response.status === 401) {
     console.warn(`[authFetch] ${url} returned 401 even after a successful refresh (endpoint/permission issue - session kept)`)
   }

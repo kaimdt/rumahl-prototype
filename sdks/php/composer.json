@@ -1,15 +1,15 @@
 {
-  "name": "iora/sdk",
-  "description": "Official PHP SDK for IORA app and plugin development",
+  "name": "ora/sdk",
+  "description": "Official PHP SDK for rumahl app and plugin development",
   "version": "0.1.0",
   "type": "library",
-  "keywords": ["iora", "home-automation", "iot", "smart-home", "sdk"],
-  "homepage": "https://iora.io",
+  "keywords": ["ora", "home-automation", "iot", "smart-home", "sdk"],
+  "homepage": "https://ora.io",
   "license": "MIT",
   "authors": [
     {
-      "name": "IORA Team",
-      "email": "dev@iora.io"
+      "name": "rumahl Team",
+      "email": "dev@ora.io"
     }
   ],
   "require": {
@@ -24,12 +24,12 @@
   },
   "autoload": {
     "psr-4": {
-      "Iora\\": "src/"
+      "rumahl\\": "src/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "Iora\\Tests\\": "tests/"
+      "rumahl\\Tests\\": "tests/"
     }
   },
   "scripts": {

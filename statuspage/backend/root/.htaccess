@@ -1,0 +1,19 @@
+# rumahl Status — single entry point (website root)
+RewriteEngine On
+DirectoryIndex index.php
+
+# Never serve backend sources directly
+RewriteRule ^src/ - [F,L]
+
+# Serve existing files/dirs directly (frontend assets, robots.txt, .well-known, …)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Everything else → front controller
+RewriteRule ^ index.php [QSA,L]
+
+# Block direct access to PHP sources and local config (belt & suspenders)
+<FilesMatch "^(config\.php|config\.local\.php)$">
+  Require all denied
+</FilesMatch>

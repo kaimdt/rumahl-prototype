@@ -26,7 +26,7 @@ import {
   Info,
 } from '@phosphor-icons/react'
 
-// ─── IORA Documentation Content ────────────────────────────────────────
+// ─── rumahl Documentation Content ────────────────────────────────────────
 
 interface DocArticle {
   id: string
@@ -46,29 +46,29 @@ interface DocCategory {
 
 const DOC_CATEGORIES: DocCategory[] = [
   {
-    id: 'iora-overview',
-    title: 'IORA Plattform',
+    id: 'rumahl-overview',
+    title: 'rumahl Plattform',
     subtitle: 'Überblick & Architektur',
     icon: Globe,
     color: 'oklch(0.65 0.20 210)',
   },
   {
-    id: 'iora-core',
-    title: 'IORA Core',
+    id: 'rumahl-core',
+    title: 'rumahl Core',
     subtitle: 'Systemkern & Backend',
     icon: Cpu,
     color: 'oklch(0.65 0.18 160)',
   },
   {
-    id: 'iora-home',
-    title: 'IORA Home',
+    id: 'rumahl-home',
+    title: 'rumahl Home',
     subtitle: 'Smart Home & Geräte',
     icon: House,
     color: 'oklch(0.65 0.18 50)',
   },
   {
-    id: 'iora-assist',
-    title: 'IORA Assist',
+    id: 'rumahl-assist',
+    title: 'rumahl Assist',
     subtitle: 'KI & Automatisierung',
     icon: Brain,
     color: 'oklch(0.65 0.18 300)',
@@ -90,47 +90,47 @@ const DOC_CATEGORIES: DocCategory[] = [
 ]
 
 const DOC_ARTICLES: DocArticle[] = [
-  // ── IORA Overview ──
+  // ── rumahl Overview ──
   {
-    id: 'what-is-iora',
-    title: 'Was ist IORA?',
+    id: 'what-is-rumahl',
+    title: 'Was ist rumahl?',
     icon: Globe,
-    category: 'iora-overview',
-    content: `# Was ist IORA?
+    category: 'rumahl-overview',
+    content: `# Was ist rumahl?
 
-**IORA** steht für **Interface for Optimized Residential Autonomy** — ein eigenständiges Ökosystem zur intelligenten Verwaltung deines Zuhauses und darüber hinaus.
+**rumahl** steht für **Interface for Optimized Residential Autonomy** — ein eigenständiges Ökosystem zur intelligenten Verwaltung deines Zuhauses und darüber hinaus.
 
-IORA ist kein einfaches Dashboard. Es ist ein **Betriebssystem für dein Zuhause**, das alle Aspekte der Hausautomation, Kommunikation und intelligenten Steuerung in einer einheitlichen Plattform vereint.
+rumahl ist kein einfaches Dashboard. Es ist ein **Betriebssystem für dein Zuhause**, das alle Aspekte der Hausautomation, Kommunikation und intelligenten Steuerung in einer einheitlichen Plattform vereint.
 
-## Die drei Säulen von IORA
+## Die drei Säulen von rumahl
 
-### 🔧 IORA Core
-Das Fundament des Systems. IORA Core ist der Systemkern, der alle Dienste koordiniert:
+### 🔧 rumahl Core
+Das Fundament des Systems. rumahl Core ist der Systemkern, der alle Dienste koordiniert:
 - **Backend-Server** (Rust/Axum) für maximale Performance
 - **Echtzeitkommunikation** über WebSocket
 - **Datenbankmanagement** (SQLite) für Konfigurationen und History
 - **API-Gateway** für alle internen und externen Dienste
 - **Streaming-Server** für Live-Video und Medien
 
-### 🏠 IORA Home
-Die Smart-Home-Zentrale. IORA Home verbindet sich mit Home Assistant und erweitert dessen Funktionalität:
+### 🏠 rumahl Home
+Die Smart-Home-Zentrale. rumahl Home verbindet sich mit Home Assistant und erweitert dessen Funktionalität:
 - **Gerätesteuerung** – Lichter, Klima, Schalter, Sensoren und mehr
 - **Szenen & Automatisierung** – Intelligente Abläufe und Zeitpläne
 - **Protokoll-Integration** – MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit
 - **Energieüberwachung** – Verbrauch und Statistiken
 - **NINA-Warnungen** – Nationale Warnsystem-Integration
 
-### 🤖 IORA Assist
-Die KI-Schicht von IORA. IORA Assist bietet intelligente Unterstützung:
+### 🤖 rumahl Assist
+Die KI-Schicht von rumahl. rumahl Assist bietet intelligente Unterstützung:
 - **Entity Watchdog** – Automatische Überwachung und Reaktion
 - **Composite Sensors** – Berechnete Sensoren aus mehreren Quellen
 - **Anomalie-Erkennung** – Erkennt ungewöhnliche Muster
 - **Smart Scenes** – Kontextabhängige Szenarios mit Bedingungen
 - **Scheduled Actions** – Zeitgesteuerte Automatisierungen
 
-## Warum IORA?
+## Warum rumahl?
 
-| Feature | Klassisches Dashboard | IORA |
+| Feature | Klassisches Dashboard | rumahl |
 |---------|----------------------|------|
 | Gerätesteuerung | ✅ | ✅ |
 | Multi-User & Rollen | ❌ | ✅ |
@@ -144,23 +144,23 @@ Die KI-Schicht von IORA. IORA Assist bietet intelligente Unterstützung:
     id: 'architecture',
     title: 'Architektur & Komponenten',
     icon: HardDrive,
-    category: 'iora-overview',
-    content: `# IORA Architektur
+    category: 'rumahl-overview',
+    content: `# rumahl Architektur
 
 ## Systemübersicht
 
 \`\`\`
 ┌─────────────────────────────────────────┐
-│              IORA Frontend              │
+│              rumahl Frontend              │
 │         (React + TypeScript)            │
 ├─────────────────────────────────────────┤
-│              IORA Core                  │
+│              rumahl Core                  │
 │     (Rust/Axum Backend Server)          │
 │  ┌──────────┬──────────┬──────────┐     │
 │  │ REST API │ WebSocket│ Streaming│     │
 │  └──────────┴──────────┴──────────┘     │
 ├─────────────────────────────────────────┤
-│  IORA Home          │    IORA Assist    │
+│  rumahl Home          │    rumahl Assist    │
 │  ┌────────────┐     │  ┌─────────────┐  │
 │  │    Home    │     │  │  Watchdog   │  │
 │  │  Assistant │     │  │  Scheduler  │  │
@@ -197,8 +197,8 @@ Die KI-Schicht von IORA. IORA Assist bietet intelligente Unterstützung:
     id: 'getting-started',
     title: 'Erste Schritte',
     icon: Lightning,
-    category: 'iora-overview',
-    content: `# Erste Schritte mit IORA
+    category: 'rumahl-overview',
+    content: `# Erste Schritte mit rumahl
 
 ## Voraussetzungen
 
@@ -214,7 +214,7 @@ Die KI-Schicht von IORA. IORA Assist bietet intelligente Unterstützung:
 cd backend
 cargo run
 \`\`\`
-Der IORA Core Server startet auf Port **3001**.
+Der rumahl Core Server startet auf Port **3001**.
 
 ### 2. Frontend starten
 \`\`\`bash
@@ -239,15 +239,15 @@ Beim ersten Start wirst du aufgefordert, einen Administrator-Account zu erstelle
 - **Streaming einrichten** → Integriere OBS für Live-Übertragungen`,
   },
 
-  // ── IORA Core ──
+  // ── rumahl Core ──
   {
     id: 'core-backend',
     title: 'Backend-Server',
     icon: Cpu,
-    category: 'iora-core',
-    content: `# IORA Core – Backend
+    category: 'rumahl-core',
+    content: `# rumahl Core – Backend
 
-Der IORA Core Backend-Server ist das Herzstück des Systems, geschrieben in **Rust** mit dem **Axum** Framework für maximale Performance und Zuverlässigkeit.
+Der rumahl Core Backend-Server ist das Herzstück des Systems, geschrieben in **Rust** mit dem **Axum** Framework für maximale Performance und Zuverlässigkeit.
 
 ## Funktionen
 
@@ -282,10 +282,10 @@ Die vollständige API-Dokumentation ist unter **\`/api/docs\`** (Swagger UI) ver
     id: 'core-streaming',
     title: 'Streaming-Server',
     icon: VideoCamera,
-    category: 'iora-core',
-    content: `# IORA Streaming — Einfach Live gehen
+    category: 'rumahl-core',
+    content: `# rumahl Streaming — Einfach Live gehen
 
-IORA hat einen integrierten Streaming-Server. Du kannst **Video**, **Audio** oder **beides** direkt aus dem Browser streamen — ohne OBS, ohne Skripte, ohne Konfiguration.
+rumahl hat einen integrierten Streaming-Server. Du kannst **Video**, **Audio** oder **beides** direkt aus dem Browser streamen — ohne OBS, ohne Skripte, ohne Konfiguration.
 
 ## So geht's (3 Schritte)
 
@@ -347,7 +347,7 @@ POST /api/streams
 Der Streaming-Server arbeitet als **WebSocket-Relay**:
 
 \`\`\`
-Sender (Browser) → IORA Core → Dashboard Widget
+Sender (Browser) → rumahl Core → Dashboard Widget
    Frames            Relay         Frames
 \`\`\`
 
@@ -370,12 +370,12 @@ Sender (Browser) → IORA Core → Dashboard Widget
     id: 'core-api-keys',
     title: 'API-Schlüssel & Webhooks',
     icon: Keyboard,
-    category: 'iora-core',
+    category: 'rumahl-core',
     content: `# API-Schlüssel & Webhooks
 
 ## API-Schlüssel
 
-IORA unterstützt API-Schlüssel für programmatischen Zugriff:
+rumahl unterstützt API-Schlüssel für programmatischen Zugriff:
 
 1. **Erstellen:** Einstellungen → Admin Panel → API Keys
 2. **Verwenden:** Header \`X-API-Key: dein-schlüssel\`
@@ -401,15 +401,15 @@ POST /api/webhooks
 - Delivery-Log mit Retry-Mechanismus`,
   },
 
-  // ── IORA Home ──
+  // ── rumahl Home ──
   {
     id: 'home-entities',
     title: 'Geräte & Entitäten',
     icon: Plugs,
-    category: 'iora-home',
+    category: 'rumahl-home',
     content: `# Geräte & Entitäten
 
-IORA Home integriert sich nahtlos mit Home Assistant und erweitert dessen Gerätesteuerung.
+rumahl Home integriert sich nahtlos mit Home Assistant und erweitert dessen Gerätesteuerung.
 
 ## Unterstützte Domains
 
@@ -438,16 +438,16 @@ GET /api/entities/count
 
 ## Entity History
 
-IORA speichert Zustandsänderungen lokal für schnellen Zugriff auf Statistiken und Diagramme, unabhängig von der Home Assistant History.`,
+rumahl speichert Zustandsänderungen lokal für schnellen Zugriff auf Statistiken und Diagramme, unabhängig von der Home Assistant History.`,
   },
   {
     id: 'home-protocols',
     title: 'Protokoll-Integration',
     icon: Broadcast,
-    category: 'iora-home',
+    category: 'rumahl-home',
     content: `# Protokoll-Integration
 
-IORA Home unterstützt direkte Kommunikation mit verschiedenen Smart-Home-Protokollen.
+rumahl Home unterstützt direkte Kommunikation mit verschiedenen Smart-Home-Protokollen.
 
 ## MQTT
 - Direkte Verbindung zu einem MQTT Broker
@@ -482,12 +482,12 @@ IORA Home unterstützt direkte Kommunikation mit verschiedenen Smart-Home-Protok
     id: 'home-scenes',
     title: 'Szenen & Automatisierung',
     icon: Lightning,
-    category: 'iora-home',
+    category: 'rumahl-home',
     content: `# Szenen & Automatisierung
 
 ## Smart Scenes
 
-IORA Smart Scenes gehen weit über HA-Szenen hinaus:
+rumahl Smart Scenes gehen weit über HA-Szenen hinaus:
 
 ### Sequenzen
 Führe Aktionen nacheinander aus mit konfigurierbaren Verzögerungen:
@@ -525,13 +525,13 @@ POST /api/integration/schedules
 \`\`\``,
   },
 
-  // ── IORA Assist ──
+  // ── rumahl Assist ──
   {
     id: 'assist-watchdog',
     title: 'Entity Watchdog',
     icon: Shield,
-    category: 'iora-assist',
-    content: `# IORA Assist – Entity Watchdog
+    category: 'rumahl-assist',
+    content: `# rumahl Assist – Entity Watchdog
 
 Der Entity Watchdog überwacht automatisch den Zustand deiner Geräte und führt bei Problemen Aktionen aus.
 
@@ -565,20 +565,20 @@ POST /api/integration/watchdogs
 
 ## Dashboard
 
-Aktive Watchdogs werden im IORA Assist-Bereich der Admin-Oberfläche angezeigt.`,
+Aktive Watchdogs werden im rumahl Assist-Bereich der Admin-Oberfläche angezeigt.`,
   },
   {
     id: 'assist-composite',
     title: 'Composite Sensors',
     icon: Brain,
-    category: 'iora-assist',
-    content: `# IORA Assist – Composite Sensors
+    category: 'rumahl-assist',
+    content: `# rumahl Assist – Composite Sensors
 
 Composite Sensors sind virtuelle Sensoren, die aus mehreren Entitäten berechnet werden.
 
 ## Konzept
 
-Während Home Assistant Templates begrenzt sind, berechnet IORA Core Composite Sensors direkt auf dem Backend mit Zugriff auf den Entity-Cache — schnell und zuverlässig.
+Während Home Assistant Templates begrenzt sind, berechnet rumahl Core Composite Sensors direkt auf dem Backend mit Zugriff auf den Entity-Cache — schnell und zuverlässig.
 
 ## Beispiel: Durchschnittstemperatur
 
@@ -609,10 +609,10 @@ POST /api/integration/composite
     id: 'assist-analytics',
     title: 'Analytics & Anomalien',
     icon: Robot,
-    category: 'iora-assist',
-    content: `# IORA Assist – Analytics
+    category: 'rumahl-assist',
+    content: `# rumahl Assist – Analytics
 
-IORA Assist sammelt und analysiert Daten, um Muster zu erkennen und Anomalien zu detektieren.
+rumahl Assist sammelt und analysiert Daten, um Muster zu erkennen und Anomalien zu detektieren.
 
 ## Analytics Dashboard
 
@@ -625,7 +625,7 @@ GET /api/integration/analytics/history
 
 ## Anomalie-Erkennung
 
-IORA Assist erkennt automatisch ungewöhnliche Muster:
+rumahl Assist erkennt automatisch ungewöhnliche Muster:
 - **Unerwartete Zustandsänderungen** außerhalb normaler Zeiten
 - **Stale Entities** – Geräte, die keine Updates mehr senden
 - **Wertausreißer** – Sensorwerte außerhalb des üblichen Bereichs
@@ -652,7 +652,7 @@ Enthält:
     category: 'ui',
     content: `# Widgets & Seiten
 
-IORA bietet über **80 Widget-Typen** und einen visuellen Page Designer.
+rumahl bietet über **80 Widget-Typen** und einen visuellen Page Designer.
 
 ## Widget-Kategorien
 
@@ -666,7 +666,7 @@ Kein Gerät erforderlich:
 - **Begrüßung** – Personalisierte Willkommensnachricht
 - **Uhren** – Analog & Digital
 - **Kalender** – Termine aus Home Assistant
-- **Live Stream** – IORA Streaming Server
+- **Live Stream** – rumahl Streaming Server
 - **Karte** – Geräte-Standorte
 - **IFrame** – Externe Websites einbetten
 - **System-Monitor** – CPU, RAM, Uptime
@@ -694,7 +694,7 @@ Kein Gerät erforderlich:
 
 ## Automatische Themes
 
-IORA wechselt den Theme basierend auf der Tageszeit:
+rumahl wechselt den Theme basierend auf der Tageszeit:
 - **Day** – Heller Modus für tagsüber
 - **Evening** – Warme Töne für den Abend
 - **Night** – Dunkler Modus mit Blaulichtfilter
@@ -739,7 +739,7 @@ Für fortgeschrittene Anpassungen:
 
 ## Multi-User System
 
-IORA unterstützt mehrere Benutzer mit unterschiedlichen Rollen:
+rumahl unterstützt mehrere Benutzer mit unterschiedlichen Rollen:
 
 ### Rollen
 - **Admin** – Voller Zugriff auf alle Einstellungen und Admin-Panel
@@ -798,7 +798,7 @@ Admins können den Wartungsmodus aktivieren:
 2. Erstelle separate API-Keys pro Anwendung
 3. Aktiviere den Geräte-Sperr-Modus für öffentliche Tablets
 4. Überprüfe regelmäßig die Webhook-Deliveries
-5. Halte Home Assistant und IORA aktuell`,
+5. Halte Home Assistant und rumahl aktuell`,
   },
 ]
 
@@ -1087,7 +1087,7 @@ export function DocsPage() {
         <div>
           <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
             <BookOpen size={22} weight="duotone" className="text-accent" />
-            IORA Dokumentation
+            rumahl Dokumentation
           </h3>
           <p className="text-xs text-foreground/40 mt-1">Anleitungen, Referenzen & Systemübersicht</p>
         </div>
@@ -1140,7 +1140,7 @@ export function DocsPage() {
         )}
       </AnimatePresence>
 
-      {/* IORA System Overview Card */}
+      {/* rumahl System Overview Card */}
       {!searchQuery.trim() && (
         <>
           <div className="rounded-2xl overflow-hidden border border-foreground/8">
@@ -1150,7 +1150,7 @@ export function DocsPage() {
                   <Globe size={26} weight="duotone" className="text-accent" />
                 </div>
                 <div className="space-y-1">
-                  <h2 className="text-base font-semibold text-foreground">IORA Ökosystem</h2>
+                  <h2 className="text-base font-semibold text-foreground">rumahl Ökosystem</h2>
                   <p className="text-xs text-foreground/50 leading-relaxed">
                     Interface for Optimized Residential Autonomy — dein Betriebssystem für intelligentes Wohnen.
                     Drei Module arbeiten zusammen, um dein Zuhause autonom, sicher und komfortabel zu gestalten.
@@ -1161,32 +1161,32 @@ export function DocsPage() {
               {/* Three pillars */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
                 <button
-                  onClick={() => setSelectedCategory('iora-core')}
+                  onClick={() => setSelectedCategory('rumahl-core')}
                   className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 hover:bg-foreground/[0.07] transition-all text-left group"
                 >
                   <div className="flex items-center gap-2 mb-1.5">
                     <Cpu size={16} weight="duotone" style={{ color: 'oklch(0.65 0.18 160)' }} />
-                    <span className="text-xs font-semibold text-foreground">IORA Core</span>
+                    <span className="text-xs font-semibold text-foreground">rumahl Core</span>
                   </div>
                   <p className="text-[10px] text-foreground/40 leading-relaxed">Systemkern, API, Streaming, Datenbank</p>
                 </button>
                 <button
-                  onClick={() => setSelectedCategory('iora-home')}
+                  onClick={() => setSelectedCategory('rumahl-home')}
                   className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 hover:bg-foreground/[0.07] transition-all text-left group"
                 >
                   <div className="flex items-center gap-2 mb-1.5">
                     <House size={16} weight="duotone" style={{ color: 'oklch(0.65 0.18 50)' }} />
-                    <span className="text-xs font-semibold text-foreground">IORA Home</span>
+                    <span className="text-xs font-semibold text-foreground">rumahl Home</span>
                   </div>
                   <p className="text-[10px] text-foreground/40 leading-relaxed">Smart Home, Geräte, Protokolle</p>
                 </button>
                 <button
-                  onClick={() => setSelectedCategory('iora-assist')}
+                  onClick={() => setSelectedCategory('rumahl-assist')}
                   className="p-3.5 rounded-xl bg-foreground/[0.04] border border-foreground/8 hover:bg-foreground/[0.07] transition-all text-left group"
                 >
                   <div className="flex items-center gap-2 mb-1.5">
                     <Brain size={16} weight="duotone" style={{ color: 'oklch(0.65 0.18 300)' }} />
-                    <span className="text-xs font-semibold text-foreground">IORA Assist</span>
+                    <span className="text-xs font-semibold text-foreground">rumahl Assist</span>
                   </div>
                   <p className="text-[10px] text-foreground/40 leading-relaxed">KI, Watchdog, Analytics, Automation</p>
                 </button>

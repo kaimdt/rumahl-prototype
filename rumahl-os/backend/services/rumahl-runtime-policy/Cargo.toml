@@ -1,0 +1,18 @@
+[package]
+name = "rumahl-runtime-policy"
+version = "0.1.0"
+edition = "2021"
+description = "Read-only app security profile and runtime detection engine for rumahl OS"
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+rumahl-shared-config = { path = "../../shared/rumahl-shared-config" }
+rumahl-shared-heartbeat = { path = "../../shared/rumahl-shared-heartbeat" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }

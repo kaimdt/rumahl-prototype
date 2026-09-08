@@ -1,28 +1,28 @@
-# IORA App & Plugin Isolation System
+# rumahl App & Plugin Isolation System
 
 ## Overview
 
-IORA implements a comprehensive isolation system that ensures Apps and Plugins can extend the platform without compromising system stability. If any App or Plugin crashes, its functionality becomes unavailable, but the core IORA system and other Apps/Plugins continue operating normally.
+rumahl implements a comprehensive isolation system that ensures Apps and Plugins can extend the platform without compromising system stability. If any App or Plugin crashes, its functionality becomes unavailable, but the core rumahl system and other Apps/Plugins continue operating normally.
 
 ## Architecture
 
 ### Apps vs Plugins
 
 - **Apps**: Docker containers that run independently
-  - Managed by `iora-supervisor` (port 8097)
+  - Managed by `rumahl-supervisor` (port 8097)
   - Full isolation via containerization
   - Can run continuously as services
-  - Access IORA system via API Gateway only
+  - Access rumahl system via API Gateway only
 
 - **Plugins**: Code extensions that run on-demand
-  - Managed by `iora-core` (port 8090)
+  - Managed by `rumahl-core` (port 8090)
   - Execute in sandboxed environment with resource limits
   - Called when needed by the system
-  - Access IORA system via API Gateway only
+  - Access rumahl system via API Gateway only
 
 ### Key Principle: Controlled Access
 
-**Apps and Plugins CANNOT access native IORA services directly.** They must use the API Gateway which provides:
+**Apps and Plugins CANNOT access native rumahl services directly.** They must use the API Gateway which provides:
 - Permission-based access control
 - Request timeouts (30 seconds)
 - Crash isolation
@@ -32,8 +32,8 @@ IORA implements a comprehensive isolation system that ensures Apps and Plugins c
 
 ### Purpose
 
-The API Gateway acts as a controlled interface between Apps/Plugins and the IORA system. It ensures that:
-1. Providers cannot access internal IORA services directly
+The API Gateway acts as a controlled interface between Apps/Plugins and the rumahl system. It ensures that:
+1. Providers cannot access internal rumahl services directly
 2. Crashed providers don't block the system
 3. API requests timeout after 30 seconds
 4. Permissions are enforced
@@ -44,7 +44,7 @@ Apps and Plugins can register custom API endpoints:
 
 **For Plugins (Rust):**
 ```rust
-use iora_shared::api_gateway::{ApiEndpoint, ProviderType, HttpMethod};
+use rumahl_shared::api_gateway::{ApiEndpoint, ProviderType, HttpMethod};
 
 impl IPlugin for MyPlugin {
     async fn get_api_endpoints(&self) -> Vec<ApiEndpoint> {
@@ -68,7 +68,7 @@ impl IPlugin for MyPlugin {
 
 **For Apps (via REST API):**
 ```bash
-POST http://iora-core:8090/api/core/api-endpoints/register
+POST http://rumahl-core:8090/api/core/api-endpoints/register
 {
   "endpoint": {
     "id": "my-app-api-1",
@@ -96,7 +96,7 @@ When an App or Plugin crashes:
 
 ### Purpose
 
-The Widget Registry allows Apps and Plugins to provide custom UI widgets for the IORA dashboard. Widgets are isolated:
+The Widget Registry allows Apps and Plugins to provide custom UI widgets for the rumahl dashboard. Widgets are isolated:
 - Crashed providers = unavailable widgets
 - Widgets are loaded dynamically via component URLs
 - System continues working even if widgets fail
@@ -105,7 +105,7 @@ The Widget Registry allows Apps and Plugins to provide custom UI widgets for the
 
 **For Plugins (Rust):**
 ```rust
-use iora_shared::widget_registry::{WidgetDefinition, ProviderType, WidgetType};
+use rumahl_shared::widget_registry::{WidgetDefinition, ProviderType, WidgetType};
 
 impl IPlugin for MyPlugin {
     async fn get_widgets(&self) -> Vec<WidgetDefinition> {
@@ -136,7 +136,7 @@ impl IPlugin for MyPlugin {
 
 **For Apps (via REST API):**
 ```bash
-POST http://iora-core:8090/api/core/widgets/register
+POST http://rumahl-core:8090/api/core/widgets/register
 {
   "widget": {
     "id": "my-app-widget-1",
@@ -170,14 +170,14 @@ When an App or Plugin crashes:
 
 ## API Endpoints
 
-### API Gateway Endpoints (iora-core:8090)
+### API Gateway Endpoints (rumahl-core:8090)
 
 ```
 GET  /api/core/api-endpoints                    - List all registered API endpoints
 GET  /api/core/api-endpoints/provider/:id       - List endpoints by provider
 ```
 
-### Widget Registry Endpoints (iora-core:8090)
+### Widget Registry Endpoints (rumahl-core:8090)
 
 ```
 GET  /api/core/widgets                          - List all widgets
@@ -231,7 +231,7 @@ pub struct SandboxConfig {
 5. **Respect resource limits** - Stay within sandbox constraints for plugins
 6. **Use permissions wisely** - Only request permissions you actually need
 
-### For IORA System
+### For rumahl System
 
 1. **Monitor provider health** - Regularly check if Apps/Plugins are responsive
 2. **Auto-cleanup** - Remove APIs/widgets from crashed providers
@@ -266,7 +266,7 @@ APIs and widgets can declare required permissions:
 ## Example: Complete Plugin with API and Widget
 
 ```rust
-use iora_shared::{
+use rumahl_shared::{
     plugin::*,
     api_gateway::*,
     widget_registry::*,

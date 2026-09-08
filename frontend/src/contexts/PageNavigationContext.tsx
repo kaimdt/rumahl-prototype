@@ -6,6 +6,7 @@ import { wsOnMessage } from '@/lib/wsConnection'
 import { loadSettingsFromBackend, pushAllSettingsToBackend } from '@/lib/settingsSync'
 import { loadLightEnhancementSettingsFromBackend } from '@/lib/lightEnhancements'
 import { parseStoredToken, authFetch } from '@/lib/authHelpers'
+import { matchRoute, buildPath } from '@/lib/router'
 import {
   House,
   Lightbulb,
@@ -115,8 +116,10 @@ export interface PageSettings {
 
 interface PageNavigationContextType {
   currentPageId: string
+  /** Named `:params` captured from the current route (e.g. appId). */
+  params: Record<string, string>
   setCurrentPageId: (id: string) => void
-  /** Deep-link inside a system app, e.g. ('settings', 'apps/ora-browser') → /settings/apps/ora-browser. */
+  /** Deep-link inside a system app, e.g. ('settings', 'apps/rumahl-browser') → /settings/apps/rumahl-browser. */
   currentSubPath: string
   navigateToPage: (id: string, subPath?: string) => void
   pages: DashboardPage[]
@@ -147,7 +150,7 @@ const defaultPages: DashboardPage[] = [
     name: 'Übersicht',
     icon: 'House',
     pageType: 'dashboard',
-    pageSource: { kind: 'iora', id: 'home' },
+    pageSource: { kind: 'rumahl', id: 'home' },
     widgets: [],
     showInNav: true,
     order: 0,
@@ -157,7 +160,7 @@ const defaultPages: DashboardPage[] = [
     name: 'Einstellungen',
     icon: 'Gear',
     pageType: 'system',
-    pageSource: { kind: 'iora', id: 'settings' },
+    pageSource: { kind: 'rumahl', id: 'settings' },
     widgets: [],
     showInNav: true,
     order: 999,
@@ -167,7 +170,7 @@ const defaultPages: DashboardPage[] = [
     name: 'Dokumentation',
     icon: 'BookOpen',
     pageType: 'system',
-    pageSource: { kind: 'iora', id: 'docs' },
+    pageSource: { kind: 'rumahl', id: 'docs' },
     widgets: [],
     showInNav: true,
     order: 998,
@@ -177,7 +180,7 @@ const defaultPages: DashboardPage[] = [
     name: 'Streaming',
     icon: 'VideoCamera',
     pageType: 'system',
-    pageSource: { kind: 'iora', id: 'streaming' },
+    pageSource: { kind: 'rumahl', id: 'streaming' },
     widgets: [],
     showInNav: true,
     order: 997,
@@ -187,7 +190,7 @@ const defaultPages: DashboardPage[] = [
     name: 'Share',
     icon: 'ShareNetwork',
     pageType: 'system',
-    pageSource: { kind: 'iora', id: 'share' },
+    pageSource: { kind: 'rumahl', id: 'share' },
     widgets: [],
     showInNav: true,
     order: 996,
@@ -197,7 +200,7 @@ const defaultPages: DashboardPage[] = [
     name: 'Agent',
     icon: 'Robot',
     pageType: 'system',
-    pageSource: { kind: 'iora', id: 'ai-agent' },
+    pageSource: { kind: 'rumahl', id: 'ai-agent' },
     widgets: [],
     showInNav: true,
     order: 995,
@@ -295,8 +298,6 @@ export const iconMap = {
   Megaphone,
 }
 
-const builtInPages = ['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'docs', 'streaming']
-
 const SYSTEM_PAGE_PATHS: Record<string, string> = {
   launcher: '/',
   admin: '/admin',
@@ -311,6 +312,7 @@ const SYSTEM_PAGE_PATHS: Record<string, string> = {
   'os-images': '/images',
   'os-network': '/network',
   'os-system': '/system',
+  'os-security': '/security',
   'os-storage': '/storage',
   'os-devices': '/devices',
   'os-containers': '/containers',
@@ -318,32 +320,16 @@ const SYSTEM_PAGE_PATHS: Record<string, string> = {
   'os-services': '/services',
   'os-updates': '/updates',
   'os-backups': '/backups',
+  'os-info': '/info',
 }
-
-const SYSTEM_PATH_PAGE_IDS = new Map(
-  Object.entries(SYSTEM_PAGE_PATHS).map(([pageId, path]) => [path, pageId]),
-)
 
 function pageIdToPath(id: string, targetPage?: DashboardPage, docPath?: string, subPath?: string): string {
-  if (id === 'docs' && docPath) return `/docs/${docPath}`
-  let base: string
-  if (SYSTEM_PAGE_PATHS[id]) {
-    base = SYSTEM_PAGE_PATHS[id]
-  } else if (builtInPages.includes(id)) {
-    base = `/${id}`
-  } else {
-    const isAppPage = targetPage?.pageType === 'app' || targetPage?.pageSource?.kind === 'app'
-    if (isAppPage || STORE_CATALOG.some((app) => app.id === id) || installedAppIds.has(id)) base = `/app/${id}`
-    else base = `/page/${id}`
-  }
-  if (subPath) {
-    const clean = subPath.replace(/^\/+|\/+$/g, '')
-    return clean ? `${base}/${clean}` : base
-  }
-  return base
+  const isAppPage = targetPage?.pageType === 'app' || targetPage?.pageSource?.kind === 'app'
+    || STORE_CATALOG.some((app) => app.id === id) || installedAppIds.has(id)
+  return buildPath(id, { docPath, subPath, isAppPage })
 }
 
-/** Extract the sub-path after a system page path, e.g. '/settings/apps/ora-browser' → 'apps/ora-browser'. */
+/** Extract the sub-path after a system page path, e.g. '/settings/apps/rumahl-browser' → 'apps/rumahl-browser'. */
 function pathToSubPath(path: string): string {
   const normalized = path.length > 1 ? path.replace(/\/+$/, '') : path
   for (const pagePath of Object.values(SYSTEM_PAGE_PATHS)) {
@@ -357,24 +343,7 @@ function pathToSubPath(path: string): string {
 }
 
 function pathToPageId(path: string): string {
-  const normalizedPath = path.length > 1 ? path.replace(/\/+$/, '') : path
-  if (normalizedPath === '') return 'launcher'
-  // System pages may carry a sub-path (/settings/apps/ora-browser) - the
-  // page id is the system page, the remainder is the deep link.
-  for (const [pageId, pagePath] of Object.entries(SYSTEM_PAGE_PATHS)) {
-    if (pagePath === '/') continue
-    if (normalizedPath === pagePath || normalizedPath.startsWith(`${pagePath}/`)) {
-      return pageId
-    }
-  }
-  const systemPageId = SYSTEM_PATH_PAGE_IDS.get(normalizedPath)
-  if (systemPageId) return systemPageId
-  if (normalizedPath.startsWith('/docs/') || normalizedPath.startsWith('/docs')) return 'docs'
-  if (normalizedPath.startsWith('/app/')) return normalizedPath.slice(5)
-  // Compatibility only: legacy app links used the plural route.
-  if (normalizedPath.startsWith('/apps/')) return normalizedPath.slice(6)
-  if (normalizedPath.startsWith('/page/')) return normalizedPath.slice(6)
-  return normalizedPath.slice(1)
+  return matchRoute(path).pageId
 }
 
 function extractDocPath(path: string): string | null {
@@ -404,7 +373,7 @@ interface BackendPageWithWidgets {
     icon: string
     position: number
     page_type?: 'dashboard' | 'app' | 'system' | 'custom'
-    page_source_kind?: 'app' | 'iora' | 'user' | 'external'
+    page_source_kind?: 'app' | 'rumahl' | 'user' | 'external'
     page_source_id?: string | null
     show_in_nav?: boolean | number
     display_mode?: string
@@ -600,11 +569,21 @@ async function savePagesToBackend(profileId: string, pages: DashboardPage[]) {
   })
 }
 
-/** Ensure all default pages exist in the array (backend might not have them yet) */
+/** Ensure all default pages exist in the array (backend might not have them yet).
+ *  Also dedupes by id — stale localStorage/config copies can contain the same
+ *  page twice (e.g. `home`), which breaks React list keys and renders
+ *  duplicate nav/dock entries. */
 function ensureDefaultPages(backendPages: DashboardPage[]): DashboardPage[] {
-  const merged = [...backendPages]
+  const seen = new Set<string>()
+  const merged: DashboardPage[] = []
+  for (const page of backendPages) {
+    if (seen.has(page.id)) continue
+    seen.add(page.id)
+    merged.push(page)
+  }
   for (const dp of defaultPages) {
-    if (!merged.find(p => p.id === dp.id)) {
+    if (!seen.has(dp.id)) {
+      seen.add(dp.id)
       merged.push(dp)
     }
   }
@@ -625,8 +604,24 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     }
   }
   const [pages, setLocalPages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
-  const [currentPageId, setCurrentPageIdState] = useState<string>(() =>
-    pathToPageId(window.location.pathname)
+
+  // Sanitize legacy localStorage state once: stale copies can contain the
+  // same page id twice (e.g. `home`), which breaks React list keys and
+  // renders duplicate nav/dock entries. ensureDefaultPages dedupes and
+  // re-adds missing built-in pages.
+  useEffect(() => {
+    setLocalPages(ensureDefaultPages(pages))
+  }, [])
+  const [currentPageId, setCurrentPageIdState] = useState<string>(() => {
+    // Deep link from the store: `?install-app=<id>` opens the app store tab
+    // directly so the install handoff can run there.
+    if (new URLSearchParams(window.location.search).get('install-app')) {
+      return 'app-store'
+    }
+    return pathToPageId(window.location.pathname)
+  })
+  const [currentParams, setCurrentParams] = useState<Record<string, string>>(() =>
+    matchRoute(window.location.pathname).params
   )
   const [currentSubPath, setCurrentSubPath] = useState<string>(() =>
     pathToSubPath(window.location.pathname)
@@ -680,13 +675,14 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setModalPageId(null) // Close any open modal
     setCurrentPageIdState(id)
     setCurrentSubPath('')
+    setCurrentParams({})
     const path = pageIdToPath(id, targetPage)
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
     }
   }, [pages])
 
-  /** Navigate to a page with an optional deep-link sub-path (e.g. settings → /settings/apps/ora-browser). */
+  /** Navigate to a page with an optional deep-link sub-path (e.g. settings → /settings/apps/rumahl-browser). */
   const navigateToPage = useCallback((id: string, subPath?: string) => {
     const targetPage = pages.find(p => p.id === id)
     if (targetPage?.displayMode === 'modal') {
@@ -697,6 +693,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setCurrentPageIdState(id)
     setCurrentSubPath(subPath || '')
     const path = pageIdToPath(id, targetPage, undefined, subPath)
+    setCurrentParams(matchRoute(path).params)
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
     }
@@ -719,6 +716,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     const handlePopState = () => {
       setCurrentPageIdState(pathToPageId(window.location.pathname))
       setCurrentSubPath(pathToSubPath(window.location.pathname))
+      setCurrentParams(matchRoute(window.location.pathname).params)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -747,9 +745,9 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
       window.history.replaceState(window.history.state, '', `/app/${appId}${window.location.search}${window.location.hash}`)
       setCurrentPageIdState(appId)
     }
-    window.addEventListener('iora:installed-apps-updated', canonicalizeLegacyAppPage)
+    window.addEventListener('rumahl:installed-apps-updated', canonicalizeLegacyAppPage)
     canonicalizeLegacyAppPage()
-    return () => window.removeEventListener('iora:installed-apps-updated', canonicalizeLegacyAppPage)
+    return () => window.removeEventListener('rumahl:installed-apps-updated', canonicalizeLegacyAppPage)
   }, [])
 
   // ── Backend sync: init ────────────────────────────────────────────
@@ -849,7 +847,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
           try {
             const appPagesRes = await authFetch('/api/apps/pages')
             if (appPagesRes.ok) {
-              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string; page_type?: 'dashboard' | 'app' | 'system' | 'custom'; page_source_kind?: 'app' | 'iora' | 'user' | 'external'; page_source_id?: string | null; app_id?: string }> }
+              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string; page_type?: 'dashboard' | 'app' | 'system' | 'custom'; page_source_kind?: 'app' | 'rumahl' | 'user' | 'external'; page_source_id?: string | null; app_id?: string }> }
               if (appPagesData.pages && appPagesData.pages.length > 0) {
                 const existingIds = new Set(migrated.map(p => p.id))
                 for (const p of appPagesData.pages) {
@@ -902,7 +900,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
           try {
             const appPagesRes = await authFetch('/api/apps/pages')
             if (appPagesRes.ok) {
-              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string; page_type?: 'dashboard' | 'app' | 'system' | 'custom'; page_source_kind?: 'app' | 'iora' | 'user' | 'external'; page_source_id?: string | null; app_id?: string }> }
+              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string; page_type?: 'dashboard' | 'app' | 'system' | 'custom'; page_source_kind?: 'app' | 'rumahl' | 'user' | 'external'; page_source_id?: string | null; app_id?: string }> }
               if (appPagesData.pages && appPagesData.pages.length > 0) {
                 const existingIds = new Set(pages.map(p => p.id))
                 for (const p of appPagesData.pages) {
@@ -1138,6 +1136,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
 
   const contextValue = useMemo(() => ({
     currentPageId,
+    params: currentParams,
     setCurrentPageId,
     currentSubPath,
     navigateToPage,
@@ -1159,7 +1158,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setGlobalCustomCss,
     userCustomCss,
     setUserCustomCss,
-  }), [currentPageId, setCurrentPageId, currentSubPath, navigateToPage, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
+  }), [currentPageId, currentParams, setCurrentPageId, currentSubPath, navigateToPage, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
 
   return (
     <PageNavigationContext.Provider value={contextValue}>

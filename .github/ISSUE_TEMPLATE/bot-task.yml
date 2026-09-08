@@ -13,7 +13,7 @@ body:
         4. Erstellt einen Pull Request mit Checkliste
         5. Markiert den PR als ready wenn alles erledigt ist
         
-        **Wichtig:** Immer `@kaimdt-agent` im Text erwahnen damit der Bot startet.
+        **Wichtig:** Immer `@rumahl-agent` im Text erwahnen damit der Bot startet.
         
   - type: textarea
     id: description

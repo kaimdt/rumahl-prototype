@@ -1,6 +1,6 @@
 # Permission System
 
-IORA uses a granular permission system that controls what apps, plugins, and API keys can access. Every permission must be explicitly declared in the app/plugin manifest and approved by the user during installation.
+rumahl uses a granular permission system that controls what apps, plugins, and API keys can access. Every permission must be explicitly declared in the app/plugin manifest and approved by the user during installation.
 
 ## Permission Model
 
@@ -152,7 +152,7 @@ Users can revoke individual permissions at any time:
 The JavaScript SDK provides permission checking:
 
 ```javascript
-const client = new IoraClient('http://localhost:8126', 'api-key');
+const client = new rumahlClient('http://localhost:8126', 'api-key');
 
 // Check if a specific permission is granted
 const canWrite = await client.permissions.check('AppStorageWrite');

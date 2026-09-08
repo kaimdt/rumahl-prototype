@@ -1,0 +1,36 @@
+{
+  "name": "rumahl-status",
+  "version": "1.0.0",
+  "private": true,
+  "description": "rumahl Status Page — status.rumahl.com",
+  "scripts": {
+    "dev": "next dev --port 3030",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint app/ components/ lib/"
+  },
+  "dependencies": {
+    "@codemirror/lang-css": "^6.3.1",
+    "@uiw/react-codemirror": "^4.25.11",
+    "clsx": "^2.1.1",
+    "geist": "^1.5.1",
+    "i18next": "^26.4.0",
+    "lucide-react": "^0.454.0",
+    "next": "^16.0.0",
+    "next-themes": "^0.4.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-i18next": "^17.0.12",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.9",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^16.0.0",
+    "tailwindcss": "^4.1.9",
+    "typescript": "^5"
+  }
+}

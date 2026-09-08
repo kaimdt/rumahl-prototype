@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useTheme } from '@/contexts/ThemeContext'
 import { ArrowClockwise, BookOpen, Check, CheckCircle, CircleNotch, CloudArrowUp, Copy, Cpu, Desktop, DownloadSimple, Eye, EyeSlash, Gauge, Gear, Hand, HardDrive, Heartbeat, Lightning, List, ListBullets, ListChecks, MagnifyingGlass, Palette, Play, Power, Robot, ShieldCheck, ShieldWarning, Sparkle, Storefront, Swatches, ToggleLeft, ToggleRight, TrashSimple, TrendUp, UploadSimple, Users, Warning, Wrench } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { Tip } from '@/components/ui/tip'
 import { authFetch } from '@/lib/authHelpers'
 import { AdminCard, ErrorMessage, LoadingSpinner, SettingInput, StatItem, CATEGORY_DESCRIPTIONS, adminFetch, cachedFetch, ccInput, dataCache, formatUptime, getCategoryLabels, notifyError, type ServiceStatus, SettingDefDto, SettingValueDto } from '../AdminPanel'
@@ -92,7 +93,7 @@ export function GlobalConfigTab({ token }: { token: string }) {
     <div className="space-y-3">
       <AdminCard icon={Gear} title="Globale Konfiguration">
         <p className="text-xs text-foreground/60 leading-relaxed">
-          Zentrale Konfiguration für IORA OS. Diese Seite spiegelt das klassische .env-System
+          Zentrale Konfiguration für rumahl OS. Diese Seite spiegelt das klassische .env-System
           wider, ist aber schema-getrieben: jeder Eintrag hat einen Typ, eine Validierung,
           eine Beschreibung und eine Liste von Diensten, die nach einer Änderung neu starten müssen.
           Änderungen werden sofort in der Datenbank gespeichert.
@@ -237,9 +238,9 @@ export function DeveloperModeTab({ token }: { token: string }) {
           setEnabled(entry?.value === true)
           if (devInfo) setDevImage(devInfo as typeof devImage extends infer T ? T : never)
           if (entry?.value === true) {
-            localStorage.setItem('iora-developer-mode', 'true')
+            localStorage.setItem('rumahl-developer-mode', 'true')
           } else {
-            localStorage.removeItem('iora-developer-mode')
+            localStorage.removeItem('rumahl-developer-mode')
           }
         }
       } catch (e) {
@@ -261,10 +262,11 @@ export function DeveloperModeTab({ token }: { token: string }) {
       })
       setEnabled(next)
       if (next) {
-        localStorage.setItem('iora-developer-mode', 'true')
+        localStorage.setItem('rumahl-developer-mode', 'true')
       } else {
-        localStorage.removeItem('iora-developer-mode')
+        localStorage.removeItem('rumahl-developer-mode')
       }
+      window.dispatchEvent(new CustomEvent('rumahl:developer-mode', { detail: { enabled: next } }))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -288,14 +290,14 @@ export function DeveloperModeTab({ token }: { token: string }) {
         <AdminCard title="OS-Entwickler-Image aktiv" icon={ShieldCheck}>
           <div className="space-y-2 text-xs text-foreground/80">
             <p>
-              Dieses System wurde als <strong>IORA OS Dev (internal)</strong>{' '}
+              Dieses System wurde als <strong>rumahl OS Dev (internal)</strong>{' '}
               gebaut. Der Plugin- und App-Entwicklermodus ist dauerhaft
               aktiviert und kann nicht deaktiviert werden.
             </p>
             <ul className="list-disc list-inside space-y-1 text-[11px] text-foreground/60">
-              {devImage?.bridge_unit_installed && <li><span className="font-mono">iora-dev-bridge.service</span> wird automatisch gestartet.</li>}
-              {devImage?.developer_app_unit_installed && <li>Die <strong>IORA Developer App</strong> ist permanent unter „Installierte Apps" verfügbar.</li>}
-              {devImage?.dev_token_present && <li>Ein Dev-Token liegt unter <span className="font-mono">/etc/iora/dev-token</span> (Mode 0600).</li>}
+              {devImage?.bridge_unit_installed && <li><span className="font-mono">rumahl-dev-bridge.service</span> wird automatisch gestartet.</li>}
+              {devImage?.developer_app_unit_installed && <li>Die <strong>rumahl Developer App</strong> ist permanent unter „Installierte Apps" verfügbar.</li>}
+              {devImage?.dev_token_present && <li>Ein Dev-Token liegt unter <span className="font-mono">/etc/rumahl/dev-token</span> (Mode 0600).</li>}
               {devImage?.build_id && <li>Build-ID: <span className="font-mono">{devImage.build_id}</span></li>}
             </ul>
           </div>
@@ -311,9 +313,9 @@ export function DeveloperModeTab({ token }: { token: string }) {
               <div className="flex-1">
                 <div className="text-sm font-semibold text-foreground mb-1">Entwicklermodus aktivieren</div>
                 <p className="text-xs text-foreground/60 leading-relaxed">
-                  Schaltet die <strong>IORA Developer App</strong> frei und erlaubt das Installieren
+                  Schaltet die <strong>rumahl Developer App</strong> frei und erlaubt das Installieren
                   unsignierter ZIP-Pakete. Gedacht für Personen, die eigene Plugins
-                  oder Apps für IORA OS bauen — nicht für den normalen Betrieb.
+                  oder Apps für rumahl OS bauen — nicht für den normalen Betrieb.
                 </p>
                 <p className="text-[11px] text-foreground/40 mt-2">
                   Setting-Schlüssel: <span className="font-mono">developer.mode</span>
@@ -356,7 +358,7 @@ export function DeveloperModeTab({ token }: { token: string }) {
 
       <AdminCard title="Was ändert sich beim Einschalten?" icon={Lightning}>
         <ul className="text-xs text-foreground/70 space-y-1.5 list-disc list-inside">
-          <li><strong>IORA Developer App</strong> wird automatisch installiert und gestartet.</li>
+          <li><strong>rumahl Developer App</strong> wird automatisch installiert und gestartet.</li>
           <li>ZIP-Uploads im App-Tab werden akzeptiert (auch ohne Signatur, mit Trust-Level „untrusted").</li>
           <li>Der Dev-Bridge stellt zusätzliche <span className="font-mono">/api/dev/*</span> Endpunkte bereit.</li>
           <li>Hot-Reload und Plugin-Reloading sind möglich, ohne Dienste neu zu starten.</li>
@@ -445,7 +447,7 @@ export function DeveloperModeConfirmModal({ onCancel, onConfirm }: { onCancel: (
 export function DocumentationTab() {
   return (
     <div className="space-y-3">
-      <AdminCard title="IORA OS Dokumentation" icon={BookOpen}>
+      <AdminCard title="rumahl OS Dokumentation" icon={BookOpen}>
         <p className="text-xs text-foreground/60 mb-3">
           Die vollständige Dokumentation ist auch unter <code className="font-mono text-accent">/docs</code> als
           eigenständige Seite erreichbar. Hier ist sie eingebettet.
@@ -453,7 +455,7 @@ export function DocumentationTab() {
         <div className="rounded-xl overflow-hidden border border-foreground/10 bg-foreground/[0.02]">
           <iframe
             src="/docs"
-            title="IORA OS Dokumentation"
+            title="rumahl OS Dokumentation"
             className="w-full"
             style={{ height: '70vh', minHeight: 480, border: 'none' }}
           />
@@ -489,7 +491,7 @@ export function ServicesTab({ token }: { token: string }) {
   useEffect(() => { load() }, [load])
 
   const restartService = async (name: string) => {
-    if (!confirm(`Dienst "${name}" wirklich neu starten? Während des Neustarts ist er kurz nicht erreichbar.`)) return
+    if (!(await confirmDialog({ title: 'Dienst neu starten', message: `Dienst "${name}" wirklich neu starten? Während des Neustarts ist er kurz nicht erreichbar.`, confirmLabel: 'Neu starten', danger: true }))) return
     setRestarting(name)
     setRestartFeedback(null)
     try {
@@ -710,7 +712,7 @@ export function TasksTab({ token }: { token: string }) {
       {/* Task List */}
       <div className="space-y-2">
         {filtered.length === 0 ? (
-          <div className="glass-card rounded-2xl p-8 text-center text-xs text-foreground/50">Keine Aufgaben gefunden.</div>
+          <div className="rumahl-card rounded-2xl p-8 text-center text-xs text-foreground/50">Keine Aufgaben gefunden.</div>
         ) : filtered.map(task => (
           <AdminCard key={task.id}>
             <div className="flex items-start justify-between gap-3">
@@ -881,7 +883,7 @@ export function ControlModeTab({ token }: { token: string }) {
               key={mode}
               onClick={() => setMode(mode)}
               disabled={saving}
-              className={`glass-card rounded-2xl p-4 text-left transition-all border-2 ${
+              className={`rumahl-card rounded-2xl p-4 text-left transition-all border-2 ${
                 isActive
                   ? `${colorClasses.activeBg} ${colorClasses.border} shadow-lg`
                   : 'border-transparent hover:border-foreground/15 hover:bg-foreground/3'
@@ -1056,7 +1058,7 @@ export function SystemTab({ token }: { token: string }) {
                 value={maintenanceMsg}
                 onChange={e => setMaintenanceMsg(e.target.value)}
                 placeholder="Nachricht für Benutzer..."
-                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground focus:outline-none focus:border-accent"
+                className="rumahl-field-sm w-full text-xs"
               />
             </div>
             <button
@@ -1119,7 +1121,7 @@ export function HealthIntelligenceTab({ token }: { token: string }) {
       <div className="text-center py-8 space-y-3">
         <Heartbeat size={40} weight="duotone" className="mx-auto text-foreground/20" />
         <p className="text-sm text-foreground/50">Intelligence Engine nicht verfügbar</p>
-        <p className="text-xs text-foreground/30">Starte <code className="px-1.5 py-0.5 rounded bg-foreground/[0.04] text-[11px]">iora-intelligence</code> für KI-gestützte Systemanalyse</p>
+        <p className="text-xs text-foreground/30">Starte <code className="px-1.5 py-0.5 rounded bg-foreground/[0.04] text-[11px]">rumahl-intelligence</code> für KI-gestützte Systemanalyse</p>
       </div>
     </AdminCard>
   )
@@ -1265,13 +1267,13 @@ export const DEFAULT_STORE_URL = 'http://localhost:3100'
 
 
 export function ThemeMarketplace({ token, onInstall }: { token: string; onInstall: () => void }) {
-  const [storeUrl, setStoreUrl] = useState(() => localStorage.getItem('iora-store-url') || DEFAULT_STORE_URL)
+  const [storeUrl, setStoreUrl] = useState(() => localStorage.getItem('rumahl-store-url') || DEFAULT_STORE_URL)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   // Listen for install messages from the store iframe
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      if (event.data?.source !== 'iora-store') return
+      if (event.data?.source !== 'rumahl-store') return
 
       if (event.data.action === 'install') {
         const { type, id, name } = event.data.payload
@@ -1331,7 +1333,7 @@ export function ThemeMarketplace({ token, onInstall }: { token: string; onInstal
   return (
     <AdminCard icon={Storefront} title="Theme-Marktplatz">
       <p className="text-xs text-foreground/50 mb-4">
-        Entdecke und installiere Themes direkt aus dem IORA Store.
+        Entdecke und installiere Themes direkt aus dem rumahl Store.
       </p>
 
       {/* Store URL config */}
@@ -1341,10 +1343,10 @@ export function ThemeMarketplace({ token, onInstall }: { token: string; onInstal
           value={storeUrl}
           onChange={(e) => {
             setStoreUrl(e.target.value)
-            localStorage.setItem('iora-store-url', e.target.value)
+            localStorage.setItem('rumahl-store-url', e.target.value)
           }}
           placeholder="Store URL (z.B. http://localhost:3100)"
-          className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-foreground/[0.04] border border-foreground/10 text-foreground focus:outline-none focus:border-accent"
+          className="rumahl-field-sm flex-1 text-xs"
         />
         <button
           onClick={() => iframeRef.current?.contentWindow?.location.reload()}
@@ -1361,7 +1363,7 @@ export function ThemeMarketplace({ token, onInstall }: { token: string; onInstal
           src={storeUrl}
           className="w-full h-full"
           style={{ border: 'none' }}
-          title="IORA Store"
+          title="rumahl Store"
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
         />
         {/* Fallback if iframe fails */}
@@ -1478,7 +1480,7 @@ export function ThemesTab({ token }: { token: string }) {
         id: newId,
         name: newName,
         version: '1.0.0',
-        developer: theme.developer || 'IORA',
+        developer: theme.developer || 'rumahl',
         description: `Klon von ${themeName}`,
         parent_theme: themeId,
         css_variables: cssVars,
@@ -1599,7 +1601,7 @@ export function ThemesTab({ token }: { token: string }) {
 
   const allThemeOptions = [
     { id: 'auto', name: 'Automatisch (Tageszeit)', preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
-    ...builtin.filter(t => t.id !== 'auto').map(t => ({ id: t.id, name: t.name, preview: getThemePreview(t.id) })),
+    ...builtin.filter(t => t.id !== 'auto').map(t => ({ id: t.id, name: tr(`settings.themeOptions.${t.id}.label`, { defaultValue: t.name }), preview: getThemePreview(t.id) })),
     ...installed.filter(t => t.enabled).map(t => {
       let cssVars: Record<string, string> = {}
       try { cssVars = JSON.parse((t as any).css_variables || '{}') } catch {}
@@ -1612,32 +1614,32 @@ export function ThemesTab({ token }: { token: string }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.installed')}</div>
           <div className="text-lg font-semibold text-foreground">{installed.length}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.active')}</div>
           <div className="text-lg font-semibold text-success">{enabledInstalled}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.builtin')}</div>
           <div className="text-lg font-semibold text-accent">{builtin.length}</div>
         </div>
-        <div className="glass-card rounded-xl p-3">
+        <div className="rumahl-card rounded-xl p-3">
           <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('common.default')}</div>
           <div className="text-sm font-semibold text-foreground truncate mt-1">{defaultTheme?.theme_id || 'auto'}</div>
         </div>
       </div>
 
-      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+      <div className="rumahl-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
         <div className="relative flex-1">
           <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
           <input
             value={themeSearch}
             onChange={(event) => setThemeSearch(event.target.value)}
             placeholder={tr('themes.overview.search')}
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+            className="rumahl-field-sm w-full pl-9 pr-3 text-xs"
           />
         </div>
         <div className="flex gap-1 overflow-x-auto">
@@ -1772,19 +1774,19 @@ export function ThemesTab({ token }: { token: string }) {
       {/* ─── Theme Marketplace (iframe) ─────────────────────── */}
       <AdminCard icon={Storefront} title="Theme-Marktplatz">
         <p className="text-xs text-foreground/50 mb-4">
-          Durchstöbere und installiere Themes direkt aus dem IORA Store.
+          Durchstöbere und installiere Themes direkt aus dem rumahl Store.
         </p>
         <ThemeMarketplace token={token} onInstall={() => { load(); refreshThemes() }} />
       </AdminCard>
 
       {/* Built-in themes */}
-      <AdminCard icon={Swatches} title="Integrierte Farbschemas">
-        <p className="text-xs text-foreground/50 mb-4">Die sechs Standard-Farbschemas von IORA</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <AdminCard icon={Swatches} title={tr('themes.builtin')}>
+        <p className="text-xs text-foreground/50 mb-4">{tr('themes.builtinDesc')}</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
           {builtin.filter(t => t.id !== 'auto').sort((a: ThemeDef, b: ThemeDef) => (a.order || 50) - (b.order || 50)).map((t) => (
             <div key={t.id} className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-foreground/[0.04] bg-foreground/[0.02]">
               <div className="w-10 h-10 rounded-xl border border-foreground/10" style={{ background: getThemePreview(t.id) }} />
-              <p className="text-[10px] font-medium text-foreground truncate w-full text-center">{t.name}</p>
+              <p className="text-[10px] font-medium text-foreground truncate w-full text-center">{tr(`settings.themeOptions.${t.id}.label`, { defaultValue: t.name })}</p>
               <p className="text-[8px] text-foreground/30">{t.id}</p>
             </div>
           ))}
@@ -1805,6 +1807,7 @@ export function getThemePreview(themeId: string): string {
     evening: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)',
     night: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)',
     sleep: 'linear-gradient(135deg, #050508 0%, #000000 100%)',
+    midnight: 'linear-gradient(135deg, #242424 0%, #080808 42%, #000000 100%)',
   }
   return previews[themeId] || 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
 }
@@ -1820,7 +1823,7 @@ export interface InstalledThemeDef {
 
 // ── Presence Tab ────────────────────────────────────────────────
 // Live overview of which users are currently online and on which devices
-// (browser, kiosk, IORA Desktop) they are logged in. Auto-refreshes every
+// (browser, kiosk, rumahl Desktop) they are logged in. Auto-refreshes every
 // 15s; the backend marks a device online when its last_seen is within
 // `online_threshold_seconds` (default 120s).
 

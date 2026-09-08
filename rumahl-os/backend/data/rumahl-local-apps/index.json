@@ -1,0 +1,103 @@
+[
+  {
+    "id": "io.rumahl.streaming",
+    "name": "rumahl Streaming",
+    "version": "2.0.0",
+    "developer": "rumahl Project",
+    "description": "Streame Kamera, Mikrofon oder Bildschirm live über rumahl — niedrige Latenz, ideal für Überwachungskameras oder Präsentationen.",
+    "icon": "broadcast",
+    "trust_level": "trusted",
+    "enabled": true,
+    "status": "running",
+    "installed_at": "2026-05-02T10:37:43.433338700+00:00",
+    "source": "system",
+    "kind": "app",
+    "system": true,
+    "manifest": {
+      "id": "io.rumahl.streaming",
+      "name": "rumahl Streaming",
+      "version": "2.0.0",
+      "developer": "rumahl Project",
+      "description": "Live-Streaming von Kamera, Mikro und Bildschirm",
+      "icon": "broadcast",
+      "type": "app",
+      "permissions": [
+        "NetworkLocalAccess",
+        "MediaCapture"
+      ],
+      "custom_pages": [
+        {
+          "icon": "Broadcast",
+          "id": "streaming",
+          "order": 510,
+          "show_in_nav": true,
+          "title": "rumahl Streaming",
+          "url": "/streaming"
+        }
+      ]
+    },
+    "custom_pages": [
+      {
+        "id": "streaming",
+        "title": "rumahl Streaming",
+        "icon": "Broadcast",
+        "url": "/streaming",
+        "show_in_nav": true,
+        "order": 510,
+        "iframe": false
+      }
+    ],
+    "ports": [],
+    "is_bundle": false
+  },
+  {
+    "id": "io.rumahl.share",
+    "name": "rumahl Share",
+    "version": "2.0.0",
+    "developer": "rumahl Project",
+    "description": "Teile Dateien & Links zwischen Geräten im lokalen Netzwerk — eigene Pairdrop-Implementation ohne externe Dienste.",
+    "icon": "share-network",
+    "trust_level": "trusted",
+    "enabled": true,
+    "status": "running",
+    "installed_at": "2026-05-02T10:37:43.431246700+00:00",
+    "source": "system",
+    "kind": "app",
+    "system": true,
+    "manifest": {
+      "id": "io.rumahl.share",
+      "name": "rumahl Share",
+      "version": "2.0.0",
+      "developer": "rumahl Project",
+      "description": "Lokales Datei-Sharing",
+      "icon": "share-network",
+      "type": "app",
+      "permissions": [
+        "NetworkLocalAccess"
+      ],
+      "custom_pages": [
+        {
+          "icon": "ShareNetwork",
+          "id": "share",
+          "order": 500,
+          "show_in_nav": true,
+          "title": "rumahl Share",
+          "url": "/share"
+        }
+      ]
+    },
+    "custom_pages": [
+      {
+        "id": "share",
+        "title": "rumahl Share",
+        "icon": "ShareNetwork",
+        "url": "/share",
+        "show_in_nav": true,
+        "order": 500,
+        "iframe": false
+      }
+    ],
+    "ports": [],
+    "is_bundle": false
+  }
+]

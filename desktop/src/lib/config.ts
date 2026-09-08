@@ -1,7 +1,7 @@
 /**
- * IORA Desktop – Shared Config
+ * rumahl Desktop – Shared Config
  * URL resolution for the Tauri desktop environment.
- * Falls back to the apiBase (user-configured IORA Home URL) when
+ * Falls back to the apiBase (user-configured rumahl Home URL) when
  * the assist-specific URL is not configured.
  */
 
@@ -13,7 +13,7 @@ let _assistUrl = ''
 // ── Bootstrap from apiBase ────────────────────────────────────────────
 function getApiBaseFromStorage(): string {
   try {
-    const stored = localStorage.getItem('iora-home-url')
+    const stored = localStorage.getItem('rumahl-home-url')
     return stored || ''
   } catch { return '' }
 }
@@ -33,7 +33,7 @@ export function getBackendUrl(): string {
 /** Returns the current assist/AI URL. Falls back to backend URL. */
 export function getAssistUrl(): string {
   if (_assistUrl) return _assistUrl
-  // In IORA OS, iora-home proxies /api/assist/* to iora-assist.
+  // In rumahl OS, rumahl-home proxies /api/assist/* to rumahl-assist.
   // So the assist URL is the same as the backend URL.
   return getBackendUrl()
 }

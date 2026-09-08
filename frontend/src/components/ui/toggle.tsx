@@ -5,13 +5,13 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const toggleVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-xl text-sm font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-40 data-[state=on]:bg-accent/20 data-[state=on]:text-accent data-[state=on]:border-accent/30 data-[state=on]:shadow-[0_0_10px_var(--accent)_/_0.15] [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 outline-none aria-invalid:ring-destructive/20 aria-invalid:border-destructive whitespace-nowrap backdrop-blur-md",
+  "rumahl-button data-[state=on]:bg-selection data-[state=on]:text-foreground data-[state=on]:border-accent/30 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
-        default: "bg-transparent hover:bg-accent/10 hover:text-accent",
+        default: "rumahl-button-ghost",
         outline:
-          "border border-foreground/15 bg-background/40 shadow-sm hover:bg-accent/15 hover:text-accent-foreground hover:border-accent/30",
+          "rumahl-button-outline",
       },
       size: {
         default: "h-9 px-3 min-w-9",

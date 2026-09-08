@@ -24,7 +24,7 @@ function connectWebSocket() {
     reconnectTimeout = undefined
   }
 
-  // Derive WebSocket URL from the configured IORA Home URL,
+  // Derive WebSocket URL from the configured rumahl Home URL,
   // otherwise fall back to current host (works when served by backend).
   // In dev mode, bypass Vite proxy to avoid message buffering.
   const apiBase = getApiBase()
@@ -114,8 +114,8 @@ export function wsOnClose(fn: () => void) { closeListeners.add(fn); return () =>
 // ── Connect IMMEDIATELY at module load ──────────────────────────────
 connectWebSocket()
 
-// Reconnect when the IORA Home URL changes at runtime
-window.addEventListener('iora-api-base-changed', () => {
+// Reconnect when the rumahl Home URL changes at runtime
+window.addEventListener('rumahl-api-base-changed', () => {
   console.log('[WS] API base changed, reconnecting…')
   reconnectDelay = 1000
   connectWebSocket()

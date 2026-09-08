@@ -16,7 +16,7 @@
 //   try { await fetch(...) }
 //   catch (e) { reportError('weather-widget', 'Could not load forecast', e) }
 
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 
 const DEDUP_WINDOW_MS = 5_000
@@ -89,7 +89,7 @@ function postToBackend(
         ...(extra ?? {}),
       },
     }
-    // Use cookie-based auth (iora_token) — backend service_routes accepts it.
+    // Use cookie-based auth (rumahl_token) — backend service_routes accepts it.
     void fetch(`${getBackendUrl()}/api/system-events/client`, {
       method: 'POST',
       credentials: 'include',

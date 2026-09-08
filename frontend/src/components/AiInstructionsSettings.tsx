@@ -5,7 +5,7 @@ import {
   Sparkle, Chat, Smiley, Brain, Baby, Briefcase, 
   FloppyDisk, ArrowsClockwise, X 
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 // ─── Preset Styles ────────────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ const PRESETS: Array<{
 
 export function AiInstructionsSettings() {
   const { t, i18n } = useTranslation()
-  const [instructions, setInstructions] = useLocalStorage('iora-ai-instructions', '')
+  const [instructions, setInstructions] = useLocalStorage('rumahl-ai-instructions', '')
   const [activePreset, setActivePreset] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const isGerman = i18n.language === 'de'
@@ -103,8 +103,8 @@ export function AiInstructionsSettings() {
       </div>
       <p className="text-xs text-foreground/50">
         {isGerman 
-          ? 'Passe an, wie ORA AI antworten soll – lustig, professionell oder ganz individuell.'
-          : 'Customize how ORA AI responds – funny, professional, or completely custom.'
+          ? 'Passe an, wie rumahl AI antworten soll – lustig, professionell oder ganz individuell.'
+          : 'Customize how rumahl AI responds – funny, professional, or completely custom.'
         }
       </p>
 

@@ -3,7 +3,7 @@ import type { EntityState } from '@/lib/types'
 /**
  * Returns a hard-coded set of demo entities. Intended ONLY for local
  * development and Storybook-style previews. Production builds must never
- * call this; use the real `useEntities()` / `iora` REST/WS clients instead.
+ * call this; use the real `useEntities()` / `rumahl` REST/WS clients instead.
  *
  * To guard against accidental shipping, this helper logs a warning when
  * it runs in a non-development build.
@@ -15,8 +15,8 @@ export function generateMockStates(): EntityState[] {
   if (!isDev) {
     // eslint-disable-next-line no-console
     console.warn(
-      '[iora] generateMockStates() called outside development mode – returning empty list. ' +
-        'Wire up the real Home Assistant / iora-home backend instead.'
+      '[rumahl] generateMockStates() called outside development mode – returning empty list. ' +
+        'Wire up the real Home Assistant / rumahl-home backend instead.'
     )
     return []
   }

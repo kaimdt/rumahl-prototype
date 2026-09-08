@@ -22,7 +22,7 @@ import {
  FolderOpen } from '@phosphor-icons/react'
 import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS, DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { useLocalStorage } from '@/lib/storage'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { OsFileExplorer } from '@/components/OsFileExplorer'
 import { authFetch, getAuthToken } from '@/lib/authHelpers'
 
@@ -305,7 +305,7 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
   const [uploading, setUploading] = useState(false)
   const [filePickerOpen, setFilePickerOpen] = useState(false)
 
-  /** Pick an image from the real IORA Files explorer and use it as the background. */
+  /** Pick an image from the real rumahl Files explorer and use it as the background. */
   const handleFilePick = (files: Array<{ id: string; name: string; mimeType: string; size: number; path?: string }>) => {
     setFilePickerOpen(false)
     const file = files[0]

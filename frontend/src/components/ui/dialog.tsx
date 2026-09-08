@@ -3,6 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 import XIcon from "lucide-react/dist/esm/icons/x"
 import { ArrowsOutSimple, ArrowsInSimple } from "@phosphor-icons/react"
+import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 
@@ -38,7 +39,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[var(--layer-dialog)] rumahl-dialog-overlay",
         className
       )}
       {...props}
@@ -57,6 +58,7 @@ function DialogContent({
   hideExpandButton?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useTranslation()
 
   const toggleExpand = useCallback(() => {
     setExpanded((prev) => !prev)
@@ -70,12 +72,12 @@ function DialogContent({
         aria-describedby={undefined}
         className={cn(
           // Base: mobile-first fullscreen sheet
-          "bg-card/95 backdrop-blur-2xl text-foreground fixed z-[70] grid gap-4 border border-foreground/20 shadow-2xl duration-200",
+          "rumahl-dialog fixed z-[var(--layer-dialog)] grid gap-4 duration-[var(--dur-normal)]",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           // Mobile: bottom sheet style
           "inset-x-0 bottom-0 rounded-t-2xl max-h-[92vh] overflow-y-auto p-5 pt-3",
           // Tablet+: centered dialog
-          "sm:inset-auto sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:max-h-[90vh] sm:w-full sm:max-w-[calc(100%-2rem)] sm:p-6 sm:pt-6",
+          "sm:inset-auto sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-[var(--r-lg)] sm:max-h-[90vh] sm:w-full sm:max-w-[calc(100%-2rem)] sm:p-5 sm:pt-5",
           "sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95",
           // Default width for desktop (before className so caller can override)
           !expanded && "sm:max-w-[425px]",
@@ -100,16 +102,17 @@ function DialogContent({
             <button
               type="button"
               onClick={toggleExpand}
-              className="hidden sm:flex items-center justify-center w-8 h-8 rounded-xl bg-black/20 backdrop-blur-md text-foreground/80 transition-all duration-200 hover:bg-accent/20 hover:text-accent hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden shadow-sm"
-              title={expanded ? 'Verkleinern' : 'Vergrößern'}
+              className="rumahl-icon-button hidden sm:flex"
+              title={expanded ? t('os.window.restore') : t('os.window.maximize')}
+              aria-label={expanded ? t('os.window.restore') : t('os.window.maximize')}
             >
               {expanded ? <ArrowsInSimple size={15} weight="bold" /> : <ArrowsOutSimple size={15} weight="bold" />}
             </button>
           )}
           {!hideCloseButton && (
-            <DialogPrimitive.Close className="flex items-center justify-center w-8 h-8 rounded-xl bg-black/20 backdrop-blur-md text-foreground/80 transition-all duration-200 hover:bg-destructive/20 hover:text-destructive hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 shadow-sm">
+            <DialogPrimitive.Close className="rumahl-icon-button">
               <XIcon />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">{t('common.close')}</span>
             </DialogPrimitive.Close>
           )}
         </div>

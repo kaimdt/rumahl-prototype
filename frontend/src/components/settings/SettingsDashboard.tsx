@@ -1,7 +1,7 @@
 // Screensaver schedule editor of the Settings page (lazy-loaded chunk).
 import { CalendarBlank, Clock, Plus, Trash } from '@phosphor-icons/react'
 import { Switch } from '@/components/ui/switch'
-import { DAY_LABELS } from '../SettingsPage'
+import { DAY_LABELS } from './shared'
 
 export function ScreensaverScheduleEditor({
   schedules,
@@ -93,7 +93,7 @@ export function ScreensaverScheduleEditor({
                   className={`w-9 h-8 text-[11px] rounded-lg font-medium transition-all ${
                     sched.days.includes(idx)
                       ? 'bg-accent/20 text-accent border border-accent/30'
-                      : 'bg-white/5 text-foreground/40 border border-white/10 hover:bg-white/10'
+                      : 'bg-foreground/5 text-foreground/40 border border-foreground/10 hover:bg-foreground/10'
                   }`}
                 >
                   {label}
@@ -112,7 +112,7 @@ export function ScreensaverScheduleEditor({
                 type="time"
                 value={sched.startTime}
                 onChange={(e) => updateSchedule(sched.id, { startTime: e.target.value })}
-                className="w-full text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground/90 focus:outline-none focus:border-accent/40"
+                className="rumahl-field"
               />
             </div>
             <div className="space-y-1.5">
@@ -123,7 +123,7 @@ export function ScreensaverScheduleEditor({
                 type="time"
                 value={sched.endTime}
                 onChange={(e) => updateSchedule(sched.id, { endTime: e.target.value })}
-                className="w-full text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground/90 focus:outline-none focus:border-accent/40"
+                className="rumahl-field"
               />
             </div>
           </div>

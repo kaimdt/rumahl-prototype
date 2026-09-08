@@ -1,0 +1,93 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "rumahl Home Dashboard konfigurieren",
+        "description": "Geben Sie die URL Ihres rumahl Home Dashboard Backends ein (z.B. http://192.168.1.100:3001). Stellen Sie sicher, dass HA diese Adresse erreichen kann.",
+        "data": {
+          "name": "Name",
+          "dashboard_url": "Dashboard URL",
+          "panel_enabled": "In Seitenleiste anzeigen",
+          "enable_webhooks": "Webhooks aktivieren",
+          "enable_sensors": "Sensoren aktivieren"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Dashboard nicht möglich. Prüfen Sie die URL und ob das Backend läuft.",
+      "invalid_url": "Das URL-Format ist ungültig. Verwenden Sie http:// oder https://",
+      "unknown": "Unerwarteter Fehler"
+    },
+    "abort": {
+      "already_configured": "Dieses Dashboard ist bereits konfiguriert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "rumahl Home Dashboard Optionen",
+        "description": "rumahl Home Dashboard Einstellungen aktualisieren. Änderungen laden die Integration neu.",
+        "data": {
+          "dashboard_url": "Dashboard URL",
+          "panel_enabled": "In Seitenleiste anzeigen",
+          "enable_webhooks": "Webhooks aktivieren",
+          "enable_sensors": "Sensoren aktivieren"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "connected_clients": { "name": "Verbundene Clients" },
+      "last_update": { "name": "Letztes Update" },
+      "dashboard_state": { "name": "Dashboard Status" },
+      "active_theme": { "name": "Aktives Theme" },
+      "current_page": { "name": "Aktuelle Seite" },
+      "entity_count": { "name": "Entitäten Anzahl" },
+      "backend_version": { "name": "Backend Version" },
+      "cache_hits": { "name": "Cache Treffer" },
+      "cache_misses": { "name": "Cache Fehler" },
+      "cache_update_time": { "name": "Cache Aktualisierungszeit" },
+      "ws_connected": { "name": "WebSocket Verbunden" },
+      "uptime": { "name": "Backend Betriebszeit" },
+      "memory_usage": { "name": "Speicherverbrauch" },
+      "active_automations": { "name": "Aktive Automatisierungen" },
+      "error_count": { "name": "Fehleranzahl" },
+      "api_requests": { "name": "API Anfragen" },
+      "cache_size": { "name": "Cache Größe" },
+      "state_changes_total": { "name": "Statusänderungen Gesamt" },
+      "most_active_entity": { "name": "Aktivste Entität" },
+      "unavailable_entities": { "name": "Nicht verfügbare Entitäten" },
+      "stale_entities": { "name": "Veraltete Entitäten" },
+      "entity_health_issues": { "name": "Entität-Gesundheitsprobleme" },
+      "smart_scenes_count": { "name": "Smart-Szenen" },
+      "scheduled_actions_count": { "name": "Geplante Aktionen" },
+      "watchdogs_count": { "name": "Aktive Watchdogs" },
+      "watchdog_last_triggered": { "name": "Watchdog Zuletzt Ausgelöst" }
+    },
+    "binary_sensor": {
+      "connection": { "name": "Dashboard Online" },
+      "ha_connected": { "name": "HA Verbunden" }
+    },
+    "switch": {
+      "screensaver": { "name": "Bildschirmschoner" },
+      "auto_theme": { "name": "Automatisches Theme" },
+      "webhooks": { "name": "Webhooks" },
+      "sleep_mode": { "name": "Schlafmodus" }
+    },
+    "button": {
+      "refresh": { "name": "Daten aktualisieren" },
+      "clear_cache": { "name": "Cache leeren" },
+      "restart": { "name": "Backend neustarten" },
+      "force_sync": { "name": "Synchronisation erzwingen" },
+      "test_notification": { "name": "Test-Benachrichtigung" }
+    },
+    "number": {
+      "brightness": { "name": "Display Helligkeit" }
+    },
+    "select": {
+      "theme_select": { "name": "Dashboard Theme" },
+      "page_select": { "name": "Dashboard Seite" }
+    }
+  }
+}

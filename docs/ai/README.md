@@ -1,6 +1,6 @@
-# ORA AI - Intelligent Assistant for IORA
+# ORA AI - Intelligent Assistant for ORA
 
-ORA AI ist ein KI-gesteuerter Assistent für das IORA Smart Home System, der sowohl in IORA Home (Web) als auch in IORA Desktop verfügbar ist.
+ORA AI ist ein KI-gesteuerter Assistent für das ORA Smart Home System, der sowohl in rumahl Home (Web) als auch in ORA Desktop verfügbar ist.
 
 ## ✨ Features
 
@@ -12,11 +12,11 @@ ORA AI ist ein KI-gesteuerter Assistent für das IORA Smart Home System, der sow
 - **Desktop-Integration**: Öffne URLs und Apps direkt vom Desktop
 - **Animationen**: Zustandsbasierte Animationen (idle, listening, thinking, speaking, error)
 - **Responsive Design**: Glass-morphic Design für moderne UI
-- **Multi-Platform**: Web (IORA Home) und Desktop (Tauri v2)
+- **Multi-Platform**: Web (rumahl Home) und Desktop (Tauri v2)
 
 ### 🚧 In Entwicklung
 
-- **Wake-Word-Erkennung**: "ORA" oder "IORA" erkennen und automatisch aktivieren
+- **Wake-Word-Erkennung**: "ORA" oder "ORA" erkennen und automatisch aktivieren
 - **Spracheingabe**: Web Speech API (Web) und native APIs (Desktop)
 - **Sprachausgabe**: Text-to-Speech für AI-Antworten
 - **Bildschirm-Erfassung**: Screenshots und Bildschirmverständnis
@@ -27,11 +27,11 @@ ORA AI ist ein KI-gesteuerter Assistent für das IORA Smart Home System, der sow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         IORA System                         │
+│                         ORA System                         │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌──────────────────┐           ┌──────────────────┐      │
-│  │  IORA Home (Web) │           │ IORA Desktop App │      │
+│  │  rumahl Home (Web) │           │ ORA Desktop App │      │
 │  │                  │           │    (Tauri v2)    │      │
 │  │  - FAB Button    │           │  - Overlay Window│      │
 │  │  - Chat Dialog   │           │  - Transparent   │      │
@@ -42,7 +42,7 @@ ORA AI ist ein KI-gesteuerter Assistent für das IORA Smart Home System, der sow
 │                          │                                 │
 │                          ▼                                 │
 │              ┌───────────────────────┐                     │
-│              │  IORA Assist Backend  │                     │
+│              │  ORA Assist Backend  │                     │
 │              │   (Port 8092)         │                     │
 │              │                       │                     │
 │              │  - Chat API           │                     │
@@ -62,21 +62,21 @@ ORA AI ist ein KI-gesteuerter Assistent für das IORA Smart Home System, der sow
 
 ## 🚀 Installation & Setup
 
-### 1. Backend (iora-assist)
+### 1. Backend (rumahl-assist)
 
 ```bash
-cd backend/iora-assist
+cd backend/rumahl-assist
 cargo build --release
 
 # Starten
 cargo run --release
 # oder
-./target/release/iora-assist
+./target/release/rumahl-assist
 ```
 
 Der Backend läuft auf `http://localhost:8092`
 
-### 2. IORA Home (Web)
+### 2. rumahl Home (Web)
 
 ```bash
 # Im Hauptverzeichnis
@@ -86,7 +86,7 @@ npm run dev
 
 Die Web-Oberfläche läuft auf `http://localhost:5173`
 
-### 3. IORA Desktop (Tauri)
+### 3. ORA Desktop (Tauri)
 
 ```bash
 cd desktop
@@ -113,7 +113,7 @@ POST /api/assist/tools/search
 Content-Type: application/json
 
 {
-  "query": "IORA Smart Home",
+  "query": "ORA Smart Home",
   "max_results": 5
 }
 ```
@@ -142,12 +142,12 @@ Content-Type: application/json
 
 ## 🎨 UI-Komponenten
 
-### IORA Home (Web)
+### rumahl Home (Web)
 - **Floating Action Button**: Unten rechts, immer sichtbar
 - **Chat Dialog**: Volle Chat-Oberfläche mit Animationen
 - **Gradient Animations**: Farben ändern sich je nach AI-Zustand
 
-### IORA Desktop (Tauri)
+### ORA Desktop (Tauri)
 - **Transparentes Overlay**: Oben mittig am Bildschirm
 - **Frameless Window**: Ohne Fensterrahmen, immer im Vordergrund
 - **Desktop-Integration**: Öffne Apps und URLs direkt
@@ -158,22 +158,22 @@ Content-Type: application/json
 
 ```rust
 // Chat senden
-invoke('ora_send_chat', { message: 'Hello', context: null })
+invoke('rumahl_send_chat', { message: 'Hello', context: null })
 
 // Internet suchen
-invoke('ora_search_internet', { query: 'IORA', maxResults: 5 })
+invoke('rumahl_search_internet', { query: 'ORA', maxResults: 5 })
 
 // Overlay zeigen
-invoke('ora_show_overlay')
+invoke('rumahl_show_overlay')
 
 // Overlay verstecken
-invoke('ora_hide_overlay')
+invoke('rumahl_hide_overlay')
 
 // Overlay umschalten
-invoke('ora_toggle_overlay')
+invoke('rumahl_toggle_overlay')
 
 // Desktop-Aktion ausführen
-invoke('ora_execute_desktop_action', {
+invoke('rumahl_execute_desktop_action', {
   actionType: 'open_url',
   params: { url: 'https://example.com' }
 })
@@ -208,7 +208,7 @@ function App() {
 
 ```bash
 # Backend URL (Standard: http://localhost:8092)
-IORA_ASSIST_URL=http://localhost:8092
+RUMAHL_ASSIST_URL=http://localhost:8092
 
 # Optional: API Keys für AI Provider
 OPENAI_API_KEY=sk-...
@@ -219,7 +219,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ```bash
 # Backend testen
-cd backend/iora-assist
+cd backend/rumahl-assist
 cargo test
 
 # Frontend testen
@@ -239,8 +239,8 @@ npm run tauri build
 
 ## 📚 Dokumentation
 
-- [ORA_AI_PROGRESS.md](./ORA_AI_PROGRESS.md) - Detaillierter Implementierungsfortschritt
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Gesamtarchitektur von IORA
+- [RUMAHL_AI_PROGRESS.md](./RUMAHL_AI_PROGRESS.md) - Detaillierter Implementierungsfortschritt
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - Gesamtarchitektur von ORA
 
 ## 🤝 Beitragen
 

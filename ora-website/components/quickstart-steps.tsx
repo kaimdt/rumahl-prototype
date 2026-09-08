@@ -7,21 +7,21 @@ const tracks = [
   {
     id: "docker",
     label: "Docker",
-    command: "docker compose up -d ora-home",
+    command: "docker compose up -d rumahl-os",
     eta: "5-10 min",
     note: "Best for homelab and NAS setups.",
   },
   {
     id: "linux",
     label: "Linux",
-    command: "curl -fsSL https://ora.sh/install | bash",
+    command: "curl -fsSL https://rumahl.com/install | bash",
     eta: "3-5 min",
     note: "One-line installer for Ubuntu and Debian.",
   },
   {
     id: "desktop",
     label: "Desktop",
-    command: "winget install ORA.Home",
+    command: "winget install rumahl.OS",
     eta: "2 min",
     note: "Windows, macOS and Linux desktop app.",
   },
@@ -47,7 +47,7 @@ export function QuickstartSteps() {
   };
 
   return (
-    <div className="glass-card p-6 md:p-7 mt-10">
+    <div className="surface-card p-6 md:p-7 mt-10">
       <div className="flex flex-wrap items-center gap-2 mb-5">
         {tracks.map((track) => (
           <button

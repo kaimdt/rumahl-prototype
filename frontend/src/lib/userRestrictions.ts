@@ -13,8 +13,8 @@ export interface UserRestrictions {
 
 const ALWAYS_ALLOWED = new Set([
   'launcher',
-  'iora-settings',
-  'iora-home',
+  'rumahl-settings',
+  'rumahl-home',
 ])
 
 /** Whether a user (with optional restrictions) may see the given app id. */

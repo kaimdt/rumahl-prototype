@@ -6,14 +6,14 @@
 **Status**: Complete
 
 **Implementation**:
-- Created `backend/iora-assist/src/tools.rs` with:
+- Created `backend/rumahl-assist/src/tools.rs` with:
   - `ToolExecutor` struct with headless Chrome integration
   - Internet search via DuckDuckGo (no API key required)
   - Web scraping using Chrome DevTools Protocol (CDP)
   - Screenshot capture functionality
   - Three tool types: Search, WebScrape, Screenshot
 
-- Updated `backend/iora-assist/src/main.rs`:
+- Updated `backend/rumahl-assist/src/main.rs`:
   - Added ToolExecutor to AppState
   - Initialized headless Chrome browser on startup
   - Created 4 API endpoints:
@@ -34,15 +34,15 @@ urlencoding = "2.1"
 ### Phase 2: AI Overlay & Voice Activation ✅
 **Status**: Complete (Frontend implemented, voice activation pending)
 
-#### IORA Desktop (Tauri v2 App)
-- Created `desktop/src-tauri/src/ora_ai.rs` with Tauri commands:
-  - `ora_send_chat` - Send chat messages to ORA AI
-  - `ora_search_internet` - Search internet via backend
-  - `ora_show_overlay` - Show transparent overlay window
-  - `ora_hide_overlay` - Hide overlay window
-  - `ora_toggle_overlay` - Toggle overlay visibility
-  - `ora_capture_screenshot` - Capture screen (placeholder)
-  - `ora_execute_desktop_action` - Execute desktop actions (open_url, open_app)
+#### ORA Desktop (Tauri v2 App)
+- Created `desktop/src-tauri/src/rumahl_ai.rs` with Tauri commands:
+  - `rumahl_send_chat` - Send chat messages to ORA AI
+  - `rumahl_search_internet` - Search internet via backend
+  - `rumahl_show_overlay` - Show transparent overlay window
+  - `rumahl_hide_overlay` - Hide overlay window
+  - `rumahl_toggle_overlay` - Toggle overlay visibility
+  - `rumahl_capture_screenshot` - Capture screen (placeholder)
+  - `rumahl_execute_desktop_action` - Execute desktop actions (open_url, open_app)
 
 - Created `desktop/src/ORAOverlay.tsx`:
   - React component with transparent glass-morphic design
@@ -54,10 +54,10 @@ urlencoding = "2.1"
   - Gradient animations matching AI state
 
 - Modified `desktop/src/App.tsx`:
-  - Added routing for `/ora-overlay` path
+  - Added routing for `/rumahl-overlay` path
   - Window detection logic
 
-#### IORA Home (Web Interface)
+#### rumahl Home (Web Interface)
 - Created `src/components/ORAAssistant.tsx`:
   - Floating Action Button (FAB) in bottom-right corner
   - Full-featured chat dialog with message history
@@ -76,7 +76,7 @@ urlencoding = "2.1"
 **Status**: Not started (Low priority - voice input implemented via button)
 
 **Requirements**:
-- Implement server-side wake word detection for "ORA" or "IORA"
+- Implement server-side wake word detection for "ORA" or "ORA"
 - Allow user training on the server
 - WebSocket/SSE stream for audio processing
 - Integration with voice input system
@@ -92,7 +92,7 @@ urlencoding = "2.1"
 - ✅ Voice recognition with real-time transcription
 - ✅ TTS toggle button for enabling/disabling speech output
 - ✅ Error handling for unsupported browsers
-- ✅ Works in both IORA Home and IORA Desktop (via webview)
+- ✅ Works in both rumahl Home and ORA Desktop (via webview)
 
 ### Phase 5: Desktop Integration & Screen Understanding
 **Status**: ✅ Complete (Vision AI pending)
@@ -133,9 +133,9 @@ urlencoding = "2.1"
 
 ## Technical Architecture
 
-### Backend (iora-assist)
+### Backend (rumahl-assist)
 ```
-backend/iora-assist/
+backend/rumahl-assist/
 ├── src/
 │   ├── tools.rs          [✅ Complete]
 │   └── main.rs           [✅ Updated]
@@ -147,14 +147,14 @@ backend/iora-assist/
 desktop/
 ├── src-tauri/
 │   └── src/
-│       ├── ora_ai.rs     [✅ Complete]
+│       ├── rumahl_ai.rs     [✅ Complete]
 │       └── main.rs       [✅ Updated]
 └── src/
     ├── ORAOverlay.tsx    [✅ Complete]
     └── App.tsx           [✅ Updated]
 ```
 
-### Web Frontend (IORA Home)
+### Web Frontend (rumahl Home)
 ```
 src/
 ├── components/
@@ -164,7 +164,7 @@ src/
 
 ## API Endpoints
 
-### iora-assist Backend
+### rumahl-assist Backend
 - `POST /api/assist/chat` - Send chat message
 - `POST /api/assist/tools/execute` - Execute tool
 - `POST /api/assist/tools/search` - Internet search
@@ -173,7 +173,7 @@ src/
 
 ## Environment Variables
 ```bash
-IORA_ASSIST_URL=http://localhost:8092  # ORA AI backend URL
+RUMAHL_ASSIST_URL=http://localhost:8092  # ORA AI backend URL
 ```
 
 ## Next Steps
@@ -218,12 +218,12 @@ IORA_ASSIST_URL=http://localhost:8092  # ORA AI backend URL
 ## Commits Made
 
 1. `733a664` - Add internet search & tool execution with headless Chrome to ORA AI backend
-2. `cd1cdfd` - Add ORA AI overlay component for IORA Desktop
-3. `4f8a8e1` - Add ORA AI assistant to IORA Home web interface
+2. `cd1cdfd` - Add ORA AI overlay component for ORA Desktop
+3. `4f8a8e1` - Add ORA AI assistant to rumahl Home web interface
 4. `9e274b1` - Add ORA AI implementation progress documentation
 5. `d9a7c41` - Add comprehensive ORA AI README with setup instructions
 6. `d9df25b` - Add voice input/output (Web Speech API & TTS) to ORA AI
-7. `83daa35` - Add screen capture functionality to IORA Desktop
+7. `83daa35` - Add screen capture functionality to ORA Desktop
 8. `a0e504f` - Add rich message rendering with markdown support
 
 ## ✨ Final Status

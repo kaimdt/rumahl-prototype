@@ -4,7 +4,7 @@
  * Utilities for validating data at runtime to catch errors early
  */
 
-import { IoraError } from './client';
+import { rumahlError } from './client';
 
 /**
  * Validation error with field context

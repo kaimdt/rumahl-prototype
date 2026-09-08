@@ -1,6 +1,6 @@
 <?php
 
-namespace Iora;
+namespace rumahl;
 
 /**
  * Plugin context provides context for plugin execution
@@ -51,7 +51,7 @@ class PluginContext
 }
 
 /**
- * Base interface for IORA plugins
+ * Base interface for rumahl plugins
  */
 interface PluginInterface
 {

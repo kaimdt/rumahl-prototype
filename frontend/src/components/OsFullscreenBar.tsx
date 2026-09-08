@@ -9,7 +9,7 @@ import { useOsWindows } from '@/contexts/OsWindowContext'
  * OsFullscreenBar – slim OS status/action bar shown on the launcher and in
  * immersive (true fullscreen) apps.
  *
- *  - Launcher: acts as a status bar (ORA OS brand + live clock).
+ *  - Launcher: acts as a status bar (rumahl OS brand + live clock).
  *  - Immersive app: shows the app name plus the window actions
  *    (minimize → keeps running, exit fullscreen, close).
  *
@@ -28,18 +28,11 @@ export function OsFullscreenBar({
 }) {
   const { t } = useTranslation()
   const { setCurrentPageId } = usePageNavigation()
-  const { closeWindow, minimizeWindow, openWindow, setImmersive, immersivePageId } = useOsWindows()
+  const { closeWindow, minimizeWindow, openWindow, focusWindow, windows, setImmersive, immersivePageId } = useOsWindows()
   // Status-bar mode on regular pages; window actions only in true fullscreen.
   const showActions = Boolean(immersivePageId)
   const [visible, setVisible] = useState(true)
-  const [now, setNow] = useState(() => new Date())
   const hideTimer = useRef<number | null>(null)
-
-  // Live clock for the status bar (launcher).
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 30_000)
-    return () => window.clearInterval(timer)
-  }, [])
 
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) window.clearTimeout(hideTimer.current)
@@ -92,15 +85,21 @@ export function OsFullscreenBar({
   const exitFullscreen = useCallback(() => {
     if (immersivePageId) {
       setImmersive(null)
-      setCurrentPageId('launcher')
+      if (windows.some((entry) => entry.pageId === pageId)) focusWindow(pageId)
+      else openWindow(pageId)
+      setCurrentPageId(pageId)
       return
     }
     openWindow(pageId)
     setCurrentPageId('launcher')
-  }, [immersivePageId, openWindow, pageId, setCurrentPageId, setImmersive])
+  }, [immersivePageId, openWindow, focusWindow, windows, pageId, setCurrentPageId, setImmersive])
 
   const actionButton =
     'flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors hover:bg-foreground/12 hover:text-foreground focus-ring'
+
+  // The status bar (brand + clock) now lives in OsSystemShell; this bar only
+  // renders in immersive (true fullscreen) apps where window actions apply.
+  if (!showActions) return null
 
   return (
     <AnimatePresence>
@@ -113,37 +112,24 @@ export function OsFullscreenBar({
           className="pointer-events-none fixed inset-x-0 top-0 z-[74] flex justify-center px-3 pt-2"
         >
           <div className="pointer-events-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-full border border-white/10 bg-background/70 px-2 py-1 shadow-xl shadow-black/15 backdrop-blur-2xl">
-            {!showActions ? (
-              <>
-                <span className="flex items-center gap-2 pl-1.5 pr-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-[10px] font-bold text-accent">I</span>
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground/60">ORA OS</span>
-                </span>
-                <span className="h-4 w-px bg-foreground/10" aria-hidden="true" />
-                <span className="px-2 text-[11px] font-medium tabular-nums text-foreground/60">
-                  {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </>
-            ) : (
-              <>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button type="button" onClick={minimize} aria-label={t('os.window.minimize')} title={t('os.window.minimize')} className={actionButton}>
-                    <Minus size={14} weight="bold" />
-                  </button>
-                  <button type="button" onClick={exitFullscreen} aria-label={t('os.window.fullscreen')} title={t('os.window.fullscreen')} className={actionButton}>
-                    <ArrowSquareOut size={13} weight="bold" />
-                  </button>
-                  <button type="button" onClick={close} aria-label={t('os.window.close')} title={t('os.window.close')} className={`${actionButton} hover:!bg-red-500/15 hover:!text-red-400`}>
-                    <X size={14} weight="bold" />
-                  </button>
-                </div>
-                <span className="h-4 w-px bg-foreground/10" aria-hidden="true" />
-                <div className="flex min-w-0 items-center gap-2 pr-1">
-                  {icon && <span className="shrink-0">{icon}</span>}
-                  <span className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/60">{name}</span>
-                </div>
-              </>
-            )}
+            <>
+              <div className="flex shrink-0 items-center gap-1">
+                <button type="button" onClick={minimize} aria-label={t('os.window.minimize')} title={t('os.window.minimize')} className={actionButton}>
+                  <Minus size={14} weight="bold" />
+                </button>
+                <button type="button" onClick={exitFullscreen} aria-label={t('os.window.exitFullscreen')} title={t('os.window.exitFullscreen')} className={actionButton}>
+                  <ArrowSquareOut size={13} weight="bold" />
+                </button>
+                <button type="button" onClick={close} aria-label={t('os.window.close')} title={t('os.window.close')} className={`${actionButton} hover:!bg-red-500/15 hover:!text-red-400`}>
+                  <X size={14} weight="bold" />
+                </button>
+              </div>
+              <span className="h-4 w-px bg-foreground/10" aria-hidden="true" />
+              <div className="flex min-w-0 items-center gap-2 pr-1">
+                {icon && <span className="shrink-0">{icon}</span>}
+                <span className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/60">{name}</span>
+              </div>
+            </>
           </div>
         </motion.div>
       )}

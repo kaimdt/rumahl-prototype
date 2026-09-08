@@ -1,33 +1,45 @@
 {
-  "name": "ORA Home",
-  "short_name": "ORA Home",
-  "description": "Native smart home system app for ORA OS",
-  "start_url": "/home",
+  "name": "rumahl OS",
+  "short_name": "rumahl OS",
+  "description": "Privates, vernetztes Smart-Home-Betriebssystem",
+  "id": "/",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "any",
-  "background_color": "#080b10",
-  "theme_color": "#0f172a",
+  "background_color": "#050505",
+  "theme_color": "#050505",
   "categories": ["lifestyle", "utilities", "productivity"],
   "icons": [
     {
-      "src": "/iora-icon.svg",
+      "src": "/rumahl-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/rumahl-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
     {
-      "name": "ORA OS Homescreen",
-      "short_name": "ORA OS",
+      "name": "rumahl OS Homescreen",
+      "short_name": "rumahl OS",
       "url": "/"
     },
     {
-      "name": "ORA Home",
+      "name": "rumahl Home",
       "short_name": "Home",
       "url": "/home"
+    },
+    {
+      "name": "Einstellungen",
+      "short_name": "Settings",
+      "url": "/settings"
     }
   ]
 }

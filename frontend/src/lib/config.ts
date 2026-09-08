@@ -1,7 +1,7 @@
 /**
- * IORA Central Configuration Module
+ * rumahl Central Configuration Module
  *
- * In IORA OS there are NO .env files. All configuration lives in the
+ * In rumahl OS there are NO .env files. All configuration lives in the
  * Global Config system (settings table in the database, accessible via
  * GET/PUT /api/admin/settings).
  *
@@ -15,11 +15,20 @@
  */
 
 // ── Bootstrap: Vite env vars are ONLY for local development ──────────
-// In production (IORA OS), the frontend is served from the same origin
+// In production (rumahl OS), the frontend is served from the same origin
 // as the backend, so relative URLs work and these will be empty strings.
 
 const DEV_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ''
-const DEV_ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || ''
+const DEV_ASSIST_URL = import.meta.env.VITE_rumahl_ASSIST_URL || ''
+
+/** Demo mode: runs the frontend with NO real backend (see mock/demoServer.mjs).
+ *  All /api + /ws calls go to the same origin, which the Vite demo middleware
+ *  answers. Never enable in production. */
+const IS_DEMO =
+  import.meta.env.VITE_DEMO === '1' ||
+  import.meta.env.VITE_DEMO === 'true' ||
+  import.meta.env.MODE === 'demo'
+export { IS_DEMO }
 
 let _backendUrl = DEV_BACKEND_URL
 let _assistUrl = DEV_ASSIST_URL
@@ -48,22 +57,39 @@ function browserSafeBaseUrl(url: string): string {
 
 /** Returns the current backend URL. Safe to call from anywhere. */
 export function getBackendUrl(): string {
+  // Demo mode: no backend — everything is served by the Vite demo middleware
+  // on the same origin, so API/WS calls use relative URLs.
+  if (IS_DEMO) return ''
   let url = _backendUrl;
   // Development fallback: Only when running on the Vite dev server (port 5173)
-  // do we default to localhost:3001. In production / IORA OS / remote dev VM
+  // do we default to localhost:3001. In production / rumahl OS / remote dev VM
   // access, use relative URLs (same origin) so API calls reach the same host.
-  if (!url && typeof window !== 'undefined'
-      && window.location.hostname === 'localhost'
+  if (typeof window !== 'undefined'
+      && isLoopbackHost(window.location.hostname)
       && window.location.port === '5173') {
-    url = 'http://localhost:3001';
+    // On the dev server (localhost OR 127.0.0.1) a stored loopback
+    // `backend.url` (e.g. an app-assigned port or a stale entry) would
+    // bypass the Vite proxy and break CORS/SSE streams. Non-loopback
+    // values (remote dev backends) are kept.
+    let storedLoopback = false
+    if (url) {
+      try {
+        storedLoopback = isLoopbackHost(new URL(url, window.location.origin).hostname)
+      } catch {
+        storedLoopback = false
+      }
+    }
+    if (!url || storedLoopback) {
+      url = DEV_BACKEND_URL || 'http://localhost:3001'
+    }
   }
   return browserSafeBaseUrl(url)
 }
 
 /** Returns the current assist/AI URL. Safe to call from anywhere. */
 export function getAssistUrl(): string {
+  if (IS_DEMO) return ''
   // In production/desktop: assist URL may not be set separately.
-  // Fall back to backend URL, which iora-home proxies to iora-assist.
   let url = _assistUrl;
   if (!url) {
     url = _backendUrl;
@@ -107,7 +133,7 @@ export function setAssistUrl(url: string): void {
 
 /**
  * Returns the Dev Bridge URL.
- * In production (IORA OS), the dev bridge runs on port 8101 of the same host.
+ * In production (rumahl OS), the dev bridge runs on port 8101 of the same host.
  * In local development, it can be overridden via VITE_DEV_BRIDGE_URL.
  */
 export function getDevBridgeUrl(): string {

@@ -1,22 +1,23 @@
 {
-    "name": "iora-dashboard",
+    "name": "rumahl-dashboard",
     "private": true,
     "version": "2.0.0",
-    "description": "IORA — Interface for Optimized Residential Autonomy — a modern smart home ecosystem with real-time entity control, weather forecasts, history, drag-and-drop page design, and multi-user support.",
+    "description": "rumahl — Interface for Optimized Residential Autonomy — a modern smart home ecosystem with real-time entity control, weather forecasts, history, drag-and-drop page design, and multi-user support.",
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "dev:demo": "vite --config vite.demo.ts --mode demo --port 5174",
         "dev:full": "node ../scripts/dev/start-full.mjs",
-        "dev:all": "node ../scripts/dev/iora-dev.mjs",
-        "dev:start": "node ../scripts/dev/iora-dev.mjs start all",
-        "dev:watch": "node ../scripts/dev/iora-dev.mjs start all --watch",
-        "dev:list": "node ../scripts/dev/iora-dev.mjs list",
+        "dev:all": "node ../scripts/dev/rumahl-dev.mjs",
+        "dev:start": "node ../scripts/dev/rumahl-dev.mjs start all",
+        "dev:watch": "node ../scripts/dev/rumahl-dev.mjs start all --watch",
+        "dev:list": "node ../scripts/dev/rumahl-dev.mjs list",
         "build": "tsc -b --noCheck && vite build",
         "lint": "eslint .",
         "optimize": "vite optimize",
         "preview": "vite preview",
         "test": "bun test --preload ./src/test/setup.ts",
-        "dev:doctor": "node ../scripts/dev/iora-dev.mjs doctor"
+        "dev:doctor": "node ../scripts/dev/rumahl-dev.mjs doctor"
     },
     "dependencies": {
         "@codemirror/autocomplete": "^6.20.1",
@@ -70,6 +71,7 @@
         "date-fns": "^3.6.0",
         "dompurify": "^3.4.5",
         "embla-carousel-react": "^8.5.2",
+        "html-to-image": "^1.11.13",
         "i18next": "^26.0.8",
         "i18next-browser-languagedetector": "^8.2.1",
         "input-otp": "^1.4.2",

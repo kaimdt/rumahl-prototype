@@ -12,7 +12,7 @@ import {
 } from '@phosphor-icons/react'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { CssCodeEditor } from '@/components/CssCodeEditor'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 // ── Scope Badge ─────────────────────────────────────────────────────
 function ScopeBadge({ scope }: { scope: 'global' | 'user' | 'page' }) {

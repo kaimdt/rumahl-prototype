@@ -14,10 +14,12 @@ import {
   Cube,
   TerminalWindow,
   GearSix,
+  Info,
   ShareNetwork,
   Storefront,
   VideoCamera,
   WifiHigh,
+  ShieldCheck,
 } from '@phosphor-icons/react'
 import type { DashboardPage } from '@/lib/types'
 
@@ -45,9 +47,9 @@ export interface OsAppDefinition {
   runtimeStatus?: string
 }
 
-export const SYSTEM_OS_APPS: OsAppDefinition[] = [
+const SYSTEM_OS_APP_CATALOG: OsAppDefinition[] = [
   {
-    id: 'iora-home',
+    id: 'rumahl-home',
     pageId: 'home',
     nameKey: 'os.apps.home.name',
     fallbackName: 'Home',
@@ -59,7 +61,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 0,
   },
   {
-    id: 'iora-settings',
+    id: 'rumahl-settings',
     pageId: 'settings',
     nameKey: 'os.apps.settings.name',
     fallbackName: 'Settings',
@@ -71,7 +73,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 20,
   },
   {
-    id: 'iora-images',
+    id: 'rumahl-images',
     pageId: 'os-images',
     nameKey: 'os.apps.images.name',
     fallbackName: 'Bilder',
@@ -83,7 +85,18 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 22,
   },
   {
-    id: 'iora-files',
+    id: 'rumahl-info',
+    pageId: 'os-info',
+    nameKey: 'settings.about',
+    fallbackName: 'Info',
+    descriptionKey: 'settings.aboutDesc',
+    icon: Info,
+    kind: 'system',
+    accent: 'oklch(0.67 0.16 205)',
+    order: 28,
+  },
+  {
+    id: 'rumahl-files',
     pageId: 'os-files',
     nameKey: 'os.apps.files.name',
     fallbackName: 'Files',
@@ -96,7 +109,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 21,
   },
   {
-    id: 'iora-app-store',
+    id: 'rumahl-app-store',
     pageId: 'app-store',
     nameKey: 'os.apps.appStore.name',
     fallbackName: 'App Store',
@@ -109,7 +122,19 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 22,
   },
   {
-    id: 'iora-network',
+    id: 'rumahl-security-center',
+    pageId: 'os-security',
+    nameKey: 'os.apps.security.name',
+    fallbackName: 'Security Center',
+    descriptionKey: 'os.apps.security.description',
+    icon: ShieldCheck,
+    kind: 'system',
+    adminOnly: true,
+    accent: 'oklch(0.68 0.17 155)',
+    order: 22,
+  },
+  {
+    id: 'rumahl-network',
     pageId: 'os-network',
     nameKey: 'os.apps.network.name',
     fallbackName: 'Network',
@@ -121,7 +146,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 23,
   },
   {
-    id: 'iora-storage',
+    id: 'rumahl-storage',
     pageId: 'os-storage',
     nameKey: 'os.apps.storage.name',
     fallbackName: 'Storage',
@@ -133,7 +158,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 23,
   },
   {
-    id: 'iora-devices',
+    id: 'rumahl-devices',
     pageId: 'os-devices',
     nameKey: 'os.apps.devices.name',
     fallbackName: 'Devices',
@@ -145,7 +170,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 24,
   },
   {
-    id: 'iora-containers',
+    id: 'rumahl-containers',
     pageId: 'os-containers',
     nameKey: 'os.apps.containers.name',
     fallbackName: 'Containers',
@@ -157,7 +182,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 25,
   },
   {
-    id: 'iora-logs',
+    id: 'rumahl-logs',
     pageId: 'os-logs',
     nameKey: 'os.apps.logs.name',
     fallbackName: 'Logs',
@@ -169,7 +194,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 26,
   },
   {
-    id: 'iora-services',
+    id: 'rumahl-services',
     pageId: 'os-services',
     nameKey: 'os.apps.services.name',
     fallbackName: 'Services',
@@ -181,7 +206,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 27,
   },
   {
-    id: 'iora-system',
+    id: 'rumahl-system',
     pageId: 'os-system',
     nameKey: 'os.apps.system.name',
     fallbackName: 'System Monitor',
@@ -193,7 +218,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 23,
   },
   {
-    id: 'iora-updates',
+    id: 'rumahl-updates',
     pageId: 'os-updates',
     nameKey: 'os.apps.updates.name',
     fallbackName: 'Updates',
@@ -205,7 +230,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 24,
   },
   {
-    id: 'iora-backups',
+    id: 'rumahl-backups',
     pageId: 'os-backups',
     nameKey: 'os.apps.backups.name',
     fallbackName: 'Backups',
@@ -217,7 +242,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 25,
   },
   {
-    id: 'iora-automations',
+    id: 'rumahl-automations',
     pageId: 'automations',
     nameKey: 'os.apps.automations.name',
     fallbackName: 'Automations',
@@ -228,7 +253,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 26,
   },
   {
-    id: 'iora-agent',
+    id: 'rumahl-agent',
     pageId: 'ai-agent',
     nameKey: 'os.apps.agent.name',
     fallbackName: 'Agent',
@@ -239,7 +264,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 30,
   },
   {
-    id: 'iora-streaming',
+    id: 'rumahl-streaming',
     pageId: 'streaming',
     nameKey: 'os.apps.streaming.name',
     fallbackName: 'Streaming',
@@ -250,7 +275,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 40,
   },
   {
-    id: 'iora-share',
+    id: 'rumahl-share',
     pageId: 'share',
     nameKey: 'os.apps.share.name',
     fallbackName: 'Share',
@@ -261,7 +286,7 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 50,
   },
   {
-    id: 'iora-docs',
+    id: 'rumahl-docs',
     pageId: 'docs',
     nameKey: 'os.apps.docs.name',
     fallbackName: 'Documentation',
@@ -272,6 +297,16 @@ export const SYSTEM_OS_APPS: OsAppDefinition[] = [
     order: 60,
   },
 ]
+
+// Administrative OS surfaces now live inside the unified Admin Center. Keep
+// their catalog definitions above for stable metadata and legacy deep links,
+// but do not expose them as independent launcher or taskbar applications.
+const ADMIN_CENTER_PAGE_IDS = new Set([
+  'os-network', 'os-storage', 'os-devices', 'os-containers', 'os-logs',
+  'os-services', 'os-system', 'os-updates', 'os-backups',
+])
+
+export const SYSTEM_OS_APPS = SYSTEM_OS_APP_CATALOG.filter((app) => !ADMIN_CENTER_PAGE_IDS.has(app.pageId))
 
 const SYSTEM_PAGE_IDS = new Set(SYSTEM_OS_APPS.map((app) => app.pageId))
 

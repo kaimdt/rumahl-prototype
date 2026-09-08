@@ -1,0 +1,13 @@
+{
+  "name": "rumahl-notes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "rumahl Notes — installable lifestyle app using the rumahl App Storage API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

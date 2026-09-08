@@ -1,12 +1,12 @@
 /**
- * @ai-info IORA Desktop – PageNavigationContext.tsx
+ * @ai-info rumahl Desktop – PageNavigationContext.tsx
  *
  * The `defaultPages` defined below are used ONLY for the Desktop client's
- * offline / fallback mode. When IORA Home is reachable, the real page
- * definitions are loaded from the IORA Home backend via profile sync.
+ * offline / fallback mode. When rumahl Home is reachable, the real page
+ * definitions are loaded from the rumahl Home backend via profile sync.
  *
- * The IORA Home frontend has its own page navigation system. Changes to
- * dashboard page structure should be made in the IORA Home frontend, not here.
+ * The rumahl Home frontend has its own page navigation system. Changes to
+ * dashboard page structure should be made in the rumahl Home frontend, not here.
  */
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocalStorage } from '@/lib/storage'
@@ -176,7 +176,7 @@ const defaultPages: DashboardPage[] = [
     showInNav: true,
     order: 997,
   },
-  // NOTE: The 'music' page has been moved to the IORA Home frontend.
+  // NOTE: The 'music' page has been moved to the rumahl Home frontend.
   // It does not belong in the Desktop client's default pages.
   {
     id: 'share',

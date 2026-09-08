@@ -1,6 +1,6 @@
-# IORA App Store - Developer Guide
+# rumahl App Store - Developer Guide
 
-Complete guide for developing, packaging, and distributing apps for the IORA platform.
+Complete guide for developing, packaging, and distributing apps for the rumahl platform.
 
 ## Table of Contents
 
@@ -18,14 +18,14 @@ Complete guide for developing, packaging, and distributing apps for the IORA pla
 
 ## Overview
 
-The IORA App Store provides a unified marketplace for distributing apps and plugins. Apps run as Docker containers with dynamically assigned ports, while plugins execute in a secure sandbox.
+The rumahl App Store provides a unified marketplace for distributing apps and plugins. Apps run as Docker containers with dynamically assigned ports, while plugins execute in a secure sandbox.
 
 ### Key Features
 
-- **Dynamic Port Assignment**: No hardcoded ports - IORA assigns from pool (3000-4000)
+- **Dynamic Port Assignment**: No hardcoded ports - rumahl assigns from pool (3000-4000)
 - **Trust Levels**: Apps from the store are trusted, ZIP uploads are untrusted by default
-- **Auto-Build**: IORA can automatically create Docker images from your source code
-- **Custom Pages**: Apps can register their own pages in the IORA navigation
+- **Auto-Build**: rumahl can automatically create Docker images from your source code
+- **Custom Pages**: Apps can register their own pages in the rumahl navigation
 - **Settings Framework**: Define settings schemas for dynamic configuration UI
 - **Permission System**: Request specific permissions, admin approval required
 
@@ -168,7 +168,7 @@ Every app/plugin must include a `manifest.json` in the root directory.
     install_cmd?: string        // "npm install"
     start_cmd?: string          // "node server.js"
 
-    // Internal ports (IORA assigns external ports)
+    // Internal ports (rumahl assigns external ports)
     internal_ports: [
       {
         port: number            // Internal port (e.g., 3000)
@@ -204,7 +204,7 @@ Every app/plugin must include a `manifest.json` in the root directory.
     category: string
     tags: string[]
     screenshots: string[]
-    min_iora_version?: string
+    min_rumahl_version?: string
     homepage?: string
     source_url?: string
     support_url?: string
@@ -217,12 +217,12 @@ Every app/plugin must include a `manifest.json` in the root directory.
 
 ## Port Assignment
 
-IORA automatically assigns external ports from the range **3000-4000**.
+rumahl automatically assigns external ports from the range **3000-4000**.
 
 ### How It Works
 
 1. **Define Internal Ports**: Specify which ports your app needs internally
-2. **IORA Assigns External**: IORA finds available port in the pool
+2. **rumahl Assigns External**: rumahl finds available port in the pool
 3. **Automatic Mapping**: Docker maps `external:internal`
 
 ### Example
@@ -236,20 +236,20 @@ IORA automatically assigns external ports from the range **3000-4000**.
 }
 ```
 
-**Result**: IORA might assign `3042:3000` and `3043:3001`
+**Result**: rumahl might assign `3042:3000` and `3043:3001`
 
 ### Access Your App
 
 - **From other containers**: `http://my-app:3000` (internal port)
-- **From host/external**: `http://iora.local:3042` (external port)
+- **From host/external**: `http://rumahl.local:3042` (external port)
 
 ### Port Environment Variable
 
-IORA injects the assigned external port as an environment variable:
+rumahl injects the assigned external port as an environment variable:
 
 ```javascript
 // Access assigned port in your app
-const PORT = process.env.IORA_EXTERNAL_PORT || 3000
+const PORT = process.env.RUMAHL_EXTERNAL_PORT || 3000
 app.listen(PORT)
 ```
 
@@ -257,7 +257,7 @@ app.listen(PORT)
 
 ## Custom Pages & Widgets
 
-Apps can create custom pages in the IORA UI.
+Apps can create custom pages in the rumahl UI.
 
 ### Custom Page Example
 
@@ -349,7 +349,7 @@ const settings = await response.json()
 
 ### Method 1: From App Store (Coming Soon)
 
-1. User searches app in IORA Admin → Apps → App Store
+1. User searches app in rumahl Admin → Apps → App Store
 2. Clicks "Install"
 3. Reviews permissions
 4. Confirms installation
@@ -362,9 +362,9 @@ const settings = await response.json()
    zip -r my-app.zip . -x "*.git*" "node_modules/*"
    ```
 
-2. Upload via IORA Admin → Apps → ZIP Upload
+2. Upload via rumahl Admin → Apps → ZIP Upload
 
-3. IORA:
+3. rumahl:
    - Extracts ZIP
    - Validates `manifest.json`
    - Allocates ports
@@ -378,12 +378,12 @@ After installation, your app should self-register:
 
 ```javascript
 // Self-registration endpoint (to be implemented)
-fetch('http://iora-core:8090/api/apps/register', {
+fetch('http://rumahl-core:8090/api/apps/register', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     app_id: 'my-app',
-    api_token: process.env.IORA_API_TOKEN
+    api_token: process.env.RUMAHL_API_TOKEN
   })
 })
 ```
@@ -393,7 +393,7 @@ fetch('http://iora-core:8090/api/apps/register', {
 ## Trust Levels
 
 ### Trusted
-- Apps from official app store (appstore.kaimdt.com)
+- Apps from official app store (appstore.rumahl.com)
 - Digitally signed and verified
 - Permissions auto-approved
 - **Badge**: Green shield icon
@@ -407,7 +407,7 @@ fetch('http://iora-core:8090/api/apps/register', {
 ### Verified
 - Untrusted apps that admin has verified
 - Permissions approved
-- Trusted for this IORA instance
+- Trusted for this rumahl instance
 - **Badge**: Blue checkmark icon
 
 ---
@@ -434,8 +434,8 @@ See `examples/notification-plugin/` for a Rust plugin with:
 
 ## Best Practices
 
-1. **Use Auto-Build**: Easier deployment, IORA handles Docker
-2. **Define Health Checks**: IORA monitors your app's health
+1. **Use Auto-Build**: Easier deployment, rumahl handles Docker
+2. **Define Health Checks**: rumahl monitors your app's health
 3. **Request Minimum Permissions**: Only what you need
 4. **Document Settings**: Clear descriptions for each setting
 5. **Version Semantically**: Follow semver (1.0.0, 1.1.0, 2.0.0)
@@ -457,7 +457,7 @@ See `examples/notification-plugin/` for a Rust plugin with:
 
 - Don't hardcode external ports
 - Use `internal_ports` in manifest
-- IORA handles external port assignment
+- rumahl handles external port assignment
 
 ### Permission Denied
 
@@ -498,7 +498,7 @@ POST /api/core/apps/register
 
 ## Support
 
-- **Documentation**: https://iora.dev/docs
-- **GitHub**: https://github.com/iora/iora
-- **Discord**: https://discord.gg/iora
-- **Issues**: https://github.com/iora/iora/issues
+- **Documentation**: https://ora.dev/docs
+- **GitHub**: https://github.com/ora/ora
+- **Discord**: https://discord.gg/ora
+- **Issues**: https://github.com/ora/ora/issues

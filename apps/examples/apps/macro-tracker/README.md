@@ -1,4 +1,4 @@
-# Makro Tracker – IORA App
+# Makro Tracker – rumahl App
 
 **Protein-, Kalorien- und Fett-Rechner für Kraftsportler.** Verfolge deine täglichen Makros, plane Mahlzeiten und sieh auf einen Blick, was du noch essen solltest.
 
@@ -13,11 +13,11 @@
 - **Makro-Verteilung** – Grafische Darstellung der Kalorien-Verteilung (Protein vs Fett vs Carbs)
 - **7-Tage-Übersicht** – Vergleiche deine Tage und sieh Trends
 - **Tastatur-Navigation** – Pfeiltasten zum Blättern durch Tage, `T` für heute, `ESC` für Modals
-- **Offline-Fähig** – Nutzt SQLite (lokal oder IORA-managed)
+- **Offline-Fähig** – Nutzt SQLite (lokal oder rumahl-managed)
 
 ## Installation
 
-### Als IORA App (empfohlen)
+### Als rumahl App (empfohlen)
 
 1. App als ZIP packen:
 ```bash
@@ -25,12 +25,12 @@ cd apps/examples/macro-tracker
 zip -r macro-tracker.zip manifest.json package.json server.js public/ README.md
 ```
 
-2. In IORA installieren:
+2. In rumahl installieren:
 ```bash
 ora app install macro-tracker.zip
 ```
 
-Oder via IORA Control Center → App Store → "Install Custom App".
+Oder via rumahl Control Center → App Store → "Install Custom App".
 
 ### Lokale Entwicklung
 
@@ -89,14 +89,14 @@ Diese App richtet sich an **Kraftsportler und Bodybuilder**, die:
 
 - **Backend**: Node.js, Express, better-sqlite3
 - **Frontend**: Vanilla JS, CSS Custom Properties, kein Framework
-- **Datenbank**: SQLite (lokal oder IORA-managed)
+- **Datenbank**: SQLite (lokal oder rumahl-managed)
 - **Container**: Docker (node:20-alpine), Auto-Build
 
 ## Struktur
 
 ```
 macro-tracker/
-├── manifest.json          # IORA App Manifest
+├── manifest.json          # rumahl App Manifest
 ├── package.json           # Node.js Dependencies
 ├── server.js              # Express Backend + SQLite
 ├── public/

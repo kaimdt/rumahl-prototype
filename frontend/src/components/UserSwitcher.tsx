@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, ArrowLeft, Backspace, SignOut } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 interface UserListEntry {
   id: string

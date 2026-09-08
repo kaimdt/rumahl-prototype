@@ -1,4 +1,4 @@
-# IORA App & Plugin System - Phases 2 & 3 Implementation
+# rumahl App & Plugin System - Phases 2 & 3 Implementation
 
 ## Phase 2: Frontend Management UI ✅
 
@@ -75,7 +75,7 @@ GET  /api/core/widgets
 
 ## Phase 3: SDK & Developer Experience ✅
 
-### 1. Comprehensive SDK Documentation (`IORA_SDK.md`)
+### 1. Comprehensive SDK Documentation (`RUMAHL_SDK.md`)
 
 Complete developer guide covering:
 
@@ -127,36 +127,36 @@ Rust plugin demonstrating:
 
 ### 3. Developer Testing Utilities (Planned)
 
-#### IORA Dev CLI (`tools/iora-dev-cli/`)
+#### rumahl Dev CLI (`tools/rumahl-dev-cli/`)
 Command-line tool for developers:
 
 ```bash
 # Register your app/plugin
-iora-dev register manifest.json
+rumahl-dev register manifest.json
 
 # Test API endpoints locally
-iora-dev test-api /api/weather/current
+rumahl-dev test-api /api/weather/current
 
 # Validate widget component
-iora-dev validate-widget widget.js
+rumahl-dev validate-widget widget.js
 
 # Simulate API Gateway timeout
-iora-dev simulate-timeout --endpoint /api/data
+rumahl-dev simulate-timeout --endpoint /api/data
 
 # Check resource usage
-iora-dev check-resources --plugin my-plugin
+rumahl-dev check-resources --plugin my-plugin
 
 # Generate update manifest
-iora-dev generate-update --version 1.1.0
+rumahl-dev generate-update --version 1.1.0
 ```
 
-#### Mock IORA Environment (`tools/mock-iora/`)
+#### Mock rumahl Environment (`tools/mock-ora/`)
 Lightweight mock for local testing:
 - Simulates API Gateway
 - Simulates Widget Registry
 - Simulates Security Monitor
 - Returns mock data for system APIs
-- No need for full IORA stack during development
+- No need for full rumahl stack during development
 
 ---
 
@@ -165,20 +165,20 @@ Lightweight mock for local testing:
 Phase 2 & 3 build upon Phase 1 systems:
 
 ### Phase 1 Backend Systems:
-1. **Registration System** (`backend/iora-shared/src/registration.rs`)
+1. **Registration System** (`backend/rumahl-shared/src/registration.rs`)
    - Phase 2 provides UI for managing registrations
 
-2. **Security Monitor** (`backend/iora-shared/src/security_monitor.rs`)
+2. **Security Monitor** (`backend/rumahl-shared/src/security_monitor.rs`)
    - Phase 2 provides dashboard for viewing alerts and metrics
 
-3. **Update System** (`backend/iora-shared/src/update_system.rs`)
+3. **Update System** (`backend/rumahl-shared/src/update_system.rs`)
    - Phase 2 provides UI for managing updates
 
-4. **Widget Registry** (`backend/iora-shared/src/widget_registry.rs`)
+4. **Widget Registry** (`backend/rumahl-shared/src/widget_registry.rs`)
    - Phase 2 provides UI for viewing registered widgets
    - Phase 3 SDK documents how to create widgets
 
-5. **API Gateway** (`backend/iora-shared/src/api_gateway.rs`)
+5. **API Gateway** (`backend/rumahl-shared/src/api_gateway.rs`)
    - Phase 3 SDK documents how to use it
    - Examples demonstrate integration
 
@@ -197,7 +197,7 @@ Phase 2 & 3 build upon Phase 1 systems:
 - ✅ Error handling
 
 ### Phase 3 Deliverables ✅
-- ✅ Comprehensive SDK Documentation (IORA_SDK.md)
+- ✅ Comprehensive SDK Documentation (RUMAHL_SDK.md)
 - 📝 Example Weather App (structure defined, needs implementation)
 - 📝 Example Data Transformer Plugin (structure defined, needs implementation)
 - 📝 Developer Testing Utilities (structure defined, needs implementation)
@@ -217,12 +217,12 @@ To fully complete Phase 3, implement:
    - Custom API endpoints
    - Integration tests
 
-3. **Developer CLI Tool** (tools/iora-dev-cli/)
+3. **Developer CLI Tool** (tools/rumahl-dev-cli/)
    - Registration helper
    - Testing utilities
    - Validation tools
 
-4. **Mock Environment** (tools/mock-iora/)
+4. **Mock Environment** (tools/mock-ora/)
    - Lightweight local testing
    - API Gateway mock
    - Widget Registry mock
@@ -259,7 +259,7 @@ To fully complete Phase 3, implement:
 - Updated `src/components/AdminPanelTabs.tsx` - Exported Phase 2 components
 
 ### Phase 3:
-- `IORA_SDK.md` - Comprehensive SDK documentation
+- `RUMAHL_SDK.md` - Comprehensive SDK documentation
 - `examples/` directory structure
 
 ### Documentation:

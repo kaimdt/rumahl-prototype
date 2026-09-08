@@ -1,6 +1,6 @@
 # App Development Guide
 
-This guide will help you create apps for the IORA platform.
+This guide will help you create apps for the rumahl platform.
 
 ## Table of Contents
 
@@ -19,12 +19,12 @@ This guide will help you create apps for the IORA platform.
 
 ## Overview
 
-IORA apps are containerized applications that run in Docker containers. They can:
+rumahl apps are containerized applications that run in Docker containers. They can:
 
-- Expose web UIs accessible through IORA's interface
+- Expose web UIs accessible through rumahl's interface
 - Provide REST APIs
-- Create custom pages in the IORA dashboard
-- Access IORA services through the API Gateway
+- Create custom pages in the rumahl dashboard
+- Access rumahl services through the API Gateway
 - Store and retrieve data
 - Control smart home devices (with permission)
 
@@ -33,11 +33,11 @@ IORA apps are containerized applications that run in Docker containers. They can
 - Basic knowledge of web development
 - Familiarity with Docker
 - Understanding of REST APIs
-- IORA development environment set up
+- rumahl development environment set up
 
 ## App Structure
 
-A typical IORA app has the following structure:
+A typical rumahl app has the following structure:
 
 ```
 my-app/
@@ -67,7 +67,7 @@ Create a `manifest.json` file:
   "name": "My First App",
   "version": "1.0.0",
   "developer": "Your Name",
-  "description": "A simple IORA app",
+  "description": "A simple rumahl app",
   "type": "app",
   "icon": "icon.png",
   "permissions": [
@@ -149,7 +149,7 @@ Create `public/index.html`:
 </head>
 <body>
     <div class="container">
-        <h1>My First IORA App</h1>
+        <h1>My First rumahl App</h1>
         <button onclick="fetchMessage()">Get Message</button>
         <div id="message"></div>
     </div>
@@ -173,9 +173,9 @@ Create a ZIP file containing all app files:
 zip -r my-first-app.zip manifest.json icon.png src/ public/ package.json
 ```
 
-### Step 5: Install in IORA
+### Step 5: Install in rumahl
 
-1. Open IORA Control Center
+1. Open rumahl Control Center
 2. Navigate to App Store
 3. Click "Install Custom App"
 4. Upload `my-first-app.zip`
@@ -198,7 +198,7 @@ zip -r my-first-app.zip manifest.json icon.png src/ public/ package.json
 - `icon` - Path to icon file (relative to ZIP root)
 - `permissions` - Array of required permissions
 - `docker` - Docker configuration
-- `custom_pages` - Custom pages in IORA UI
+- `custom_pages` - Custom pages in rumahl UI
 - `settings_schema` - Settings configuration
 - `endpoints` - API endpoints documentation
 - `network_access` - Network access configuration
@@ -326,7 +326,7 @@ Control which domains and IPs your app can access:
 
 ## Custom Pages
 
-Add pages to the IORA navigation:
+Add pages to the rumahl navigation:
 
 ```json
 {
@@ -407,13 +407,13 @@ docker run -p 3000:3000 my-app:test
 
 2. Verify endpoints:
 ```bash
-curl http://iora.local:3000/health
-curl http://iora.local:3000/api/hello
+curl http://rumahl.local:3000/health
+curl http://rumahl.local:3000/api/hello
 ```
 
-### Testing in IORA
+### Testing in rumahl
 
-1. Install app in IORA
+1. Install app in rumahl
 2. Check logs in Control Center
 3. Test all functionality
 4. Verify permissions work correctly
@@ -427,7 +427,7 @@ curl http://iora.local:3000/api/hello
 2. Add screenshots to `store_metadata`
 3. Write comprehensive README
 4. Test thoroughly
-5. Submit to IORA App Store
+5. Submit to rumahl App Store
 
 ### Metadata for Store
 
@@ -469,7 +469,7 @@ curl http://iora.local:3000/api/hello
    - Document all features
 
 4. **Compatibility**
-   - Test on different IORA versions
+   - Test on different rumahl versions
    - Handle API changes gracefully
    - Provide migration paths for updates
 
@@ -505,7 +505,7 @@ See the [examples](examples/) directory for complete app examples:
 
 ## Extended Capabilities (v2.1)
 
-IORA v2.1 introduces powerful new features for apps:
+rumahl v2.1 introduces powerful new features for apps:
 
 ### App Storage
 Store and retrieve files and key-value data scoped to your app:
@@ -573,7 +573,7 @@ Create webhook endpoints for external services:
       {
         "name": "GitHub Push",
         "method": "POST",
-        "target_url": "http://iora.local:3000/api/hook",
+        "target_url": "http://rumahl.local:3000/api/hook",
         "verify_signature": true
       }
     ]
@@ -616,6 +616,6 @@ See the [Inter-App Messaging Guide](app-messaging.md) for details.
 
 ## Support
 
-- [GitHub Issues](https://github.com/kaimdt/home-assistant-dashb/issues)
-- [Community Forum](https://github.com/kaimdt/home-assistant-dashb/discussions)
+- [GitHub Issues](https://github.com/rumahl/home-assistant-dashb/issues)
+- [Community Forum](https://github.com/rumahl/home-assistant-dashb/discussions)
 - [Security Reports](../security/README.md#reporting-security-issues)

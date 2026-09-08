@@ -1,6 +1,6 @@
-//! Home Assistant integration module (via iora-home gateway).
+//! Home Assistant integration module (via rumahl-home gateway).
 //!
-//! Handles communication with Home Assistant through the secure iora-home gateway:
+//! Handles communication with Home Assistant through the secure rumahl-home gateway:
 //! - Registers desktop as a device
 //! - Sends sensor updates (routed through gateway)
 //! - Receives and executes commands
@@ -16,8 +16,8 @@ use crate::system_info::SystemMetrics;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HaConfig {
-    pub url: String,   // iora-home URL (not Home Assistant!)
-    pub token: String, // JWT token from iora-home
+    pub url: String,   // rumahl-home URL (not Home Assistant!)
+    pub token: String, // JWT token from rumahl-home
     pub device_name: String,
     pub update_interval_secs: u64,
     pub enabled: bool,
@@ -26,9 +26,9 @@ pub struct HaConfig {
 impl Default for HaConfig {
     fn default() -> Self {
         Self {
-            url: "http://localhost:3001".to_string(), // iora-home backend
+            url: "http://localhost:3001".to_string(), // rumahl-home backend
             token: String::new(),
-            device_name: "IORA Desktop".to_string(),
+            device_name: "rumahl Desktop".to_string(),
             update_interval_secs: 60,
             enabled: false,
         }
@@ -63,14 +63,14 @@ impl HaClient {
         }
     }
 
-    /// Test connection to iora-home gateway
+    /// Test connection to rumahl-home gateway
     pub async fn test_connection(&self) -> Result<bool> {
         let url = format!("{}/health", self.config.url);
         let response = self.client.get(&url).send().await?;
         Ok(response.status().is_success())
     }
 
-    /// Send system metrics to iora-home gateway (which forwards to HA)
+    /// Send system metrics to rumahl-home gateway (which forwards to HA)
     pub async fn send_metrics(&self, metrics: &SystemMetrics) -> Result<()> {
         if !self.config.enabled || self.config.token.is_empty() {
             return Ok(());

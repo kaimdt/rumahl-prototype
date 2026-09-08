@@ -645,7 +645,7 @@ export function CodingAgent() {
                     <Robot size={48} weight="duotone" className="mx-auto mb-3 opacity-15" />
                     <p className="text-sm font-medium mb-1">Pi.dev Coding Agent</p>
                     <p className="text-xs mb-4">
-                      Ich analysiere Code, schreibe Features, fixe Bugs, und entwickle IORA weiter.
+                      Ich analysiere Code, schreibe Features, fixe Bugs, und entwickle rumahl weiter.
                     </p>
                     <div className="flex flex-wrap justify-center gap-1.5">
                       {quickActions.map(qa => (

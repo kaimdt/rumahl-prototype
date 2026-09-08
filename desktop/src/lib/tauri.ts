@@ -6,11 +6,11 @@ export interface AppConfig {
   lm_studio_url: string;
   lm_studio_api_key: string;
   selected_model: string;
-  iora_backend_url: string;
+  rumahl_backend_url: string;
   auto_start_proxy: boolean;
   proxy_port: number;
   health_poll_interval_secs: number;
-  iora_home_url: string;
+  rumahl_home_url: string;
   auth_token: string;
   auth_username: string;
   auth_user_id: string;
@@ -21,9 +21,9 @@ export interface AppConfig {
   autostart_hidden: boolean;
   notification_sound: boolean;
   notifications_enabled: boolean;
-  ora_privacy_mode: boolean;
-  ora_autopilot: boolean;
-  ora_allow_control: boolean;
+  rumahl_privacy_mode: boolean;
+  rumahl_autopilot: boolean;
+  rumahl_allow_control: boolean;
   screen_saver_enabled: boolean;
   screen_saver_timeout_secs: number;
   wake_on_motion: boolean;
@@ -67,7 +67,7 @@ export interface AuthUser {
   is_admin: boolean;
 }
 
-export interface IoraHomeStatus {
+export interface rumahlHomeStatus {
   online: boolean;
   ha_connected: boolean;
   entity_count: number;
@@ -106,8 +106,8 @@ export type NetworkType = "ethernet" | "wifi" | "mobile" | "vpn" | "unknown";
 export interface NetworkProfile {
   name: string;
   network_type: NetworkType;
-  iora_home_url: string;
-  iora_backend_url?: string;
+  rumahl_home_url: string;
+  rumahl_backend_url?: string;
   priority: number;
 }
 
@@ -153,10 +153,10 @@ export const tauriApi = {
   logout: () => invoke<void>("logout"),
   /** Returns the current user from memory or persisted config. Null if not logged in. */
   getCurrentUser: () => invoke<AuthUser | null>("get_current_user"),
-  /** Quick reachability check for IORA Home backend. */
-  pingIoraHome: () => invoke<boolean>("ping_iora_home"),
-  /** Fetch HA connection info and entity counts from IORA Home. */
-  getIoraHomeStatus: () => invoke<IoraHomeStatus>("get_iora_home_status"),
+  /** Quick reachability check for rumahl Home backend. */
+  pingrumahlHome: () => invoke<boolean>("ping_rumahl_home"),
+  /** Fetch HA connection info and entity counts from rumahl Home. */
+  getrumahlHomeStatus: () => invoke<rumahlHomeStatus>("get_rumahl_home_status"),
   /** Collect local system metrics (CPU, RAM, disk, battery). */
   getSystemMetrics: () => invoke<SystemMetrics>("get_system_metrics"),
   // ── Network profile commands ──────────────────────────────────────

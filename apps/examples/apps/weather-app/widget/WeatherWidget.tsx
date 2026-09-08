@@ -12,7 +12,7 @@ export function WeatherWidget({ config, apiToken }) {
       try {
         setLoading(true);
         const response = await fetch(
-          `http://iora-core:8090/api/gateway/weather/current?location=${location}`,
+          `http://rumahl-core:8090/api/gateway/weather/current?location=${location}`,
           {
             headers: {
               'Authorization': `Bearer ${apiToken}`

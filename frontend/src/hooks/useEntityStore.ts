@@ -115,6 +115,16 @@ export function useEntityStore(): EntityStore {
     const listener = () => forceUpdate(c => c + 1)
     listeners.add(listener)
 
+    // Initial load + keep the demo/offline fallback fresh. If the WebSocket
+    // never opens (demo mode or backend offline), fetch once and rely on the
+    // polling interval so entities appear without a live socket.
+    if (globalEntities.length === 0) {
+      void fetchEntities()
+    }
+    if (!globalWsConnected) {
+      startFallbackPolling()
+    }
+
     return () => {
       listeners.delete(listener)
     }

@@ -5,16 +5,16 @@ import (
 	"log"
 	"time"
 
-	iora "github.com/iora/iora-sdk-go"
+	ora "github.com/ora/rumahl-sdk-go"
 )
 
 func main() {
 	// Initialize runtime manager from environment variables
-	// IORA sets these when starting the app:
-	// - IORA_APP_ID
-	// - IORA_ENDPOINT
-	// - IORA_HEARTBEAT_INTERVAL
-	runtime, err := iora.RuntimeManagerFromEnv()
+	// rumahl sets these when starting the app:
+	// - RUMAHL_APP_ID
+	// - RUMAHL_ENDPOINT
+	// - RUMAHL_HEARTBEAT_INTERVAL
+	runtime, err := ora.RuntimeManagerFromEnv()
 	if err != nil {
 		log.Fatalf("Failed to create runtime manager: %v", err)
 	}
@@ -26,7 +26,7 @@ func main() {
 	defer runtime.Stop()
 
 	// Log that app started
-	runtime.Log(iora.LogLevelInfo, "Weather app started successfully", map[string]interface{}{
+	runtime.Log(ora.LogLevelInfo, "Weather app started successfully", map[string]interface{}{
 		"version": "1.0.0",
 	})
 
@@ -34,7 +34,7 @@ func main() {
 	runWeatherApp(runtime)
 }
 
-func runWeatherApp(runtime *iora.RuntimeManager) {
+func runWeatherApp(runtime *ora.RuntimeManager) {
 	// Register custom query handler
 	runtime.RegisterQueryHandler("get_weather", func(params map[string]interface{}) (interface{}, error) {
 		return map[string]interface{}{
@@ -46,35 +46,35 @@ func runWeatherApp(runtime *iora.RuntimeManager) {
 
 	for {
 		// Update status to processing
-		if err := runtime.SetStatus(iora.AppStatusProcessing, "Fetching weather data"); err != nil {
+		if err := runtime.SetStatus(ora.AppStatusProcessing, "Fetching weather data"); err != nil {
 			log.Printf("Failed to set status: %v", err)
 		}
 
 		// Request permission to access network
 		token, err := runtime.RequestPermission(
-			iora.PermissionNetworkOutbound,
+			ora.PermissionNetworkOutbound,
 			"Fetch weather data from api.weather.com",
 			300, // 5 minutes
 		)
 
 		if err == nil && token != nil {
-			runtime.Log(iora.LogLevelDebug, "Permission granted for network access", map[string]interface{}{
+			runtime.Log(ora.LogLevelDebug, "Permission granted for network access", map[string]interface{}{
 				"token_expires": token.ExpiresAt,
 			})
 
 			// Simulate fetching weather data
 			time.Sleep(2 * time.Second)
 
-			runtime.Log(iora.LogLevelInfo, "Weather data updated successfully", map[string]interface{}{
+			runtime.Log(ora.LogLevelInfo, "Weather data updated successfully", map[string]interface{}{
 				"temperature": 25.0,
 				"condition":   "Sunny",
 			})
 		} else {
-			runtime.Log(iora.LogLevelWarning, "Permission request pending", nil)
+			runtime.Log(ora.LogLevelWarning, "Permission request pending", nil)
 		}
 
 		// Update status to idle
-		if err := runtime.SetStatus(iora.AppStatusIdle, ""); err != nil {
+		if err := runtime.SetStatus(ora.AppStatusIdle, ""); err != nil {
 			log.Printf("Failed to set status: %v", err)
 		}
 

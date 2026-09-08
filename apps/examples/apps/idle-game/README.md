@@ -1,6 +1,6 @@
-# IORA Forge – Idle Village 🏘️
+# rumahl Forge – Idle Village 🏘️
 
-Ein entspanntes 2D Pixel-Art Idle-Game im **SNES 16-Bit Stil** für die IORA-Plattform. 
+Ein entspanntes 2D Pixel-Art Idle-Game im **SNES 16-Bit Stil** für die rumahl-Plattform. 
 Baue ein gemütliches mittelalterliches Fantasy-Dorf auf – mit roten Dächern, einem Teich 
 voller Fische, Farm-Plots, Steinbrunnen und herumlaufenden Dorfbewohnern.
 
@@ -50,8 +50,8 @@ Der Kauf-Button war zuvor ausgegraut trotz genügend Ressourcen.
 ```bash
 cd apps/examples/idle-game
 npm install
-zip -r iora-forge.zip manifest.json package.json server.js public/
-ora app install iora-forge.zip
+zip -r rumahl-forge.zip manifest.json package.json server.js public/
+ora app install rumahl-forge.zip
 ```
 
 ## 🚀 Lokal testen
@@ -66,7 +66,7 @@ npm install && node server.js
 
 ```
 idle-game/
-├── manifest.json       # IORA App-Konfiguration
+├── manifest.json       # rumahl App-Konfiguration
 ├── package.json        # Express Dependency
 ├── server.js           # Game-Engine + REST API
 ├── public/

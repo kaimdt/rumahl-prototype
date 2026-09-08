@@ -1,6 +1,6 @@
 # Benachrichtigungs-Formatierer - Beispiel Plugin
 
-Ein vollständiges Beispiel für ein IORA Plugin, das in einer Sandbox ausgeführt wird.
+Ein vollständiges Beispiel für ein rumahl Plugin, das in einer Sandbox ausgeführt wird.
 
 ## Überblick
 
@@ -9,7 +9,7 @@ Der Benachrichtigungs-Formatierer ist ein Rust-Plugin, das:
 - In einer Sandbox mit Ressourcenlimits läuft
 - On-demand ausgeführt wird (kein dauerhafter Container)
 - Custom API Endpunkte bereitstellt
-- Crash-sicher ist (IORA System läuft weiter)
+- Crash-sicher ist (rumahl System läuft weiter)
 
 ## Features
 
@@ -48,12 +48,12 @@ cargo build --release
 ### 2. Registrierung
 
 ```bash
-curl -X POST http://iora-core:8090/api/core/plugins/register \
+curl -X POST http://rumahl-core:8090/api/core/plugins/register \
   -H "Content-Type: application/json" \
   -d @manifest.json
 ```
 
-Das kompilierte Plugin (`target/release/libnotification_formatter.so`) wird automatisch in die IORA Plugin-Registry geladen.
+Das kompilierte Plugin (`target/release/libnotification_formatter.so`) wird automatisch in die rumahl Plugin-Registry geladen.
 
 ### 3. Warten auf Genehmigung
 
@@ -71,7 +71,7 @@ Nach Genehmigung wird das Plugin:
 ### Benachrichtigung formatieren
 
 ```bash
-curl -X POST http://iora-core:8090/api/gateway/notifications/format \
+curl -X POST http://rumahl-core:8090/api/gateway/notifications/format \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -101,7 +101,7 @@ Antwort:
 ### Benachrichtigung validieren
 
 ```bash
-curl -X POST http://iora-core:8090/api/gateway/notifications/validate \
+curl -X POST http://rumahl-core:8090/api/gateway/notifications/validate \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -217,18 +217,18 @@ Prioritäten werden automatisch klassifiziert:
 
 ```bash
 # Deaktivieren (Plugin wird nicht mehr ausgeführt)
-curl -X POST http://iora-core:8090/api/core/plugins/notification-formatter/disable \
+curl -X POST http://rumahl-core:8090/api/core/plugins/notification-formatter/disable \
   -H "Authorization: Bearer ADMIN_TOKEN"
 
 # Aktivieren
-curl -X POST http://iora-core:8090/api/core/plugins/notification-formatter/enable \
+curl -X POST http://rumahl-core:8090/api/core/plugins/notification-formatter/enable \
   -H "Authorization: Bearer ADMIN_TOKEN"
 ```
 
 ## Deinstallation
 
 ```bash
-curl -X DELETE http://iora-core:8090/api/core/plugins/notification-formatter \
+curl -X DELETE http://rumahl-core:8090/api/core/plugins/notification-formatter \
   -H "Authorization: Bearer ADMIN_TOKEN"
 ```
 
@@ -255,7 +255,7 @@ cargo test test_format_notification
 ### Plugin-Trait implementieren
 
 ```rust
-use iora_shared::plugin::{IPlugin, PluginMetadata, PluginExecutionResult};
+use rumahl_shared::plugin::{IPlugin, PluginMetadata, PluginExecutionResult};
 
 pub struct NotificationFormatter {
     metadata: PluginMetadata,
@@ -305,12 +305,12 @@ fn test_memory_usage() {
 
 1. Prüfen Sie die Registrierung:
 ```bash
-curl http://iora-core:8090/api/core/plugins
+curl http://rumahl-core:8090/api/core/plugins
 ```
 
 2. Prüfen Sie die Logs:
 ```bash
-docker logs iora-core | grep notification-formatter
+docker logs rumahl-core | grep notification-formatter
 ```
 
 ### Sandbox-Limit überschritten
@@ -347,6 +347,6 @@ Typische Execution-Zeiten:
 
 ## Siehe auch
 
-- [IORA SDK Dokumentation](../../IORA_SDK.md)
-- [Plugin System](../../backend/iora-shared/src/plugin.rs)
+- [rumahl SDK Dokumentation](../../RUMAHL_SDK.md)
+- [Plugin System](../../backend/rumahl-shared/src/plugin.rs)
 - [Weather App Beispiel](../weather-app/)

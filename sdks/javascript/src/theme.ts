@@ -1,8 +1,8 @@
 /**
- * IORA Theme SDK - Enable apps to use, customize, or override IORA themes
+ * rumahl Theme SDK - Enable apps to use, customize, or override rumahl themes
  * 
  * Features:
- * - Access current IORA theme
+ * - Access current rumahl theme
  * - Inherit and customize theme variables
  * - Create app-specific themes
  * - React to theme changes
@@ -16,7 +16,7 @@ export interface ThemeVariable {
 }
 
 export interface ThemeConfig {
-  /** Inherit from parent IORA theme (default: true) */
+  /** Inherit from parent rumahl theme (default: true) */
   inherit: boolean
   /** Override specific CSS variables */
   variables?: Record<string, string>
@@ -47,7 +47,7 @@ export interface ThemeInfo {
   }
 }
 
-export class IoraThemeClient {
+export class rumahlThemeClient {
   private appId: string
   private config: ThemeConfig
   private listeners: Set<(theme: ThemeInfo) => void> = new Set()
@@ -63,7 +63,7 @@ export class IoraThemeClient {
   private init() {
     // Listen for theme changes from parent
     window.addEventListener('message', (event) => {
-      if (event.data?.type === 'iora:theme:update') {
+      if (event.data?.type === 'ora:theme:update') {
         this.handleThemeUpdate(event.data.theme)
       }
     })
@@ -74,7 +74,7 @@ export class IoraThemeClient {
 
   private requestTheme() {
     window.parent.postMessage({
-      type: 'iora:theme:request',
+      type: 'ora:theme:request',
       appId: this.appId,
     }, '*')
   }
@@ -89,7 +89,7 @@ export class IoraThemeClient {
     // Create or update style element
     if (!this.styleElement) {
       this.styleElement = document.createElement('style')
-      this.styleElement.id = 'iora-theme-variables'
+      this.styleElement.id = 'rumahl-theme-variables'
       document.head.appendChild(this.styleElement)
     }
 
@@ -136,10 +136,10 @@ export class IoraThemeClient {
   private loadFonts(fonts: ThemeConfig['fonts']) {
     if (!fonts) return
 
-    let container = document.getElementById('iora-app-fonts')
+    let container = document.getElementById('rumahl-app-fonts')
     if (!container) {
       container = document.createElement('div')
-      container.id = 'iora-app-fonts'
+      container.id = 'rumahl-app-fonts'
       container.style.display = 'none'
       document.head.appendChild(container)
     }
@@ -155,7 +155,7 @@ export class IoraThemeClient {
 
   private loadCssFiles(cssFiles: string[]) {
     cssFiles.forEach((url, index) => {
-      const id = `iora-app-css-${index}`
+      const id = `rumahl-app-css-${index}`
       let link = document.getElementById(id) as HTMLLinkElement
       if (!link) {
         link = document.createElement('link')
@@ -230,7 +230,7 @@ export class IoraThemeClient {
    */
   setDesignMode(mode: string) {
     window.parent.postMessage({
-      type: 'iora:theme:setDesignMode',
+      type: 'ora:theme:setDesignMode',
       appId: this.appId,
       mode,
     }, '*')
@@ -294,7 +294,7 @@ export class IoraThemeClient {
     if (this.styleElement) {
       this.styleElement.remove()
     }
-    document.getElementById('iora-app-fonts')?.remove()
+    document.getElementById('rumahl-app-fonts')?.remove()
   }
 }
 

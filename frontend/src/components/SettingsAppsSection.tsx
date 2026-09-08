@@ -13,16 +13,17 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { useInstalledApps, appGradient } from '@/hooks/useInstalledApps'
 import { authFetch } from '@/lib/authHelpers'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { isAppOpenExternal, setAppOpenExternal } from '@/lib/appOpenPrefs'
 import { displayModeOf, type AppDisplayConfig } from '@/lib/appGateway'
-import { ToggleRow } from './SettingsPage'
+import { ToggleRow } from './settings/shared'
 import { AppStatusBadge } from '@/components/app/AppStatusBadge'
 
 /**
  * Settings → Apps — Apple-settings-style per-app pages.
  *
  * Every installed app gets its own page: lifecycle (start/stop), the
- * per-app "open outside ORA OS" switch (direct port in a browser tab
+ * per-app "open outside rumahl OS" switch (direct port in a browser tab
  * instead of the embedded gateway runner) and permission management
  * (granted/denied toggles, persisted via the app permissions API).
  */
@@ -81,7 +82,7 @@ export function SettingsAppsSection({ initialSelectedId, onSelectApp }: { initia
   }
 
   const apps = allApps
-    .filter((app) => app.kind !== 'plugin' && app.id !== 'iora-developer-app')
+    .filter((app) => app.kind !== 'plugin' && app.id !== 'rumahl-developer-app')
     .map((app) => app as unknown as SettingsAppInfo)
 
   if (selectedId) {
@@ -186,7 +187,7 @@ function SettingsAppDetailPage({
 
   useEffect(() => { void load() }, [appId])
 
-  const toast = (message: string) => window.dispatchEvent(new CustomEvent('iora:toast', { detail: { message } }))
+  const toast = (message: string) => window.dispatchEvent(new CustomEvent('rumahl:toast', { detail: { message } }))
 
   const runAction = async (action: 'start' | 'stop') => {
     setBusy(action)
@@ -197,7 +198,7 @@ function SettingsAppDetailPage({
         throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
       }
       toast(t(action === 'start' ? 'os.quickActions.started' : 'os.quickActions.stopped', { name: detail?.name || appId }))
-      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
       onChanged()
       await load()
     } catch (e) {
@@ -230,7 +231,12 @@ function SettingsAppDetailPage({
 
   const uninstall = async () => {
     if (!detail) return
-    if (!window.confirm(t('os.quickActions.uninstallConfirm', { name: detail.name }))) return
+    if (!(await confirmDialog({
+      title: t('os.quickActions.uninstall'),
+      message: t('os.quickActions.uninstallConfirm', { name: detail.name }),
+      confirmLabel: t('os.quickActions.uninstall'),
+      danger: true,
+    }))) return
     setBusy('uninstall')
     try {
       const res = await authFetch(`/api/appstore/apps/${appId}`, { method: 'DELETE' })
@@ -239,7 +245,7 @@ function SettingsAppDetailPage({
         throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
       }
       toast(t('os.quickActions.uninstalled', { name: detail.name }))
-      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
       onChanged()
       onBack()
     } catch (e) {

@@ -165,14 +165,14 @@ export function OsAppFilePickerDialog({ appName, mode, saveRequest, accept, mult
   }
 
   return (
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="ora-file-picker-title">
-      <div className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-[2rem] border border-white/10 bg-background shadow-2xl sm:rounded-[2rem]">
-        <header className="flex items-start gap-3 border-b border-foreground/10 p-4 sm:p-5">
+    <div className="rumahl-file-dialog-backdrop fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="rumahl-file-picker-title">
+      <div className="rumahl-file-dialog flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-4xl border border-white/10 bg-background shadow-2xl sm:rounded-4xl">
+        <header className="rumahl-file-dialog-header flex items-start gap-3 border-b border-foreground/10 p-4 sm:p-5">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent/12 text-accent">
             {mode === 'open' ? <File size={22} weight="duotone" /> : <FloppyDisk size={22} weight="duotone" />}
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="ora-file-picker-title" className="truncate text-lg font-semibold">{mode === 'open' ? t('os.filePicker.openTitle') : t('os.filePicker.saveTitle')}</h2>
+            <h2 id="rumahl-file-picker-title" className="truncate text-lg font-semibold">{mode === 'open' ? t('os.filePicker.openTitle') : t('os.filePicker.saveTitle')}</h2>
             <p className="mt-1 text-xs text-foreground/50">{t('os.filePicker.requestedBy', { app: appName })}</p>
           </div>
           <button type="button" onClick={onCancel} className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-foreground/10" aria-label={t('common.close')}><X size={19} /></button>
@@ -183,7 +183,7 @@ export function OsAppFilePickerDialog({ appName, mode, saveRequest, accept, mult
           {breadcrumbs.map(crumb => <span key={crumb.id} className="flex shrink-0 items-center gap-1"><CaretRight size={12} className="text-foreground/30" /><button type="button" onClick={() => setFolderId(crumb.id)} className="rounded-lg px-2 py-1 hover:bg-foreground/8">{crumb.name}</button></span>)}
         </div>
 
-        <div className="min-h-52 flex-1 overflow-y-auto p-3 sm:p-4">
+        <div className="rumahl-file-dialog-content min-h-52 flex-1 overflow-y-auto p-3 sm:p-4">
           {error && <div className="mb-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
           {folderId && <button type="button" onClick={goBack} className="mb-2 flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-sm text-foreground/60 hover:bg-foreground/7"><ArrowLeft size={18} />{t('os.systemApps.parentFolder')}</button>}
           {loading ? <p className="p-8 text-center text-sm text-foreground/40">{t('common.loading')}</p> : (
@@ -209,13 +209,13 @@ export function OsAppFilePickerDialog({ appName, mode, saveRequest, accept, mult
                     {entry.is_folder && <CaretRight size={16} className="text-foreground/30" />}
                   </button>
                 })}
-                {visibleFiles.length === 0 && <p className="col-span-full p-8 text-center text-sm text-foreground/40">{t('os.filePicker.empty')}</p>}
+                {visibleFiles.length === 0 && <p className="rumahl-file-empty-state col-span-full p-8 text-center text-sm text-foreground/40">{t('os.filePicker.empty')}</p>}
               </div>
             </>
           )}
         </div>
 
-        <footer className="flex flex-col gap-3 border-t border-foreground/10 p-4 sm:flex-row sm:items-center">
+        <footer className="rumahl-file-dialog-footer flex flex-col gap-3 border-t border-foreground/10 p-4 sm:flex-row sm:items-center">
           <p className="min-w-0 flex-1 truncate text-xs text-foreground/48">{mode === 'save' ? t('os.filePicker.saveAs', { name: saveRequest?.name }) : selected.size > 0 ? (multiple ? t('os.filePicker.selected', { count: selected.size }) : Array.from(selected)[0]?.original_name) : t('os.filePicker.selectFile')}</p>
           <div className="flex gap-2">
             <button type="button" onClick={onCancel} className="min-h-11 flex-1 rounded-xl bg-foreground/7 px-4 text-sm sm:flex-none">{t('common.cancel')}</button>

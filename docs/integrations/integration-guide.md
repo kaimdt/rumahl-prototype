@@ -1,8 +1,8 @@
 # Home Assistant Integration Guide
 
-## MDT HOME Dashboard - HACS Integration
+## rumahl Home Dashboard - HACS Integration
 
-Das MDT HOME Dashboard verfügt über eine offizielle Home Assistant Custom Integration, die über HACS installiert werden kann. Diese Integration ermöglicht eine nahtlose bidirektionale Kommunikation zwischen Home Assistant und dem Dashboard.
+Das rumahl Home Dashboard verfügt über eine offizielle Home Assistant Custom Integration, die über HACS installiert werden kann. Diese Integration ermöglicht eine nahtlose bidirektionale Kommunikation zwischen Home Assistant und dem Dashboard.
 
 ## 🎯 Funktionsübersicht
 
@@ -19,9 +19,9 @@ Die Integration bietet folgende Hauptfunktionen:
 - **send_notification**: Benachrichtigungen ans Dashboard senden
 
 ### ⚡ Events
-- **mdt_home_dashboard_update**: Update-Events vom Dashboard
-- **mdt_home_dashboard_refresh**: Refresh-Anforderungen
-- **mdt_home_dashboard_notification**: Benachrichtigungs-Events
+- **rumahl_home_dashboard_update**: Update-Events vom Dashboard
+- **rumahl_home_dashboard_refresh**: Refresh-Anforderungen
+- **rumahl_home_dashboard_notification**: Benachrichtigungs-Events
 
 ## 📦 Installation über HACS
 
@@ -39,20 +39,20 @@ Die Integration bietet folgende Hauptfunktionen:
    - Wählen Sie **"Custom repositories"**
    - Fügen Sie folgende URL hinzu:
      ```
-     https://github.com/kaimdt/home-assistant-dashb
+     https://github.com/rumahl/home-assistant-dashb
      ```
    - Kategorie: **Integration**
    - Klicken Sie auf **"Hinzufügen"**
 
 3. **Integration installieren**
-   - Suchen Sie nach **"MDT HOME Dashboard"**
+   - Suchen Sie nach **"rumahl Home Dashboard"**
    - Klicken Sie auf **"Download"**
    - Starten Sie Home Assistant neu
 
 4. **Integration konfigurieren**
    - Gehen Sie zu **Einstellungen** → **Geräte & Dienste**
    - Klicken Sie auf **"+ Integration hinzufügen"**
-   - Suchen Sie nach **"MDT HOME Dashboard"**
+   - Suchen Sie nach **"rumahl Home Dashboard"**
    - Folgen Sie dem Konfigurationsassistenten
 
 ## ⚙️ Konfiguration
@@ -72,7 +72,7 @@ Die Integration kann komplett über die Home Assistant UI konfiguriert werden:
 Für erweiterte Konfigurationen kann auch `configuration.yaml` verwendet werden:
 
 ```yaml
-mdt_home_dashboard:
+rumahl_home_dashboard:
   dashboard_url: "http://localhost:5173"  # Optional
   enable_webhooks: true                    # Default: true
 ```
@@ -101,18 +101,18 @@ import { haService } from '@/lib/homeAssistant'
 export function setupIntegrationListeners() {
   // Subscribe zu Dashboard-Updates
   haService.subscribeEvents((event) => {
-    if (event.event_type === 'mdt_home_dashboard_update') {
+    if (event.event_type === 'rumahl_home_dashboard_update') {
       handleDashboardUpdate(event.data)
     }
 
-    if (event.event_type === 'mdt_home_dashboard_notification') {
+    if (event.event_type === 'rumahl_home_dashboard_notification') {
       showNotification(event.data)
     }
 
-    if (event.event_type === 'mdt_home_dashboard_refresh') {
+    if (event.event_type === 'rumahl_home_dashboard_refresh') {
       refreshDashboard()
     }
-  }, 'mdt_home_dashboard_*')
+  }, 'rumahl_home_dashboard_*')
 }
 
 async function handleDashboardUpdate(data: any) {
@@ -145,7 +145,7 @@ automation:
         entity_id: binary_sensor.front_door
         to: "on"
     action:
-      - service: mdt_home_dashboard.send_notification
+      - service: rumahl_home_dashboard.send_notification
         data:
           message: "Haustür wurde geöffnet"
           title: "Sicherheit"
@@ -161,7 +161,7 @@ automation:
       - platform: state
         entity_id: weather.home
     action:
-      - service: mdt_home_dashboard.update_dashboard
+      - service: rumahl_home_dashboard.update_dashboard
         data:
           entity_id: weather.home
           data:
@@ -178,8 +178,8 @@ automation:
       - platform: time
         at: "07:00:00"
     action:
-      - service: mdt_home_dashboard.refresh_state
-      - service: mdt_home_dashboard.send_notification
+      - service: rumahl_home_dashboard.refresh_state
+      - service: rumahl_home_dashboard.send_notification
         data:
           message: "Guten Morgen! Dashboard wurde aktualisiert."
           type: "success"
@@ -192,7 +192,7 @@ automation:
   - alias: "Dashboard: Status überwachen"
     trigger:
       - platform: state
-        entity_id: sensor.mdt_home_dashboard_dashboard_state
+        entity_id: sensor.rumahl_home_dashboard_dashboard_state
         to: "disconnected"
     action:
       - service: notify.mobile_app
@@ -216,13 +216,13 @@ script:
           entity_id: scene.movie_night
 
       # 2. Dashboard benachrichtigen
-      - service: mdt_home_dashboard.send_notification
+      - service: rumahl_home_dashboard.send_notification
         data:
           message: "Film-Szene aktiviert"
           type: "info"
 
       # 3. Dashboard aktualisieren
-      - service: mdt_home_dashboard.update_dashboard
+      - service: rumahl_home_dashboard.update_dashboard
         data:
           entity_id: scene.movie_night
           data:
@@ -238,7 +238,7 @@ automation:
   - alias: "HA: Dashboard Event Handler"
     trigger:
       - platform: event
-        event_type: mdt_home_dashboard_update
+        event_type: rumahl_home_dashboard_update
     condition:
       - condition: template
         value_template: "{{ trigger.event.data.entity_id == 'light.living_room' }}"
@@ -286,28 +286,28 @@ automation:
 
 | Sensor | Entity ID | Beschreibung |
 |--------|-----------|--------------|
-| Connected Clients | `sensor.mdt_home_dashboard_connected_clients` | Anzahl verbundener Clients |
-| Last Update | `sensor.mdt_home_dashboard_last_update` | Zeitstempel der letzten Aktualisierung |
-| Dashboard State | `sensor.mdt_home_dashboard_dashboard_state` | Status: active, idle, disconnected |
+| Connected Clients | `sensor.rumahl_home_dashboard_connected_clients` | Anzahl verbundener Clients |
+| Last Update | `sensor.rumahl_home_dashboard_last_update` | Zeitstempel der letzten Aktualisierung |
+| Dashboard State | `sensor.rumahl_home_dashboard_dashboard_state` | Status: active, idle, disconnected |
 
 ### Service-Parameter
 
-#### `mdt_home_dashboard.update_dashboard`
+#### `rumahl_home_dashboard.update_dashboard`
 ```yaml
 entity_id: string (required)  # Entity die aktualisiert werden soll
 data: object (optional)        # Zusätzliche Update-Daten
 ```
 
-#### `mdt_home_dashboard.send_notification`
+#### `rumahl_home_dashboard.send_notification`
 ```yaml
 message: string (required)     # Benachrichtigungstext
-title: string (optional)       # Titel (default: "MDT HOME Dashboard")
+title: string (optional)       # Titel (default: "rumahl Home Dashboard")
 type: string (optional)        # Typ: info, warning, error, success
 ```
 
 ### Event-Datenstruktur
 
-#### `mdt_home_dashboard_update`
+#### `rumahl_home_dashboard_update`
 ```json
 {
   "entity_id": "light.living_room",
@@ -318,18 +318,18 @@ type: string (optional)        # Typ: info, warning, error, success
 }
 ```
 
-#### `mdt_home_dashboard_notification`
+#### `rumahl_home_dashboard_notification`
 ```json
 {
   "message": "System-Update verfügbar",
-  "title": "MDT HOME Dashboard",
+  "title": "rumahl Home Dashboard",
   "type": "info"
 }
 ```
 
 ## 🔗 Weitere Ressourcen
 
-- [Integration README](custom_components/mdt_home_dashboard/README.md)
+- [Integration README](custom_components/rumahl_home_dashboard/README.md)
 - [Backend Documentation](backend/README.md)
 - [Plugin Guide](PLUGIN_GUIDE.md)
 - [Architecture Overview](ARCHITECTURE.md)
@@ -337,6 +337,6 @@ type: string (optional)        # Typ: info, warning, error, success
 ## 🆘 Support
 
 Bei Problemen oder Fragen:
-1. [GitHub Issues](https://github.com/kaimdt/home-assistant-dashb/issues)
-2. [Discussions](https://github.com/kaimdt/home-assistant-dashb/discussions)
-3. Integration README: `custom_components/mdt_home_dashboard/README.md`
+1. [GitHub Issues](https://github.com/rumahl/home-assistant-dashb/issues)
+2. [Discussions](https://github.com/rumahl/home-assistant-dashb/discussions)
+3. Integration README: `custom_components/rumahl_home_dashboard/README.md`

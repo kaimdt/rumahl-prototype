@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowClockwise, Brain, ChartLine, ChatCircle, Code, Database, Desktop, Hand, MagicWand, Microphone, PaperPlaneTilt, Plus, Robot, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { getDevBridgeUrl } from '@/lib/config'
 import { AdminCard, adminFetch, baseUrlFor, formatUptime } from '../AdminPanel'
 export function AiOverviewTab({ token }: { token: string }) {
@@ -23,7 +24,7 @@ export function AiOverviewTab({ token }: { token: string }) {
     setHealth(h as Record<string, unknown> | null)
     setStats(s as Record<string, unknown> | null)
     setProviders(p as Record<string, unknown> | null)
-    if (!h && !s && !p) setError('iora-assist ist nicht erreichbar.')
+    if (!h && !s && !p) setError('rumahl-assist ist nicht erreichbar.')
     setLoading(false)
   }, [token])
 
@@ -44,7 +45,7 @@ export function AiOverviewTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-3">
-      <AdminCard title="IORA Assist Status" icon={Brain}>
+      <AdminCard title="rumahl Assist Status" icon={Brain}>
         {loading ? (
           <p className="text-xs text-foreground/50">Lade Status…</p>
         ) : error ? (
@@ -55,7 +56,7 @@ export function AiOverviewTab({ token }: { token: string }) {
               {stat('Provider', providerName, aiAvailable ? 'verbunden' : 'getrennt')}
               {stat('Uptime', formatUptime(uptime))}
               {stat('Status', aiAvailable ? 'OK' : 'OFFLINE')}
-              {stat('Service', String(health?.service ?? 'iora-assist'))}
+              {stat('Service', String(health?.service ?? 'rumahl-assist'))}
             </div>
 
             <div className="rounded-xl bg-foreground/[0.04] border border-foreground/10 p-3">
@@ -202,7 +203,7 @@ export function AiProvidersTab({ token }: { token: string }) {
   }
 
   const deleteProvider = async (providerId: string) => {
-    if (!confirm('Provider löschen? Verknüpfte Modelle werden ebenfalls entfernt.')) return
+    if (!(await confirmDialog({ title: 'Provider löschen', message: 'Provider löschen? Verknüpfte Modelle werden ebenfalls entfernt.', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch(`/api/assist/config/providers/${providerId}`, token, { method: 'DELETE' })
       toast.success('Provider gelöscht')
@@ -281,7 +282,7 @@ export function AiProvidersTab({ token }: { token: string }) {
                 placeholder="openai | anthropic | local | desktop"
                 className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
               <button onClick={switchProvider} disabled={switching || !switchTarget.trim()}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                className="rumahl-ghost-button-sm">
                 {switching ? 'Wechsle…' : 'Provider wechseln'}
               </button>
             </div>
@@ -292,7 +293,7 @@ export function AiProvidersTab({ token }: { token: string }) {
       <AdminCard title={`Globaler Model-Katalog (${totalModels} Modelle)`} icon={Brain}>
         <p className="text-[11px] text-foreground/50 mb-2">
           Modelle werden beim Anlegen eines Providers automatisch geladen, alle 30&nbsp;Min. für Cloud-Provider
-          und alle 60&nbsp;Sek. für lokale/Desktop-Provider aktualisiert. Sie stehen global für ORA AI
+          und alle 60&nbsp;Sek. für lokale/Desktop-Provider aktualisiert. Sie stehen global für rumahl AI
           und das Agent-System zur Verfügung.
         </p>
         <div className="flex items-center gap-2">
@@ -300,7 +301,7 @@ export function AiProvidersTab({ token }: { token: string }) {
             onClick={async () => {
               try { await adminFetch('/api/assist/models/refresh', token, { method: 'POST' }); toast.success('Refresh angestoßen'); await load() } catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
             }}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30"
+            className="rumahl-ghost-button-sm"
           >
             Alle Modelle jetzt aktualisieren
           </button>
@@ -310,7 +311,7 @@ export function AiProvidersTab({ token }: { token: string }) {
       <AdminCard title="Konfigurierte Provider" icon={Database}>
         <div className="flex items-center gap-2 mb-3">
           <button onClick={() => setShowForm((s) => !s)}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">
+            className="rumahl-ghost-button-sm">
             {showForm ? 'Abbrechen' : <span className="flex items-center gap-1"><Plus size={12} /> Neu</span>}
           </button>
           <button onClick={load} disabled={loading}
@@ -337,7 +338,7 @@ export function AiProvidersTab({ token }: { token: string }) {
                   <option value="fireworks">Fireworks AI</option>
                   <option value="perplexity">Perplexity</option>
                   <option value="local">Local (Ollama / llama.cpp)</option>
-                  <option value="desktop">Desktop (IORA Desktop bridge / LM Studio)</option>
+                  <option value="desktop">Desktop (rumahl Desktop bridge / LM Studio)</option>
                   <option value="compatible">OpenAI-Compatible (custom)</option>
                 </select>
               </div>
@@ -369,7 +370,7 @@ export function AiProvidersTab({ token }: { token: string }) {
               </p>
             </div>
             <button onClick={create} disabled={saving}
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="rumahl-ghost-button-sm">
               {saving ? 'Speichere…' : 'Provider anlegen + Modelle laden'}
             </button>
           </div>
@@ -512,7 +513,7 @@ export function AiConversationsTab({ token }: { token: string }) {
   }
 
   const clearHistory = async () => {
-    if (!confirm('Verlauf wirklich löschen?')) return
+    if (!(await confirmDialog({ title: 'Verlauf löschen', message: 'Verlauf wirklich löschen?', confirmLabel: 'Löschen', danger: true }))) return
     try {
       await adminFetch('/api/assist/history/clear', token, { method: 'POST' })
       setHistory([])
@@ -564,7 +565,7 @@ export function AiConversationsTab({ token }: { token: string }) {
               <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} rows={2} placeholder="Test-Nachricht an den Assistenten…"
                 className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
               <button onClick={sendChat} disabled={chatBusy || !chatInput.trim()}
-                className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                className="rumahl-ghost-button-sm">
                 {chatBusy ? '…' : 'Senden'}
               </button>
             </div>
@@ -620,7 +621,7 @@ export function AiConversationsTab({ token }: { token: string }) {
                 <input type="number" min={1} max={10} value={notifPrio} onChange={(e) => setNotifPrio(Number(e.target.value))}
                   className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-2 py-1.5 text-foreground" />
                 <button onClick={sendNotif} disabled={!notifMsg.trim()}
-                  className="ml-auto px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                  className="rumahl-ghost-button-sm ml-auto">
                   Senden
                 </button>
               </div>
@@ -778,7 +779,7 @@ export function AiToolsTab({ token }: { token: string }) {
             <input type="number" min={1} max={20} value={maxResults} onChange={(e) => setMaxResults(Number(e.target.value))}
               className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={run} disabled={busy || !query.trim()}
-              className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="rumahl-ghost-button-sm">
               {busy ? '…' : 'Suchen'}
             </button>
           </div>
@@ -787,7 +788,7 @@ export function AiToolsTab({ token }: { token: string }) {
             <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…"
               className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
             <button onClick={run} disabled={busy || !url.trim()}
-              className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              className="rumahl-ghost-button-sm">
               {busy ? '…' : (tab === 'scrape' ? 'Scrapen' : 'Aufnehmen')}
             </button>
           </div>
@@ -806,7 +807,7 @@ export function AiToolsTab({ token }: { token: string }) {
 // ─── AI Voice ───────────────────────────────────────────────────────────
 
 export function AiVoiceTab({ token }: { token: string }) {
-  const [text, setText] = useState('Hallo, dies ist ein IORA Assist Sprachtest.')
+  const [text, setText] = useState('Hallo, dies ist ein rumahl Assist Sprachtest.')
   const [voice, setVoice] = useState('default')
   const [busy, setBusy] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
@@ -882,7 +883,7 @@ export function AiVoiceTab({ token }: { token: string }) {
           <input value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="Stimme (default)"
             className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
           <button onClick={synthesize} disabled={busy || !text.trim()}
-            className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            className="rumahl-ghost-button-sm">
             {busy ? 'Synthetisiere…' : 'Sprechen'}
           </button>
         </div>
@@ -924,8 +925,8 @@ export function AiVoiceTab({ token }: { token: string }) {
 // CONNECTED DEVICES TAB
 // ════════════════════════════════════════════════════════════════════════
 //
-// Shows every dashboard client (IORA Desktop, browser tabs, kiosks)
-// that has registered with iora-home, plus a live count of currently
+// Shows every dashboard client (rumahl Desktop, browser tabs, kiosks)
+// that has registered with rumahl-home, plus a live count of currently
 // connected WebSocket clients. Backed by /api/admin/devices, which
 // pairs the `devices` DB table with `ws_manager.client_count()`.
 
@@ -952,10 +953,10 @@ export interface AdminDevicesPayload {
 }
 
 // ═════════════════════════════════════════════════════════════════
-// Dev Bridge Tab — IORA OS Dev Bridge Management
+// Dev Bridge Tab — rumahl OS Dev Bridge Management
 // ═════════════════════════════════════════════════════════════════
 //
-// Vollständige Integration der iora-dev-bridge (Port 8101) ins WebUI:
+// Vollständige Integration der rumahl-dev-bridge (Port 8101) ins WebUI:
 // - Service-Status und Logs (auch Live-Stream über SSE)
 // - System-Info (CPU, RAM, Disk, Uptime)
 // - Docker-Compose-Management
@@ -973,7 +974,7 @@ export async function devBridgeFetch(path: string, devToken?: string | null, opt
     ...((options?.headers as Record<string, string>) || {}),
   }
   if (devToken) {
-    headers['x-iora-dev-token'] = devToken
+    headers['x-rumahl-dev-token'] = devToken
   }
   return fetch(`${baseUrl}${path}`, {
     ...options,

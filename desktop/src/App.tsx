@@ -45,8 +45,8 @@ export default function App() {
   // Detect which window we're in based on URL or window label
   useEffect(() => {
     const path = window.location.pathname
-    if (path === '/ora-overlay') {
-      setWindowLabel('ora-overlay')
+    if (path === '/rumahl-overlay') {
+      setWindowLabel('rumahl-overlay')
       setReady(true)
       return
     }
@@ -58,8 +58,8 @@ export default function App() {
     document.documentElement.setAttribute('data-platform', platform)
   }, [])
 
-  // Load the remote IORA Home URL from Tauri config, then check the server
-  // version. If the version has changed since the last run, cached IORA Home
+  // Load the remote rumahl Home URL from Tauri config, then check the server
+  // version. If the version has changed since the last run, cached rumahl Home
   // files are cleared so fresh data is fetched. API requests are never cached.
   useEffect(() => {
     let cancelled = false
@@ -82,8 +82,8 @@ export default function App() {
 
   if (!ready) return null
 
-  // Render ORA overlay window
-  if (windowLabel === 'ora-overlay') {
+  // Render rumahl overlay window
+  if (windowLabel === 'rumahl-overlay') {
     return (
       <ErrorBoundary FallbackComponent={ErrorFallback}>
         <ORAOverlay />

@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { User, Lock, UserPlus, NumberCircleOne, Backspace, ArrowLeft, ShieldCheck } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Switch } from '@/components/ui/switch'
 
 interface UserListEntry {

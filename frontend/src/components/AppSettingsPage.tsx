@@ -6,7 +6,7 @@ import {
   ArrowSquareOut, Cube, Warning, CaretDown, Info,
   UploadSimple, File, DownloadSimple, Code,
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { getBackendUrl } from '@/lib/config'
 import { adminFetch, InlineSpinner, LoadingSpinner, AdminCard } from './AdminPanel'
 
@@ -100,7 +100,7 @@ function SettingsSection({
 }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="glass-card rounded-2xl overflow-hidden">
+    <div className="rumahl-card rounded-2xl overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-foreground/[0.02] transition-colors"
@@ -201,7 +201,7 @@ export function AppSettingsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-4 p-4 page-transition-enter">
       {/* Header */}
-      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-5">
+      <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-5">
         <div className="flex items-start gap-4">
           {app.icon ? (
             <img src={app.icon} alt="" className="w-12 h-12 rounded-xl flex-shrink-0" />
@@ -366,7 +366,7 @@ function AppConfigSettings({ appId, token }: { appId: string; token: string }) {
   const fields = schema?.fields || []
   if (fields.length === 0) {
     return (
-      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+      <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
         <div className="flex items-center gap-2 mb-2">
           <Gear size={16} className="text-accent" />
           <span className="text-xs font-semibold text-foreground">App-Einstellungen</span>
@@ -378,7 +378,7 @@ function AppConfigSettings({ appId, token }: { appId: string; token: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+      <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <div className="flex items-center gap-2">
@@ -529,7 +529,7 @@ function StorageSettings({ appId, token }: { appId: string; token: string }) {
       {loading ? <LoadingSpinner /> : (
         <>
           {subTab === 'files' && (
-            <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+            <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
               {files.length === 0 ? (
                 <div className="text-center py-8">
                   <File size={32} className="mx-auto mb-2 text-foreground/20" />
@@ -552,7 +552,7 @@ function StorageSettings({ appId, token }: { appId: string; token: string }) {
           )}
 
           {subTab === 'kv' && (
-            <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+            <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
               {kvList.length === 0 ? (
                 <div className="text-center py-8">
                   <Database size={32} className="mx-auto mb-2 text-foreground/20" />
@@ -595,7 +595,7 @@ function DatabaseSettings({ appId, token }: { appId: string; token: string }) {
   if (loading) return <LoadingSpinner />
 
   return (
-    <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+    <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
       <div className="flex items-center gap-2 mb-3">
         <Database size={16} className="text-accent" />
         <span className="text-xs font-semibold text-foreground">SQLite Datenbank</span>
@@ -634,7 +634,7 @@ function SchedulesSettings({ appId, token }: { appId: string; token: string }) {
   if (loading) return <LoadingSpinner />
 
   return (
-    <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+    <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
       <div className="flex items-center gap-2 mb-3">
         <Clock size={16} className="text-accent" />
         <span className="text-xs font-semibold text-foreground">Geplante Aufgaben ({schedules.length})</span>
@@ -680,7 +680,7 @@ function WebhooksSettings({ appId, token }: { appId: string; token: string }) {
   if (loading) return <LoadingSpinner />
 
   return (
-    <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+    <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
       <div className="flex items-center gap-2 mb-3">
         <LinkSimple size={16} className="text-accent" />
         <span className="text-xs font-semibold text-foreground">Webhooks ({webhooks.length})</span>
@@ -726,7 +726,7 @@ function MessagingSettings({ appId, token }: { appId: string; token: string }) {
   if (loading) return <LoadingSpinner />
 
   return (
-    <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+    <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
       <div className="flex items-center gap-2 mb-3">
         <Broadcast size={16} className="text-accent" />
         <span className="text-xs font-semibold text-foreground">Message Channels ({channels.length})</span>
@@ -755,7 +755,7 @@ function EnvironmentSettings({ app, token }: { app: AppInfo; token: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+      <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
         <div className="flex items-center gap-2 mb-3">
           <Info size={16} className="text-accent" />
           <span className="text-xs font-semibold text-foreground">App-Informationen</span>
@@ -790,7 +790,7 @@ function EnvironmentSettings({ app, token }: { app: AppInfo; token: string }) {
 
       {/* Ports */}
       {(app.ports?.length ?? 0) > 0 && (
-        <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+        <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
           <div className="flex items-center gap-2 mb-3">
             <Broadcast size={16} className="text-accent" />
             <span className="text-xs font-semibold text-foreground">Ports</span>
@@ -806,7 +806,7 @@ function EnvironmentSettings({ app, token }: { app: AppInfo; token: string }) {
       )}
 
       {/* Permissions */}
-      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+      <div className="rumahl-card rounded-2xl border border-foreground/[0.06] p-4">
         <div className="flex items-center gap-2 mb-3">
           <Info size={16} className="text-accent" />
           <span className="text-xs font-semibold text-foreground">Berechtigungen</span>

@@ -1,4 +1,4 @@
-# IORA OS - Vollständiges Multi-Format Build-System
+# rumahl OS - Vollständiges Multi-Format Build-System
 
 Ja, es ist möglich! Ich habe ein komplettes Build-System erstellt, das alle gewünschten Image-Formate automatisch generiert.
 
@@ -6,49 +6,49 @@ Ja, es ist möglich! Ich habe ein komplettes Build-System erstellt, das alle gew
 
 Das Build-System erstellt automatisch folgende Formate:
 
-### 1. **iora-os.img.xz** - Raw Disk Image
+### 1. **rumahl-os.img.xz** - Raw Disk Image
 - **Verwendung**: USB-Sticks, SD-Karten, physische Hardware
 - **Größe**: ~600-800 MB komprimiert
 - **Deployment**:
   ```bash
-  xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+  xzcat rumahl-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
   ```
 
-### 2. **iora-os.qcow2.xz** - QEMU/KVM Image
+### 2. **rumahl-os.qcow2.xz** - QEMU/KVM Image
 - **Verwendung**: QEMU, KVM, libvirt virtuelle Maschinen
 - **Größe**: ~500-700 MB komprimiert
 - **Deployment**:
   ```bash
-  xz -d iora-os.qcow2.xz
-  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=iora-os.qcow2,format=qcow2
+  xz -d rumahl-os.qcow2.xz
+  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=rumahl-os.qcow2,format=qcow2
   ```
 
-### 3. **iora-os.vdi.zip** - VirtualBox Image
+### 3. **rumahl-os.vdi.zip** - VirtualBox Image
 - **Verwendung**: Oracle VirtualBox
 - **Größe**: ~600-800 MB komprimiert
 - **Deployment**: Entpacken und in VirtualBox als Festplatte hinzufügen
 
-### 4. **iora-os.vmdk.zip** - VMware Image
+### 4. **rumahl-os.vmdk.zip** - VMware Image
 - **Verwendung**: VMware Workstation, Player, ESXi
 - **Größe**: ~600-800 MB komprimiert
 - **Deployment**: Entpacken und in VMware als Festplatte hinzufügen
 
-### 5. **iora-os.ova** - Open Virtualization Archive
+### 5. **rumahl-os.ova** - Open Virtualization Archive
 - **Verwendung**: VirtualBox, VMware (einfachster Import)
 - **Größe**: ~800-1000 MB
 - **Deployment**: Doppelklick oder "Import Appliance" in VirtualBox/VMware
 
-### 6. **iora-os-YYYYMMDD.raucb** - RAUC Update Bundle
-- **Verwendung**: Updates für bestehende IORA OS Installationen
+### 6. **rumahl-os-YYYYMMDD.raucb** - RAUC Update Bundle
+- **Verwendung**: Updates für bestehende rumahl OS Installationen
 - **Größe**: ~400-600 MB
-- **Deployment**: `rauc install iora-os-YYYYMMDD.raucb`
+- **Deployment**: `rauc install rumahl-os-YYYYMMDD.raucb`
 
 ## Vollautomatischer Build
 
 ### Ein-Befehl-Build
 
 ```bash
-cd iora-os
+cd rumahl-os
 
 # Abhängigkeiten installieren (einmalig)
 sudo make install-deps
@@ -76,13 +76,13 @@ make build
 
 Nach dem Build findet man alle Formate in:
 ```
-iora-os/releases/YYYYMMDD-HHMMSS/
-├── iora-os.img.xz          # Raw Disk Image
-├── iora-os.qcow2.xz        # QEMU/KVM
-├── iora-os.vdi.zip         # VirtualBox
-├── iora-os.vmdk.zip        # VMware
-├── iora-os.ova             # OVA (universal)
-├── iora-os-20240415.raucb  # Update Bundle
+rumahl-os/releases/YYYYMMDD-HHMMSS/
+├── rumahl-os.img.xz          # Raw Disk Image
+├── rumahl-os.qcow2.xz        # QEMU/KVM
+├── rumahl-os.vdi.zip         # VirtualBox
+├── rumahl-os.vmdk.zip        # VMware
+├── rumahl-os.ova             # OVA (universal)
+├── rumahl-os-20240415.raucb  # Update Bundle
 ├── SHA256SUMS              # Checksums
 └── README.txt              # Deployment-Anleitung
 ```
@@ -144,29 +144,29 @@ Wird automatisch installiert mit `make install-deps`:
 
 ### Für Entwicklung/Testing: QEMU
 ```bash
-cd iora-os/releases/latest
-xz -d iora-os.qcow2.xz
+cd rumahl-os/releases/latest
+xz -d rumahl-os.qcow2.xz
 qemu-system-x86_64 \
     -enable-kvm -m 2048 -smp 2 \
-    -drive file=iora-os.qcow2,format=qcow2 \
+    -drive file=rumahl-os.qcow2,format=qcow2 \
     -net user,hostfwd=tcp::8080-:8080
 ```
 
 ### Für Benutzer: OVA
 ```bash
-# Einfach Doppelklick auf iora-os.ova
+# Einfach Doppelklick auf rumahl-os.ova
 # Oder in VirtualBox: Datei → Appliance importieren
 ```
 
 ### Für Produktion: Raw Image
 ```bash
-xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+xzcat rumahl-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 ```
 
 ### Für Updates: RAUC
 ```bash
-# Auf laufendem IORA OS System
-rauc install iora-os-20240415.raucb
+# Auf laufendem rumahl OS System
+rauc install rumahl-os-20240415.raucb
 reboot
 ```
 
@@ -176,17 +176,17 @@ Das Build-System ist CI/CD-ready:
 
 ```yaml
 # GitHub Actions Beispiel
-- name: Build IORA OS
+- name: Build rumahl OS
   run: |
-    cd iora-os
+    cd rumahl-os
     sudo make install-deps
     make build
 
 - name: Upload Release
   uses: actions/upload-artifact@v3
   with:
-    name: iora-os-images
-    path: iora-os/releases/*/
+    name: rumahl-os-images
+    path: rumahl-os/releases/*/
 ```
 
 ## Anpassungen
@@ -200,7 +200,7 @@ make
 ```
 
 ### Build-Script anpassen
-Siehe `iora-os/build-all-images.sh` - alle Funktionen sind klar dokumentiert und können aktiviert/deaktiviert werden.
+Siehe `rumahl-os/build-all-images.sh` - alle Funktionen sind klar dokumentiert und können aktiviert/deaktiviert werden.
 
 ### Nur bestimmte Formate
 Kommentiere ungewünschte `create_*_image()` Funktionen in `build-all-images.sh` aus.
@@ -228,7 +228,7 @@ Alles fertig für Distribution und Deployment auf verschiedenen Plattformen!
 
 ## Weitere Informationen
 
-- **Vollständige Dokumentation**: `iora-os/BUILD_IMAGES.md`
-- **Quick Start**: `iora-os/README.md`
-- **Deployment Guide**: `DOCKER_AND_IORA_OS.md`
+- **Vollständige Dokumentation**: `rumahl-os/BUILD_IMAGES.md`
+- **Quick Start**: `rumahl-os/README.md`
+- **Deployment Guide**: `DOCKER_AND_RUMAHL_OS.md`
 - **Commit**: 3cffb70

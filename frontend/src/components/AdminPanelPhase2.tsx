@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Check, X, Clock, ShieldCheck, Warning, ArrowUp, ArrowDown, Package, Cpu, Cube, ArrowClockwise, Pause, TrashSimple } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 
 // ── Phase 2: Registration Management ──────────────────────────────────────
 
@@ -67,7 +68,7 @@ export function RegistrationManagementTab({ token }: { token: string }) {
   }
 
   const revokeRegistration = async (id: string) => {
-    if (!confirm('Registrierung wirklich widerrufen?')) return
+    if (!(await confirmDialog({ title: 'Registrierung widerrufen', message: 'Registrierung wirklich widerrufen?', confirmLabel: 'Widerrufen', danger: true }))) return
     setProcessing(id)
     try {
       await adminFetch(`/api/core/registrations/${id}/revoke`, token, { method: 'POST' })
@@ -455,7 +456,7 @@ export function UpdateManagementTab({ token }: { token: string }) {
   }
 
   const rollbackUpdate = async (updateId: string) => {
-    if (!confirm('Update wirklich zurückrollen?')) return
+    if (!(await confirmDialog({ title: 'Update zurückrollen', message: 'Update wirklich zurückrollen?', confirmLabel: 'Zurückrollen', danger: true }))) return
     try {
       await adminFetch(`/api/core/updates/${updateId}/rollback`, token, { method: 'POST' })
       await load()

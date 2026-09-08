@@ -1,191 +1,191 @@
 # ============================================================================
-# IORA – Docker Compose (Full Stack)
+# rumahl – Docker Compose (Full Stack)
 # ============================================================================
-# Alle IORA-Dienste für Entwicklung, Test und Fremdinstallation.
+# Alle rumahl-Dienste für Entwicklung, Test und Fremdinstallation.
 #
-# PRODUKTION: IORA OS verwenden (buildroot-basiertes Image)
-# Dieses Compose-File ist für Nicht-IORA-OS-Umgebungen gedacht.
+# PRODUKTION: rumahl OS verwenden (buildroot-basiertes Image)
+# Dieses Compose-File ist für Nicht-rumahl-OS-Umgebungen gedacht.
 #
 # Verwendung:
 #   cp .env.example .env          # Umgebungsvariablen anpassen
 #   docker compose up -d          # Alle Dienste starten
-#   docker compose up -d postgres iora-core iora-home  # Nur Kern-Dienste
+#   docker compose up -d postgres rumahl-core rumahl-home  # Nur Kern-Dienste
 #   docker compose down           # Alle Dienste stoppen
 #   docker compose logs -f        # Live-Logs
 #
-# Build-Kontext: deploy/ → ../iora-os/backend/
+# Build-Kontext: deploy/ → ../rumahl-os/backend/
 # ============================================================================
 
 version: '3.8'
 
 services:
   # ═══════════════════════════════════════════════════════════════════════
-  # PostgreSQL – Zentrale Datenbank für alle IORA-Dienste
+  # PostgreSQL – Zentrale Datenbank für alle rumahl-Dienste
   # ═══════════════════════════════════════════════════════════════════════
   postgres:
     image: postgres:16-alpine
-    container_name: iora-postgres
+    container_name: rumahl-postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-iora}
+      POSTGRES_USER: ${POSTGRES_USER:-ora}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-iora_home}
+      POSTGRES_DB: ${POSTGRES_DB:-rumahl_home}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-postgres.sh:/docker-entrypoint-initdb.d/init-postgres.sh
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-iora}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ora}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-core – Zentraler Orchestrator (Service Discovery, Plugin-Registry)
+  # rumahl-core – Zentraler Orchestrator (Service Discovery, Plugin-Registry)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-core:
+  rumahl-core:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-core
-    image: iora/core:latest
-    container_name: iora-core
+      target: rumahl-core
+    image: ora/core:latest
+    container_name: rumahl-core
     ports:
       - "${CORE_PORT:-8090}:8090"
     environment:
       PORT: "8090"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_core"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-ora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rumahl_core"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-home – Dashboard-Backend, API, Auth, Streaming (Port 8126)
+  # rumahl-home – Dashboard-Backend, API, Auth, Streaming (Port 8126)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-home:
+  rumahl-home:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-home
-    image: iora/home:latest
-    container_name: iora-home
+      target: rumahl-home
+    image: ora/home:latest
+    container_name: rumahl-home
     ports:
       - "${HOME_PORT:-8126}:8126"
     environment:
       PORT: "8126"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_home"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-ora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rumahl_home"
       HA_URL: ${HA_URL:-}
       HA_TOKEN: ${HA_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:-changeme}
-      IORA_CORE_URL: "http://iora-core:8090"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-      iora-core:
+      rumahl-core:
         condition: service_started
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-security – Security Monitoring, PostgreSQL-Verwaltung
+  # rumahl-security – Security Monitoring, PostgreSQL-Verwaltung
   # ═══════════════════════════════════════════════════════════════════════
-  iora-security:
+  rumahl-security:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-security
-    image: iora/security:latest
-    container_name: iora-security
+      target: rumahl-security
+    image: ora/security:latest
+    container_name: rumahl-security
     ports:
       - "${SECURITY_PORT:-8095}:8095"
     environment:
       PORT: "8095"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_security"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-ora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rumahl_security"
       POSTGRES_ADMIN_URL: "postgres://postgres:${POSTGRES_PASSWORD:-changeme}@postgres:5432/postgres"
-      SECURITY_DB_PATH: "/var/lib/iora/security.db"
+      SECURITY_DB_PATH: "/var/lib/ora/security.db"
       SECURITY_DB_KEY: ${SECURITY_DB_KEY:-changeme}
       AUTO_LOCKDOWN_ENABLED: "true"
       THREAT_LEVEL_THRESHOLD: "7"
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - security_data:/var/lib/iora
+      - security_data:/var/lib/ora
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-watchdog – Health Monitoring
+  # rumahl-watchdog – Health Monitoring
   # ═══════════════════════════════════════════════════════════════════════
-  iora-watchdog:
+  rumahl-watchdog:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-watchdog
-    image: iora/watchdog:latest
-    container_name: iora-watchdog
+      target: rumahl-watchdog
+    image: ora/watchdog:latest
+    container_name: rumahl-watchdog
     ports:
       - "${WATCHDOG_PORT:-8094}:8094"
     environment:
       PORT: "8094"
-      IORA_CORE_URL: "http://iora-core:8090"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      - iora-core
+      - rumahl-core
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-secrets – Verschlüsselte Secrets-Verwaltung
+  # rumahl-secrets – Verschlüsselte Secrets-Verwaltung
   # ═══════════════════════════════════════════════════════════════════════
-  iora-secrets:
+  rumahl-secrets:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-secrets
-    image: iora/secrets:latest
-    container_name: iora-secrets
+      target: rumahl-secrets
+    image: ora/secrets:latest
+    container_name: rumahl-secrets
     ports:
       - "${SECRETS_PORT:-8093}:8093"
     environment:
       PORT: "8093"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_secrets"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-ora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rumahl_secrets"
       SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-changeme}
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-gateway – Sandboxed externe Integrationen (E-Mail, Webhooks)
+  # rumahl-gateway – Sandboxed externe Integrationen (E-Mail, Webhooks)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-gateway:
+  rumahl-gateway:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-gateway
-    image: iora/gateway:latest
-    container_name: iora-gateway
+      target: rumahl-gateway
+    image: ora/gateway:latest
+    container_name: rumahl-gateway
     ports:
       - "${GATEWAY_PORT:-8096}:8096"
     environment:
       PORT: "8096"
-      GATEWAY_DB_PATH: "/var/lib/iora/gateway.db"
+      GATEWAY_DB_PATH: "/var/lib/ora/gateway.db"
       SMTP_SERVER: ${SMTP_SERVER:-}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
@@ -193,45 +193,45 @@ services:
       REQUEST_TIMEOUT_SECS: "30"
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - gateway_data:/var/lib/iora
+      - gateway_data:/var/lib/ora
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-control – Admin-Panel Backend
+  # rumahl-control – Admin-Panel Backend
   # ═══════════════════════════════════════════════════════════════════════
-  iora-control:
+  rumahl-control:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-control
-    image: iora/control:latest
-    container_name: iora-control
+      target: rumahl-control
+    image: ora/control:latest
+    container_name: rumahl-control
     ports:
       - "${CONTROL_PORT:-8091}:8091"
     environment:
       PORT: "8091"
-      IORA_CORE_URL: "http://iora-core:8090"
-      IORA_HOME_URL: "http://iora-home:8126"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
+      RUMAHL_HOME_URL: "http://rumahl-home:8126"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      - iora-core
-      - iora-home
+      - rumahl-core
+      - rumahl-home
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-assist – AI-Assistant (ORA)
+  # rumahl-assist – AI-Assistant (rumahl)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-assist:
+  rumahl-assist:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-assist
-    image: iora/assist:latest
-    container_name: iora-assist
+      target: rumahl-assist
+    image: ora/assist:latest
+    container_name: rumahl-assist
     ports:
       - "${ASSIST_PORT:-8092}:8092"
     environment:
@@ -240,202 +240,178 @@ services:
       ASSIST_AI_API_KEY: ${ASSIST_AI_API_KEY:-}
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      - iora-core
+      - rumahl-core
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-appstore – App-Marktplatz (lokaler Store)
+  # rumahl-backup – Backup & Restore
   # ═══════════════════════════════════════════════════════════════════════
-  iora-appstore:
+  rumahl-backup:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-appstore
-    image: iora/appstore:latest
-    container_name: iora-appstore
-    ports:
-      - "${APPSTORE_PORT:-8098}:8098"
-    environment:
-      PORT: "8098"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_appstore"
-      SUPERVISOR_URL: ${SUPERVISOR_URL:-}
-      RUST_LOG: ${RUST_LOG:-info}
-    networks:
-      - iora-network
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # ═══════════════════════════════════════════════════════════════════════
-  # iora-backup – Backup & Restore
-  # ═══════════════════════════════════════════════════════════════════════
-  iora-backup:
-    build:
-      context: ../iora-os/backend
-      dockerfile: Dockerfile
-      target: iora-backup
-    image: iora/backup:latest
-    container_name: iora-backup
+      target: rumahl-backup
+    image: ora/backup:latest
+    container_name: rumahl-backup
     ports:
       - "${BACKUP_PORT:-8100}:8100"
     environment:
       PORT: "8100"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_backup"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-ora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rumahl_backup"
       POSTGRES_HOST: "postgres"
-      POSTGRES_USER: ${POSTGRES_USER:-iora}
+      POSTGRES_USER: ${POSTGRES_USER:-ora}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      BACKUP_DIR: "/var/lib/iora/backups"
+      BACKUP_DIR: "/var/lib/ora/backups"
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - backup_data:/var/lib/iora/backups
+      - backup_data:/var/lib/ora/backups
       - /var/run/docker.sock:/var/run/docker.sock
       - postgres_data:/backup-postgres:ro
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-api – API Gateway (REST + WebSocket)
+  # rumahl-api – API Gateway (REST + WebSocket)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-api:
+  rumahl-api:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-api
-    image: iora/api:latest
-    container_name: iora-api
+      target: rumahl-api
+    image: ora/api:latest
+    container_name: rumahl-api
     ports:
       - "${API_PORT:-8101}:8101"
     environment:
       PORT: "8101"
-      IORA_CORE_URL: "http://iora-core:8090"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      - iora-core
+      - rumahl-core
     profiles:
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-files – Datei-Sharing
+  # rumahl-files – Datei-Sharing
   # ═══════════════════════════════════════════════════════════════════════
-  iora-files:
+  rumahl-files:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-files
-    image: iora/files:latest
-    container_name: iora-files
+      target: rumahl-files
+    image: ora/files:latest
+    container_name: rumahl-files
     ports:
       - "${FILES_PORT:-8102}:8102"
     environment:
       PORT: "8102"
-      FILES_DATA_DIR: "/var/lib/iora/files"
+      FILES_DATA_DIR: "/var/lib/ora/files"
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - files_data:/var/lib/iora/files
+      - files_data:/var/lib/ora/files
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     profiles:
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-updater – Update-Manager (RAUC-Integration auf IORA OS)
+  # rumahl-updater – Update-Manager (RAUC-Integration auf rumahl OS)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-updater:
+  rumahl-updater:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-updater
-    image: iora/updater:latest
-    container_name: iora-updater
+      target: rumahl-updater
+    image: ora/updater:latest
+    container_name: rumahl-updater
     ports:
       - "${UPDATER_PORT:-8103}:8103"
     environment:
       PORT: "8103"
-      IORA_CORE_URL: "http://iora-core:8090"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      - iora-core
+      - rumahl-core
     profiles:
-      - iora-os
+      - rumahl-os
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-connector – Remote-Verbindung (Tailscale/ZeroTier)
+  # rumahl-connector – Remote-Verbindung (Tailscale/ZeroTier)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-connector:
+  rumahl-connector:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-connector
-    image: iora/connector:latest
-    container_name: iora-connector
+      target: rumahl-connector
+    image: ora/connector:latest
+    container_name: rumahl-connector
     ports:
       - "${CONNECTOR_PORT:-8104}:8104"
     environment:
       PORT: "8104"
-      IORA_CORE_URL: "http://iora-core:8090"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      - iora-core
+      - rumahl-core
     profiles:
       - full
       - remote
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-nginx – Reverse Proxy (nur IORA OS)
+  # rumahl-nginx – Reverse Proxy (nur rumahl OS)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-nginx:
+  rumahl-nginx:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-nginx
-    image: iora/nginx:latest
-    container_name: iora-nginx
+      target: rumahl-nginx
+    image: ora/nginx:latest
+    container_name: rumahl-nginx
     ports:
       - "${NGINX_PORT:-8080}:80"
       - "443:443"
     environment:
-      IORA_HOME_URL: "http://iora-home:8126"
-      IORA_CORE_URL: "http://iora-core:8090"
+      RUMAHL_HOME_URL: "http://rumahl-home:8126"
+      RUMAHL_CORE_URL: "http://rumahl-core:8090"
     volumes:
       - nginx_certs:/etc/nginx/certs
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      - iora-home
-      - iora-core
+      - rumahl-home
+      - rumahl-core
     profiles:
-      - iora-os
+      - rumahl-os
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-network-monitor – Netzwerk-Scanner
+  # rumahl-network-monitor – Netzwerk-Scanner
   # ═══════════════════════════════════════════════════════════════════════
-  iora-network-monitor:
+  rumahl-network-monitor:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-network-monitor
-    image: iora/network-monitor:latest
-    container_name: iora-network-monitor
+      target: rumahl-network-monitor
+    image: ora/network-monitor:latest
+    container_name: rumahl-network-monitor
     network_mode: host
     environment:
       PORT: "${NETWORK_MONITOR_PORT:-8105}"
@@ -445,115 +421,115 @@ services:
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-supervisor – Docker-Container-Management (IORA OS ONLY)
+  # rumahl-supervisor – Docker-Container-Management (rumahl OS ONLY)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-supervisor:
+  rumahl-supervisor:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-supervisor
-    image: iora/supervisor:latest
-    container_name: iora-supervisor
+      target: rumahl-supervisor
+    image: ora/supervisor:latest
+    container_name: rumahl-supervisor
     ports:
       - "${SUPERVISOR_PORT:-8097}:8097"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - supervisor_data:/var/lib/iora
+      - supervisor_data:/var/lib/ora
     environment:
       PORT: "8097"
-      IORA_OS: "true"
+      RUMAHL_OS: "true"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     privileged: true
     depends_on:
       postgres:
         condition: service_healthy
-      iora-core:
+      rumahl-core:
         condition: service_started
     profiles:
-      - iora-os
+      - rumahl-os
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-intelligence – KI-gestützte Systemanalyse (IORA OS)
+  # rumahl-intelligence – KI-gestützte Systemanalyse (rumahl OS)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-intelligence:
+  rumahl-intelligence:
     build:
-      context: ../iora-os/backend
+      context: ../rumahl-os/backend
       dockerfile: Dockerfile
-      target: iora-intelligence
-    image: iora/intelligence:latest
-    container_name: iora-intelligence
+      target: rumahl-intelligence
+    image: ora/intelligence:latest
+    container_name: rumahl-intelligence
     ports:
       - "${INTELLIGENCE_PORT:-8099}:8099"
     volumes:
-      - intelligence_data:/var/lib/iora
+      - intelligence_data:/var/lib/ora
     environment:
       PORT: "8099"
-      IORA_HOME_URL: "http://iora-home:8126"
-      CORE_URL: "http://iora-core:8090"
-      IORA_OS: "true"
+      RUMAHL_HOME_URL: "http://rumahl-home:8126"
+      CORE_URL: "http://rumahl-core:8090"
+      RUMAHL_OS: "true"
       RUST_LOG: ${RUST_LOG:-info}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     depends_on:
-      iora-core:
+      rumahl-core:
         condition: service_started
     profiles:
-      - iora-os
+      - rumahl-os
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-stt – Speech-to-Text (faster-whisper)
+  # rumahl-stt – Speech-to-Text (faster-whisper)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-stt:
+  rumahl-stt:
     build:
-      context: ../iora-os/backend/services/iora-stt
-    image: iora/stt:latest
-    container_name: iora-stt
+      context: ../rumahl-os/backend/services/rumahl-stt
+    image: ora/stt:latest
+    container_name: rumahl-stt
     ports:
       - "${STT_PORT:-8110}:8110"
     environment:
-      IORA_STT_PORT: "8110"
-      IORA_STT_MODEL: ${IORA_STT_MODEL:-base}
-      IORA_STT_DEVICE: ${IORA_STT_DEVICE:-cpu}
+      RUMAHL_STT_PORT: "8110"
+      RUMAHL_STT_MODEL: ${RUMAHL_STT_MODEL:-base}
+      RUMAHL_STT_DEVICE: ${RUMAHL_STT_DEVICE:-cpu}
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     profiles:
       - voice
       - full
 
   # ═══════════════════════════════════════════════════════════════════════
-  # iora-tts – Text-to-Speech (Kokoro ONNX)
+  # rumahl-tts – Text-to-Speech (Kokoro ONNX)
   # ═══════════════════════════════════════════════════════════════════════
-  iora-tts:
+  rumahl-tts:
     build:
-      context: ../iora-os/backend/services/iora-tts
-    image: iora/tts:latest
-    container_name: iora-tts
+      context: ../rumahl-os/backend/services/rumahl-tts
+    image: ora/tts:latest
+    container_name: rumahl-tts
     ports:
       - "${TTS_PORT:-8111}:8111"
     environment:
-      IORA_TTS_PORT: "8111"
-      IORA_TTS_VOICE: ${IORA_TTS_VOICE:-af_nicole}
-      IORA_TTS_LANG: ${IORA_TTS_LANG:-en-us}
-      IORA_TTS_MODEL_PATH: /models/kokoro-v1.0.onnx
-      IORA_TTS_VOICES_PATH: /models/voices-v1.0.bin
+      RUMAHL_TTS_PORT: "8111"
+      RUMAHL_TTS_VOICE: ${RUMAHL_TTS_VOICE:-af_nicole}
+      RUMAHL_TTS_LANG: ${RUMAHL_TTS_LANG:-en-us}
+      RUMAHL_TTS_MODEL_PATH: /models/kokoro-v1.0.onnx
+      RUMAHL_TTS_VOICES_PATH: /models/voices-v1.0.bin
     volumes:
       - tts_models:/models
     networks:
-      - iora-network
+      - rumahl-network
     restart: unless-stopped
     profiles:
       - voice
       - full
 
 networks:
-  iora-network:
+  rumahl-network:
     driver: bridge
     ipam:
       driver: default

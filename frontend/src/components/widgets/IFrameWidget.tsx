@@ -18,7 +18,7 @@ interface IFrameWidgetConfig {
   refreshIntervalSeconds?: number
   customHeight?: number
   scrolling?: boolean
-  appId?: string  // For postMessage communication with IORA
+  appId?: string  // For postMessage communication with rumahl
   [key: string]: unknown
 }
 
@@ -67,7 +67,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
       const msg = event.data
       if (!msg || typeof msg !== 'object') return
 
-      // Handle iframe → IORA requests
+      // Handle iframe → rumahl requests
       if (msg.type === 'request' && msg.method) {
         handleIframeRequest(msg)
       }
@@ -189,7 +189,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
 
         case 'files.open': {
           if (!appId) {
-            sendResponse(null, 'File access requires an identified ORA app')
+            sendResponse(null, 'File access requires an identified rumahl app')
             break
           }
           const result = await requestFilePicker('open')
@@ -200,7 +200,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
 
         case 'files.save': {
           if (!appId) {
-            sendResponse(null, 'File access requires an identified ORA app')
+            sendResponse(null, 'File access requires an identified rumahl app')
             break
           }
           const saveRequest = msg.params?.[1] as AppFileSaveRequest | undefined
@@ -215,7 +215,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
         }
 
         case 'entities.list':
-          // Forward to IORA API
+          // Forward to rumahl API
           try {
             const res = await authFetch('/api/states')
             const entities = await res.json()
@@ -280,7 +280,7 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
   const handleIframeEvent = useCallback((event: any) => {
     if (event.type === 'app.proxy.status') {
       // App proxy sent status update
-      console.log('[IORA] App status from iframe:', event.data)
+      console.log('[rumahl] App status from iframe:', event.data)
     }
   }, [])
 

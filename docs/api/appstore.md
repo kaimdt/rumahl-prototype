@@ -1,6 +1,6 @@
 # App Store API
 
-The App Store API manages app and plugin installation, updates, and lifecycle. It is served by `iora-appstore` on port 8098 and partially proxied through `iora-home`.
+The App Store API manages app and plugin installation, updates, and lifecycle. It is served by `rumahl-appstore` on port 8098 and partially proxied through `rumahl-home`.
 
 ## Base URL
 
@@ -29,7 +29,7 @@ Catalog response:
       "id": "weather-app",
       "name": "Weather App",
       "version": "1.2.0",
-      "developer": "IORA Team",
+      "developer": "rumahl Team",
       "description": "Weather forecast display",
       "category": "Utility",
       "tags": ["weather", "forecast"],
@@ -208,8 +208,8 @@ Apps in the catalog include metadata:
     "source_url": "https://github.com/user/app",
     "support_url": "https://example.com/support",
     "license": "MIT",
-    "min_iora_version": "2.1.0",
-    "max_iora_version": null
+    "min_rumahl_version": "2.1.0",
+    "max_rumahl_version": null
   }
 }
 ```

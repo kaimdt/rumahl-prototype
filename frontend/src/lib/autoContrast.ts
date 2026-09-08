@@ -17,9 +17,9 @@
  *   auto      — pick `light` / `balanced` / `full` based on detected device tier
  *
  * ─── Persistence ─────────────────────────────────────────────────────────
- *   Global default: localStorage['iora-auto-contrast']
+ *   Global default: localStorage['rumahl-auto-contrast']
  *   Per-user override (preferred when a user is bound):
- *     localStorage['iora-auto-contrast:user:<userId>']
+ *     localStorage['rumahl-auto-contrast:user:<userId>']
  *
  * ─── Opt-out per subtree ─────────────────────────────────────────────────
  *   Any ancestor with `data-auto-contrast="false"` excludes its subtree.
@@ -35,8 +35,8 @@ const FALLBACK_LIGHT: RGBA = { r: 250, g: 250, b: 250, a: 1 }
 const FALLBACK_DARK: RGBA = { r: 17, g: 17, b: 19, a: 1 }
 
 const MIN_CONTRAST = 4.5
-const GLOBAL_KEY = 'iora-auto-contrast'
-const USER_KEY_PREFIX = 'iora-auto-contrast:user:'
+const GLOBAL_KEY = 'rumahl-auto-contrast'
+const USER_KEY_PREFIX = 'rumahl-auto-contrast:user:'
 const PATCHED_ATTR = 'data-ac-patched'
 const ORIGINAL_ATTR = 'data-ac-original'
 const OPT_OUT_ATTR = 'data-auto-contrast'
@@ -506,7 +506,7 @@ export function initAutoContrast() {
   }
   window.addEventListener('resize', trigger, { passive: true })
   window.addEventListener('themechange', trigger as EventListener)
-  window.addEventListener('iora:theme-changed', trigger as EventListener)
+  window.addEventListener('rumahl:theme-changed', trigger as EventListener)
   window.addEventListener('popstate', trigger)
 }
 

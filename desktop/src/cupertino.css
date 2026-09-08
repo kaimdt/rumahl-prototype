@@ -22,7 +22,7 @@
   --cupertino-font: -apple-system, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
   font-family: var(--cupertino-font);
   color: var(--cupertino-text);
-  /* IORA-inspired gradient overlay */
+  /* rumahl-inspired gradient overlay */
   background: linear-gradient(180deg, rgba(99,102,241,0.03) 0%, transparent 40%) !important;
 }
 

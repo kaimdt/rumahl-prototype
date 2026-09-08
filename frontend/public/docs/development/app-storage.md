@@ -1,6 +1,6 @@
 # App Storage Guide
 
-Apps in IORA can store and retrieve files and structured key-value data through a dedicated per-app storage area. The storage is fully isolated – no other app can read your app's data.
+Apps in rumahl can store and retrieve files and structured key-value data through a dedicated per-app storage area. The storage is fully isolated – no other app can read your app's data.
 
 ## Overview
 
@@ -108,9 +108,9 @@ GET /api/apps/:app_id/storage/usage
 ## SDK Usage (JavaScript/TypeScript)
 
 ```typescript
-import IoraClient from '@iora/sdk';
+import rumahlClient from '@rumahl/sdk';
 
-const client = new IoraClient('http://localhost:8126', 'your-api-key');
+const client = new rumahlClient('http://localhost:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Store a file
@@ -129,21 +129,21 @@ const usage = await client.appStorage.getUsage();
 console.log('Usage:', usage.usage_percent.toFixed(1) + '%');
 ```
 
-## User-selected ORA Cloud files
+## User-selected rumahl Cloud files
 
-App storage is private to the app. If an iframe app needs a document from the user's personal ORA Cloud, use the system file picker instead of calling `/api/files` directly. ORA always shows a confirmation dialog and only returns the file selected by the user.
+App storage is private to the app. If an iframe app needs a document from the user's personal rumahl Cloud, use the system file picker instead of calling `/api/files` directly. rumahl always shows a confirmation dialog and only returns the file selected by the user.
 
 ```typescript
-import { createIoraIframe } from '@iora/sdk';
+import { createrumahlIframe } from '@rumahl/sdk';
 
-const ora = createIoraIframe('my-app');
+const ora = createrumahlIframe('my-app');
 await ora.ready();
 
-// Opens the ORA system picker. The result contains only the selected file.
+// Opens the rumahl system picker. The result contains only the selected file.
 const file = await ora.openFile();
 const bytes = Uint8Array.from(atob(file.dataBase64), value => value.charCodeAt(0));
 
-// Opens the ORA save dialog. The user chooses the destination folder.
+// Opens the rumahl save dialog. The user chooses the destination folder.
 const saved = await ora.saveFile({
   name: 'report.json',
   mimeType: 'application/json',

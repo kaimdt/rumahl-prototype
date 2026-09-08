@@ -1,14 +1,14 @@
 /**
- * Per-app "open outside ORA OS" preference.
+ * Per-app "open outside rumahl OS" preference.
  *
  * Apple-settings-style switch: an installed app can be opened directly via
- * its published port (own browser tab, outside the ORA desktop runner)
+ * its published port (own browser tab, outside the rumahl desktop runner)
  * instead of being embedded through the App Embedding Gateway. The
  * preference is a user override on top of the manifest `display.mode`.
  */
 
-const STORAGE_KEY = 'iora-app-open-external'
-export const APP_OPEN_PREFS_EVENT = 'iora:app-open-prefs-changed'
+const STORAGE_KEY = 'rumahl-app-open-external'
+export const APP_OPEN_PREFS_EVENT = 'rumahl:app-open-prefs-changed'
 
 function readPrefs(): Record<string, boolean> {
   try {
@@ -35,7 +35,7 @@ export function isAppOpenExternal(appId: string): boolean {
   }
 }
 
-/** Toggle the per-app "open outside ORA OS" preference. */
+/** Toggle the per-app "open outside rumahl OS" preference. */
 export function setAppOpenExternal(appId: string, external: boolean): void {
   const prefs = readPrefs()
   if (external) {

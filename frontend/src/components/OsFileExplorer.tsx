@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
+  ArrowClockwise,
   ArrowRight,
   ArrowSquareOut,
   CaretDown,
@@ -14,6 +15,7 @@ import {
   FolderOpen,
   GridFour,
   House,
+  List,
   ListBullets,
   MagnifyingGlass,
   PencilSimple,
@@ -24,13 +26,13 @@ import {
   UsersThree,
   LinkSimple,
   X,
- Rows, FilePlus, Info, Check } from '@phosphor-icons/react'
+  Rows, FilePlus, Info, Check, SquaresFour } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { authFetch, getAuthToken } from '@/lib/authHelpers'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { getBackendUrl } from '@/lib/config'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { createPortal } from 'react-dom'
 import { closeAllContextMenus, useCloseOnOtherMenu } from '@/lib/contextMenus'
@@ -47,6 +49,15 @@ interface FileEntry {
   is_folder: boolean
   updated_at: string
   deleted_at?: string | null
+  /** For app shortcuts: the target app pageId. */
+  description?: string | null
+}
+
+/** Mime type used for desktop app shortcuts (real files entries). */
+export const APP_SHORTCUT_MIME = 'application/x-rumahl-app-shortcut'
+/** True for a desktop app shortcut entry. */
+export function isAppShortcut(entry: { mime_type?: string | null }): boolean {
+  return entry.mime_type === APP_SHORTCUT_MIME
 }
 
 interface Breadcrumb { id: string; name: string }
@@ -77,6 +88,7 @@ function formatBytes(value = 0) {
 /** System folders shown in the sidebar (created on first use, Windows-style). */
 interface SystemFolder { id: string; canonical: string; nameKey: string }
 const SYSTEM_FOLDERS: SystemFolder[] = [
+  { id: 'desktop', canonical: 'Desktop', nameKey: 'os.files.systemFolders.desktop' },
   { id: 'documents', canonical: 'Documents', nameKey: 'os.files.systemFolders.documents' },
   { id: 'downloads', canonical: 'Downloads', nameKey: 'os.files.systemFolders.downloads' },
   { id: 'photos', canonical: 'Photos', nameKey: 'os.files.systemFolders.photos' },
@@ -101,6 +113,14 @@ function fileIcon(entry: FileEntry, size: number) {
             <img src={badge} alt="" className="h-full w-full object-contain p-0.5" draggable={false} />
           </span>
         )}
+      </span>
+    )
+  }
+  // Desktop app shortcut: show a colored app tile instead of a file icon.
+  if (isAppShortcut(entry)) {
+    return (
+      <span className="rumahl-app-icon flex shrink-0 items-center justify-center overflow-hidden text-white" style={{ width: size, height: size }}>
+        <SquaresFour size={size * 0.5} weight="duotone" />
       </span>
     )
   }
@@ -181,7 +201,7 @@ export interface FilePickerConfig {
 
 export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig | null }) {
   const { t } = useTranslation()
-  const { currentSubPath } = usePageNavigation()
+  const { currentSubPath, setCurrentPageId } = usePageNavigation()
   const { can } = useOsPermissions()
   const [files, setFiles] = useState<FileEntry[]>([])
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([])
@@ -195,10 +215,11 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percent: number } | null>(null)
   const [error, setError] = useState('')
   const [errorKind, setErrorKind] = useState<'refresh' | 'operation'>('refresh')
-  const [viewMode, setViewMode] = useState<ViewMode>(() => localStorage.getItem('iora-files-view') === 'list' ? 'list' : 'grid')
+  const [viewMode, setViewMode] = useState<ViewMode>(() => localStorage.getItem('rumahl-files-view') === 'list' ? 'list' : 'grid')
   const [sortMode, setSortMode] = useState<SortMode>('name')
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null)
   const [trashMode, setTrashMode] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [netMode, setNetMode] = useState(false)
   const [activeSystemFolder, setActiveSystemFolder] = useState<string | null>(null)
   const [mounts, setMounts] = useState<Array<{ id: string; ip: string; share: string; name: string; mounted: boolean }>>([])
@@ -299,12 +320,17 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const marqueeStart = useRef<{ x: number; y: number } | null>(null)
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const marqueeMode = useRef(false)
+  const marqueeBaseSelection = useRef<Set<string>>(new Set())
   const gridRef = useRef<HTMLDivElement>(null)
 
   const beginMarquee = (event: React.MouseEvent) => {
     if (event.button !== 0) return
-    if ((event.target as HTMLElement).closest('.ora-file-tile, .ora-file-row, button, input, a')) return
+    if ((event.target as HTMLElement).closest('.rumahl-file-tile, .rumahl-file-row, button, input, a')) return
+    event.preventDefault()
     marqueeStart.current = { x: event.clientX, y: event.clientY }
+    const additive = event.ctrlKey || event.metaKey || event.shiftKey
+    marqueeBaseSelection.current = additive ? new Set(selected) : new Set()
+    if (!additive) setSelected(new Set())
     marqueeMode.current = false
     const move = (moveEvent: MouseEvent) => {
       if (!marqueeStart.current) return
@@ -314,37 +340,38 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       if (marqueeMode.current) {
         const rect = gridRef.current?.getBoundingClientRect()
         if (rect) {
-          const x1 = Math.min(marqueeStart.current.x, moveEvent.clientX) - rect.left
-          const y1 = Math.min(marqueeStart.current.y, moveEvent.clientY) - rect.top
-          const x2 = Math.max(marqueeStart.current.x, moveEvent.clientX) - rect.left
-          const y2 = Math.max(marqueeStart.current.y, moveEvent.clientY) - rect.top
+          const surface = gridRef.current
+          const edge = 34
+          if (moveEvent.clientY > rect.bottom - edge) surface.scrollTop += 12
+          else if (moveEvent.clientY < rect.top + edge) surface.scrollTop -= 12
+          if (moveEvent.clientX > rect.right - edge) surface.scrollLeft += 12
+          else if (moveEvent.clientX < rect.left + edge) surface.scrollLeft -= 12
+          const x1 = Math.min(marqueeStart.current.x, moveEvent.clientX) - rect.left + surface.scrollLeft
+          const y1 = Math.min(marqueeStart.current.y, moveEvent.clientY) - rect.top + surface.scrollTop
+          const x2 = Math.max(marqueeStart.current.x, moveEvent.clientX) - rect.left + surface.scrollLeft
+          const y2 = Math.max(marqueeStart.current.y, moveEvent.clientY) - rect.top + surface.scrollTop
           setMarquee({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 })
+          const box = {
+            x1: Math.min(marqueeStart.current.x, moveEvent.clientX),
+            y1: Math.min(marqueeStart.current.y, moveEvent.clientY),
+            x2: Math.max(marqueeStart.current.x, moveEvent.clientX),
+            y2: Math.max(marqueeStart.current.y, moveEvent.clientY),
+          }
+          const next = new Set(marqueeBaseSelection.current)
+          gridRef.current?.querySelectorAll<HTMLElement>('.rumahl-file-tile').forEach((tile) => {
+            const tileRect = tile.getBoundingClientRect()
+            if (tileRect.left < box.x2 && tileRect.right > box.x1 && tileRect.top < box.y2 && tileRect.bottom > box.y1) {
+              const id = tile.dataset.id
+              if (id) next.add(id)
+            }
+          })
+          setSelected(next)
         }
       }
     }
-    const up = (upEvent: MouseEvent) => {
+    const up = () => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
-      if (marqueeMode.current && gridRef.current) {
-        const box = {
-          x1: Math.min(marqueeStart.current!.x, upEvent.clientX),
-          y1: Math.min(marqueeStart.current!.y, upEvent.clientY),
-          x2: Math.max(marqueeStart.current!.x, upEvent.clientX),
-          y2: Math.max(marqueeStart.current!.y, upEvent.clientY),
-        }
-        const additive = upEvent.ctrlKey || upEvent.metaKey || upEvent.shiftKey
-        setSelected((current) => {
-          const next = additive ? new Set(current) : new Set<string>()
-          gridRef.current!.querySelectorAll<HTMLElement>('.ora-file-tile').forEach((tile) => {
-            const r = tile.getBoundingClientRect()
-            if (r.left < box.x2 && r.right > box.x1 && r.top < box.y2 && r.bottom > box.y1) {
-              next.add(tile.dataset.id || '')
-            }
-          })
-          next.delete('')
-          return next
-        })
-      }
       marqueeStart.current = null
       marqueeMode.current = false
       setMarquee(null)
@@ -400,11 +427,13 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const [historyIndex, setHistoryIndex] = useState(0)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
+  const [newFolderDraft, setNewFolderDraft] = useState(false)
   const [renameEntry, setRenameEntry] = useState<FileEntry | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextEntry, setContextEntry] = useState<FileEntry | null>(null)
+  const [surfaceMenuOpen, setSurfaceMenuOpen] = useState(false)
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(null)
-  useCloseOnOtherMenu(() => { setContextEntry(null); setContextPos(null) })
+  useCloseOnOtherMenu(() => { setContextEntry(null); setSurfaceMenuOpen(false); setContextPos(null) })
   // Family shares: file ids currently shared with the family (family grant).
   const [familyShares, setFamilyShares] = useState<Set<string>>(new Set())
   const familyShareLoading = useRef<string | null>(null)
@@ -470,6 +499,13 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   useEffect(() => { void load(false) }, [load])
   useEffect(() => { void loadTree() }, [loadTree])
+  // Real-time sync: reload when items are added/removed on the desktop or via
+  // an external "desktop" action, so the folder view always matches.
+  useEffect(() => {
+    const refresh = () => void load(true)
+    window.addEventListener('rumahl:desktop-refresh', refresh)
+    return () => window.removeEventListener('rumahl:desktop-refresh', refresh)
+  }, [load])
 
   // Deep links (/app/os-files/folder/<id> — e.g. from Spotlight): open the
   // targeted folder on mount with a proper breadcrumb.
@@ -504,6 +540,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
   const navigate = (folderId: string | null, path: Breadcrumb[], push = true) => {
     setTrashMode(false)
     setNetMode(false)
+    setSidebarOpen(false)
     if (folderId === null) setActiveSystemFolder(null)
     setCurrentFolderId(folderId)
     setBreadcrumbs(path)
@@ -543,6 +580,10 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   const openEntry = (entry: FileEntry) => {
     if (entry.is_folder) navigate(entry.id, [...breadcrumbs, { id: entry.id, name: entry.original_name }])
+    else if (isAppShortcut(entry)) {
+      // Desktop app shortcut: open the referenced app page.
+      if (entry.description) setCurrentPageId(entry.description)
+    }
     else if (pickerMode && !entry.is_folder) {
       // Windows-style: double-click picks the file right away (single mode).
       setSelected(new Set([entry.id]))
@@ -599,7 +640,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
     try {
       const response = await authFetch('/api/files/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newFolderName.trim(), parent_folder_id: currentFolderId }) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      setNewFolderName(''); setNewFolderOpen(false); await load(true)
+      setNewFolderName(''); setNewFolderOpen(false); setNewFolderDraft(false); await load(true)
     } catch (operationError) { setErrorKind('operation'); setError(operationError instanceof Error ? operationError.message : '') }
     finally { setWorking(false) }
   }
@@ -918,33 +959,43 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   const explorerFrame = (
     <>
-    <section className={`ora-files-app ${pickerMode ? 'flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-[1.6rem] border border-white/12 bg-background/95 text-foreground shadow-2xl backdrop-blur-xl' : 'ora-app-frame'}`} onClick={() => setContextEntry(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
-      <header className="ora-app-navbar">
-        <div className="flex min-w-0 items-center gap-3"><span className="ora-app-mark ora-app-mark-files"><FolderOpen size={24} weight="duotone" /></span><div><p className="text-lg font-semibold">{t('os.apps.files.name')}</p><p className="hidden text-xs text-foreground/45 sm:block">{t('os.apps.files.description')}</p></div></div>
-        <div className="flex items-center gap-2">
-          <button type="button" disabled={historyIndex === 0} onClick={() => moveHistory(-1)} className="ora-icon-button" aria-label={t('os.files.back')}><ArrowLeft size={18} /></button>
-          <button type="button" disabled={historyIndex >= history.length - 1} onClick={() => moveHistory(1)} className="ora-icon-button" aria-label={t('os.files.forward')}><ArrowRight size={18} /></button>
-        </div>
-        <label className="ora-toolbar-search"><MagnifyingGlass size={17} /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('os.systemApps.searchFiles')} /></label>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('iora-files-view', next) }} className="ora-icon-button" aria-label={t('os.files.changeView')} data-tooltip={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
-          <label className="ora-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
-          {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="ora-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => setNewFolderOpen(true)} className="ora-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="ora-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><button type="button" onClick={() => setDownloadUrlOpen(true)} className="ora-secondary-button"><LinkSimple size={16} />{t('os.files.downloadFromUrl')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
-          <span className="mx-0.5 h-6 w-px bg-foreground/10" aria-hidden="true" />
-          <OsWindowActions pageId="os-files" />
-        </div>
-      </header>
+    <section className={`rumahl-files-app ${pickerMode ? 'rumahl-dialog flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-lg' : 'rumahl-app-frame'}`} onClick={() => { setContextEntry(null); setSurfaceMenuOpen(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
+      <OsAppNavbar
+        pageId="os-files"
+        title={t('os.apps.files.name')}
+        description={t('os.apps.files.description')}
+        icon={<FolderOpen size={24} weight="duotone" />}
+        accent="oklch(0.72 0.17 220)"
+        leading={
+          <>
+            <button type="button" onClick={() => setSidebarOpen(true)} className="rumahl-icon-button sm:hidden" aria-label={t('os.files.sidebar')}><List size={20} /></button>
+            <button type="button" disabled={historyIndex === 0} onClick={() => moveHistory(-1)} className="rumahl-icon-button" aria-label={t('os.files.back')}><ArrowLeft size={18} /></button>
+            <button type="button" disabled={historyIndex >= history.length - 1} onClick={() => moveHistory(1)} className="rumahl-icon-button" aria-label={t('os.files.forward')}><ArrowRight size={18} /></button>
+          </>
+        }
+        search={
+          <label className="rumahl-toolbar-search"><MagnifyingGlass size={17} /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('os.systemApps.searchFiles')} /></label>
+        }
+        trailing={
+          <>
+            <button type="button" onClick={() => { const order: ViewMode[] = ['grid', 'list', 'table']; const next = order[(order.indexOf(viewMode) + 1) % order.length]; setViewMode(next); localStorage.setItem('rumahl-files-view', next) }} className="rumahl-icon-button" aria-label={t('os.files.changeView')} data-tooltip={t('os.files.changeView')}>{viewMode === 'grid' ? <ListBullets size={19} /> : viewMode === 'list' ? <Rows size={19} /> : <GridFour size={19} />}</button>
+            <label className="rumahl-select-button"><SortAscending size={17} /><select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} aria-label={t('os.files.sort')}><option value="name">{t('os.files.sortName')}</option><option value="updated">{t('os.files.sortUpdated')}</option><option value="size">{t('os.files.sortSize')}</option></select><CaretDown size={13} /></label>
+            {can('os.files.write') && <><button type="button" onClick={() => { setNewFileDraft(true); setNewFileName('Neue Datei.txt'); setSelected(new Set()) }} className="rumahl-secondary-button"><FilePlus size={17} />{t('os.files.newFile')}</button><button type="button" onClick={() => { setNewFolderDraft(true); setNewFolderName('Neuer Ordner'); setSelected(new Set()) }} className="rumahl-secondary-button"><Plus size={17} />{t('os.systemApps.newFolder')}</button><button type="button" onClick={() => deviceInput.current?.click()} className="rumahl-primary-button"><UploadSimple size={17} />{t('os.systemApps.upload')}</button><button type="button" onClick={() => setDownloadUrlOpen(true)} className="rumahl-secondary-button"><LinkSimple size={16} />{t('os.files.downloadFromUrl')}</button><input ref={deviceInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadFiles(event.target.files) }} /></>}
+          </>
+        }
+      />
 
-      <div className="ora-files-layout">
-        <aside className="ora-files-sidebar">
-          <p className="ora-sidebar-label">ORA</p>
-          <button type="button" className={`ora-sidebar-item ${currentFolderId === null ? 'is-active' : ''}`} onClick={() => navigate(null, [])}><House size={18} weight="duotone" />{t('os.files.home')}</button>
+      <div className="rumahl-files-layout">
+        {sidebarOpen && <div className="fixed inset-0 z-[79] bg-black/50 backdrop-blur-sm sm:hidden" onClick={() => setSidebarOpen(false)} aria-label={t('common.close')} />}
+        <aside className={`rumahl-files-sidebar ${sidebarOpen ? 'is-mobile-open' : ''}`}>
+          <p className="rumahl-sidebar-label">rumahl</p>
+          <button type="button" className={`rumahl-sidebar-item ${currentFolderId === null ? 'is-active' : ''}`} onClick={() => navigate(null, [])}><House size={18} weight="duotone" />{t('os.files.home')}</button>
           {SYSTEM_FOLDERS.map((folder) => (
             <button
               key={folder.id}
               type="button"
               onClick={() => void openSystemFolder(folder)}
-              className={`ora-sidebar-item ${activeSystemFolder === folder.canonical ? 'is-active' : ''}`}
+              className={`rumahl-sidebar-item ${activeSystemFolder === folder.canonical ? 'is-active' : ''}`}
             >
               <img src="/icons/folder.png" alt="" width={18} height={18} className="object-contain" draggable={false} />
               {t(folder.nameKey, folder.canonical)}
@@ -952,7 +1003,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           ))}
           {tree.length > 0 && (
             <>
-              <p className="ora-sidebar-label mt-6">{t('os.files.folders')}</p>
+              <p className="rumahl-sidebar-label mt-6">{t('os.files.folders')}</p>
               <div className="mt-1 space-y-0.5">
                 {tree.map((node) => (
                   <TreeItem
@@ -968,9 +1019,9 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
               </div>
             </>
           )}
-          <button type="button" className={`ora-sidebar-item ${trashMode ? 'is-active' : ''}`} onClick={() => { setTrashMode(true); setSelected(new Set()); setSearchInput(''); setSearch('') }}><img src="/icons/paperbin.png" alt="" width={18} height={18} className="object-contain" draggable={false} />{t('os.files.trash')}</button>
-          <p className="ora-sidebar-label mt-7">{t('os.files.network')}</p>
-          <button type="button" onClick={() => setNetMode(true)} className={`ora-sidebar-item ${netMode ? 'is-active' : ''}`}>
+          <button type="button" className={`rumahl-sidebar-item ${trashMode ? 'is-active' : ''}`} onClick={() => { setTrashMode(true); setSelected(new Set()); setSearchInput(''); setSearch('') }}><img src="/icons/paperbin.png" alt="" width={18} height={18} className="object-contain" draggable={false} />{t('os.files.trash')}</button>
+          <p className="rumahl-sidebar-label mt-7">{t('os.files.network')}</p>
+          <button type="button" onClick={() => setNetMode(true)} className={`rumahl-sidebar-item ${netMode ? 'is-active' : ''}`}>
             <img src="/icons/nas.png" alt="" width={18} height={18} className="object-contain" draggable={false} />
             {t('os.files.networkDrives')}
           </button>
@@ -990,12 +1041,12 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
               </div>
             </div>
           ))}
-          <p className="ora-sidebar-label mt-7">{t('os.files.storage')}</p>
+          <p className="rumahl-sidebar-label mt-7">{t('os.files.storage')}</p>
           <div className="rounded-2xl bg-foreground/5 p-3"><div className="flex justify-between text-xs"><span>{formatBytes(quota?.used_bytes)}</span><span className="text-foreground/40">{formatBytes(quota?.quota_bytes)}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-foreground/10"><div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.min(quota?.usage_percent || 0, 100)}%` }} /></div></div>
         </aside>
 
         <main className="min-w-0 flex-1">
-          <nav className="ora-breadcrumb" aria-label={t('os.files.breadcrumb')}><button type="button" onClick={() => navigate(null, [])}><House size={16} weight="fill" />{t('os.files.home')}</button>{breadcrumbs.map((item, index) => <span key={item.id} className="flex items-center"><CaretRight size={14} /><button type="button" onClick={() => navigate(item.id, breadcrumbs.slice(0, index + 1))}>{item.name}</button></span>)}</nav>
+          <nav className="rumahl-breadcrumb" aria-label={t('os.files.breadcrumb')}><button type="button" onClick={() => navigate(null, [])}><House size={16} weight="fill" />{t('os.files.home')}</button>{breadcrumbs.map((item, index) => <span key={item.id} className="flex items-center"><CaretRight size={14} /><button type="button" onClick={() => navigate(item.id, breadcrumbs.slice(0, index + 1))}>{item.name}</button></span>)}</nav>
       {uploadProgress && (
         <div className="mx-4 mt-3 flex items-center gap-3 rounded-2xl border border-foreground/8 bg-foreground/[0.04] px-4 py-3">
           <UploadSimple size={16} className="shrink-0 text-accent" />
@@ -1008,17 +1059,29 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
           <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground/60">{uploadProgress.percent}%</span>
         </div>
       )}
-      {error && <div className="ora-inline-error" role="alert"><div><strong>{errorKind === 'refresh' ? t('os.files.refreshFailed') : t('common.error')}</strong><p>{t(errorKind === 'refresh' ? 'os.files.connectionError' : 'os.files.operationError', { detail: error })}</p></div><button type="button" onClick={() => void load(true)}>{t('common.tryAgain')}</button></div>}
-          <div className={`ora-selection-bar ${selected.size === 0 ? 'invisible' : ''}`}><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void createExternalLink(selectedEntries[0])}><LinkSimple size={16} />{t('os.files.shareExternalLink')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>
+      {error && <div className="rumahl-inline-error" role="alert"><div><strong>{errorKind === 'refresh' ? t('os.files.refreshFailed') : t('common.error')}</strong><p>{t(errorKind === 'refresh' ? 'os.files.connectionError' : 'os.files.operationError', { detail: error })}</p></div><button type="button" onClick={() => void load(true)}>{t('common.tryAgain')}</button></div>}
+          <div className={`rumahl-selection-bar ${selected.size === 0 ? 'invisible' : ''}`}><span>{t('os.files.selected', { count: selected.size })}</span>{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void download(selectedEntries[0])}><DownloadSimple size={16} />{t('os.systemApps.download')}</button>}{selected.size === 1 && !selectedEntries[0]?.is_folder && <button type="button" onClick={() => void createExternalLink(selectedEntries[0])}><LinkSimple size={16} />{t('os.files.shareExternalLink')}</button>}{selected.size === 1 && <button type="button" onClick={() => { setRenameEntry(selectedEntries[0]); setRenameValue(selectedEntries[0].original_name) }}><PencilSimple size={16} />{t('os.systemApps.rename')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'move')}><ArrowSquareOut size={16} />{t('os.systemApps.moveTo')}</button>}{can('os.files.write') && selected.size === 1 && <button type="button" onClick={() => openMoveCopy(selectedEntries[0], 'copy')}><Copy size={16} />{t('os.systemApps.copyTo')}</button>}{can('os.files.write') && <button type="button" className="text-red-300" onClick={() => void removeEntries(selectedEntries)}><Trash size={16} />{t('common.delete')}</button>}<button type="button" onClick={() => setSelected(new Set())}><X size={16} /></button></div>
 
           <div
-            className={`ora-files-surface ${dropHighlight ? 'border-accent/60 ring-2 ring-accent/25' : ''}`}
+            ref={gridRef}
+            className={`rumahl-files-surface ${dropHighlight ? 'border-accent/60 ring-2 ring-accent/25' : ''}`}
             aria-busy={refreshing}
+            onMouseDown={beginMarquee}
+            onContextMenu={(event) => {
+              if (netMode || trashMode || (event.target as HTMLElement).closest('.rumahl-file-tile, .rumahl-file-row, button, input, a')) return
+              event.preventDefault()
+              event.stopPropagation()
+              closeAllContextMenus()
+              setSelected(new Set())
+              setContextEntry(null)
+              setContextPos({ x: event.clientX, y: event.clientY })
+              setSurfaceMenuOpen(true)
+            }}
             onDragOver={(event) => { event.preventDefault(); setDropHighlight(true) }}
             onDragLeave={(event) => { if (event.currentTarget === event.target) setDropHighlight(false) }}
             onDrop={(event) => { event.preventDefault(); event.stopPropagation(); setDropHighlight(false); if (event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}
           >
-            {refreshing && <div className="ora-refresh-indicator" />}
+            {refreshing && <div className="rumahl-refresh-indicator" />}
             {netMode ? (
               <div className="p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
@@ -1026,12 +1089,12 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                     <img src="/icons/nas.png" alt="" width={22} height={22} className="object-contain" draggable={false} />
                     <p className="text-sm font-semibold text-foreground">{t('os.files.networkDrives')}</p>
                   </div>
-                  <button type="button" onClick={() => void startScan()} className="ora-secondary-button">
+                  <button type="button" onClick={() => void startScan()} className="rumahl-secondary-button">
                     <MagnifyingGlass size={15} />{t('os.files.scanNetwork')}
                   </button>
                 </div>
                 {mounts.length === 0 ? (
-                  <div className="flex min-h-72 flex-col items-center justify-center text-center">
+                  <div className="rumahl-file-empty-state flex min-h-72 flex-col items-center justify-center text-center">
                     <img src="/icons/nas.png" alt="" width={64} height={64} className="object-contain opacity-40" draggable={false} />
                     <p className="mt-4 text-sm font-medium text-foreground/50">{t('os.files.noDrives')}</p>
                     <button type="button" onClick={() => void startScan()} className="mt-3 rounded-full bg-accent/12 px-4 py-2 text-xs font-semibold text-accent hover:bg-accent/20">
@@ -1090,15 +1153,15 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   <p className="text-xs text-foreground/60">{t('os.files.trashHint')}</p>
                 </div>
                 {sortedFiles.length === 0 ? (
-                  <div className="flex min-h-72 flex-col items-center justify-center text-center">
+                  <div className="rumahl-file-empty-state flex min-h-72 flex-col items-center justify-center text-center">
                     <img src="/icons/paperbin.png" alt="" width={64} height={64} className="object-contain opacity-40" draggable={false} />
                     <p className="mt-4 text-sm font-medium text-foreground/50">{t('os.files.trashEmpty')}</p>
                   </div>
                 ) : (
-                  <div className="ora-file-list">
-                    <div className="ora-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span><span /></div>
+                  <div className="rumahl-file-list">
+                    <div className="rumahl-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span><span /></div>
                     {sortedFiles.map((entry) => (
-                      <div key={entry.id} className={`ora-file-row ${selected.has(entry.id) ? 'is-selected' : ''}`}>
+                      <div key={entry.id} className={`rumahl-file-row ${selected.has(entry.id) ? 'is-selected' : ''}`}>
                         <span className="flex min-w-0 items-center gap-3" onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)}>
                           <span className="shrink-0 opacity-60">{fileIcon(entry, 26)}</span>
                           <span className="truncate">{entry.original_name}</span>
@@ -1115,11 +1178,11 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   </div>
                 )}
               </div>
-            ) : initialLoading ? <div className="ora-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="ora-file-skeleton" />)}</div> : sortedFiles.length === 0 ? <div className="flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
-              <div ref={gridRef} onMouseDown={beginMarquee} className="ora-file-grid relative">{
+            ) : initialLoading ? <div className="rumahl-file-grid">{Array.from({ length: 8 }).map((_, index) => <div key={index} className="rumahl-file-skeleton" />)}</div> : (sortedFiles.length === 0 && !newFileDraft && !newFolderDraft) ? <div className="rumahl-file-empty-state flex min-h-80 flex-col items-center justify-center text-center"><img src="/icons/empty_folder.png" alt="" width={72} height={72} className="object-contain opacity-70" draggable={false} /><p className="mt-4 font-medium">{t('os.systemApps.noFiles')}</p><p className="mt-1 text-sm text-foreground/40">{t('os.files.emptyHint')}</p></div> : viewMode === 'grid' ? (
+              <div className="rumahl-file-grid relative">{
                 newFileDraft && (
-                  <div className="ora-file-tile relative border border-accent/50 bg-accent/8">
-                    <span className="ora-document-icon"><img src="/icons/file.png" alt="" width={56} height={56} className="object-contain" draggable={false} /></span>
+                  <div className="rumahl-file-tile relative border border-accent/50 bg-accent/8">
+                    <span className="rumahl-document-icon"><img src="/icons/file.png" alt="" width={56} height={56} className="object-contain" draggable={false} /></span>
                     <input
                       autoFocus
                       value={newFileName}
@@ -1133,7 +1196,23 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                     />
                   </div>
                 )}
-                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-id={entry.id} data-tooltip={entry.original_name} className={`ora-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''} ${pickerMode && !matchesAccept(entry) && !entry.is_folder ? 'opacity-35' : ''}`}><span className={entry.is_folder ? 'ora-folder-icon' : 'ora-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
+                {newFolderDraft && (
+                  <div className="rumahl-file-tile relative border border-accent/50 bg-accent/8">
+                    <span className="rumahl-folder-icon text-sky-400"><Folder size={56} weight="duotone" /></span>
+                    <input
+                      autoFocus
+                      value={newFolderName}
+                      onChange={(event) => setNewFolderName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void createFolder()
+                        if (event.key === 'Escape') setNewFolderDraft(false)
+                      }}
+                      onBlur={() => { if (newFolderName.trim()) void createFolder(); else setNewFolderDraft(false) }}
+                      className="mt-3 w-full truncate rounded-md border border-accent/50 bg-background px-2 py-1 text-center text-sm font-medium text-foreground outline-none"
+                    />
+                  </div>
+                )}
+                {sortedFiles.map((entry) => <div key={entry.id} role="button" tabIndex={0} draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setSurfaceMenuOpen(false); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-id={entry.id} data-tooltip={entry.original_name} className={`rumahl-file-tile relative cursor-pointer ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''} ${pickerMode && !matchesAccept(entry) && !entry.is_folder ? 'opacity-35' : ''}`}><span className={entry.is_folder ? 'rumahl-folder-icon' : 'rumahl-document-icon'}>{fileIcon(entry, entry.is_folder ? 70 : 56)}</span>{selected.size > 0 && selected.has(entry.id) && <span className="absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-lg"><Check size={12} weight="bold" /></span>}{renameEntry?.id === entry.id ? (
                   <input
                     autoFocus
                     value={renameValue}
@@ -1152,10 +1231,9 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                 ) : (
                   <span className="mt-3 w-full truncate text-center text-sm font-medium">{entry.original_name}</span>
                 )}<span className="mt-1 text-xs text-foreground/35">{entry.is_folder ? t('os.systemApps.folder') : formatBytes(entry.size_bytes)}</span></div>)}
-          {marquee && <div className="ora-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
           </div>
             ) : viewMode === 'list' ? (
-              <div className="ora-file-list"><div className="ora-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row relative ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-3">{selected.size > 0 && <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${selected.has(entry.id) ? 'bg-accent text-white' : 'bg-foreground/10 text-transparent'}`}><Check size={10} weight="bold" /></span>}<span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span>{renameEntry?.id === entry.id ? (
+              <div className="rumahl-file-list"><div className="rumahl-file-list-head"><span>{t('os.files.name')}</span><span>{t('os.files.modified')}</span><span>{t('os.files.size')}</span></div>{sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`rumahl-file-row relative ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-3">{selected.size > 0 && <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${selected.has(entry.id) ? 'bg-accent text-white' : 'bg-foreground/10 text-transparent'}`}><Check size={10} weight="bold" /></span>}<span className={entry.is_folder ? 'text-sky-400' : 'text-foreground/55'}>{fileIcon(entry, 28)}</span>{renameEntry?.id === entry.id ? (
                     <input
                       autoFocus
                       value={renameValue}
@@ -1175,9 +1253,9 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                     <span className="truncate">{entry.original_name}</span>
                   )}</span><span>{new Date(entry.updated_at).toLocaleDateString()}</span><span>{entry.is_folder ? '—' : formatBytes(entry.size_bytes)}</span></button>)}</div>
             ) : (
-              <div className="ora-file-list">
-                <div className="ora-file-table-head"><span>{t('os.files.name')}</span><span>{t('os.files.type')}</span><span>{t('os.files.size')}</span><span>{t('os.files.modified')}</span></div>
-                {sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`ora-file-row ora-file-table-row ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-2.5"><span className="shrink-0">{fileIcon(entry, 22)}</span>{renameEntry?.id === entry.id ? (
+              <div className="rumahl-file-list">
+                <div className="rumahl-file-table-head"><span>{t('os.files.name')}</span><span>{t('os.files.type')}</span><span>{t('os.files.size')}</span><span>{t('os.files.modified')}</span></div>
+                {sortedFiles.map((entry) => <button key={entry.id} type="button" draggable onDragStart={(event) => { setDraggedId(entry.id); setFileDragData(event.dataTransfer, { id: entry.id, name: entry.original_name }) }} onDragOver={(event) => { if (entry.is_folder) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); if (entry.is_folder && draggedId && draggedId !== entry.id) void moveEntry(draggedId, entry.id); setDraggedId(null) }} onDoubleClick={() => openEntry(entry)} onClick={(event) => toggleSelection(entry.id, event.ctrlKey || event.metaKey)} onContextMenu={(event) => { event.preventDefault(); closeAllContextMenus(); setContextEntry(entry); setContextPos({ x: event.clientX, y: event.clientY }); void refreshFamilyShare(entry); if (!selected.has(entry.id)) toggleSelection(entry.id, false) }} data-tooltip={entry.original_name} className={`rumahl-file-row rumahl-file-table-row ${selected.has(entry.id) ? 'is-selected' : ''} ${draggedId === entry.id ? 'opacity-40' : ''} ${isHiddenFile(entry) ? 'opacity-45' : ''}`}><span className="flex min-w-0 items-center gap-2.5"><span className="shrink-0">{fileIcon(entry, 22)}</span>{renameEntry?.id === entry.id ? (
                     <input
                       autoFocus
                       value={renameValue}
@@ -1198,6 +1276,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
                   )}</span><span className="truncate">{entry.is_folder ? t('os.systemApps.folder') : (entry.mime_type || t('os.files.typeFile'))}</span><span>{entry.is_folder ? '—' : formatBytes(entry.size_bytes)}</span><span>{new Date(entry.updated_at).toLocaleString()}</span></button>)}
               </div>
             )}
+          {marquee && <div className="rumahl-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
           </div>
         </main>
       </div>
@@ -1252,7 +1331,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       )}
       {downloadUrlOpen && (
         <div className="fixed inset-0 z-[120] grid place-items-center bg-black/60 p-4" onMouseDown={() => setDownloadUrlOpen(false)}>
-          <div className="glass-card w-full max-w-md rounded-3xl p-6" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="rumahl-dialog w-full max-w-md rounded-lg p-5" onMouseDown={(event) => event.stopPropagation()}>
             <header className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-cyan-300">{t('os.files.downloadFromUrl')}</p>
@@ -1270,8 +1349,8 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
               className="mt-4 w-full rounded-xl border border-white/10 bg-foreground/5 px-3 py-2.5 text-sm outline-none focus:border-cyan-400/40"
             />
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setDownloadUrlOpen(false)} className="ora-secondary-button">{t('common.cancel')}</button>
-              <button type="button" disabled={downloadStarting || !downloadUrl.trim()} onClick={() => void startUrlDownload()} className="ora-primary-button">
+              <button type="button" onClick={() => setDownloadUrlOpen(false)} className="rumahl-secondary-button">{t('common.cancel')}</button>
+              <button type="button" disabled={downloadStarting || !downloadUrl.trim()} onClick={() => void startUrlDownload()} className="rumahl-primary-button">
                 <DownloadSimple size={15} />{downloadStarting ? t('os.files.downloadStarting') : t('os.files.downloadStart')}
               </button>
             </div>
@@ -1279,12 +1358,28 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         </div>
       )}
       {createPortal(
+        surfaceMenuOpen && contextPos ? (
+          <div
+            className="rumahl-context-menu"
+            style={{ left: Math.min(contextPos.x, window.innerWidth - 230), top: Math.min(contextPos.y, window.innerHeight - 220), right: 'auto', zIndex: pickerMode ? 270 : undefined }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            {can('os.files.write') && <button type="button" onClick={() => { setViewMode('grid'); setNewFileName(t('os.files.defaultNewFileName')); setNewFileDraft(true); setNewFolderDraft(false); setSurfaceMenuOpen(false) }}><FilePlus size={16} />{t('os.files.newFile')}</button>}
+            {can('os.files.write') && <button type="button" onClick={() => { setViewMode('grid'); setNewFolderName(t('os.files.defaultNewFolderName')); setNewFolderDraft(true); setNewFileDraft(false); setSurfaceMenuOpen(false) }}><Folder size={16} />{t('os.systemApps.newFolder')}</button>}
+            {can('os.files.write') && <button type="button" onClick={() => { deviceInput.current?.click(); setSurfaceMenuOpen(false) }}><UploadSimple size={16} />{t('os.systemApps.upload')}</button>}
+            <button type="button" onClick={() => { void load(true); setSurfaceMenuOpen(false) }}><ArrowClockwise size={16} />{t('os.desktopMenu.refresh')}</button>
+          </div>
+        ) : null,
+        document.body,
+      )}
+      {createPortal(
       contextEntry && (() => {
         const app = contextEntry.is_folder ? undefined : fileTypeAppFor(contextEntry.mime_type, contextEntry.original_name)
         const pos = contextPos || { x: window.innerWidth - 220, y: 160 }
         return (
         <div
-          className="ora-context-menu"
+          className="rumahl-context-menu"
           style={{ left: Math.min(pos.x, window.innerWidth - 230), top: Math.min(pos.y, window.innerHeight - 320), right: 'auto', zIndex: pickerMode ? 270 : undefined }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -1303,7 +1398,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
         <div className={`fixed inset-y-0 right-0 flex w-72 flex-col border-l border-foreground/10 bg-background/95 shadow-2xl backdrop-blur-xl ${pickerMode ? 'z-[270]' : 'z-[70]'}`}>
           <div className="flex items-center justify-between border-b border-foreground/8 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-foreground/50">{t('os.files.details')}</p>
-            <button type="button" onClick={() => setSelected(new Set())} className="ora-icon-button" aria-label={t('common.close')}><X size={16} /></button>
+            <button type="button" onClick={() => setSelected(new Set())} className="rumahl-icon-button" aria-label={t('common.close')}><X size={16} /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             <div className="flex flex-col items-center gap-3 py-4 text-center">
@@ -1351,8 +1446,8 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       ),
       document.body
       )}
-      {working && <div className="ora-working-pill">{t('os.systemApps.processing')}</div>}
-      {newFolderOpen && <Modal title={t('os.systemApps.newFolder')} onClose={() => setNewFolderOpen(false)}><input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createFolder() }} placeholder={t('os.systemApps.folderName')} className="ora-modal-input" /><div className="ora-modal-actions"><button type="button" onClick={() => setNewFolderOpen(false)}>{t('common.cancel')}</button><button type="button" disabled={!newFolderName.trim() || working} onClick={() => void createFolder()} className="ora-primary-button">{t('common.create')}</button></div></Modal>}
+      {working && <div className="rumahl-working-pill">{t('os.systemApps.processing')}</div>}
+      {newFolderOpen && <Modal title={t('os.systemApps.newFolder')} onClose={() => setNewFolderOpen(false)}><input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createFolder() }} placeholder={t('os.systemApps.folderName')} className="rumahl-modal-input" /><div className="rumahl-modal-actions"><button type="button" onClick={() => setNewFolderOpen(false)}>{t('common.cancel')}</button><button type="button" disabled={!newFolderName.trim() || working} onClick={() => void createFolder()} className="rumahl-primary-button">{t('common.create')}</button></div></Modal>}
       {moveCopyPick && (
         <OsFileExplorer
           pickerMode={{
@@ -1419,8 +1514,8 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4 backdrop-blur-md" onClick={onClose}>
-      <div className="ora-modal-card text-foreground" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{title}</h2><button type="button" onClick={onClose} className="ora-icon-button"><X size={18} /></button></div>
+      <div className="rumahl-modal-card text-foreground" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{title}</h2><button type="button" onClick={onClose} className="rumahl-icon-button"><X size={18} /></button></div>
         {children}
       </div>
     </div>,

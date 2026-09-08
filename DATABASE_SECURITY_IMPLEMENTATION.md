@@ -1,35 +1,35 @@
-# IORA Database Security & Migration System - Implementation Summary
+# rumahl Database Security & Migration System - Implementation Summary
 
 ## What Was Implemented
 
-This implementation adds enterprise-grade database security and automatic migration management to IORA OS.
+This implementation adds enterprise-grade database security and automatic migration management to rumahl OS.
 
 ## Core Components
 
-### 1. iora-db-manager (NEW)
-**Location:** `iora-os/backend/tools/iora-db-manager/`
+### 1. rumahl-db-manager (NEW)
+**Location:** `rumahl-os/backend/tools/rumahl-db-manager/`
 
 **Features:**
 - Per-service PostgreSQL user creation with restricted privileges
 - Automatic password rotation (90-day default, configurable)
-- Secure credential file management (`/etc/iora/db-credentials/`)
+- Secure credential file management (`/etc/rumahl/db-credentials/`)
 - Connection limits per service
 - Password history tracking with grace periods
 - Backup and export capabilities
 
 **Commands:**
 ```bash
-iora-db-manager init                          # Initialize all databases
-iora-db-manager rotate                        # Rotate all passwords
-iora-db-manager status                        # Show status
-iora-db-manager create <service>              # Create new service DB
-iora-db-manager export --format env           # Export credentials
-iora-db-manager backup --dir /backup          # Backup all databases
-iora-db-manager check                         # Check rotation schedule
+rumahl-db-manager init                          # Initialize all databases
+rumahl-db-manager rotate                        # Rotate all passwords
+rumahl-db-manager status                        # Show status
+rumahl-db-manager create <service>              # Create new service DB
+rumahl-db-manager export --format env           # Export credentials
+rumahl-db-manager backup --dir /backup          # Backup all databases
+rumahl-db-manager check                         # Check rotation schedule
 ```
 
-### 2. iora-migrate (NEW)
-**Location:** `iora-os/backend/tools/iora-migrate/`
+### 2. rumahl-migrate (NEW)
+**Location:** `rumahl-os/backend/tools/rumahl-migrate/`
 
 **Features:**
 - Centralized migration management across all services
@@ -41,27 +41,27 @@ iora-db-manager check                         # Check rotation schedule
 
 **Commands:**
 ```bash
-iora-migrate up                               # Run pending migrations
-iora-migrate up --service iora-home           # Migrate specific service
-iora-migrate down <service> --steps 1         # Rollback
-iora-migrate status                           # Show migration status
-iora-migrate create <service> <name>          # Create new migration
-iora-migrate validate                         # Validate checksums
+rumahl-migrate up                               # Run pending migrations
+rumahl-migrate up --service rumahl-home           # Migrate specific service
+rumahl-migrate down <service> --steps 1         # Rollback
+rumahl-migrate status                           # Show migration status
+rumahl-migrate create <service> <name>          # Create new migration
+rumahl-migrate validate                         # Validate checksums
 ```
 
 ### 3. Systemd Services (NEW)
 
-**iora-db-init.service**
-- Runs at boot before all IORA services
+**rumahl-db-init.service**
+- Runs at boot before all rumahl services
 - Initializes all databases with proper security
-- Required by: iora-home, iora-core, iora-assist, etc.
+- Required by: rumahl-home, rumahl-core, rumahl-assist, etc.
 
-**iora-migrations.service**
-- Runs after iora-db-init
+**rumahl-migrations.service**
+- Runs after rumahl-db-init
 - Applies pending migrations automatically
 - Required before services start
 
-**iora-db-rotation.service + .timer**
+**rumahl-db-rotation.service + .timer**
 - Runs daily at 3 AM
 - Rotates passwords for services due for rotation
 - Notifies services to reload configuration
@@ -71,8 +71,8 @@ iora-migrate validate                         # Validate checksums
 ### Per-Service Isolation
 
 Each service gets:
-- **Unique PostgreSQL User**: e.g., `iora_home_user`
-- **Dedicated Database**: e.g., `iora_home`
+- **Unique PostgreSQL User**: e.g., `rumahl_home_user`
+- **Dedicated Database**: e.g., `rumahl_home`
 - **Restricted Privileges**:
   - NOSUPERUSER
   - NOREPLICATION
@@ -92,19 +92,19 @@ Each service gets:
 
 ### Credential Storage
 
-- **Location**: `/etc/iora/db-credentials/{service}.env`
+- **Location**: `/etc/rumahl/db-credentials/{service}.env`
 - **Permissions**: 0600 (root only)
 - **Format**: `DATABASE_URL=postgres://user:pass@host/db`
 - **Auto-loading**: Services automatically read credentials
 
 ## Integration
 
-### iora-shared Updates
+### rumahl-shared Updates
 
 Updated `system_config::database_url_for()` to load credentials:
 
 **Priority Order:**
-1. Service-specific file: `/etc/iora/db-credentials/{service}.env`
+1. Service-specific file: `/etc/rumahl/db-credentials/{service}.env`
 2. Environment variable: `{SERVICE}_DB_URL`
 3. Shared environment: `DATABASE_URL`
 4. Default SQLite fallback
@@ -112,14 +112,14 @@ Updated `system_config::database_url_for()` to load credentials:
 **Code:**
 ```rust
 // All services automatically use this
-let db_url = system_config::database_url_for("iora-home");
+let db_url = system_config::database_url_for("rumahl-home");
 let pool = PgPool::connect(&db_url).await?;
 ```
 
 ### Dev VM Integration
 
 Updated `dev-local.sh`:
-- Creates PostgreSQL databases with iora-db-manager
+- Creates PostgreSQL databases with rumahl-db-manager
 - Sets up credential files
 - Installs database config
 - Enables migration services
@@ -127,7 +127,7 @@ Updated `dev-local.sh`:
 
 ## Configuration
 
-### /etc/iora/db-config.toml
+### /etc/rumahl/db-config.toml
 
 ```toml
 [global]
@@ -142,12 +142,12 @@ min_password_length = 32              # Password requirements
 grace_period_hours = 24               # Rollover period
 auto_rotate = true                    # Enable automatic rotation
 
-[services.iora-home]
+[services.rumahl-home]
 conn_limit = 30
 allow_ddl = true                      # Can run migrations
 allow_temp_tables = true
 
-[services.iora-secrets]
+[services.rumahl-secrets]
 conn_limit = 20
 allow_ddl = false                     # Read/write only
 allow_temp_tables = false             # Extra security
@@ -158,16 +158,16 @@ allow_temp_tables = false             # Extra security
 ### Directory Structure
 
 ```
-/opt/iora/migrations/
-├── iora-home/
+/opt/rumahl/migrations/
+├── rumahl-home/
 │   ├── 001_initial_schema.sql
 │   ├── 002_add_password_hash.sql
 │   └── 003_entity_history.sql
-├── iora-core/
+├── rumahl-core/
 │   ├── 001_core_schema.sql
 │   └── 002_plugins_apps.sql
-└── iora-assist/
-    ├── 001_ora_ai_schema.sql
+└── rumahl-assist/
+    ├── 001_rumahl_ai_schema.sql
     └── 002_memory_and_tasks.sql
 ```
 
@@ -175,7 +175,7 @@ allow_temp_tables = false             # Extra security
 
 ```sql
 -- Migration: Add user preferences
--- Service: iora-home
+-- Service: rumahl-home
 -- Created: 2025-01-15 10:30:00 UTC
 
 -- UP Migration
@@ -191,7 +191,7 @@ DROP TABLE user_preferences;
 
 ### Tracking
 
-- **Table**: `_iora_migrations`
+- **Table**: `_rumahl_migrations`
 - **Columns**: service, migration, checksum, applied_at, execution_time_ms
 - **Features**: Checksum validation, rollback support, repair tools
 
@@ -199,9 +199,9 @@ DROP TABLE user_preferences;
 
 ### Automatic Updates
 
-When IORA OS updates:
+When rumahl OS updates:
 1. New binaries deployed
-2. `iora-migrations.service` runs automatically
+2. `rumahl-migrations.service` runs automatically
 3. Migrations applied before services start
 4. Services start with updated schema
 5. **Zero manual intervention**
@@ -227,25 +227,25 @@ When IORA OS updates:
 ### New Files
 
 **Tools:**
-- `iora-os/backend/tools/iora-db-manager/` (complete Rust project)
-- `iora-os/backend/tools/iora-migrate/` (complete Rust project)
+- `rumahl-os/backend/tools/rumahl-db-manager/` (complete Rust project)
+- `rumahl-os/backend/tools/rumahl-migrate/` (complete Rust project)
 
 **System Services:**
-- `iora-os/board/iora/iora-db-init.service`
-- `iora-os/board/iora/iora-migrations.service`
-- `iora-os/board/iora/iora-db-rotation.service`
-- `iora-os/board/iora/iora-db-rotation.timer`
-- `iora-os/board/iora/init-databases.sh`
-- `iora-os/board/iora/db-config.toml`
+- `rumahl-os/board/rumahl/rumahl-db-init.service`
+- `rumahl-os/board/rumahl/rumahl-migrations.service`
+- `rumahl-os/board/rumahl/rumahl-db-rotation.service`
+- `rumahl-os/board/rumahl/rumahl-db-rotation.timer`
+- `rumahl-os/board/rumahl/init-databases.sh`
+- `rumahl-os/board/rumahl/db-config.toml`
 
 **Documentation:**
 - `docs/database-security.md` (comprehensive guide)
 
 ### Modified Files
 
-- `iora-os/backend/Cargo.toml` - Added new tools to workspace
-- `iora-os/backend/shared/iora-shared/src/system_config.rs` - Enhanced `database_url_for()`
-- `iora-os/dev-local.sh` - Integrated database manager and credentials
+- `rumahl-os/backend/Cargo.toml` - Added new tools to workspace
+- `rumahl-os/backend/shared/rumahl-shared/src/system_config.rs` - Enhanced `database_url_for()`
+- `rumahl-os/dev-local.sh` - Integrated database manager and credentials
 
 ## Usage Examples
 
@@ -253,48 +253,48 @@ When IORA OS updates:
 
 ```bash
 # On first boot (automatic via systemd)
-sudo systemctl start iora-db-init
+sudo systemctl start rumahl-db-init
 
 # Manual initialization
-sudo iora-db-manager init
+sudo rumahl-db-manager init
 ```
 
 ### Check Status
 
 ```bash
 # Database users and rotation schedule
-sudo iora-db-manager status
+sudo rumahl-db-manager status
 
 # Migration status
-sudo iora-migrate status
+sudo rumahl-migrate status
 ```
 
 ### Rotate Passwords
 
 ```bash
 # Automatic (daily at 3 AM via timer)
-sudo systemctl status iora-db-rotation.timer
+sudo systemctl status rumahl-db-rotation.timer
 
 # Manual rotation
-sudo iora-db-manager rotate
+sudo rumahl-db-manager rotate
 ```
 
 ### Create Migration
 
 ```bash
 # Create new migration file
-sudo iora-migrate create iora-home add_user_settings
+sudo rumahl-migrate create rumahl-home add_user_settings
 
-# Edit /opt/iora/migrations/iora-home/XXX_add_user_settings.sql
+# Edit /opt/rumahl/migrations/rumahl-home/XXX_add_user_settings.sql
 
 # Apply migration
-sudo iora-migrate up --service iora-home
+sudo rumahl-migrate up --service rumahl-home
 ```
 
 ### Backup Databases
 
 ```bash
-sudo iora-db-manager backup --dir /var/backups/iora-db
+sudo rumahl-db-manager backup --dir /var/backups/rumahl-db
 ```
 
 ## Testing Recommendations
@@ -312,7 +312,7 @@ sudo iora-db-manager backup --dir /var/backups/iora-db
 - Grace period functionality
 
 ### System Tests
-- Boot sequence (iora-db-init → iora-migrations → services)
+- Boot sequence (rumahl-db-init → rumahl-migrations → services)
 - Password rotation with running services
 - Migration on update
 - Backup/restore procedures
@@ -344,20 +344,20 @@ sudo iora-db-manager backup --dir /var/backups/iora-db
 
 ## Deployment
 
-### IORA OS Build
+### rumahl OS Build
 
 Add to Buildroot:
 ```makefile
-IORA_DB_MANAGER_DEPENDENCIES = postgresql
-IORA_MIGRATE_DEPENDENCIES = postgresql
+rumahl_DB_MANAGER_DEPENDENCIES = postgresql
+rumahl_MIGRATE_DEPENDENCIES = postgresql
 
-define IORA_DB_MANAGER_BUILD_CMDS
-    cd $(@D) && cargo build -p iora-db-manager --release
+define rumahl_DB_MANAGER_BUILD_CMDS
+    cd $(@D) && cargo build -p rumahl-db-manager --release
 endef
 
-define IORA_DB_MANAGER_INSTALL_TARGET_CMDS
-    $(INSTALL) -D -m 0755 $(@D)/target/release/iora-db-manager \
-        $(TARGET_DIR)/usr/bin/iora-db-manager
+define rumahl_DB_MANAGER_INSTALL_TARGET_CMDS
+    $(INSTALL) -D -m 0755 $(@D)/target/release/rumahl-db-manager \
+        $(TARGET_DIR)/usr/bin/rumahl-db-manager
 endef
 ```
 
@@ -366,14 +366,14 @@ endef
 Update `docker-compose.yml`:
 ```yaml
 services:
-  iora-home:
+  rumahl-home:
     environment:
-      # Credentials loaded from /etc/iora/db-credentials/
+      # Credentials loaded from /etc/rumahl/db-credentials/
     volumes:
-      - iora-credentials:/etc/iora/db-credentials:ro
+      - rumahl-credentials:/etc/rumahl/db-credentials:ro
 
 volumes:
-  iora-credentials:
+  rumahl-credentials:
 ```
 
 ## Conclusion

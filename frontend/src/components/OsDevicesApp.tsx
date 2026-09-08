@@ -19,8 +19,9 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
-import { OsWindowActions } from '@/components/OsWindowActions'
-import { toast } from 'sonner'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
+import { toast } from '@/lib/toast'
 
 interface NetworkDevice {
   id: string
@@ -103,11 +104,7 @@ export function OsDevicesApp() {
     }
   }, [t])
 
-  useEffect(() => {
-    void load()
-    const timer = window.setInterval(() => { void load() }, 10_000)
-    return () => window.clearInterval(timer)
-  }, [load])
+  useVisibleInterval(load, 10_000)
 
   const wakeDevice = async (device: RegistryDevice) => {
     setWaking(device.id)
@@ -215,25 +212,27 @@ export function OsDevicesApp() {
   )
 
   return (
-    <section className="ora-app-frame mx-auto max-w-7xl p-4 pb-10 sm:p-6">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/40">ORA OS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{t('devicesApp.title')}</h1>
-          <p className="mt-1 text-sm text-foreground/45">{t('devicesApp.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void load()} disabled={loading} className="glass-card rounded-full p-3" title={t('devicesApp.refresh')}>
-            <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <button type="button" onClick={() => { setEditing(null); setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '', agent_type: '', agent_host: '', agent_port: '22', agent_url: '' }); setShowForm((value) => !value) }} className="ora-primary-button">
-            <Plus size={16} />{t('devicesApp.addDevice')}
-          </button>
-          <OsWindowActions pageId="os-devices" />
-        </div>
-      </header>
+    <section className="rumahl-app-frame overflow-hidden">
+      <OsAppNavbar
+        pageId="os-devices"
+        title={t('os.apps.devices.name')}
+        description={t('os.apps.devices.description')}
+        icon={<Desktop size={24} weight="duotone" />}
+        accent="oklch(0.66 0.17 250)"
+        trailing={
+          <>
+            <button type="button" onClick={() => void load()} disabled={loading} className="rumahl-icon-button" title={t('devicesApp.refresh')}>
+              <ArrowClockwise size={18} className={loading ? 'animate-spin' : ''} />
+            </button>
+            <button type="button" onClick={() => { setEditing(null); setForm({ name: '', device_type: 'computer', mac_address: '', ip_address: '', wake_enabled: true, notes: '', agent_type: '', agent_host: '', agent_port: '22', agent_url: '' }); setShowForm((value) => !value) }} className="rumahl-primary-button">
+              <Plus size={16} />{t('devicesApp.addDevice')}
+            </button>
+          </>
+        }
+      />
 
-      {error && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <div className="p-4">
+      {error && <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <Summary icon={WifiHigh} label={t('devicesApp.onlineDevices')} value={String(activeCount)} />
@@ -246,7 +245,7 @@ export function OsDevicesApp() {
         <h2 className="mb-3 text-sm font-semibold">{t('devicesApp.myDevices')}</h2>
         <div className="grid gap-3 md:grid-cols-2">
           {sortedRegistry.map((device) => (
-            <article key={device.id} className="glass-card rounded-3xl p-5">
+            <article key={device.id} className="rumahl-card p-5">
               <div className="flex items-start gap-4">
                 <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent/12 text-accent">
                   {deviceIcon(device.device_type)}
@@ -270,7 +269,7 @@ export function OsDevicesApp() {
                   <span className="text-foreground/45">{t(`devicesApp.agents.${device.agent_type}`)}</span>
                   <span className="flex items-center gap-2">
                     {probes[device.id] && (
-                      <span className={probes[device.id].reachable ? 'text-emerald-400' : 'text-red-400'} title={probes[device.id].detail}>
+                      <span className={probes[device.id].reachable ? 'text-success' : 'text-destructive'} title={probes[device.id].detail}>
                         {probes[device.id].reachable ? t('devicesApp.online') : t('devicesApp.offline')}
                         {probes[device.id].latency_ms != null && ` · ${probes[device.id].latency_ms}ms`}
                       </span>
@@ -283,50 +282,50 @@ export function OsDevicesApp() {
               )}
               <div className="mt-4 flex items-center justify-end gap-2">
                 {device.wake_enabled && device.mac_address ? (
-                  <button type="button" disabled={waking === device.id} onClick={() => void wakeDevice(device)} className="ora-primary-button !py-2">
+                  <button type="button" disabled={waking === device.id} onClick={() => void wakeDevice(device)} className="rumahl-primary-button !py-2">
                     <Lightning size={15} />{waking === device.id ? t('devicesApp.waking') : t('devicesApp.wake')}
                   </button>
                 ) : (
                   <span className="text-[11px] text-foreground/35">{t('devicesApp.notWakeable')}</span>
                 )}
-                <button type="button" onClick={() => openEdit(device)} className="ora-secondary-button !py-2"><PencilSimple size={15} />{t('devicesApp.edit')}</button>
-                <button type="button" onClick={() => void removeDevice(device)} className="rounded-xl p-2 text-foreground/45 hover:bg-red-500/15 hover:text-red-300" title={t('devicesApp.remove')}><Trash size={16} /></button>
+                <button type="button" onClick={() => openEdit(device)} className="rumahl-secondary-button !py-2"><PencilSimple size={15} />{t('devicesApp.edit')}</button>
+                <button type="button" onClick={() => void removeDevice(device)} className="rounded-xl p-2 text-foreground/45 hover:bg-destructive/15 hover:text-destructive" title={t('devicesApp.remove')}><Trash size={16} /></button>
               </div>
             </article>
           ))}
           {!loading && sortedRegistry.length === 0 && (
-            <div className="glass-card rounded-3xl p-8 text-center text-sm text-foreground/40">{t('devicesApp.noDevices')}</div>
+            <div className="rumahl-card p-8 text-center text-sm text-foreground/40">{t('devicesApp.noDevices')}</div>
           )}
         </div>
       </div>
 
       {/* Add / edit form */}
       {showForm && (
-        <form onSubmit={saveDevice} className="glass-card mb-6 rounded-3xl p-5">
+        <form onSubmit={saveDevice} className="rumahl-card mb-6 p-5">
           <h2 className="flex items-center justify-between font-semibold">
             <span>{editing ? t('devicesApp.editDevice') : t('devicesApp.addDevice')}</span>
             <button type="button" onClick={() => setShowForm(false)} className="rounded-xl p-2 text-foreground/45 hover:bg-foreground/7"><X size={16} /></button>
           </h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Field label={t('devicesApp.name')}>
-              <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="ora-input" placeholder={t('devicesApp.namePlaceholder')} />
+              <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="rumahl-field" placeholder={t('devicesApp.namePlaceholder')} />
             </Field>
             <Field label={t('devicesApp.type')}>
-              <select value={form.device_type} onChange={(event) => setForm((current) => ({ ...current, device_type: event.target.value }))} className="ora-input">
+              <select value={form.device_type} onChange={(event) => setForm((current) => ({ ...current, device_type: event.target.value }))} className="rumahl-field">
                 {DEVICE_TYPES.map((type) => <option key={type} value={type}>{t(`devicesApp.types.${type}`)}</option>)}
               </select>
             </Field>
             <Field label={t('devicesApp.macAddress')}>
-              <input value={form.mac_address} onChange={(event) => setForm((current) => ({ ...current, mac_address: event.target.value }))} className="ora-input" placeholder="AA:BB:CC:DD:EE:FF" />
+              <input value={form.mac_address} onChange={(event) => setForm((current) => ({ ...current, mac_address: event.target.value }))} className="rumahl-field" placeholder="AA:BB:CC:DD:EE:FF" />
             </Field>
             <Field label={t('devicesApp.ipAddress')}>
-              <input value={form.ip_address} onChange={(event) => setForm((current) => ({ ...current, ip_address: event.target.value }))} className="ora-input" placeholder="192.168.1.10" />
+              <input value={form.ip_address} onChange={(event) => setForm((current) => ({ ...current, ip_address: event.target.value }))} className="rumahl-field" placeholder="192.168.1.10" />
             </Field>
             <Field label={t('devicesApp.notes')}>
-              <input value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="ora-input" />
+              <input value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="rumahl-field" />
             </Field>
             <Field label={t('devicesApp.agent')}>
-              <select value={form.agent_type} onChange={(event) => setForm((current) => ({ ...current, agent_type: event.target.value }))} className="ora-input">
+              <select value={form.agent_type} onChange={(event) => setForm((current) => ({ ...current, agent_type: event.target.value }))} className="rumahl-field">
                 <option value="">{t('devicesApp.agentNone')}</option>
                 <option value="tcp">TCP</option>
                 <option value="http">HTTP</option>
@@ -335,16 +334,16 @@ export function OsDevicesApp() {
             {form.agent_type === 'tcp' && (
               <>
                 <Field label={t('devicesApp.agentHost')}>
-                  <input value={form.agent_host} onChange={(event) => setForm((current) => ({ ...current, agent_host: event.target.value }))} className="ora-input" placeholder="192.168.1.10" />
+                  <input value={form.agent_host} onChange={(event) => setForm((current) => ({ ...current, agent_host: event.target.value }))} className="rumahl-field" placeholder="192.168.1.10" />
                 </Field>
                 <Field label={t('devicesApp.agentPort')}>
-                  <input value={form.agent_port} onChange={(event) => setForm((current) => ({ ...current, agent_port: event.target.value }))} className="ora-input" placeholder="22" />
+                  <input value={form.agent_port} onChange={(event) => setForm((current) => ({ ...current, agent_port: event.target.value }))} className="rumahl-field" placeholder="22" />
                 </Field>
               </>
             )}
             {form.agent_type === 'http' && (
               <Field label={t('devicesApp.agentUrl')}>
-                <input value={form.agent_url} onChange={(event) => setForm((current) => ({ ...current, agent_url: event.target.value }))} className="ora-input" placeholder="http://192.168.1.20:8080" />
+                <input value={form.agent_url} onChange={(event) => setForm((current) => ({ ...current, agent_url: event.target.value }))} className="rumahl-field" placeholder="http://192.168.1.20:8080" />
               </Field>
             )}
             <label className="flex items-end gap-2 pb-2 text-sm text-foreground/60">
@@ -353,8 +352,8 @@ export function OsDevicesApp() {
             </label>
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowForm(false)} className="ora-secondary-button">{t('common.cancel')}</button>
-            <button type="submit" className="ora-primary-button">{t('common.save')}</button>
+            <button type="button" onClick={() => setShowForm(false)} className="rumahl-secondary-button">{t('common.cancel')}</button>
+            <button type="submit" className="rumahl-primary-button">{t('common.save')}</button>
           </div>
         </form>
       )}
@@ -364,15 +363,15 @@ export function OsDevicesApp() {
         <h2 className="mb-3 text-sm font-semibold">{t('devicesApp.networkDevices')}</h2>
         <div className="grid gap-3 md:grid-cols-2">
           {network.map((device) => (
-            <article key={device.id} className="glass-card rounded-3xl p-5">
+            <article key={device.id} className="rumahl-card p-5">
               <div className="flex items-start gap-4">
-                <span className={`grid size-11 shrink-0 place-items-center rounded-2xl ${device.is_active ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/6 text-foreground/40'}`}>
+                <span className={`grid size-11 shrink-0 place-items-center rounded-2xl ${device.is_active ? 'bg-success/10 text-success' : 'bg-foreground/6 text-foreground/40'}`}>
                   {device.is_active ? <WifiHigh size={22} weight="duotone" /> : <WifiSlash size={22} weight="duotone" />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="truncate font-semibold">{device.hostname || device.ip_address || '–'}</h3>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] ${device.is_active ? 'bg-emerald-500/10 text-emerald-300' : 'bg-foreground/7 text-foreground/45'}`}>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] ${device.is_active ? 'bg-success/10 text-success' : 'bg-foreground/7 text-foreground/45'}`}>
                       {device.is_active ? t('devicesApp.online') : t('devicesApp.offline')}
                     </span>
                   </div>
@@ -386,16 +385,17 @@ export function OsDevicesApp() {
             </article>
           ))}
           {!loading && network.length === 0 && (
-            <div className="glass-card rounded-3xl p-8 text-center text-sm text-foreground/40">{t('devicesApp.noNetworkDevices')}</div>
+            <div className="rumahl-card p-8 text-center text-sm text-foreground/40">{t('devicesApp.noNetworkDevices')}</div>
           )}
         </div>
+      </div>
       </div>
     </section>
   )
 }
 
 function Summary({ icon: Icon, label, value }: { icon: typeof Cpu; label: string; value: string }) {
-  return <div className="glass-card rounded-2xl p-4"><Icon size={20} className="text-cyan-300" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
+  return <div className="rumahl-card p-4"><Icon size={20} className="text-accent" /><p className="mt-3 text-xl font-semibold">{value}</p><p className="text-xs text-foreground/40">{label}</p></div>
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="text-xs text-foreground/55"><span className="mb-1 block">{label}</span>{children}</label>

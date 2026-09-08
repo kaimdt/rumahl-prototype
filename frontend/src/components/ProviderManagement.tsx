@@ -82,7 +82,7 @@ export function ProviderManagement() {
       // Load demo data when backend is unreachable
       setProviders(getDemoProviders())
       if (connectionStatus === 'unreachable') {
-        setError('iora-assist ist nicht erreichbar. Starte den Service mit: cargo run -p iora-assist')
+        setError('rumahl-assist ist nicht erreichbar. Starte den Service mit: cargo run -p rumahl-assist')
       }
     }
     setLoading(false)
@@ -191,12 +191,12 @@ export function ProviderManagement() {
         <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mb-4">
           <Warning size={32} weight="fill" className="text-red-400" />
         </div>
-        <h2 className="text-sm font-semibold text-foreground mb-2">iora-assist ist nicht erreichbar</h2>
+        <h2 className="text-sm font-semibold text-foreground mb-2">rumahl-assist ist nicht erreichbar</h2>
         <p className="text-xs text-foreground/40 mb-4 max-w-md">
           Der AI-Service läuft nicht. Starte ihn mit:
         </p>
         <code className="px-4 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-xs text-foreground/60 font-mono mb-4">
-          cd iora-os/backend && cargo run -p iora-assist
+          cd rumahl-os/backend && cargo run -p rumahl-assist
         </code>
         <button onClick={loadProviders} className="px-4 py-2 rounded-xl bg-accent/20 text-accent text-xs hover:bg-accent/30 transition-all">
           Erneut versuchen

@@ -19,7 +19,7 @@ pub struct PluginResult {
     pub error: Option<String>,
 }
 
-/// Plugin trait that all IORA plugins must implement
+/// Plugin trait that all rumahl plugins must implement
 #[async_trait]
 pub trait Plugin: Send + Sync {
     /// Get plugin metadata

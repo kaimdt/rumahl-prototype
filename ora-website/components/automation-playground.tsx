@@ -104,7 +104,7 @@ export function AutomationPlayground() {
                 <p className="text-xs text-muted-foreground">Step 2</p>
                 <p className="text-sm text-foreground mt-1 flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  ORA AI validates occupancy and current context.
+                  ORA validates occupancy and current context.
                 </p>
               </div>
               <div className="rounded-xl border border-border/30 bg-card/40 p-3">

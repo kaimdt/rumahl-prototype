@@ -16,9 +16,9 @@ import {
 import { authFetch } from '@/lib/authHelpers'
 
 /**
- * ORA OS system widgets (Home Dashboard v2, Package 3).
+ * rumahl OS system widgets (Home Dashboard v2, Package 3).
  *
- * These widgets surface ORA-native data (storage quota, server health, jobs,
+ * These widgets surface rumahl-native data (storage quota, server health, jobs,
  * recent files) as dashboard sections. Home Assistant remains the source for
  * smart-home widgets — this is additive, not a replacement.
  */

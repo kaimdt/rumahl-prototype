@@ -86,9 +86,9 @@ export function OsFileMoveCopyDialog({ entry, mode, onCancel, onComplete }: Prop
     : t('os.systemApps.myCloud')
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <div className="glass-card flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl">
-        <header className="flex items-start gap-3 border-b border-foreground/10 p-5">
+    <div className="rumahl-file-dialog-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <div className="rumahl-file-dialog glass-card flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl">
+        <header className="rumahl-file-dialog-header flex items-start gap-3 border-b border-foreground/10 p-5">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent/12 text-accent">
             {mode === 'move' ? <ArrowSquareOut size={22} weight="duotone" /> : <Copy size={22} weight="duotone" />}
           </div>
@@ -104,7 +104,7 @@ export function OsFileMoveCopyDialog({ entry, mode, onCancel, onComplete }: Prop
           {breadcrumbs.map((crumb) => <span key={crumb.id} className="flex shrink-0 items-center gap-1"><CaretRight size={12} className="text-foreground/30" /><button type="button" onClick={() => setFolderId(crumb.id)} className="rounded-lg px-2 py-1 hover:bg-foreground/8">{crumb.name}</button></span>)}
         </div>
 
-        <div className="min-h-52 flex-1 overflow-y-auto p-3 sm:p-4">
+        <div className="rumahl-file-dialog-content min-h-52 flex-1 overflow-y-auto p-3 sm:p-4">
           {error && <div className="mb-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
           {folderId && <button type="button" onClick={goBack} className="mb-2 flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-sm text-foreground/60 hover:bg-foreground/7"><ArrowLeft size={18} />{t('os.systemApps.parentFolder')}</button>}
           {loading ? <p className="p-8 text-center text-sm text-foreground/40">{t('common.loading')}</p> : folders.length === 0 ? <p className="p-8 text-center text-sm text-foreground/40">{t('os.systemApps.noSubfolders')}</p> : (
@@ -121,7 +121,7 @@ export function OsFileMoveCopyDialog({ entry, mode, onCancel, onComplete }: Prop
           )}
         </div>
 
-        <footer className="flex flex-col gap-3 border-t border-foreground/10 p-4 sm:flex-row sm:items-center">
+        <footer className="rumahl-file-dialog-footer flex flex-col gap-3 border-t border-foreground/10 p-4 sm:flex-row sm:items-center">
           <p className="min-w-0 flex-1 truncate text-xs text-foreground/48"><span className="font-medium">{t('os.systemApps.targetFolder')}:</span> {currentPath}</p>
           <div className="flex gap-2">
             <button type="button" onClick={onCancel} className="min-h-11 flex-1 rounded-xl bg-foreground/7 px-4 text-sm sm:flex-none">{t('common.cancel')}</button>

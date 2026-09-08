@@ -13,30 +13,30 @@ import re
 import os
 import sys
 
-ROOT = 'iora-os/backend'
+ROOT = 'rumahl-os/backend'
 FRONTEND = 'frontend/src'
 
 # backend_source → frontend file, expected interface/type names
 PAIRS = [
     # (backend file, frontend file, [type names])
-    ('services/iora-home/src/job_handler.rs', 'components/widgets/OraJobsWidget.tsx', ['OraJob']),
-    ('services/iora-home/src/download_handler.rs', 'components/widgets/OraJobsWidget.tsx', ['OraJob']),
-    ('services/iora-files/src/main.rs', 'components/widgets/OraRecentFilesWidget.tsx', ['OraFile']),
-    ('services/iora-files/src/main.rs', 'components/OsFileExplorer.tsx', ['FileEntry']),
-    ('services/iora-files/src/main.rs', 'components/widgets/OraStorageWidget.tsx', ['quota']),
-    ('services/iora-network-monitor/src/main.rs', 'components/OsDevicesApp.tsx', ['NetworkDevice']),
-    ('services/iora-home/src/device_handler.rs', 'components/OsDevicesApp.tsx', ['RegistryDevice']),
-    ('services/iora-control/src/main.rs', 'components/OsServicesApp.tsx', ['SystemdService']),
-    ('services/iora-supervisor/src/main.rs', 'hooks/useInstalledApps.ts', ['SupervisorApp']),
-    ('services/iora-resource-manager/src/main.rs', 'components/OsContainersApp.tsx', ['ContainerResource']),
-    ('services/iora-home/src/media_handler.rs', 'components/widgets/OraMediaWidget.tsx', ['MediaItem']),
-    ('services/iora-home/src/logs_handler.rs', 'components/OsLogsApp.tsx', ['LogSource']),
+    ('services/rumahl-home/src/job_handler.rs', 'components/widgets/OraJobsWidget.tsx', ['OraJob']),
+    ('services/rumahl-home/src/download_handler.rs', 'components/widgets/OraJobsWidget.tsx', ['OraJob']),
+    ('services/rumahl-files/src/main.rs', 'components/widgets/OraRecentFilesWidget.tsx', ['OraFile']),
+    ('services/rumahl-files/src/main.rs', 'components/OsFileExplorer.tsx', ['FileEntry']),
+    ('services/rumahl-files/src/main.rs', 'components/widgets/OraStorageWidget.tsx', ['quota']),
+    ('services/rumahl-network-monitor/src/main.rs', 'components/OsDevicesApp.tsx', ['NetworkDevice']),
+    ('services/rumahl-home/src/device_handler.rs', 'components/OsDevicesApp.tsx', ['RegistryDevice']),
+    ('services/rumahl-control/src/main.rs', 'components/OsServicesApp.tsx', ['SystemdService']),
+    ('services/rumahl-supervisor/src/main.rs', 'hooks/useInstalledApps.ts', ['SupervisorApp']),
+    ('services/rumahl-resource-manager/src/main.rs', 'components/OsContainersApp.tsx', ['ContainerResource']),
+    ('services/rumahl-home/src/media_handler.rs', 'components/widgets/OraMediaWidget.tsx', ['MediaItem']),
+    ('services/rumahl-home/src/logs_handler.rs', 'components/OsLogsApp.tsx', ['LogSource']),
     # Additional components
-    ('services/iora-home/src/job_handler.rs', 'components/JobCenterPanel.tsx', ['SystemJob']),
+    ('services/rumahl-home/src/job_handler.rs', 'components/JobCenterPanel.tsx', ['SystemJob']),
     # OsImagesApp maps FileRecords into ImageEntry/FolderEntry (frontend
     # transformation types, not 1:1 JSON) — covered by the files pair above.
-    ('services/iora-home/src/local_appstore.rs', 'components/AppStoreTab.tsx', ['AppInfo', 'PortInfo']),
-    ('services/iora-home/src/update_system.rs', 'components/OsMaintenanceApp.tsx', ['UpdateInfo', 'BackupInfo']),
+    ('services/rumahl-home/src/local_appstore.rs', 'components/AppStoreTab.tsx', ['AppInfo', 'PortInfo']),
+    ('services/rumahl-home/src/update_system.rs', 'components/OsMaintenanceApp.tsx', ['UpdateInfo', 'BackupInfo']),
 ]
 
 

@@ -8,7 +8,7 @@ import {
   setLightEnhancementSettings,
   type LightEnhancementSettings,
 } from '@/lib/lightEnhancements'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 interface LightEnhancementsSettingsProps {
   settingsLocked?: boolean

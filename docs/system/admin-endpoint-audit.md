@@ -4,9 +4,9 @@
 extrahiert jeden API-Pfad, den die Admin-Frontend-Dateien aufrufen
 (`authFetch`/`adminFetch`/`cachedFetch`/`fetch`/`EventSource`, inkl. aufgelöster
 `${CONST}`-Template-Literale) und prüft, ob der Pfad als Route im Backend
-existiert — direkt in `iora-home` oder über einen bekannten Service-Proxy
-(`iora-control`, `iora-files`, `iora-network-monitor`, `iora-secrets`,
-`iora-appstore`, `iora-connector`, `iora-assist`, …).
+existiert — direkt in `rumahl-home` oder über einen bekannten Service-Proxy
+(`rumahl-control`, `rumahl-files`, `rumahl-network-monitor`, `rumahl-secrets`,
+`rumahl-appstore`, `rumahl-connector`, `rumahl-assist`, …).
 
 ## Ergebnis (Stand: aktueller Branch)
 
@@ -27,10 +27,10 @@ existiert — direkt in `iora-home` oder über einen bekannten Service-Proxy
 
 ## Gefundener & behobener Fehler
 
-- **`PUT /api/admin/iora-cloud/config`** (CloudSettingsTab in `tools.tsx`)
+- **`PUT /api/admin/rumahl-cloud/config`** (CloudSettingsTab in `tools.tsx`)
   — das Backend registrierte nur `get`+`post`, das Frontend sendet `PUT`
   → 405 „Method Not Allowed", die Cloud-Konfiguration konnte nicht
-  gespeichert werden. **Fix:** Route um `.put(proxy_iora_cloud)` erweitert.
+  gespeichert werden. **Fix:** Route um `.put(proxy_rumahl_cloud)` erweitert.
 
 ## Dokumentierte False-Positives
 
@@ -41,8 +41,8 @@ existiert — direkt in `iora-home` oder über einen bekannten Service-Proxy
 ## Methoden-Konsistenz (Stichprobe)
 
 Zusätzlich geprüft wurden die expliziten `method:`-Aufrufe (96):
-- `POST/PUT/DELETE` auf `iora-control`-Proxy, `iora-files`, `iora-secrets`,
-  `iora-connector`-Proxies: gedeckt (Pass-through).
+- `POST/PUT/DELETE` auf `rumahl-control`-Proxy, `rumahl-files`, `rumahl-secrets`,
+  `rumahl-connector`-Proxies: gedeckt (Pass-through).
 - `PUT /api/admin/control/mode`, `/api/themes/default`,
   `/api/admin/settings/:key`: `get+put` vorhanden.
 - `DELETE /api/admin/alert`, `/api/admin/warnings/log`,
@@ -63,9 +63,9 @@ Das Endpoint-Audit scannt automatisch **alle `.ts`/`.tsx`-Dateien** unter
 `frontend/src` (Admin-Tabs, Native Apps, Widgets, Shell, Settings, Docs,
 AppStore, Launcher, AI-Oberflächen …) und prüft jeden API-Pfad. Zusätzlich
 werden Rocket-Macro-Routen (`#[post("/…")]`) und `*path`-Wildcard-Routen
-erkannt; die Proxies zu iora-backup, iora-control, iora-files,
-iora-network-monitor, iora-secrets, iora-appstore, iora-connector,
-iora-assist, iora-watchdog, iora-updater und iora-resource-manager sind
+erkannt; die Proxies zu rumahl-backup, rumahl-control, rumahl-files,
+rumahl-network-monitor, rumahl-secrets, rumahl-appstore, rumahl-connector,
+rumahl-assist, rumahl-watchdog, rumahl-updater und rumahl-resource-manager sind
 abgebildet. **Ergebnis: alle API-Pfade der gesamten Frontend-Codebase
 existieren als Backend-Routen.**
 

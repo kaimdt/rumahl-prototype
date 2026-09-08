@@ -1,11 +1,11 @@
 # App Theming Guide
 
-> Vollständige Anleitung zum Verwenden, Anpassen und Erstellen von Themes in IORA Apps
+> Vollständige Anleitung zum Verwenden, Anpassen und Erstellen von Themes in rumahl Apps
 
 ## Übersicht
 
-Das IORA Theme-System ermöglicht es Apps:
-1. **Das IORA Theme zu übernehmen** - Nahtlose Integration mit dem aktuellen Theme
+Das rumahl Theme-System ermöglicht es Apps:
+1. **Das rumahl Theme zu übernehmen** - Nahtlose Integration mit dem aktuellen Theme
 2. **Themes anzupassen** - Einzelne Farben und Variablen zu überschreiben
 3. **Eigene Themes zu erstellen** - Vollständig benutzerdefinierte Designs
 
@@ -14,11 +14,11 @@ Das IORA Theme-System ermöglicht es Apps:
 ### 1. Theme-Client in deiner App einrichten
 
 ```typescript
-import { IoraThemeClient } from '@iora/sdk'
+import { rumahlThemeClient } from '@rumahl/sdk'
 
 // Theme-Client initialisieren
-const themeClient = new IoraThemeClient('my-app-id', {
-  inherit: true,  // IORA Theme übernehmen
+const themeClient = new rumahlThemeClient('my-app-id', {
+  inherit: true,  // rumahl Theme übernehmen
 })
 
 // Auf Theme-Änderungen reagieren
@@ -27,17 +27,17 @@ themeClient.onThemeChange((theme) => {
 })
 ```
 
-### 2. IORA Theme verwenden (Standard)
+### 2. rumahl Theme verwenden (Standard)
 
-Wenn deine App das IORA Theme verwenden soll, musst du nichts weiter tun:
+Wenn deine App das rumahl Theme verwenden soll, musst du nichts weiter tun:
 
 ```typescript
-const themeClient = new IoraThemeClient('my-app-id', {
-  inherit: true,  // Standard - übernimmt alle IORA CSS-Variablen
+const themeClient = new rumahlThemeClient('my-app-id', {
+  inherit: true,  // Standard - übernimmt alle rumahl CSS-Variablen
 })
 ```
 
-Alle CSS-Variablen von IORA sind automatisch verfügbar:
+Alle CSS-Variablen von rumahl sind automatisch verfügbar:
 
 ```css
 .my-element {
@@ -58,7 +58,7 @@ Alle CSS-Variablen von IORA sind automatisch verfügbar:
 Überschreibe einzelne Variablen für deine App:
 
 ```typescript
-const themeClient = new IoraThemeClient('my-app-id', {
+const themeClient = new rumahlThemeClient('my-app-id', {
   inherit: true,
   variables: {
     // Hauptfarben anpassen
@@ -79,8 +79,8 @@ const themeClient = new IoraThemeClient('my-app-id', {
 Erstelle ein vollständig benutzerdefiniertes Theme:
 
 ```typescript
-const themeClient = new IoraThemeClient('my-app-id', {
-  inherit: false,  // Kein IORA Theme übernehmen
+const themeClient = new rumahlThemeClient('my-app-id', {
+  inherit: false,  // Kein rumahl Theme übernehmen
   variables: {
     // Definiere alle benötigten Variablen
     'background': '#1a1a2e',
@@ -159,19 +159,19 @@ const themeClient = new IoraThemeClient('my-app-id', {
 
 ## API-Referenz
 
-### IoraThemeClient
+### rumahlThemeClient
 
 #### Konstruktor
 
 ```typescript
-new IoraThemeClient(appId: string, config?: ThemeConfig)
+new rumahlThemeClient(appId: string, config?: ThemeConfig)
 ```
 
 **ThemeConfig:**
 
 ```typescript
 interface ThemeConfig {
-  inherit: boolean              // IORA Theme übernehmen (Standard: true)
+  inherit: boolean              // rumahl Theme übernehmen (Standard: true)
   variables?: Record<string, string>  // Variable-Overrides
   customCss?: string           // Zusätzliches CSS
   cssFiles?: string[]          // CSS-Datei-URLs
@@ -281,13 +281,13 @@ themeClient.destroy()
 
 ## Beispiele
 
-### Beispiel 1: Einfache App mit IORA Theme
+### Beispiel 1: Einfache App mit rumahl Theme
 
 ```html
 <!DOCTYPE html>
 <html>
 <head>
-  <title>My IORA App</title>
+  <title>My rumahl App</title>
   <style>
     body {
       background: var(--background);
@@ -323,15 +323,15 @@ themeClient.destroy()
   <h1>Meine App</h1>
   <div class="card">
     <h2>Status</h2>
-    <p>Diese App verwendet das IORA Theme automatisch.</p>
+    <p>Diese App verwendet das rumahl Theme automatisch.</p>
     <button class="button">Aktion</button>
   </div>
 
   <script type="module">
-    import { IoraThemeClient } from '@iora/sdk'
+    import { rumahlThemeClient } from '@rumahl/sdk'
     
     // Theme-Client initialisieren
-    const theme = new IoraThemeClient('my-app', { inherit: true })
+    const theme = new rumahlThemeClient('my-app', { inherit: true })
     
     // Auf Theme-Änderungen reagieren
     theme.onThemeChange((t) => {
@@ -346,9 +346,9 @@ themeClient.destroy()
 ### Beispiel 2: Angepasstes Farbschema
 
 ```typescript
-import { IoraThemeClient } from '@iora/sdk'
+import { rumahlThemeClient } from '@rumahl/sdk'
 
-const themeClient = new IoraThemeClient('weather-app', {
+const themeClient = new rumahlThemeClient('weather-app', {
   inherit: true,
   variables: {
     // Wetterapp-spezifische Farben
@@ -402,10 +402,10 @@ function WeatherWidget() {
 ### Beispiel 3: Vollständig eigenes Theme
 
 ```typescript
-import { IoraThemeClient } from '@iora/sdk'
+import { rumahlThemeClient } from '@rumahl/sdk'
 
-const themeClient = new IoraThemeClient('retro-app', {
-  inherit: false,  // Kein IORA Theme
+const themeClient = new rumahlThemeClient('retro-app', {
+  inherit: false,  // Kein rumahl Theme
   variables: {
     // Retro Terminal Theme
     'background': '#000000',
@@ -452,11 +452,11 @@ const themeClient = new IoraThemeClient('retro-app', {
 
 ```typescript
 import { useEffect, useState } from 'react'
-import { IoraThemeClient, ThemeInfo } from '@iora/sdk'
+import { rumahlThemeClient, ThemeInfo } from '@rumahl/sdk'
 
 // Custom Hook
-export function useIoraTheme(appId: string, config?: ThemeConfig) {
-  const [client] = useState(() => new IoraThemeClient(appId, config))
+export function userumahlTheme(appId: string, config?: ThemeConfig) {
+  const [client] = useState(() => new rumahlThemeClient(appId, config))
   const [theme, setTheme] = useState<ThemeInfo | null>(client.getTheme())
   
   useEffect(() => {
@@ -477,7 +477,7 @@ export function useIoraTheme(appId: string, config?: ThemeConfig) {
 
 // Verwendung
 function MyComponent() {
-  const { theme, isDark, getVariable, setVariables } = useIoraTheme('my-app')
+  const { theme, isDark, getVariable, setVariables } = userumahlTheme('my-app')
   
   const accentColor = getVariable('accent')
   
@@ -524,13 +524,13 @@ Du kannst Theme-Overrides auch im App-Manifest definieren:
 
 ## Best Practices
 
-### 1. Immer IORA Theme als Basis verwenden
+### 1. Immer rumahl Theme als Basis verwenden
 
-Für konsistente UX sollte deine App das IORA Theme als Basis verwenden:
+Für konsistente UX sollte deine App das rumahl Theme als Basis verwenden:
 
 ```typescript
-✅ const theme = new IoraThemeClient('app', { inherit: true })
-❌ const theme = new IoraThemeClient('app', { inherit: false })
+✅ const theme = new rumahlThemeClient('app', { inherit: true })
+❌ const theme = new rumahlThemeClient('app', { inherit: false })
 ```
 
 ### 2. Nur notwendige Variablen überschreiben
@@ -599,7 +599,7 @@ const accent = getComputedStyle(document.documentElement)
   .getPropertyValue('--accent')
 
 // ✅ Nach Initialisierung
-const theme = new IoraThemeClient('app')
+const theme = new rumahlThemeClient('app')
 theme.onThemeChange(() => {
   const accent = theme.getVariable('accent')
 })
@@ -611,7 +611,7 @@ theme.onThemeChange(() => {
 
 ```typescript
 themeClient.updateConfig({
-  inherit: true,  // IORA Theme aktivieren
+  inherit: true,  // rumahl Theme aktivieren
 })
 ```
 
@@ -637,6 +637,6 @@ customCss: `
 ## Support
 
 Bei Fragen zum Theme-System:
-- GitHub Issues: https://github.com/iora/iora/issues
-- Dokumentation: https://docs.iora.io
-- Community: https://community.iora.io
+- GitHub Issues: https://github.com/ora/ora/issues
+- Dokumentation: https://docs.ora.io
+- Community: https://community.ora.io

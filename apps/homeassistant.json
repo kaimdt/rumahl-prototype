@@ -3,7 +3,7 @@
   "name": "Home Assistant",
   "version": "2024.4.0",
   "developer": "Home Assistant Team",
-  "description": "Open source home automation platform. Control all your smart home devices from a single, privacy-focused interface. Fully integrated with IORA for seamless smart home management.",
+  "description": "Open source home automation platform. Control all your smart home devices from a single, privacy-focused interface. Fully integrated with ORA for seamless smart home management.",
   "icon": "https://brands.home-assistant.io/homeassistant/icon.png",
   "type": "app",
   "permissions": [
@@ -136,7 +136,7 @@
       "TZ": "UTC"
     },
     "volumes": [
-      "/var/lib/iora/apps/homeassistant/config:/config",
+      "/var/lib/ora/apps/homeassistant/config:/config",
       "/etc/localtime:/etc/localtime:ro"
     ],
     "health_check": {
@@ -165,7 +165,7 @@
     "screenshots": [
       "https://www.home-assistant.io/images/homepage/hero.png"
     ],
-    "min_iora_version": "0.1.0",
+    "min_rumahl_version": "0.1.0",
     "homepage": "https://www.home-assistant.io",
     "source_url": "https://github.com/home-assistant/core",
     "support_url": "https://community.home-assistant.io",

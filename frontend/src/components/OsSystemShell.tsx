@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSurfaceAppearance } from '@/hooks/useSurfaceAppearance'
+import { useShellAppearance } from '@/hooks/useShellAppearance'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import { DUR_PAGE, EASE_OS, MOTION_PANEL } from '@/lib/motion'
 import {
   ArrowClockwise,
+  ArrowsIn,
   BatteryCharging,
   Bell,
   CaretRight,
   ClipboardText,
   Cpu,
   Gear,
-  ListBullets,
   LockKey,
   Moon,
   Power,
@@ -18,8 +21,10 @@ import {
   SignOut,
   Play,
   Pause,
+  Plus,
   MusicNotes,
   DownloadSimple,
+  X,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
@@ -29,10 +34,15 @@ import { authFetch } from '@/lib/authHelpers'
 import { createPageApps, SYSTEM_OS_APPS, type OsAppDefinition } from '@/lib/osAppRegistry'
 import { useOsPermissions } from '@/hooks/useOsPermissions'
 import { useEntityStore } from '@/hooks/useEntityStore'
+import { useClock } from '@/hooks/useClock'
 import { JobCenterPanel, useActiveSystemJobCount } from '@/components/JobCenterPanel'
 import { ClipboardManager, useClipboardCapture } from '@/components/ClipboardManager'
 import { useOsWindows } from '@/contexts/OsWindowContext'
+import { RumahlMark } from '@/components/RumahlMark'
 import { comboMatches, getCombo } from '@/lib/shortcutRegistry'
+import { useShellMode } from '@/hooks/useShellMode'
+import { DockClock } from '@/components/DockClock'
+import { ShellModeSwitcher } from '@/components/ShellModeSwitcher'
 
 interface SystemStats {
   cpu_usage_percent: number
@@ -44,7 +54,7 @@ interface SystemStats {
   os_version: string
 }
 
-const RECENT_APPS_KEY = 'iora-os-recent-apps'
+const RECENT_APPS_KEY = 'rumahl-os-recent-apps'
 const MAX_RECENT_APPS = 6
 
 function readRecentApps(): string[] {
@@ -65,26 +75,66 @@ function formatUptime(seconds: number, t: (key: string, options?: Record<string,
 }
 
 export function OsSystemShell() {
-  const { t } = useTranslation()
+  useShellAppearance()
+  useSurfaceAppearance()
+  const { t, i18n } = useTranslation()
   const { theme, sleepMode, setSleepMode } = useTheme()
+  const { resolvedMode } = useShellMode()
   const { currentPageId, pages, setCurrentPageId } = usePageNavigation()
   const [open, setOpen] = useState(false)
   const [showJobCenter, setShowJobCenter] = useState(false)
   const [showClipboard, setShowClipboard] = useState(false)
   const [showRecents, setShowRecents] = useState(false)
+  const [switcherIndex, setSwitcherIndex] = useState(0)
   const [recentIds, setRecentIds] = useState<string[]>(readRecentApps)
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [systemReachable, setSystemReachable] = useState<boolean | null>(null)
   const [online, setOnline] = useState(() => navigator.onLine)
   const [powerConfirmation, setPowerConfirmation] = useState<'reboot' | null>(null)
   const [powerPending, setPowerPending] = useState(false)
+  const quickSettingsTriggerRef = useRef<HTMLButtonElement>(null)
+  const quickSettingsPanelRef = useRef<HTMLElement>(null)
   const { can } = useOsPermissions()
   const { user, logout } = useAuth()
   const activeJobCount = useActiveSystemJobCount()
-  const { windows, snapWindow, toggleMaximize } = useOsWindows()
+  const { windows, workspaces, activeWorkspaceId, createWorkspace, removeWorkspace, switchWorkspace, snapWindow, toggleMaximize, immersivePageId, setImmersive, closeWindow, minimizeWindow, focusWindow } = useOsWindows()
+
+  // In immersive (fullscreen) the top bar auto-hides and slides in when the
+  // pointer hits the top edge (macOS-style).
+  const [barVisible, setBarVisible] = useState(true)
+  const hideTimer = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!immersivePageId) { setBarVisible(true); return }
+    const scheduleHide = () => {
+      if (hideTimer.current) window.clearTimeout(hideTimer.current)
+      hideTimer.current = window.setTimeout(() => setBarVisible(false), 2500)
+    }
+    const onMouseMove = (event: MouseEvent) => {
+      if (event.clientY < 64) { setBarVisible(true); scheduleHide() }
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    scheduleHide()
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      if (hideTimer.current) window.clearTimeout(hideTimer.current)
+    }
+  }, [immersivePageId])
   const { entities } = useEntityStore()
   const [activeDownloads, setActiveDownloads] = useState<Array<{ id: string; name: string; progress: number }>>([])
   useClipboardCapture()
+
+  const closeQuickSettings = useCallback(() => {
+    setOpen(false)
+    window.requestAnimationFrame(() => quickSettingsTriggerRef.current?.focus())
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const frame = window.requestAnimationFrame(() => {
+      quickSettingsPanelRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [open])
 
   // Active download jobs for the Control Center (Package 8).
   useEffect(() => {
@@ -120,13 +170,41 @@ export function OsSystemShell() {
     () => recentIds.map((id) => appByPageId.get(id)).filter((app): app is OsAppDefinition => Boolean(app)),
     [appByPageId, recentIds],
   )
+  const activeWindows = useMemo(
+    () => windows.filter((item) => item.workspaceId === activeWorkspaceId),
+    [activeWorkspaceId, windows],
+  )
+  const switcherApps = useMemo(() => {
+    const openApps = [...activeWindows]
+      .filter((item) => item.pageId)
+      .sort((a, b) => b.z - a.z)
+      .map((item) => appByPageId.get(item.pageId as string))
+      .filter((app): app is OsAppDefinition => Boolean(app))
+    const seen = new Set(openApps.map((app) => app.pageId))
+    return [...openApps, ...recentApps.filter((app) => !seen.has(app.pageId))].slice(0, MAX_RECENT_APPS)
+  }, [activeWindows, appByPageId, recentApps])
+
+  const selectWorkspace = useCallback((workspaceId: number) => {
+    const target = windows
+      .filter((item) => item.workspaceId === workspaceId && item.pageId && !item.minimized)
+      .sort((a, b) => b.z - a.z)[0]
+    switchWorkspace(workspaceId)
+    setCurrentPageId(target?.pageId || 'launcher')
+    setShowRecents(false)
+  }, [setCurrentPageId, switchWorkspace, windows])
+
+  const cycleWorkspace = useCallback((direction: -1 | 1) => {
+    const currentIndex = workspaces.indexOf(activeWorkspaceId)
+    const nextIndex = (currentIndex + direction + workspaces.length) % workspaces.length
+    selectWorkspace(workspaces[nextIndex])
+  }, [activeWorkspaceId, selectWorkspace, workspaces])
 
   useEffect(() => {
     if (currentPageId === 'launcher') return
     setRecentIds((current) => {
       const next = [currentPageId, ...current.filter((id) => id !== currentPageId)].slice(0, MAX_RECENT_APPS)
       localStorage.setItem(RECENT_APPS_KEY, JSON.stringify(next))
-      window.dispatchEvent(new Event('iora:recents-changed'))
+      window.dispatchEvent(new Event('rumahl:recents-changed'))
       return next
     })
   }, [currentPageId])
@@ -171,7 +249,7 @@ export function OsSystemShell() {
       // listens for the toggle event (⌘K stays as a direct alias there).
       if (comboMatches(getCombo('spotlight'), event)) {
         event.preventDefault()
-        window.dispatchEvent(new Event('iora:spotlight-toggle'))
+        window.dispatchEvent(new Event('rumahl:spotlight-toggle'))
         return
       }
       // Clipboard panel
@@ -183,18 +261,34 @@ export function OsSystemShell() {
         return
       }
       // Task switcher (Alt+Tab)
-      if (comboMatches(getCombo('task-switcher'), event)) {
+      const portableTaskSwitcher = event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && event.code === 'Space'
+      if (comboMatches(getCombo('task-switcher'), event) || portableTaskSwitcher) {
         event.preventDefault()
-        setShowRecents(true)
+        if (showRecents) {
+          setSwitcherIndex((current) => switcherApps.length ? (current + 1) % switcherApps.length : 0)
+        } else {
+          setSwitcherIndex(0)
+          setShowRecents(true)
+        }
         setOpen(false)
         setShowJobCenter(false)
         setShowClipboard(false)
         return
       }
+      if (comboMatches(getCombo('workspace-left'), event)) {
+        event.preventDefault()
+        cycleWorkspace(-1)
+        return
+      }
+      if (comboMatches(getCombo('workspace-right'), event)) {
+        event.preventDefault()
+        cycleWorkspace(1)
+        return
+      }
       // Lock session
       if (comboMatches(getCombo('lock'), event)) {
         event.preventDefault()
-        window.dispatchEvent(new Event('iora:lock-session'))
+        window.dispatchEvent(new Event('rumahl:lock-session'))
         return
       }
       // Sleep mode
@@ -216,7 +310,7 @@ export function OsSystemShell() {
         event.preventDefault()
         const [_, layout] = snap
         const top = windows
-          .filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
+          .filter((w) => w.workspaceId === activeWorkspaceId && w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
           .sort((a, b) => b.z - a.z)[0]
         if (!top) return
         if (layout === 'maximize') toggleMaximize(top.pageId)
@@ -230,9 +324,23 @@ export function OsSystemShell() {
         setShowClipboard(false)
       }
     }
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const releasedNativeModifier = event.key === 'Alt' || event.key === 'Meta'
+      const releasedPortableTrigger = event.code === 'Space' && event.ctrlKey && event.shiftKey
+      if (!showRecents || (!releasedNativeModifier && !releasedPortableTrigger)) return
+      const selected = switcherApps[switcherIndex]
+      if (!selected) return
+      setCurrentPageId(selected.pageId)
+      focusWindow(selected.pageId)
+      setShowRecents(false)
+    }
     window.addEventListener('keydown', handleKeyboard)
-    return () => window.removeEventListener('keydown', handleKeyboard)
-  }, [windows, snapWindow, toggleMaximize, sleepMode, setSleepMode])
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyboard)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [windows, snapWindow, toggleMaximize, sleepMode, setSleepMode, showRecents, switcherApps, switcherIndex, setCurrentPageId, focusWindow, activeWorkspaceId, cycleWorkspace])
 
   const openApp = (pageId: string) => {
     setCurrentPageId(pageId)
@@ -247,7 +355,7 @@ export function OsSystemShell() {
       const response = await authFetch(`/api/os/control/os/${powerConfirmation}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delay_seconds: 5, reason: 'Requested from ORA OS system shell' }),
+        body: JSON.stringify({ delay_seconds: 5, reason: 'Requested from rumahl OS system shell' }),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       setPowerConfirmation(null)
@@ -280,55 +388,103 @@ export function OsSystemShell() {
 
   return (
     <>
-      <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[55] flex items-center gap-2 sm:right-6 sm:top-5">
-        <button
-          type="button"
-          onClick={() => {
-            setShowClipboard((value) => !value)
-            setOpen(false)
-            setShowJobCenter(false)
-          }}
-          className={`glass-card flex h-11 w-11 items-center justify-center rounded-full text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring ${showClipboard ? 'bg-foreground/15 text-foreground' : ''}`}
-          aria-label={t('clipboard.title')}
-          aria-expanded={showClipboard}
-          title={t('clipboard.shortcutHint')}
-        >
-          <ClipboardText size={17} weight="bold" />
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setShowJobCenter((value) => !value)
-            setOpen(false)
-            setShowClipboard(false)
-          }}
-          className={`glass-card relative flex h-11 w-11 items-center justify-center rounded-full text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring ${showJobCenter ? 'bg-foreground/15 text-foreground' : ''}`}
-          aria-label={t('jobs.title')}
-          aria-expanded={showJobCenter}
-        >
-          <ListBullets size={17} weight="bold" />
-          {activeJobCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white shadow">
-              {activeJobCount > 9 ? '9+' : activeJobCount}
+      <AnimatePresence>
+        {barVisible && (
+          <motion.div
+            initial={{ y: -40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -40, opacity: 0 }}
+            transition={{ duration: DUR_PAGE, ease: EASE_OS }}
+            className="rumahl-system-bar pointer-events-none fixed inset-x-0 top-0 z-[var(--layer-shell)] flex items-center justify-between px-3"
+            style={{ height: 'var(--topbar-height, 2rem)' }}
+          >
+        <div className="rumahl-topbar-mix pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium">
+          {immersivePageId ? (
+            <>
+              <button type="button" onClick={() => { setImmersive(null); focusWindow(immersivePageId); setCurrentPageId(immersivePageId) }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
+              <button type="button" onClick={() => { closeWindow(immersivePageId); setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center hover:!bg-red-500/15 hover:!text-red-400" title={t('os.window.close')}><X size={15} weight="bold" /></button>
+            </>
+          ) : (
+            <>
+            <span className="hidden items-center gap-1.5 font-semibold tracking-[0.1em] sm:inline-flex">
+              <RumahlMark className="h-3.5 text-foreground/85" />
+              rumahl OS
             </span>
+            </>
           )}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setOpen((value) => !value)
-            setShowJobCenter(false)
-            setShowClipboard(false)
-          }}
-          className="glass-card flex min-h-11 items-center gap-2 rounded-full px-3 text-foreground/75 shadow-lg transition-colors hover:text-foreground focus-ring"
-          aria-label={t('os.shell.openQuickSettings')}
-          aria-expanded={open}
-        >
-          {online ? <WifiHigh size={17} weight="bold" /> : <WifiSlash size={17} weight="bold" />}
-          <span className={`h-2 w-2 rounded-full ${systemReachable ? 'bg-emerald-400' : systemReachable === false ? 'bg-red-400' : 'bg-amber-400'}`} />
-          <span className="hidden text-xs font-semibold sm:inline">{stats?.hostname || 'ORA OS'}</span>
-        </button>
-      </div>
+        </div>
+        <div className="rumahl-topbar-actions rumahl-topbar-mix pointer-events-auto flex shrink-0 items-center gap-0.5">
+          <button
+            ref={quickSettingsTriggerRef}
+            type="button"
+            onClick={() => { setShowClipboard((value) => !value); setOpen(false); setShowJobCenter(false) }}
+            className={`rumahl-topbar-action flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${showClipboard ? 'is-active' : ''}`}
+            aria-label={t('clipboard.title')}
+            aria-expanded={showClipboard}
+            title={t('clipboard.shortcutHint')}
+          >
+            <ClipboardText size={15} weight="bold" />
+          </button>
+          <button
+            type="button"
+            onClick={() => { setShowJobCenter((value) => !value); setOpen(false); setShowClipboard(false) }}
+            className={`rumahl-topbar-action relative flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${showJobCenter ? 'is-active' : ''}`}
+            aria-label={t('notifications.title')}
+            aria-expanded={showJobCenter}
+            title={t('notifications.title')}
+          >
+            <Bell size={15} weight="bold" />
+            {activeJobCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-1 text-[8px] font-bold text-white shadow">
+                {activeJobCount > 9 ? '9+' : activeJobCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen((value) => !value); setShowJobCenter(false); setShowClipboard(false) }}
+            className={`rumahl-topbar-action flex h-7 w-7 shrink-0 items-center justify-center focus-ring ${open ? 'is-active' : ''}`}
+            aria-label={t('os.shell.openQuickSettings')}
+            aria-expanded={open}
+            title={t('os.shell.openQuickSettings')}
+          >
+            {online ? <WifiHigh size={15} weight="bold" /> : <WifiSlash size={15} weight="bold" />}
+          </button>
+
+          {/* Shell-mode switcher: desktop mode → joins the bottom bar next to
+              the clock; launcher mode → sits top-right so you can switch to
+              the desktop. */}
+          {!immersivePageId && <ShellModeSwitcher />}
+          {resolvedMode === 'desktop' && !immersivePageId && <DockClock />}
+        </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {resolvedMode === 'desktop' && !immersivePageId && (
+        <nav className="rumahl-workspace-strip" aria-label={t('os.workspaces.title')}>
+          {workspaces.map((workspaceId, index) => {
+            const count = windows.filter((item) => item.workspaceId === workspaceId).length
+            const active = workspaceId === activeWorkspaceId
+            return (
+              <span key={workspaceId} className={`rumahl-workspace-item ${active ? 'is-active' : ''}`}>
+                <button type="button" onClick={() => selectWorkspace(workspaceId)} aria-current={active ? 'page' : undefined} aria-label={t('os.workspaces.open', { number: index + 1 })}>
+                  <strong>{index + 1}</strong>
+                  {count > 0 && <i aria-hidden="true">{count}</i>}
+                </button>
+                {active && workspaces.length > 1 && (
+                  <button type="button" className="rumahl-workspace-remove" onClick={() => removeWorkspace(workspaceId)} aria-label={t('os.workspaces.remove', { number: index + 1 })} title={t('os.workspaces.remove', { number: index + 1 })}>
+                    <X size={10} />
+                  </button>
+                )}
+              </span>
+            )
+          })}
+          <button type="button" className="rumahl-workspace-add" onClick={createWorkspace} disabled={workspaces.length >= 4} aria-label={t('os.workspaces.add')} title={t('os.workspaces.add')}>
+            <Plus size={12} weight="bold" />
+          </button>
+        </nav>
+      )}
 
       <AnimatePresence>
         {open && (
@@ -336,17 +492,47 @@ export function OsSystemShell() {
             <motion.button
               type="button"
               aria-label={t('common.close')}
-              className="fixed inset-0 z-[56] bg-black/20 backdrop-blur-[2px]"
+              className="fixed inset-0 z-[var(--layer-flyout-backdrop)] rumahl-dialog-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setOpen(false)}
+              onClick={closeQuickSettings}
             />
             <motion.aside
+              ref={quickSettingsPanelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('os.shell.quickSettings')}
+              tabIndex={-1}
               initial={{ opacity: 0, y: -14, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
-              className="glass-card fixed right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[57] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-white/15 p-4 shadow-2xl sm:right-6 sm:top-[4.5rem]"
+              transition={MOTION_PANEL}
+              className="rumahl-quick-settings fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[var(--layer-flyout)] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden p-4 sm:right-6 sm:top-[3.5rem]"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  closeQuickSettings()
+                  return
+                }
+                const controls = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+                if (!controls.length) return
+                const currentIndex = controls.indexOf(document.activeElement as HTMLButtonElement)
+                if (event.key === 'Tab') {
+                  const nextIndex = event.shiftKey
+                    ? (currentIndex <= 0 ? controls.length - 1 : currentIndex - 1)
+                    : (currentIndex >= controls.length - 1 ? 0 : currentIndex + 1)
+                  event.preventDefault()
+                  controls[nextIndex].focus()
+                } else if (event.key === 'ArrowDown' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+                  event.preventDefault()
+                  const direction = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+                  controls[(Math.max(0, currentIndex) + direction + controls.length) % controls.length].focus()
+                } else if (event.key === 'Home' || event.key === 'End') {
+                  event.preventDefault()
+                  controls[event.key === 'Home' ? 0 : controls.length - 1].focus()
+                }
+              }}
             >
               <div className="mb-4 flex items-center justify-between">
                 <div>
@@ -360,21 +546,21 @@ export function OsSystemShell() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => openApp('launcher')} className="rounded-2xl bg-foreground/7 p-3 text-left hover:bg-foreground/12">
-                  <SquaresFour size={20} weight="duotone" className="mb-2 text-accent" />
+              <div className="grid grid-cols-2 gap-2.5">
+                <button type="button" onClick={() => openApp('launcher')} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
+                  <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-accent/15 text-accent"><SquaresFour size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.shell.apps')}</span>
                 </button>
-                <button type="button" onClick={() => setSleepMode(!sleepMode)} className={`rounded-2xl p-3 text-left ${sleepMode ? 'bg-indigo-500/25 text-indigo-100' : 'bg-foreground/7 hover:bg-foreground/12'}`}>
-                  <Moon size={20} weight="duotone" className="mb-2" />
+                <button type="button" onClick={() => setSleepMode(!sleepMode)} className={`rounded-[1.35rem] p-4 text-left transition-colors ${sleepMode ? 'bg-accent text-white' : 'bg-foreground/6 hover:bg-foreground/10'}`}>
+                  <span className={`mb-3 grid h-10 w-10 place-items-center rounded-full ${sleepMode ? 'bg-white/25 text-white' : 'bg-foreground/10 text-foreground/70'}`}><Moon size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{sleepMode ? t('os.shell.sleepOn') : t('os.shell.sleepOff')}</span>
                 </button>
-                <button type="button" onClick={() => openApp('settings')} className="rounded-2xl bg-foreground/7 p-3 text-left hover:bg-foreground/12">
-                  <Gear size={20} weight="duotone" className="mb-2 text-foreground/70" />
+                <button type="button" onClick={() => openApp('settings')} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
+                  <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-foreground/10 text-foreground/70"><Gear size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.apps.settings.name')}</span>
                 </button>
-                <button type="button" onClick={() => { window.dispatchEvent(new Event('iora:lock-session')); setOpen(false) }} className="rounded-2xl bg-foreground/7 p-3 text-left hover:bg-foreground/12">
-                  <LockKey size={20} weight="duotone" className="mb-2 text-foreground/70" />
+                <button type="button" onClick={() => { window.dispatchEvent(new Event('rumahl:lock-session')); setOpen(false) }} className="rounded-[1.35rem] bg-foreground/6 p-4 text-left transition-colors hover:bg-foreground/10">
+                  <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-foreground/10 text-foreground/70"><LockKey size={20} weight="fill" /></span>
                   <span className="block text-xs font-semibold">{t('os.shell.lock')}</span>
                 </button>
               </div>
@@ -508,7 +694,7 @@ export function OsSystemShell() {
       <AnimatePresence>
         {showRecents && (
           <motion.div
-            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4 backdrop-blur-xl"
+            className="rumahl-task-switcher-backdrop fixed inset-0 z-[70] flex items-end justify-center p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -518,31 +704,52 @@ export function OsSystemShell() {
               initial={{ y: 24, scale: 0.96 }}
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 16, scale: 0.98 }}
-              className="glass-card w-full max-w-3xl rounded-[2rem] border border-white/15 p-5 shadow-2xl"
+              transition={MOTION_PANEL}
+              className="rumahl-task-switcher mb-14 w-full max-w-3xl"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-4 flex items-center justify-between">
+              <div className="rumahl-task-switcher-header">
                 <div>
-                  <h2 className="text-lg font-semibold">{t('os.shell.recentApps')}</h2>
-                  <p className="text-xs text-foreground/40">{t('os.shell.taskSwitcherHint')}</p>
+                  <h2>{t('os.shell.recentApps')}</h2>
+                  <p>{t('os.shell.taskSwitcherHint')}</p>
                 </div>
-                <button type="button" onClick={() => setShowRecents(false)} className="rounded-full p-2 text-foreground/50 hover:bg-foreground/10">
-                  <CaretRight size={18} />
+                <button type="button" onClick={() => setShowRecents(false)} className="rumahl-task-switcher-close" aria-label={t('common.close')}>
+                  <X size={14} />
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {(recentApps.length ? recentApps : apps.slice(0, 6)).map((app) => {
+              <div className="rumahl-task-switcher-apps">
+                {(switcherApps.length ? switcherApps : apps.slice(0, 6)).map((app, index) => {
                   const Icon = app.icon
                   const name = app.nameKey ? t(app.nameKey, app.fallbackName) : app.fallbackName
+                  const openWindow = windows.find((item) => item.workspaceId === activeWorkspaceId && item.pageId === app.pageId)
+                  const isOpen = Boolean(openWindow)
+                  const isFocused = index === switcherIndex
                   return (
-                    <button key={app.id} type="button" onClick={() => openApp(app.pageId)} className="group rounded-2xl border border-white/10 bg-foreground/5 p-4 text-left hover:bg-foreground/10">
-                      <span className="mb-8 flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-lg" style={{ background: app.accent }}>
-                        <Icon size={24} weight="duotone" />
+                    <button
+                      key={app.id}
+                      type="button"
+                      onMouseEnter={() => setSwitcherIndex(index)}
+                      onFocus={() => setSwitcherIndex(index)}
+                      onClick={() => openApp(app.pageId)}
+                      className={`rumahl-task-switcher-app ${isFocused ? 'is-focused' : ''}`}
+                      aria-selected={isFocused}
+                    >
+                      <span className="rumahl-task-switcher-window">
+                        <span className="rumahl-task-switcher-window-bar">
+                          <span style={{ '--app-accent': app.accent } as React.CSSProperties} />
+                          <i />
+                        </span>
+                        <span className="rumahl-task-switcher-window-content" style={{ '--app-accent': app.accent } as React.CSSProperties}>
+                          <span className="rumahl-task-switcher-app-icon">
+                            {app.iconUrl ? <img src={app.iconUrl} alt="" /> : <Icon size={22} weight="duotone" />}
+                          </span>
+                        </span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 text-sm font-semibold">
-                        <span className="truncate">{name}</span>
-                        <CaretRight size={14} className="text-foreground/25 transition-transform group-hover:translate-x-1" />
+                      <span className="rumahl-task-switcher-app-copy">
+                        <strong>{name}</strong>
+                        <small>{openWindow?.minimized ? t('os.window.minimized') : isOpen ? t('os.window.open') : t('os.shell.recentApps')}</small>
                       </span>
+                      {isOpen && <span className="rumahl-task-switcher-running" aria-hidden="true" />}
                     </button>
                   )
                 })}

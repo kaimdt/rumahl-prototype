@@ -1,14 +1,14 @@
 /**
- * IORA SDK Runtime Manager
+ * rumahl SDK Runtime Manager
  *
- * Handles app lifecycle, communication with IORA, and permission management.
+ * Handles app lifecycle, communication with rumahl, and permission management.
  */
 
 import {
   AppStatus,
   LogLevel,
   PermissionToken,
-  IoraMessage,
+  rumahlMessage,
   createHeartbeatMessage,
   createStatusUpdateMessage,
   createLogMessage,
@@ -24,7 +24,7 @@ import { Permission } from "./permissions";
 export interface RuntimeConfig {
   appId: string;
   heartbeatInterval?: number; // seconds, default 5
-  ioraEndpoint: string;
+  oraEndpoint: string;
   autoHeartbeat?: boolean; // default true
   queryTimeout?: number; // seconds, default 30
 }
@@ -35,7 +35,7 @@ export interface RuntimeConfig {
 export type QueryHandler = (params?: any) => any | Promise<any>;
 
 /**
- * Runtime manager handles app lifecycle, communication with IORA,
+ * Runtime manager handles app lifecycle, communication with rumahl,
  * and permission management
  */
 export class RuntimeManager {
@@ -45,7 +45,7 @@ export class RuntimeManager {
   private queryHandlers: Map<string, QueryHandler> = new Map();
   private heartbeatTimer?: NodeJS.Timeout;
   private permissionRenewalTimer?: NodeJS.Timeout;
-  private messageQueue: IoraMessage[] = [];
+  private messageQueue: rumahlMessage[] = [];
 
   constructor(config: RuntimeConfig) {
     this.config = {
@@ -60,24 +60,24 @@ export class RuntimeManager {
    * Create runtime manager from environment variables
    */
   static fromEnv(): RuntimeManager {
-    const appId = process.env.IORA_APP_ID;
+    const appId = process.env.RUMAHL_APP_ID;
     if (!appId) {
-      throw new Error("IORA_APP_ID environment variable not set");
+      throw new Error("RUMAHL_APP_ID environment variable not set");
     }
 
-    const ioraEndpoint = process.env.IORA_ENDPOINT;
-    if (!ioraEndpoint) {
-      throw new Error("IORA_ENDPOINT environment variable not set");
+    const oraEndpoint = process.env.RUMAHL_ENDPOINT;
+    if (!oraEndpoint) {
+      throw new Error("RUMAHL_ENDPOINT environment variable not set");
     }
 
     const heartbeatInterval = parseInt(
-      process.env.IORA_HEARTBEAT_INTERVAL || "5",
+      process.env.RUMAHL_HEARTBEAT_INTERVAL || "5",
       10
     );
 
     return new RuntimeManager({
       appId,
-      ioraEndpoint,
+      oraEndpoint,
       heartbeatInterval,
       autoHeartbeat: true,
       queryTimeout: 30,
@@ -135,7 +135,7 @@ export class RuntimeManager {
     const oldStatus = this.status;
     this.status = newStatus;
 
-    // Send status update to IORA
+    // Send status update to rumahl
     const message = createStatusUpdateMessage(
       this.config.appId,
       oldStatus,
@@ -154,7 +154,7 @@ export class RuntimeManager {
   }
 
   /**
-   * Log a message to IORA
+   * Log a message to rumahl
    */
   async log(
     level: LogLevel,
@@ -183,7 +183,7 @@ export class RuntimeManager {
   }
 
   /**
-   * Request a permission from IORA
+   * Request a permission from rumahl
    */
   async requestPermission(
     permission: Permission,
@@ -202,7 +202,7 @@ export class RuntimeManager {
       return existingToken;
     }
 
-    // Request new token from IORA
+    // Request new token from rumahl
     const message = createPermissionRequestMessage(
       this.config.appId,
       permissionStr,
@@ -235,9 +235,9 @@ export class RuntimeManager {
   }
 
   /**
-   * Send a message to IORA
+   * Send a message to rumahl
    */
-  private async sendMessage(message: IoraMessage): Promise<void> {
+  private async sendMessage(message: rumahlMessage): Promise<void> {
     this.messageQueue.push(message);
   }
 
@@ -267,7 +267,7 @@ export class RuntimeManager {
         if (message) {
           // In real implementation, send via WebSocket/HTTP
           console.debug(
-            `Sending to IORA (${this.config.ioraEndpoint}):`,
+            `Sending to rumahl (${this.config.oraEndpoint}):`,
             message
           );
         }

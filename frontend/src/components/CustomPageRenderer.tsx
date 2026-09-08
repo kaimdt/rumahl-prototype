@@ -630,17 +630,17 @@ export function RenderWidget({
       return <QuickActionsWidget config={widget.config} />
     case 'system_monitor':
       return <SystemMonitorWidget config={widget.config} />
-    case 'ora_storage':
+    case 'rumahl_storage':
       return <OraStorageWidget config={widget.config} />
-    case 'ora_system':
+    case 'rumahl_system':
       return <OraSystemWidget />
-    case 'ora_jobs':
+    case 'rumahl_jobs':
       return <OraJobsWidget />
-    case 'ora_recent_files':
+    case 'rumahl_recent_files':
       return <OraRecentFilesWidget />
-    case 'ora_presence':
+    case 'rumahl_presence':
       return <OraPresenceWidget config={widget.config} />
-    case 'ora_media':
+    case 'rumahl_media':
       return <OraMediaWidget />
     case 'scene_manager':
       return <SceneManagerWidget config={widget.config} />

@@ -1,0 +1,188 @@
+{
+  "name": "rumahl-dev",
+  "displayName": "rumahl OS Dev",
+  "description": "Discover rumahl OS Dev devices on your LAN, hot-deploy components, watch crates, monitor live service heartbeats and stream device logs from VS Code — backed by the rumahl-dev-deploy daemon.",
+  "version": "0.4.0",
+  "publisher": "ora",
+  "license": "MIT",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rumahl-os/rumahl-os"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["ora", "embedded", "smart-home", "deploy", "rust"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "rumahl OS Dev",
+      "properties": {
+        "oraDev.cliPath": {
+          "type": "string",
+          "default": "rumahl-dev-deploy",
+          "description": "Path to the rumahl-dev-deploy binary."
+        },
+        "oraDev.daemon.url": {
+          "type": "string",
+          "default": "",
+          "description": "Override daemon URL (e.g. http://127.0.0.1:8765). Empty = read from ~/.config/rumahl-dev-deploy/daemon.json or auto-spawn."
+        },
+        "oraDev.daemon.token": {
+          "type": "string",
+          "default": "",
+          "description": "Override daemon bearer token. Empty = read from daemon.json."
+        },
+        "oraDev.daemon.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the rumahl-dev-deploy daemon if it is not already running."
+        },
+        "oraDev.daemon.bind": {
+          "type": "string",
+          "default": "127.0.0.1:8765",
+          "description": "Bind address used when auto-starting the daemon."
+        },
+        "oraDev.target": {
+          "type": "string",
+          "default": "aarch64-unknown-linux-gnu",
+          "description": "Cross-compile target triple used for builds."
+        },
+        "oraDev.buildMode": {
+          "type": "string",
+          "enum": ["auto", "device", "host", "cargo", "docker"],
+          "enumDescriptions": [
+            "Auto-detect: native cargo if the host can cross-compile, else docker, else build on the device. Recommended.",
+            "Always upload the workspace and build incrementally on the rumahl device. Slowest first build, fastest subsequent builds, works on any host (Windows-friendly).",
+            "Always build locally on the developer machine (cargo or docker, whichever works).",
+            "Force the native cargo path (will fail on Windows for ARM Linux targets).",
+            "Force the docker cross-compile path. Requires Docker Desktop / Engine on the developer machine."
+          ],
+          "default": "auto",
+          "description": "Build mode for deploy and watch. Defaults to `auto` so Windows hosts hot-reload via the on-device incremental build instead of failing on the cross-linker."
+        },
+        "oraDev.discoverTimeoutSecs": {
+          "type": "number",
+          "default": 4,
+          "description": "Seconds to listen for mDNS responses on Discover."
+        },
+        "oraDev.watchDebounceMs": {
+          "type": "number",
+          "default": 800,
+          "description": "Debounce window for file-watch sessions."
+        },
+        "oraDev.automaticMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, Watch starts an automatic mode that scans all known rumahl components and deploys whichever program changed."
+        }
+      }
+    },
+    "commands": [
+      { "command": "oraDev.discover",          "title": "rumahl Dev: Discover Devices on LAN",    "icon": "$(broadcast)" },
+      { "command": "oraDev.connect",           "title": "rumahl Dev: Connect to Device…",         "icon": "$(plug)" },
+      { "command": "oraDev.connectSaved",      "title": "rumahl Dev: Reconnect to Saved Device",  "icon": "$(plug)" },
+      { "command": "oraDev.disconnect",        "title": "rumahl Dev: Disconnect",                 "icon": "$(debug-disconnect)" },
+      { "command": "oraDev.forgetCredentials", "title": "rumahl Dev: Forget Saved Credentials",   "icon": "$(trash)" },
+      { "command": "oraDev.deploy",            "title": "rumahl Dev: Deploy Component(s)…",       "icon": "$(rocket)" },
+      { "command": "oraDev.deployCurrent",     "title": "rumahl Dev: Deploy Current Crate",       "icon": "$(rocket)" },
+      { "command": "oraDev.watch",             "title": "rumahl Dev: Watch Component(s)…",        "icon": "$(eye)" },
+      { "command": "oraDev.stopWatch",         "title": "rumahl Dev: Stop Watch Session",         "icon": "$(stop-circle)" },
+      { "command": "oraDev.restart",           "title": "rumahl Dev: Restart systemd Unit…" },
+      { "command": "oraDev.reload",            "title": "rumahl Dev: Reload systemd Unit…" },
+      { "command": "oraDev.composeReload",     "title": "rumahl Dev: Reload Compose Service…" },
+      { "command": "oraDev.logs",              "title": "rumahl Dev: Tail Compose Logs…" },
+      { "command": "oraDev.logsFromTree",      "title": "rumahl Dev: Show Service Logs",          "icon": "$(output)" },
+      { "command": "oraDev.componentActions",  "title": "rumahl Dev: Component Actions…",         "icon": "$(ellipsis)" },
+      { "command": "oraDev.dashboard",         "title": "rumahl Dev: Open Dashboard",             "icon": "$(dashboard)" },
+      { "command": "oraDev.startDaemon",       "title": "rumahl Dev: Start Daemon" },
+      { "command": "oraDev.stopDaemon",        "title": "rumahl Dev: Stop Daemon" },
+      { "command": "oraDev.refresh",           "title": "rumahl Dev: Refresh Views",              "icon": "$(refresh)" },
+      { "command": "oraDev.showOutput",        "title": "rumahl Dev: Show Output Channel" },
+      { "command": "oraDev.deployFromTree",    "title": "Deploy",                               "icon": "$(rocket)" },
+      { "command": "oraDev.watchFromTree",     "title": "Watch",                                "icon": "$(eye)" },
+      { "command": "oraDev.connectFromTree",   "title": "Connect",                              "icon": "$(plug)" },
+      { "command": "oraDev.stopWatchFromTree", "title": "Stop",                                 "icon": "$(stop-circle)" },
+      { "command": "oraDev.serviceLogs",       "title": "rumahl Dev: Tail Service Logs…",         "icon": "$(output)" },
+      { "command": "oraDev.serviceLogsFromTree","title": "Logs",                                "icon": "$(output)" },
+      { "command": "oraDev.serviceRestartFromTree","title": "Restart",                          "icon": "$(debug-restart)" },
+      { "command": "oraDev.openServiceLiveLogs","title": "rumahl Dev: Open Live Logs…",           "icon": "$(broadcast)" },
+      { "command": "oraDev.stopServiceLiveLogs","title": "rumahl Dev: Stop Live Logs…" },
+      { "command": "oraDev.openServiceUrl",    "title": "rumahl Dev: Open Service URL",           "icon": "$(link-external)" },
+      { "command": "oraDev.systemInfo",        "title": "rumahl Dev: Show Device System Info",    "icon": "$(info)" },
+      { "command": "oraDev.rebootDevice",      "title": "rumahl Dev: Reboot Device",              "icon": "$(refresh)" },
+      { "command": "oraDev.servicePalette",    "title": "rumahl Dev: Service Actions…",           "icon": "$(list-selection)" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "oraDev",
+          "title": "rumahl OS Dev",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "oraDev": [
+        { "id": "oraDev.connection", "name": "Connection" },
+        { "id": "oraDev.devices",    "name": "Devices" },
+        { "id": "oraDev.services",   "name": "Services (live)" },
+        { "id": "oraDev.components", "name": "Components" },
+        { "id": "oraDev.activity",   "name": "Activity" }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        { "command": "oraDev.connect",      "when": "view == oraDev.connection", "group": "navigation@1" },
+        { "command": "oraDev.connectSaved", "when": "view == oraDev.connection", "group": "navigation@2" },
+        { "command": "oraDev.dashboard",    "when": "view == oraDev.connection", "group": "navigation@3" },
+        { "command": "oraDev.systemInfo",   "when": "view == oraDev.connection", "group": "navigation@4" },
+        { "command": "oraDev.rebootDevice", "when": "view == oraDev.connection", "group": "navigation@5" },
+        { "command": "oraDev.refresh",      "when": "view == oraDev.connection", "group": "navigation@6" },
+        { "command": "oraDev.discover",     "when": "view == oraDev.devices",    "group": "navigation@1" },
+        { "command": "oraDev.refresh",      "when": "view == oraDev.devices",    "group": "navigation@2" },
+        { "command": "oraDev.dashboard",    "when": "view == oraDev.devices",    "group": "navigation@3" },
+        { "command": "oraDev.refresh",                     "when": "view == oraDev.services",   "group": "navigation@1" },
+        { "command": "oraDev.serviceLogs",                 "when": "view == oraDev.services",   "group": "navigation@2" },
+        { "command": "oraDev.openServiceLiveLogs",         "when": "view == oraDev.services",   "group": "navigation@3" },
+        { "command": "oraDev.deploy",       "when": "view == oraDev.components", "group": "navigation@1" },
+        { "command": "oraDev.watch",        "when": "view == oraDev.components", "group": "navigation@2" },
+        { "command": "oraDev.refresh",      "when": "view == oraDev.components", "group": "navigation@3" },
+        { "command": "oraDev.refresh",      "when": "view == oraDev.activity",   "group": "navigation@1" },
+        { "command": "oraDev.stopWatch",    "when": "view == oraDev.activity",   "group": "navigation@2" }
+      ],
+      "view/item/context": [
+        { "command": "oraDev.connectFromTree",    "when": "view == oraDev.devices && viewItem == device",      "group": "inline" },
+        { "command": "oraDev.deployFromTree",     "when": "view == oraDev.components && viewItem == component", "group": "inline@1" },
+        { "command": "oraDev.watchFromTree",      "when": "view == oraDev.components && viewItem == component", "group": "inline@2" },
+        { "command": "oraDev.logsFromTree",       "when": "view == oraDev.components && viewItem == component", "group": "inline@3" },
+        { "command": "oraDev.componentActions",   "when": "view == oraDev.components && viewItem == component", "group": "navigation" },
+        { "command": "oraDev.stopWatchFromTree",  "when": "view == oraDev.activity && viewItem == watch",       "group": "inline" },
+        { "command": "oraDev.openServiceLiveLogs","when": "view == oraDev.services && viewItem == service",     "group": "inline@0" },
+        { "command": "oraDev.serviceLogsFromTree","when": "view == oraDev.services && viewItem == service",     "group": "inline@1" },
+        { "command": "oraDev.serviceRestartFromTree","when": "view == oraDev.services && viewItem == service", "group": "inline@2" },
+        { "command": "oraDev.openServiceUrl",     "when": "view == oraDev.services && viewItem == service",    "group": "navigation@1" }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w",
+    "package": "vsce package --out rumahl-dev.vsix",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.4.0"
+  }
+}

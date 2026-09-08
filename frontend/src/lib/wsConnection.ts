@@ -6,6 +6,7 @@
 
 import { getBackendUrl } from '@/lib/config'
 import { getAuthToken } from '@/lib/authHelpers'
+import { IS_DEMO } from '@/lib/config'
 const apiBase = () => getBackendUrl() || ''
 
 let wsInstance: WebSocket | null = null
@@ -38,6 +39,9 @@ function stopHeartbeat() {
 }
 
 function connectWebSocket() {
+  // Demo mode: no real backend WS. The entity store loads /api/states over
+  // HTTP (fallback polling) instead, so there is no socket to open.
+  if (IS_DEMO) return
   // Close any orphaned connection from a previous HMR cycle
   if (wsInstance) {
     try { wsInstance.onclose = null; wsInstance.close() } catch {}
@@ -65,7 +69,7 @@ function connectWebSocket() {
     // Vite dev server — connect to backend on port 3001
     wsUrl = `ws://${window.location.hostname}:3001/ws`
   } else {
-    // Production / IORA OS / VM — connect to same origin
+    // Production / rumahl OS / VM — connect to same origin
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     wsUrl = `${protocol}//${window.location.host}/ws`
   }

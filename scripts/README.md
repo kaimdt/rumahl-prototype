@@ -1,12 +1,12 @@
-# IORA Validation Tools
+# rumahl Validation Tools
 
-Quick reference for IORA installation validation and health checking.
+Quick reference for rumahl installation validation and health checking.
 
 ## Available Tools
 
 ### 1. Health Check Script (`scripts/healthcheck.sh`)
 
-Validates that all IORA services are running and healthy.
+Validates that all rumahl services are running and healthy.
 
 **Usage:**
 ```bash
@@ -14,7 +14,7 @@ Validates that all IORA services are running and healthy.
 ```
 
 **What it checks:**
-- Critical services (postgres, iora-core, iora-secrets, iora-home)
+- Critical services (postgres, rumahl-core, rumahl-secrets, rumahl-home)
 - Optional services (supervisor, security, watchdog, etc.)
 - Service health endpoints
 - Database connectivity
@@ -38,44 +38,44 @@ Validates service dependencies and configuration before starting.
 - Service dependencies are correct
 - Service startup order is valid
 
-### 3. IORA Home Migration Registration Check (`scripts/check-iora-migrations.ps1`)
+### 3. rumahl Home Migration Registration Check (`scripts/check-rumahl-migrations.ps1`)
 
-Validates that every `iora-home/migrations/*.sql` file is embedded in
-`iora-home/src/db/mod.rs` and that migration numbers have no gaps.
+Validates that every `rumahl-home/migrations/*.sql` file is embedded in
+`rumahl-home/src/db/mod.rs` and that migration numbers have no gaps.
 
 **Usage:**
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/check-iora-migrations.ps1
+powershell -ExecutionPolicy Bypass -File scripts/check-rumahl-migrations.ps1
 ```
 
-### 4. Local Development Health Suite (`scripts/iora-health-suite.ps1`)
+### 4. Local Development Health Suite (`scripts/rumahl-health-suite.ps1`)
 
 Runs a fast local confidence suite for the current checkout.
 
 **Usage:**
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1
+powershell -ExecutionPolicy Bypass -File scripts/rumahl-health-suite.ps1
 ```
 
 **Optional:**
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1 -FullWorkspace
-powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1 -SkipFrontend
+powershell -ExecutionPolicy Bypass -File scripts/rumahl-health-suite.ps1 -FullWorkspace
+powershell -ExecutionPolicy Bypass -File scripts/rumahl-health-suite.ps1 -SkipFrontend
 ```
 
 Linux/macOS:
 ```bash
-bash scripts/iora-health-suite.sh --full-workspace
-bash scripts/iora-health-suite.sh --skip-frontend
+bash scripts/rumahl-health-suite.sh --full-workspace
+bash scripts/rumahl-health-suite.sh --skip-frontend
 ```
 
 **What it checks:**
-- `iora-home` migration registration
+- `rumahl-home` migration registration
 - warning scan for module-scope frontend URL caches
 - cross-platform script coverage (`*.ps1` files must have sibling `*.sh` files)
 - app/plugin/theme example manifests and build wrappers
-- `cargo build -p iora-dev-watch`
-- `cargo build -p iora-home`
+- `cargo build -p rumahl-dev-watch`
+- `cargo build -p rumahl-home`
 - optional full Rust workspace build
 - frontend build unless `-SkipFrontend` is used
 
@@ -130,7 +130,7 @@ bash scripts/check-app-plugin-theme-examples.sh
 
 ### 8. Minimal Configuration (`docker-compose.minimal.yml`)
 
-Minimal IORA configuration with only critical services.
+Minimal rumahl configuration with only critical services.
 
 **Usage:**
 ```bash
@@ -139,29 +139,29 @@ docker compose -f docker-compose.minimal.yml up -d
 
 **Includes:**
 - postgres (database)
-- iora-core (orchestrator)
-- iora-secrets (encrypted secrets)
-- iora-home (smart home server)
+- rumahl-core (orchestrator)
+- rumahl-secrets (encrypted secrets)
+- rumahl-home (smart home server)
 
 **Resource usage:**
 - RAM: ~500MB
 - Disk: ~2GB
 - CPU: <5% idle
 
-### 9. IORA OS Startup Validator (IORA OS only)
+### 9. rumahl OS Startup Validator (rumahl OS only)
 
-Automatically validates services during IORA OS boot.
+Automatically validates services during rumahl OS boot.
 
-**Location:** `/usr/bin/iora-startup-validator`
+**Location:** `/usr/bin/rumahl-startup-validator`
 
 **Runs automatically** via systemd service on boot.
 
 **Manual execution:**
 ```bash
-/usr/bin/iora-startup-validator
+/usr/bin/rumahl-startup-validator
 ```
 
-**Logs:** `/var/log/iora-startup-validator.log`
+**Logs:** `/var/log/rumahl-startup-validator.log`
 
 ## Quick Start Workflows
 
@@ -184,8 +184,8 @@ sleep 60
 # 5. Run health check
 ./scripts/healthcheck.sh
 
-# 6. Access IORA
-# IORA Home: http://localhost:8080
+# 6. Access rumahl
+# rumahl Home: http://localhost:8080
 ```
 
 ### Docker Compose - Minimal
@@ -201,23 +201,23 @@ docker compose -f docker-compose.minimal.yml up -d
 # 3. Run health check
 ./scripts/healthcheck.sh
 
-# 4. Access IORA
-# IORA Home: http://localhost:8080
+# 4. Access rumahl
+# rumahl Home: http://localhost:8080
 ```
 
-### IORA OS
+### rumahl OS
 
 ```bash
 # After installation and boot:
 
 # 1. Check startup validation
-journalctl -u iora-startup-validator
+journalctl -u rumahl-startup-validator
 
 # 2. Run health check
-/usr/bin/iora-healthcheck
+/usr/bin/rumahl-healthcheck
 
-# 3. Access IORA
-# IORA Home: http://[device-ip]:8080
+# 3. Access rumahl
+# rumahl Home: http://[device-ip]:8080
 ```
 
 ## Common Issues
@@ -229,7 +229,7 @@ journalctl -u iora-startup-validator
 docker compose logs
 
 # Check specific service
-docker compose logs iora-home
+docker compose logs rumahl-home
 
 # Restart services
 docker compose restart
@@ -253,39 +253,39 @@ curl http://localhost:8080/health
 docker compose logs postgres
 
 # Verify it's running
-docker compose exec postgres pg_isready -U iora
+docker compose exec postgres pg_isready -U ora
 
 # Check databases exist
-docker compose exec postgres psql -U iora -l
+docker compose exec postgres psql -U ora -l
 ```
 
 ## Critical Service Requirements
 
-These services MUST be running for IORA to function:
+These services MUST be running for rumahl to function:
 
 | Service | Purpose | Can Remove? |
 |---------|---------|-------------|
 | postgres | Database | ❌ No |
-| iora-core | Orchestration | ❌ No |
-| iora-secrets | Encrypted storage | ❌ No |
-| iora-home | Smart home UI/API | ❌ No |
+| rumahl-core | Orchestration | ❌ No |
+| rumahl-secrets | Encrypted storage | ❌ No |
+| rumahl-home | Smart home UI/API | ❌ No |
 
 ## Optional Service Impact
 
 | Service | Impact if Disabled |
 |---------|-------------------|
-| iora-supervisor | Cannot manage containers via API |
-| iora-security | No security monitoring |
-| iora-watchdog | No health alerting |
-| iora-gateway | No external integrations |
-| iora-control | No admin panel (use iora-home) |
-| iora-assist | No AI features |
-| iora-appstore | Cannot install apps |
+| rumahl-supervisor | Cannot manage containers via API |
+| rumahl-security | No security monitoring |
+| rumahl-watchdog | No health alerting |
+| rumahl-gateway | No external integrations |
+| rumahl-control | No admin panel (use rumahl-home) |
+| rumahl-assist | No AI features |
+| rumahl-appstore | Cannot install apps |
 
 ## Documentation
 
 - **Full validation guide:** [INSTALLATION_VALIDATION.md](../INSTALLATION_VALIDATION.md)
-- **Docker setup:** [DOCKER_AND_IORA_OS.md](../DOCKER_AND_IORA_OS.md)
+- **Docker setup:** [DOCKER_AND_RUMAHL_OS.md](../DOCKER_AND_RUMAHL_OS.md)
 - **Architecture:** [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 ## Support

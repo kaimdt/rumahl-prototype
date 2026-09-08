@@ -3,7 +3,7 @@
  *
  * This plugin demonstrates how to:
  * 1. Register AI tools that analyze energy usage
- * 2. Call ORA AI with entity context
+ * 2. Call rumahl AI with entity context
  * 3. Provide intelligent automation suggestions
  */
 
@@ -13,7 +13,7 @@ import { authFetch } from '@/lib/authHelpers'
 
 let context: PluginContext
 
-// Energy analysis tool that ORA AI can call
+// Energy analysis tool that rumahl AI can call
 const energyAnalysisTool: AITool = {
   name: 'analyze_energy_usage',
   description: 'Analyze energy consumption patterns and suggest optimizations',
@@ -153,7 +153,7 @@ export const plugin: ServicePlugin = {
     name: 'Energy Optimizer AI',
     version: '1.0.0',
     description: 'AI-powered energy optimization and smart scheduling for home devices',
-    author: 'IORA Team',
+    author: 'rumahl Team',
     icon: 'lightning-slash',
   },
 
@@ -161,13 +161,13 @@ export const plugin: ServicePlugin = {
     const ai = createPluginAIClient('energy-optimizer-ai')
 
     try {
-      // Register both tools with ORA AI
+      // Register both tools with rumahl AI
       await ai.registerTool(energyAnalysisTool)
       await ai.registerTool(smartScheduleTool)
 
       console.log('✅ Energy Optimizer AI: Tools registered successfully')
 
-      // ── ORA OS integration (Package 2: ora.* surface) ────────────────
+      // ── rumahl OS integration (Package 2: ora.* surface) ────────────────
       // 1. Ask the user for power control — the shell shows the
       //    Android/iOS-style Allow/Deny dialog (409 = already granted).
       await authFetch('/api/os/permissions/request', {
@@ -273,21 +273,21 @@ export default plugin
 /**
  * Usage Examples:
  *
- * Once this plugin is loaded, users can interact with it through ORA AI:
+ * Once this plugin is loaded, users can interact with it through rumahl AI:
  *
  * 1. "Show me my current energy usage"
- *    → ORA calls analyze_energy_usage tool
+ *    → rumahl calls analyze_energy_usage tool
  *    → Returns total power consumption and high consumers
  *
  * 2. "When should I run the washing machine?"
- *    → ORA calls create_energy_schedule tool
+ *    → rumahl calls create_energy_schedule tool
  *    → Recommends optimal time based on electricity rates
  *
  * 3. "How can I reduce my energy bill?"
- *    → ORA uses both tools to analyze patterns
+ *    → rumahl uses both tools to analyze patterns
  *    → Provides personalized recommendations
  *
  * 4. "Schedule my EV charging for cheapest time"
- *    → ORA calls create_energy_schedule with device_type='ev_charger'
+ *    → rumahl calls create_energy_schedule with device_type='ev_charger'
  *    → Suggests off-peak hours for charging
  */

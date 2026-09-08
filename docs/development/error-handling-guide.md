@@ -1,10 +1,10 @@
 # SDK Error Handling Guide
 
-> Comprehensive guide for handling errors robustly in IORA apps
+> Comprehensive guide for handling errors robustly in rumahl apps
 
 ## Overview
 
-The IORA SDK provides enhanced error handling with:
+The rumahl SDK provides enhanced error handling with:
 - **Automatic retries** with exponential backoff
 - **Circuit breaker** pattern to prevent cascading failures
 - **Request timeouts** for better reliability
@@ -16,16 +16,16 @@ The IORA SDK provides enhanced error handling with:
 ### Basic Configuration
 
 ```typescript
-import { IoraClient, IoraError } from '@iora/sdk';
+import { rumahlClient, rumahlError } from '@rumahl/sdk';
 
-const client = new IoraClient({
+const client = new rumahlClient({
   baseUrl: 'http://localhost:8126',
   apiKey: 'your-api-key',
   defaultTimeout: 30000,      // 30 seconds
   defaultRetries: 3,           // Retry failed requests up to 3 times
   retryDelay: 1000,            // Base delay of 1 second between retries
   onError: (error) => {
-    console.error('IORA API Error:', error);
+    console.error('rumahl API Error:', error);
   }
 });
 ```
@@ -38,12 +38,12 @@ client.setAppId('my-app-id');
 
 ## Error Types
 
-### IoraError Class
+### rumahlError Class
 
-All SDK errors are instances of `IoraError` with the following properties:
+All SDK errors are instances of `rumahlError` with the following properties:
 
 ```typescript
-class IoraError extends Error {
+class rumahlError extends Error {
   statusCode?: number;        // HTTP status code (if available)
   path?: string;              // API path that failed
   method?: string;            // HTTP method (GET, POST, etc.)
@@ -78,9 +78,9 @@ try {
   const entities = await client.entities.list();
   console.log('Entities:', entities);
 } catch (error) {
-  if (error instanceof IoraError) {
-    // Handle IORA-specific errors
-    console.error('IORA Error:', {
+  if (error instanceof rumahlError) {
+    // Handle rumahl-specific errors
+    console.error('rumahl Error:', {
       message: error.message,
       statusCode: error.statusCode,
       path: error.path,
@@ -107,11 +107,11 @@ try {
 Register a global error handler to track all errors:
 
 ```typescript
-const client = new IoraClient({
+const client = new rumahlClient({
   baseUrl: 'http://localhost:8126',
   onError: (error) => {
     // Log to monitoring service
-    console.error('[IORA Error]', {
+    console.error('[rumahl Error]', {
       timestamp: new Date().toISOString(),
       message: error.message,
       statusCode: error.statusCode,
@@ -146,7 +146,7 @@ The SDK automatically retries failed requests with:
 // Retry 2: ~2 seconds
 // Retry 3: ~4 seconds
 
-const client = new IoraClient({
+const client = new rumahlClient({
   defaultRetries: 3,
   retryDelay: 1000
 });
@@ -180,7 +180,7 @@ async function fetchWithRetry<T>(
     try {
       return await operation();
     } catch (error) {
-      if (error instanceof IoraError && error.isRetryable() && attempt < maxRetries) {
+      if (error instanceof rumahlError && error.isRetryable() && attempt < maxRetries) {
         const delay = Math.pow(2, attempt) * 1000;
         console.log(`Retry attempt ${attempt + 1} after ${delay}ms`);
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -204,7 +204,7 @@ Prevent requests from hanging indefinitely:
 
 ```typescript
 // Global timeout (default: 30 seconds)
-const client = new IoraClient({
+const client = new rumahlClient({
   defaultTimeout: 30000
 });
 
@@ -233,7 +233,7 @@ setTimeout(() => controller.abort(), 5000);
 try {
   const entities = await promise;
 } catch (error) {
-  if (error instanceof IoraError && error.statusCode === 408) {
+  if (error instanceof rumahlError && error.statusCode === 408) {
     console.log('Request was cancelled or timed out');
   }
 }
@@ -259,7 +259,7 @@ The SDK includes a circuit breaker to prevent cascading failures:
 try {
   await client.entities.list();
 } catch (error) {
-  if (error instanceof IoraError && error.statusCode === 503) {
+  if (error instanceof rumahlError && error.statusCode === 503) {
     console.log('Circuit breaker is open. Service may be down.');
     // Wait and retry later, or use cached data
   }
@@ -312,7 +312,7 @@ await client.appDatabase.execute(
 try {
   await client.entities.get(entityId);
 } catch (error) {
-  if (error instanceof IoraError) {
+  if (error instanceof rumahlError) {
     switch (error.statusCode) {
       case 404:
         console.log('Entity not found');
@@ -346,10 +346,10 @@ await client.appStorage.uploadFile(name, content, type, {
 ### 6. Log Errors with Context
 
 ```typescript
-const client = new IoraClient({
+const client = new rumahlClient({
   onError: (error) => {
     // Include useful context for debugging
-    logger.error('IORA API Error', {
+    logger.error('rumahl API Error', {
       message: error.message,
       statusCode: error.statusCode,
       path: error.path,
@@ -371,7 +371,7 @@ async function loadEntities() {
     const entities = await client.entities.list();
     return entities;
   } catch (error) {
-    if (error instanceof IoraError && error.isRetryable()) {
+    if (error instanceof rumahlError && error.isRetryable()) {
       console.warn('Failed to load entities, using cached data');
       return getCachedEntities();
     }
@@ -386,7 +386,7 @@ async function loadEntities() {
 
 ```typescript
 // Test timeout handling
-const client = new IoraClient({
+const client = new rumahlClient({
   defaultTimeout: 1 // Very short timeout
 });
 
@@ -397,7 +397,7 @@ try {
 }
 
 // Test network errors
-const client = new IoraClient({
+const client = new rumahlClient({
   baseUrl: 'http://non-existent-server:9999'
 });
 
@@ -461,7 +461,7 @@ async function fetchWithTimeout<T>(
   return Promise.race([
     fn(),
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new IoraError('Timeout', 408, '', '', true)), timeout)
+      setTimeout(() => reject(new rumahlError('Timeout', 408, '', '', true)), timeout)
     )
   ]);
 }
@@ -510,7 +510,7 @@ await client.entities.list({ timeout: 60000 });
 
 ### Error: "Network error: Unable to connect"
 
-- Check IORA is running
+- Check rumahl is running
 - Verify baseUrl is correct
 - Check network connectivity
 
@@ -520,10 +520,10 @@ await client.entities.list({ timeout: 60000 });
 
 ```typescript
 // Old (v1.x)
-const client = new IoraClient('http://localhost:8126', 'api-key');
+const client = new rumahlClient('http://localhost:8126', 'api-key');
 
 // New (v2.x)
-const client = new IoraClient({
+const client = new rumahlClient({
   baseUrl: 'http://localhost:8126',
   apiKey: 'api-key'
 });
@@ -535,7 +535,7 @@ catch (error) {
 
 // New error handling
 catch (error) {
-  if (error instanceof IoraError) {
+  if (error instanceof rumahlError) {
     console.error({
       message: error.message,
       statusCode: error.statusCode,

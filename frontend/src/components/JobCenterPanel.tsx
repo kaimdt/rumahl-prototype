@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  Bell,
   CheckCircle,
   CircleNotch,
   Clock,
   HourglassHigh,
-  ListBullets,
+  Info,
   Pause,
   Play,
+  SignOut,
   Trash,
+  Warning,
   X,
   XCircle,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { authFetch } from '@/lib/authHelpers'
+import { useNotifications } from '@/contexts/NotificationContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { useInstalledApps } from '@/hooks/useInstalledApps'
+import { useClock } from '@/hooks/useClock'
 
 /**
  * JobCenterPanel – system-wide background jobs (downloads, file operations,
@@ -79,11 +85,40 @@ function jobIcon(job: Pick<SystemJob, 'status'>, size = 15) {
 }
 
 export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { activeJobs } = useInstalledApps()
+  const { notifications, unreadCount, markAsRead, dismissNotification, clearAll } = useNotifications()
+  const { user, logout } = useAuth()
   const [jobs, setJobs] = useState<SystemJob[]>([])
   const [loading, setLoading] = useState(false)
   const pollRef = useRef<number | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (!open) return
+    previousFocusRef.current = document.activeElement as HTMLElement | null
+    const frame = window.requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    })
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.removeEventListener('keydown', onKeyDown)
+      window.requestAnimationFrame(() => previousFocusRef.current?.focus())
+    }
+  }, [open])
 
   const refresh = useCallback(async () => {
     try {
@@ -142,6 +177,7 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
 
   const activeCount = jobs.filter((job) => !TERMINAL.has(job.status)).length
   const storeJobs = activeJobs.filter((job) => job.status !== 'finished' && job.status !== 'succeeded')
+  const now = useClock()
 
   return (
     <AnimatePresence>
@@ -157,22 +193,37 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
             onClick={onClose}
           />
           <motion.aside
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('notifications.title')}
+            tabIndex={-1}
             initial={{ opacity: 0, y: -14, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            className="glass-card fixed right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[57] flex max-h-[min(32rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-white/15 shadow-2xl sm:right-6 sm:top-[4.5rem]"
+            className="rumahl-notification-center glass-card fixed right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[65] flex max-h-[min(32rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-white/15 shadow-2xl sm:right-6 sm:top-[4.5rem]"
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') return
+              const controls = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+              if (!controls.length) return
+              const currentIndex = controls.indexOf(document.activeElement as HTMLButtonElement)
+              const nextIndex = event.shiftKey
+                ? (currentIndex <= 0 ? controls.length - 1 : currentIndex - 1)
+                : (currentIndex >= controls.length - 1 ? 0 : currentIndex + 1)
+              event.preventDefault()
+              controls[nextIndex].focus()
+            }}
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
               <div>
                 <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <ListBullets size={16} className="text-foreground/60" />
-                  {t('jobs.title')}
+                  <Bell size={16} className="text-foreground/60" />
+                  {t('notifications.title')}
                 </p>
                 <p className="text-[11px] text-foreground/45">
-                  {activeCount > 0
-                    ? t('jobs.activeCount', { count: activeCount })
-                    : t('jobs.subtitle')}
+                  {now.toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}
+                  {activeCount > 0 ? ` · ${t('jobs.activeCount', { count: activeCount })}` : ''}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -194,6 +245,30 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
                 </button>
               </div>
             </div>
+
+            {/* Notifications (grouped, latest 3) */}
+            {notifications.length > 0 && (
+              <div className="border-b border-white/5 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between px-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground/45">{t('notifications.title')}</p>
+                  {unreadCount > 3 && <span className="text-[10px] text-foreground/40">+{unreadCount - 3}</span>}
+                </div>
+                <div className="space-y-0.5">
+                  {notifications.slice(0, 3).map((n) => (
+                    <button key={n.id} type="button" onClick={() => void markAsRead(n.id)} className="group flex w-full items-start gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-foreground/6">
+                      <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg ${n.level === 'critical' || n.level === 'emergency' ? 'bg-red-500/15 text-red-400' : n.level === 'warning' ? 'bg-amber-500/15 text-amber-400' : 'bg-accent/15 text-accent'}`}>
+                        {n.level === 'critical' || n.level === 'emergency' ? <Warning size={13} weight="fill" /> : n.level === 'warning' ? <Warning size={13} weight="fill" /> : <Info size={13} />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-foreground/85">{n.title}</span>
+                        <span className="block truncate text-[10px] text-foreground/45">{n.message}</span>
+                      </span>
+                      {!n.read && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Job list */}
             <div className="flex-1 space-y-2 overflow-y-auto p-3">
@@ -302,6 +377,13 @@ export function JobCenterPanel({ open, onClose }: { open: boolean; onClose: () =
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Logout */}
+            <div className="border-t border-white/5 p-2">
+              <button type="button" onClick={() => { logout(); onClose() }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground/70 transition-colors hover:bg-foreground/8 hover:text-foreground">
+                <SignOut size={15} /> {t('os.shell.logout')}{user && ` · ${user.displayName || user.username}`}
+              </button>
             </div>
           </motion.aside>
         </>

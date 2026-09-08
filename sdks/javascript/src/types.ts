@@ -89,7 +89,7 @@ export interface HealthStatus {
   details?: Record<string, any>;
 }
 
-export interface IoraEvent {
+export interface rumahlEvent {
   type: string;
   data: any;
   timestamp: number;
@@ -105,10 +105,10 @@ export interface IframeMessage {
     code: number;
     message: string;
   };
-  event?: IoraEvent;
+  event?: rumahlEvent;
 }
 
-export type EventHandler = (event: IoraEvent) => void;
+export type EventHandler = (event: rumahlEvent) => void;
 
 export interface OsFileOpenResult {
   id: string;

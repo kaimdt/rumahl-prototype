@@ -1,0 +1,3 @@
+# Deny direct access to backend sources — only index.php / cron.php /
+# install.php in the parent directory may include them.
+Require all denied

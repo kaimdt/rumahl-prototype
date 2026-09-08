@@ -1,6 +1,6 @@
-#include "iora/types.hpp"
+#include "ora/types.hpp"
 
-namespace iora {
+namespace ora {
 
 Entity Entity::from_json(const json& j) {
     Entity entity;
@@ -112,4 +112,4 @@ json HealthStatus::to_json() const {
     return j;
 }
 
-} // namespace iora
+} // namespace ora

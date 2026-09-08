@@ -1,0 +1,17 @@
+[package]
+name = "rumahl-shared-heartbeat"
+version = "0.1.0"
+edition = "2021"
+description = "rumahl service heartbeat client and health reporting"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+rumahl-shared-types = { path = "../rumahl-shared-types" }
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tracing = "0.1"
+
+[lib]
+name = "rumahl_shared_heartbeat"
+path = "src/lib.rs"

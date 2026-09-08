@@ -15,7 +15,8 @@ import {
   WarningCircle,
   X,
 } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
+import { confirmDialog } from '@/components/ui/confirmDialog'
 import { automationApi, type AutomationExecution, type AutomationFlow, type AutomationNode, type AutomationNodeKind, type SaveAutomationFlow } from '@/lib/automationApi'
 import { OsWindowActions } from '@/components/OsWindowActions'
 
@@ -118,7 +119,13 @@ export function AutomationEditorApp() {
   }
 
   const remove = async () => {
-    if (!selectedId || !window.confirm(t('automationEditor.deleteConfirm'))) return
+    if (!selectedId) return
+    if (!(await confirmDialog({
+      title: t('automationEditor.delete'),
+      message: t('automationEditor.deleteConfirm'),
+      confirmLabel: t('automationEditor.delete'),
+      danger: true,
+    }))) return
     try {
       await automationApi.remove(selectedId)
       const remaining = flows.filter((flow) => flow.id !== selectedId)
@@ -161,16 +168,16 @@ export function AutomationEditorApp() {
   }
 
   return (
-    <section className="ora-app-frame flex h-full min-h-[620px] flex-col overflow-hidden bg-background/75">
+    <section className="rumahl-app-frame flex h-full min-h-[620px] flex-col overflow-hidden bg-background/75">
       <header className="flex flex-wrap items-center gap-3 border-b border-foreground/8 px-5 py-4">
         <div className="flex min-w-56 flex-1 items-center gap-3">
           <span className="grid size-11 place-items-center rounded-2xl bg-violet-500/15 text-violet-300"><FlowArrow size={24} weight="duotone" /></span>
           <div><h1 className="text-lg font-semibold">{t('automationEditor.title')}</h1><p className="text-xs text-foreground/45">{t('automationEditor.subtitle')}</p></div>
         </div>
-        <button type="button" onClick={newFlow} className="ora-secondary-button"><Plus size={17} />{t('automationEditor.new')}</button>
-        <button type="button" onClick={() => void showHistory()} disabled={!selectedId} className="ora-secondary-button disabled:opacity-40"><ListBullets size={17} />{t('automationEditor.history')}</button>
-        <button type="button" onClick={() => void run()} className="ora-secondary-button"><Play size={17} />{t('automationEditor.run')}</button>
-        <button type="button" onClick={() => void save()} disabled={saving} className="ora-primary-button">{saving ? t('automationEditor.saving') : t('automationEditor.save')}</button>
+        <button type="button" onClick={newFlow} className="rumahl-secondary-button"><Plus size={17} />{t('automationEditor.new')}</button>
+        <button type="button" onClick={() => void showHistory()} disabled={!selectedId} className="rumahl-secondary-button disabled:opacity-40"><ListBullets size={17} />{t('automationEditor.history')}</button>
+        <button type="button" onClick={() => void run()} className="rumahl-secondary-button"><Play size={17} />{t('automationEditor.run')}</button>
+        <button type="button" onClick={() => void save()} disabled={saving} className="rumahl-primary-button">{saving ? t('automationEditor.saving') : t('automationEditor.save')}</button>
         <OsWindowActions pageId="automations" />
       </header>
 
@@ -195,7 +202,7 @@ export function AutomationEditorApp() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {KIND_ORDER.map((kind) => <button key={kind} type="button" onClick={() => addNode(kind)} className="ora-secondary-button"><Plus size={15} />{t(`automationEditor.add.${kind}`)}</button>)}
+              {KIND_ORDER.map((kind) => <button key={kind} type="button" onClick={() => addNode(kind)} className="rumahl-secondary-button"><Plus size={15} />{t(`automationEditor.add.${kind}`)}</button>)}
             </div>
 
             <div className="relative space-y-4">
@@ -208,8 +215,8 @@ export function AutomationEditorApp() {
                   <button type="button" aria-label={t('automationEditor.moveDown')} disabled={index === draft.nodes.length - 1 || draft.nodes[index + 1]?.kind !== node.kind} onClick={() => moveNode(index, 1)} className="rounded-lg p-2 hover:bg-foreground/7 disabled:opacity-20"><ArrowDown size={16} /></button>
                   <button type="button" aria-label={t('common.delete')} disabled={!canRemoveNode(node)} onClick={() => setNodes(draft.nodes.filter((entry) => entry.id !== node.id))} className="rounded-lg p-2 text-red-300 hover:bg-red-500/10 disabled:opacity-20"><Trash size={16} /></button>
                 </div>
-                {node.kind === 'condition' && <div className="mt-4 grid gap-3 sm:grid-cols-3"><input value={String(node.config.path ?? '')} onChange={(event) => updateConfig(node, 'path', event.target.value)} placeholder={t('automationEditor.field.path')} className="ora-modal-input" /><select value={String(node.config.operator ?? 'equals')} onChange={(event) => updateConfig(node, 'operator', event.target.value)} className="ora-modal-input"><option value="equals">{t('automationEditor.operator.equals')}</option><option value="not_equals">{t('automationEditor.operator.notEquals')}</option><option value="truthy">{t('automationEditor.operator.truthy')}</option></select><input value={String(node.config.value ?? '')} onChange={(event) => updateConfig(node, 'value', event.target.value)} placeholder={t('automationEditor.field.value')} className="ora-modal-input" /></div>}
-                {node.kind === 'action' && <div className="mt-4 space-y-3"><select value={node.adapter} onChange={(event) => updateNode(node.id, { adapter: event.target.value, config: event.target.value === 'notification' ? { title: '', message: '', level: 'info' } : { service: '', entity_id: '', data: {} } })} className="ora-modal-input"><option value="home_assistant_service">{t('automationEditor.adapter.home_assistant_service')}</option><option value="notification">{t('automationEditor.adapter.notification')}</option></select>{node.adapter === 'notification' ? <div className="grid gap-3 sm:grid-cols-2"><input value={String(node.config.title ?? '')} onChange={(event) => updateConfig(node, 'title', event.target.value)} placeholder={t('automationEditor.field.notificationTitle')} className="ora-modal-input" /><select value={String(node.config.level ?? 'info')} onChange={(event) => updateConfig(node, 'level', event.target.value)} className="ora-modal-input"><option value="info">{t('automationEditor.level.info')}</option><option value="warning">{t('automationEditor.level.warning')}</option><option value="critical">{t('automationEditor.level.critical')}</option></select><textarea value={String(node.config.message ?? '')} onChange={(event) => updateConfig(node, 'message', event.target.value)} placeholder={t('automationEditor.field.message')} className="ora-modal-input sm:col-span-2" /></div> : <div className="grid gap-3 sm:grid-cols-2"><input value={String(node.config.service ?? '')} onChange={(event) => updateConfig(node, 'service', event.target.value)} placeholder={t('automationEditor.field.service')} className="ora-modal-input" /><input value={String(node.config.entity_id ?? '')} onChange={(event) => updateConfig(node, 'entity_id', event.target.value)} placeholder={t('automationEditor.field.entity')} className="ora-modal-input" /></div>}</div>}
+                {node.kind === 'condition' && <div className="mt-4 grid gap-3 sm:grid-cols-3"><input value={String(node.config.path ?? '')} onChange={(event) => updateConfig(node, 'path', event.target.value)} placeholder={t('automationEditor.field.path')} className="rumahl-modal-input" /><select value={String(node.config.operator ?? 'equals')} onChange={(event) => updateConfig(node, 'operator', event.target.value)} className="rumahl-modal-input"><option value="equals">{t('automationEditor.operator.equals')}</option><option value="not_equals">{t('automationEditor.operator.notEquals')}</option><option value="truthy">{t('automationEditor.operator.truthy')}</option></select><input value={String(node.config.value ?? '')} onChange={(event) => updateConfig(node, 'value', event.target.value)} placeholder={t('automationEditor.field.value')} className="rumahl-modal-input" /></div>}
+                {node.kind === 'action' && <div className="mt-4 space-y-3"><select value={node.adapter} onChange={(event) => updateNode(node.id, { adapter: event.target.value, config: event.target.value === 'notification' ? { title: '', message: '', level: 'info' } : { service: '', entity_id: '', data: {} } })} className="rumahl-modal-input"><option value="home_assistant_service">{t('automationEditor.adapter.home_assistant_service')}</option><option value="notification">{t('automationEditor.adapter.notification')}</option></select>{node.adapter === 'notification' ? <div className="grid gap-3 sm:grid-cols-2"><input value={String(node.config.title ?? '')} onChange={(event) => updateConfig(node, 'title', event.target.value)} placeholder={t('automationEditor.field.notificationTitle')} className="rumahl-modal-input" /><select value={String(node.config.level ?? 'info')} onChange={(event) => updateConfig(node, 'level', event.target.value)} className="rumahl-modal-input"><option value="info">{t('automationEditor.level.info')}</option><option value="warning">{t('automationEditor.level.warning')}</option><option value="critical">{t('automationEditor.level.critical')}</option></select><textarea value={String(node.config.message ?? '')} onChange={(event) => updateConfig(node, 'message', event.target.value)} placeholder={t('automationEditor.field.message')} className="rumahl-modal-input sm:col-span-2" /></div> : <div className="grid gap-3 sm:grid-cols-2"><input value={String(node.config.service ?? '')} onChange={(event) => updateConfig(node, 'service', event.target.value)} placeholder={t('automationEditor.field.service')} className="rumahl-modal-input" /><input value={String(node.config.entity_id ?? '')} onChange={(event) => updateConfig(node, 'entity_id', event.target.value)} placeholder={t('automationEditor.field.entity')} className="rumahl-modal-input" /></div>}</div>}
               </div>)}
             </div>
 

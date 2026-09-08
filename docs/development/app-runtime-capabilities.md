@@ -1,6 +1,6 @@
 # App Runtime Capabilities
 
-Apps and plugins can declare generic integration surfaces and runtime capabilities in their manifest. IORA exposes these declarations through a central integration registry so every UI area can discover extensions without hard-coding a service such as IORA Assist.
+Apps and plugins can declare generic integration surfaces and runtime capabilities in their manifest. rumahl exposes these declarations through a central integration registry so every UI area can discover extensions without hard-coding a service such as rumahl Assist.
 
 ## Manifest example
 
@@ -76,7 +76,7 @@ The App Store installed-apps view uses this registry to show integration badges 
     "repository": "owner/repo",
     "pull_request": 42
   },
-  "target_url": "https://example.com/iora/action"
+  "target_url": "https://example.com/ora/action"
 }
 ```
 
@@ -100,7 +100,7 @@ This requires `AppRuntimeAuditRead` and returns recent app-scoped events for job
 
 ## App secrets
 
-Apps can store their own encrypted secrets in IORA and reference them from runtime calls without sending API tokens through the UI or manifest.
+Apps can store their own encrypted secrets in rumahl and reference them from runtime calls without sending API tokens through the UI or manifest.
 
 Secret endpoints:
 
@@ -125,7 +125,7 @@ Secrets are stored encrypted at rest under the local app store data directory. L
 
 ## External HTTP and APIs
 
-`POST /api/apps/:app_id/http` lets apps perform controlled outbound HTTP/API requests through IORA. It requires `ExternalHttpRequest` and only allows `http` or `https` URLs. Loopback URLs are rejected.
+`POST /api/apps/:app_id/http` lets apps perform controlled outbound HTTP/API requests through rumahl. It requires `ExternalHttpRequest` and only allows `http` or `https` URLs. Loopback URLs are rejected.
 
 If `network_access.allowed_domains` or `external_apis[].base_url` is declared, outbound HTTP is restricted to those hosts. Wildcards such as `*.example.com` are supported. Local/private IP targets require `NetworkLocalAccess` and must match `network_access.allowed_local_ips` when that list is present.
 

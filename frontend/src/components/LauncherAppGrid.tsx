@@ -10,6 +10,9 @@ import type { OsLaunchMode } from '@/contexts/OsWindowContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { authFetch } from '@/lib/authHelpers'
 import { requestAppDetail, requestAppInStore } from '@/lib/appStoreHandoff'
+import { startAppAndWatch } from '@/lib/appLifecycle'
+import { confirmDialog } from '@/components/ui/confirmDialog'
+import { AppInstallProgress } from '@/components/app/AppInstallProgress'
 import type { InstallJobInfo } from '@/hooks/useInstalledApps'
 
 export interface LauncherFolder {
@@ -24,8 +27,9 @@ export type LauncherItem =
 
 export function buildLauncherItems(apps: OsAppDefinition[], folders: LauncherFolder[]): LauncherItem[] {
   const availableIds = new Set(apps.map((app) => app.id))
-  const normalizedFolders = folders
-    .map((folder) => ({ ...folder, appIds: folder.appIds.filter((id) => availableIds.has(id)) }))
+  const safeFolders = Array.isArray(folders) ? folders : []
+  const normalizedFolders = safeFolders
+    .map((folder) => ({ ...folder, appIds: (folder.appIds || []).filter((id) => availableIds.has(id)) }))
     .filter((folder) => folder.appIds.length > 0)
   const folderAppIds = new Set(normalizedFolders.flatMap((folder) => folder.appIds))
   return [
@@ -39,16 +43,16 @@ function AppIcon({ app, compact = false }: { app: OsAppDefinition; compact?: boo
   const size = compact ? 16 : 38
   return (
     <span
-      className={`ora-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'} ${
-        app.iconUrl ? 'border-0 bg-transparent shadow-none' : 'border border-white/15 shadow-lg'
+      className={`rumahl-app-icon relative flex shrink-0 items-center justify-center overflow-hidden text-white ${compact ? 'h-8 w-8 rounded-[0.65rem]' : 'h-20 w-20 rounded-[1.7rem]'} ${
+        app.iconUrl ? 'border-0 bg-transparent shadow-none' : ''
       }`}
       style={app.iconUrl
-        ? undefined
-        : { background: `linear-gradient(145deg, color-mix(in oklch, ${app.accent} 88%, white), color-mix(in oklch, ${app.accent} 72%, black))` }}
+        ? { boxShadow: 'none' }
+        : { '--app-accent': app.accent } as React.CSSProperties}
     >
-      {!app.iconUrl && <span className="ora-app-icon-highlight absolute inset-0" />}
+      {!app.iconUrl && <span className="rumahl-app-icon-highlight absolute inset-0" />}
       {app.iconUrl ? (
-        <img src={app.iconUrl} alt={app.fallbackName} className={`h-full w-full ${app.iconPad ? 'object-contain p-1' : 'object-cover'}`} />
+        <img src={app.iconUrl} alt={app.fallbackName} className="h-full w-full object-contain" />
       ) : Icon ? (
         <Icon size={size} weight="duotone" className="relative" />
       ) : null}
@@ -72,6 +76,7 @@ export function LauncherAppGrid({
   onOpenApp,
   getAppName,
   onLaunch,
+  onAddToDesktop,
   installJobs = [],
 }: {
   items: LauncherItem[]
@@ -86,9 +91,12 @@ export function LauncherAppGrid({
   getAppName: (app: OsAppDefinition) => string
   /** Launches an app in a specific OS layout (fullscreen / window / split / immersive). */
   onLaunch: (app: OsAppDefinition, mode: OsLaunchMode) => void
+  /** Add the app as a desktop shortcut (from the right-click menu). */
+  onAddToDesktop?: (app: OsAppDefinition) => void
   installJobs?: InstallJobInfo[]
 }) {
   const { t } = useTranslation()
+  const safeFolders = Array.isArray(folders) ? folders : []
   const [openFolderId, setOpenFolderId] = useState<string | null>(null)
   const [draggedAppId, setDraggedAppId] = useState<string | null>(null)
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null)
@@ -123,11 +131,11 @@ export function LauncherAppGrid({
       window.removeEventListener('keydown', onKey)
     }
   }, [quickMenu])
-  const openFolder = folders.find((folder) => folder.id === openFolderId)
+  const openFolder = safeFolders.find((folder) => folder.id === openFolderId)
   const folderApps = openFolder?.appIds.map((id) => apps.find((app) => app.id === id)).filter((app): app is OsAppDefinition => Boolean(app)) || []
 
   const updateFolder = (folderId: string, update: (folder: LauncherFolder) => LauncherFolder) => {
-    onFoldersChange(folders.map((folder) => folder.id === folderId ? update(folder) : folder))
+    onFoldersChange(safeFolders.map((folder) => folder.id === folderId ? update(folder) : folder))
   }
 
   const itemIdOf = (item: LauncherItem) => (item.type === 'app' ? item.app.id : item.folder.id)
@@ -146,7 +154,7 @@ export function LauncherAppGrid({
         onReorder(draggedFolderId, targetId)
       } else {
         // Folder over folder → reorder folders
-        const current = [...folders]
+        const current = [...safeFolders]
         const from = current.findIndex((f) => f.id === draggedFolderId)
         const to = current.findIndex((f) => f.id === targetId)
         if (from !== -1 && to !== -1) {
@@ -189,6 +197,7 @@ export function LauncherAppGrid({
 
   const openQuickMenu = (app: OsAppDefinition, event: React.MouseEvent) => {
     event.preventDefault()
+    event.stopPropagation()
     closeAllContextMenus()
     setMoreOpen(false)
     setMorePos(null)
@@ -201,20 +210,27 @@ export function LauncherAppGrid({
   const isManagedApp = (app: OsAppDefinition) => typeof app.runtimeStatus === 'string'
   const isAppRunning = (app: OsAppDefinition) => app.runtimeStatus === 'running' || app.runtimeStatus === 'starting'
 
-  const toast = (message: string) => window.dispatchEvent(new CustomEvent('iora:toast', { detail: { message } }))
+  const toast = (message: string) => window.dispatchEvent(new CustomEvent('rumahl:toast', { detail: { message } }))
 
   /** Start / stop / restart an installed app via the supervisor. */
   const runAppAction = async (action: 'start' | 'stop' | 'restart', app: OsAppDefinition) => {
     setBusyAction(action)
     try {
-      const res = await authFetch(`/api/supervisor/apps/${app.pageId}/${action}`, { method: 'POST' })
-      if (!res.ok) {
-        const data = await res.json().catch(() => null) as { error?: string; message?: string } | null
-        throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
+      if (action === 'start') {
+        // Watch the runtime state: a successful POST is not a successful
+        // start — a container that crashes on boot must surface a toast.
+        const result = await startAppAndWatch(app.pageId)
+        if (result.ok) toast(t('os.quickActions.started', { name: getAppName(app) }))
+      } else {
+        const res = await authFetch(`/api/supervisor/apps/${app.pageId}/${action}`, { method: 'POST' })
+        if (!res.ok) {
+          const data = await res.json().catch(() => null) as { error?: string; message?: string } | null
+          throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
+        }
+        const key = action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
+        toast(t(key, { name: getAppName(app) }))
       }
-      const key = action === 'start' ? 'os.quickActions.started' : action === 'stop' ? 'os.quickActions.stopped' : 'os.quickActions.restarted'
-      toast(t(key, { name: getAppName(app) }))
-      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
     } catch (e) {
       toast(t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }))
     } finally {
@@ -226,7 +242,12 @@ export function LauncherAppGrid({
 
   /** Uninstall a managed app (stops the container and removes app data). */
   const confirmUninstall = async (app: OsAppDefinition) => {
-    if (!window.confirm(t('os.quickActions.uninstallConfirm', { name: getAppName(app) }))) return
+    if (!(await confirmDialog({
+      title: t('os.quickActions.uninstall'),
+      message: t('os.quickActions.uninstallConfirm', { name: getAppName(app) }),
+      confirmLabel: t('os.quickActions.uninstall'),
+      danger: true,
+    }))) return
     setBusyAction('uninstall')
     try {
       const res = await authFetch(`/api/appstore/apps/${app.pageId}`, { method: 'DELETE' })
@@ -235,7 +256,7 @@ export function LauncherAppGrid({
         throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
       }
       toast(t('os.quickActions.uninstalled', { name: getAppName(app) }))
-      window.dispatchEvent(new Event('iora:installed-apps-refresh'))
+      window.dispatchEvent(new Event('rumahl:installed-apps-refresh'))
     } catch (e) {
       toast(t('os.quickActions.actionFailed', { detail: e instanceof Error ? e.message : String(e) }))
     } finally {
@@ -263,14 +284,32 @@ export function LauncherAppGrid({
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
-        <button type="button" onClick={() => onEditModeChange(!editMode)} className={`flex min-h-10 items-center gap-2 rounded-full border px-4 text-xs font-semibold transition-colors ${editMode ? 'border-accent/40 bg-accent/15 text-accent' : 'border-foreground/10 bg-background/80 text-foreground/65 hover:bg-background'}`}>
+      <div className="rumahl-launcher-library-toolbar mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-foreground">{t('os.allApps')}</h2>
+        <button type="button" aria-pressed={editMode} onClick={() => onEditModeChange(!editMode)} className={`flex min-h-10 items-center gap-2 rounded-full border px-4 text-xs font-semibold transition-colors ${editMode ? 'border-accent/40 bg-accent/15 text-accent' : 'border-foreground/10 bg-background/80 text-foreground/65 hover:bg-background'}`}>
           {editMode ? <Check size={16} weight="bold" /> : <PencilSimple size={16} />}
           {editMode ? t('os.launcher.finishEditing') : t('os.launcher.edit')}
         </button>
       </div>
       <AnimatePresence mode="wait">
-        <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6">
+        <motion.div initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="rumahl-launcher-app-grid grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 md:grid-cols-6">
+          {/* Install progress tiles (CasaOS/Umbrel style): apps currently
+              being installed show a progress ring instead of a startable
+              tile, so the launcher never offers a half-installed app. */}
+          {installJobs.map((job) => (
+            <div key={`install-${job.id}`} className="flex min-w-0 flex-col items-center p-2 text-center">
+              <AppInstallProgress
+                appId={job.appId}
+                label={job.appName || job.appId}
+                progress={job.progress}
+                size="compact"
+              />
+              <span className="rumahl-adaptive-text-soft mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{job.appName || job.appId}</span>
+              <span className="mt-0.5 text-[10px] text-foreground/40">
+                {Math.round(job.progress)}% · {t('os.launcher.installing')}
+              </span>
+            </div>
+          ))}
           {items.map((item, index) => item.type === 'app' ? (
             <motion.button
               key={item.app.id}
@@ -283,10 +322,10 @@ export function LauncherAppGrid({
               onClick={() => { if (!dragJustHappenedRef.current) onOpenApp(item.app) }}
               onContextMenu={(event) => openQuickMenu(item.app, event)}
               className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring cursor-grab active:cursor-grabbing`}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.025, 0.2), duration: 0.24 }} whileHover={editMode ? undefined : { y: -4, scale: 1.025 }} whileTap={editMode ? undefined : { scale: 0.96 }}
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.025, 0.2), duration: 0.24 }} whileTap={editMode ? undefined : { scale: 0.96 }}
             >
               <AppIcon app={item.app} />
-              <span className="mt-2.5 w-full truncate text-xs font-medium text-foreground/90 sm:text-sm">{getAppName(item.app)}</span>
+              <span className="rumahl-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{getAppName(item.app)}</span>
             </motion.button>
           ) : (
             <button
@@ -300,13 +339,13 @@ export function LauncherAppGrid({
               onClick={() => { if (!dragJustHappenedRef.current) setOpenFolderId(item.folder.id) }}
               className={`group flex min-w-0 touch-manipulation flex-col items-center rounded-3xl p-2 text-center focus-ring ${editMode ? 'cursor-grab ring-1 ring-accent/25 active:cursor-grabbing' : ''} ${draggedFolderId === item.folder.id ? 'opacity-40' : ''}`}
             >
-              <span className="grid h-20 w-20 grid-cols-2 gap-1 overflow-hidden rounded-[1.7rem] border border-white/15 bg-background/90 p-2 shadow-xl backdrop-blur-xl">
+              <span className="rumahl-folder-tile grid h-20 w-20 grid-cols-2 gap-1 overflow-hidden rounded-[1.7rem] p-2">
                 {item.folder.appIds.slice(0, 4).map((id) => {
                   const app = apps.find((candidate) => candidate.id === id)
                   return app ? <AppIcon key={id} app={app} compact /> : null
                 })}
               </span>
-              <span className="mt-2.5 w-full truncate text-xs font-medium text-foreground/90 sm:text-sm">{item.folder.name}</span>
+              <span className="rumahl-adaptive-text mt-2.5 w-full truncate text-xs font-medium sm:text-sm">{item.folder.name}</span>
             </button>
           ))}
         </motion.div>
@@ -315,7 +354,7 @@ export function LauncherAppGrid({
       {createPortal(
       <AnimatePresence>{openFolder && <>
         <motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpenFolderId(null)} className="fixed inset-0 z-[84] bg-black/55 backdrop-blur-md" aria-label={t('common.close')} />
-        <motion.section initial={{ opacity: 0, scale: 0.92, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.94, y: 16 }} role="dialog" aria-modal="true" aria-label={openFolder.name} className="fixed left-1/2 top-1/2 z-[85] max-h-[80dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[2rem] border border-white/15 bg-background/95 p-5 shadow-2xl backdrop-blur-2xl sm:p-7">
+        <motion.section initial={{ opacity: 0, scale: 0.92, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.94, y: 16 }} role="dialog" aria-modal="true" aria-label={openFolder.name} className="glass-card fixed left-1/2 top-1/2 z-[85] max-h-[80dvh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-4xl p-5 shadow-2xl sm:p-7">
           <div className="flex items-center gap-3">
             <Folder size={24} weight="duotone" className="shrink-0 text-accent" />
             <input value={openFolder.name} onChange={(event) => updateFolder(openFolder.id, (folder) => ({ ...folder, name: event.target.value }))} aria-label={t('os.launcher.folderName')} className="min-w-0 flex-1 rounded-xl bg-foreground/5 px-3 py-2 text-xl font-semibold text-foreground outline-none focus:ring-2 focus:ring-accent/40" />
@@ -328,7 +367,7 @@ export function LauncherAppGrid({
               {editMode && <button type="button" onClick={() => updateFolder(openFolder.id, (folder) => ({ ...folder, appIds: folder.appIds.filter((id) => id !== app.id) }))} className="absolute -right-1 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background text-foreground shadow-lg" aria-label={t('os.launcher.removeFromFolder', { app: getAppName(app) })}><X size={14} /></button>}
             </div>)}
           </div>
-          {editMode && <button type="button" onClick={() => { onFoldersChange(folders.filter((folder) => folder.id !== openFolder.id)); setOpenFolderId(null) }} className="mt-7 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 text-sm font-semibold text-red-300 hover:bg-red-500/15"><Trash size={17} />{t('os.launcher.deleteFolder')}</button>}
+          {editMode && <button type="button" onClick={() => { onFoldersChange(safeFolders.filter((folder) => folder.id !== openFolder.id)); setOpenFolderId(null) }} className="mt-7 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 text-sm font-semibold text-red-300 hover:bg-red-500/15"><Trash size={17} />{t('os.launcher.deleteFolder')}</button>}
         </motion.section>
       </>}</AnimatePresence>,
       document.body
@@ -341,35 +380,45 @@ export function LauncherAppGrid({
           initial={{ opacity: 0, y: 6, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 4, scale: 0.97 }}
-          className="fixed z-[87] w-48 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+          className="rumahl-menu fixed z-[var(--layer-menu)] w-48 overflow-hidden"
           style={{ left: Math.min(quickMenu.x, window.innerWidth - 200), top: Math.min(quickMenu.y + 8, window.innerHeight - (isManagedApp(quickMenu.app) ? 340 : 260)) }}
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
         >
           {isManagedApp(quickMenu.app) && <>
             {/* Start / Stop — depending on the current runtime status */}
-            <button type="button" onClick={() => void runAppAction(isAppRunning(quickMenu.app) ? 'stop' : 'start', quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8 disabled:pointer-events-none disabled:opacity-50">
+            <button type="button" onClick={() => void runAppAction(isAppRunning(quickMenu.app) ? 'stop' : 'start', quickMenu.app)} disabled={busyAction !== null} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection disabled:pointer-events-none disabled:opacity-50">
               {busyAction === 'start' || busyAction === 'stop' ? <MenuSpinner /> : isAppRunning(quickMenu.app)
                 ? <Stop size={16} className="text-foreground/60" />
                 : <Play size={16} className="text-foreground/60" />}
               {isAppRunning(quickMenu.app) ? t('os.quickActions.stop') : t('os.quickActions.start')}
             </button>
-            <button type="button" onClick={() => void runAppAction('restart', quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8 disabled:pointer-events-none disabled:opacity-50">
+            <button type="button" onClick={() => void runAppAction('restart', quickMenu.app)} disabled={busyAction !== null} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection disabled:pointer-events-none disabled:opacity-50">
               {busyAction === 'restart' ? <MenuSpinner /> : <ArrowClockwise size={16} className="text-foreground/60" />}
               {t('os.quickActions.restart')}
             </button>
-            <button type="button" onClick={() => troubleshootApp(quickMenu.app)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => troubleshootApp(quickMenu.app)} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <Wrench size={16} className="text-foreground/60" />
               {t('os.quickActions.troubleshoot')}
             </button>
-            <button type="button" onClick={() => showAppInStore(quickMenu.app)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => showAppInStore(quickMenu.app)} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <Storefront size={16} className="text-foreground/60" />
               {t('os.quickActions.showInStore')}
             </button>
-            <button type="button" onClick={() => void confirmUninstall(quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-red-300/90 hover:bg-red-500/15 disabled:pointer-events-none disabled:opacity-50">
+            <button type="button" onClick={() => void confirmUninstall(quickMenu.app)} disabled={busyAction !== null} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">
               {busyAction === 'uninstall' ? <MenuSpinner /> : <TrashSimple size={16} className="text-red-400/80" />}
               {t('os.quickActions.uninstall')}
             </button>
+            {onAddToDesktop && (
+              <button
+                type="button"
+                onClick={() => { onAddToDesktop(quickMenu.app); setQuickMenu(null) }}
+                className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
+              >
+                <PushPin size={16} className="text-foreground/60" />
+                {t('os.quickActions.addToDesktop')}
+              </button>
+            )}
             <div className="my-1 h-px bg-foreground/8" />
             {/* Remaining actions live in the "More" submenu */}
             <button
@@ -380,7 +429,7 @@ export function LauncherAppGrid({
                 if (!moreOpen) setMorePos(rect ? { x: rect.right, y: rect.top } : null)
                 setMoreOpen(!moreOpen)
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
             >
               <SquaresFour size={16} className="text-foreground/60" />
               <span className="flex-1">{t('os.quickActions.more')}</span>
@@ -388,39 +437,49 @@ export function LauncherAppGrid({
             </button>
           </>}
           {!isManagedApp(quickMenu.app) && <>
-            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <ArrowSquareOut size={16} className="text-foreground/60" />
               {t('os.launcher.open')}
             </button>
+            {onAddToDesktop && (
+              <button
+                type="button"
+                onClick={() => { onAddToDesktop(quickMenu.app); setQuickMenu(null) }}
+                className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
+              >
+                <PushPin size={16} className="text-foreground/60" />
+                {t('os.quickActions.addToDesktop')}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
                 toggleDockPin(quickMenu.app.id)
                 setQuickMenu({ ...quickMenu, pinned: !quickMenu.pinned })
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
             >
               <PushPin size={16} className="text-foreground/60" />
               {quickMenu.pinned ? t('os.quickActions.unpin') : t('os.quickActions.pin')}
             </button>
             <div className="my-1 h-px bg-foreground/8" />
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.asWindow')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitLeft')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitRight')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.immersive')}
             </button>
-            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <PencilSimple size={16} className="text-foreground/60" />
               {t('os.quickActions.arrange')}
             </button>
@@ -433,12 +492,12 @@ export function LauncherAppGrid({
             initial={{ opacity: 0, x: -6, scale: 0.96 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -4, scale: 0.97 }}
-            className="fixed z-[88] w-48 overflow-hidden rounded-2xl border border-white/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+            className="rumahl-menu fixed z-[var(--layer-menu)] w-48 overflow-hidden"
             style={{ left: Math.min((morePos?.x ?? quickMenu.x + 192) + 6, window.innerWidth - 200), top: Math.min(morePos?.y ?? quickMenu.y + 8, window.innerHeight - 340) }}
             onClick={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.stopPropagation()}
           >
-            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onOpenApp(quickMenu.app); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <ArrowSquareOut size={16} className="text-foreground/60" />
               {t('os.launcher.open')}
             </button>
@@ -448,29 +507,29 @@ export function LauncherAppGrid({
                 toggleDockPin(quickMenu.app.id)
                 setQuickMenu({ ...quickMenu, pinned: !quickMenu.pinned })
               }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8"
+              className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection"
             >
               <PushPin size={16} className="text-foreground/60" />
               {quickMenu.pinned ? t('os.quickActions.unpin') : t('os.quickActions.pin')}
             </button>
             <div className="my-1 h-px bg-foreground/8" />
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'window'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.asWindow')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-left'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitLeft')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'split-right'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.splitRight')}
             </button>
-            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onLaunch(quickMenu.app, 'immersive'); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <SquaresFour size={16} className="text-foreground/60" />
               {t('os.window.immersive')}
             </button>
-            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/85 hover:bg-foreground/8">
+            <button type="button" onClick={() => { onEditModeChange(!editMode); setQuickMenu(null) }} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
               <PencilSimple size={16} className="text-foreground/60" />
               {t('os.quickActions.arrange')}
             </button>

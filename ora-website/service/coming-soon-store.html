@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coming soon — rumahl Store</title>
+<meta name="description" content="The rumahl Store — apps and plugins for rumahl OS — is coming soon.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1237 308'%3E%3Cpath fill='%232ea0f7' d='M22 284 Q18 284 18 280 V171 C18 119 52 85 103 85 H120 Q124 85 124 89 V125 Q124 129 120 129 H107 C79 129 61 146 61 174 V280 Q61 284 57 284 Z'/%3E%3C/svg%3E">
+<style>
+  /* Fully standalone: no external fonts, no CDN, no JavaScript, no other files. */
+  :root {
+    --bg: #06060a;
+    --card: rgba(16, 16, 24, 0.74);
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e8ecf4;
+    --text-dim: #8b93a7;
+    --primary: #2ea0f7;
+    --teal: #38e1c4;
+    --purple: #a78bfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Aurora background — pure CSS */
+  .aurora { position: fixed; inset: 0; pointer-events: none; }
+  .aurora::before, .aurora::after {
+    content: ""; position: absolute; border-radius: 9999px; filter: blur(90px);
+  }
+  .aurora::before {
+    width: 480px; height: 480px; left: 50%; top: -220px; transform: translateX(-50%);
+    background: rgba(46, 160, 247, 0.16);
+    animation: drift 12s ease-in-out infinite alternate;
+  }
+  .aurora::after {
+    width: 380px; height: 380px; right: -120px; bottom: -140px;
+    background: rgba(167, 139, 250, 0.08);
+    animation: drift2 16s ease-in-out infinite alternate;
+  }
+  @keyframes drift { from { transform: translateX(-50%) translateY(0); } to { transform: translateX(-50%) translateY(26px); } }
+  @keyframes drift2 { from { transform: translate(0, 0); } to { transform: translate(-34px, -22px); } }
+
+  .grid {
+    position: fixed; inset: 0; pointer-events: none;
+    background-image: radial-gradient(rgba(46, 160, 247, 0.13) 1px, transparent 1px);
+    background-size: 26px 26px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 15%, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 15%, transparent 75%);
+  }
+
+  .card {
+    position: relative;
+    width: 100%; max-width: 560px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 56px 40px 44px;
+    text-align: center;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+    animation: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+  /* Logo — block-level so the badge lands BELOW it, centered */
+  .logo { display: block; text-align: center; margin-bottom: 26px; }
+  .logo svg { height: 34px; width: auto; animation: logo-glow 3.5s ease-in-out infinite; }
+  @keyframes logo-glow {
+    0%, 100% { filter: drop-shadow(0 0 6px rgba(46, 160, 247, 0.25)); }
+    50%      { filter: drop-shadow(0 0 22px rgba(46, 160, 247, 0.5)); }
+  }
+
+  /* The O mark (ORA) — glowing, with expanding rings (pure CSS) */
+  .mark { position: relative; width: 96px; height: 96px; margin: 0 auto 30px; }
+  .mark svg { width: 100%; height: 100%; color: var(--primary); animation: glow 2.2s ease-in-out infinite; }
+  .mark .ring {
+    position: absolute; inset: -6px; border-radius: 9999px;
+    border: 2px solid rgba(46, 160, 247, 0.55);
+    animation: pulse 2.4s ease-out infinite;
+  }
+  .mark .ring.r2 { animation-delay: 0.8s; }
+  .mark .ring.r3 { animation-delay: 1.6s; }
+  @keyframes glow {
+    0%, 100% { filter: drop-shadow(0 0 8px rgba(46, 160, 247, 0.35)); }
+    50%      { filter: drop-shadow(0 0 26px rgba(46, 160, 247, 0.6)); }
+  }
+  @keyframes pulse {
+    0%   { transform: scale(0.6); opacity: 0.8; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border);
+    background: rgba(46, 160, 247, 0.14);
+    color: var(--primary);
+    font-size: 12px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 7px 16px; border-radius: 999px;
+    margin-bottom: 22px;
+  }
+
+  h1 {
+    font-size: clamp(30px, 6vw, 44px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin-bottom: 16px;
+  }
+
+  /* Flowing gradient headline word */
+  .grad {
+    background-image: linear-gradient(90deg, var(--teal), var(--primary), var(--purple), var(--teal), var(--primary));
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 5s linear infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+
+  .desc {
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.65;
+    max-width: 400px;
+    margin: 0 auto 26px;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .chips span {
+    font-size: 12px; font-weight: 500;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 13px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .chips span b { color: var(--text); font-weight: 600; }
+
+  footer { margin-top: 28px; font-size: 12px; color: rgba(139, 147, 167, 0.65); }
+
+  @media (max-width: 480px) { .card { padding: 40px 24px 32px; } }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora::before, .aurora::after, .card, .logo svg, .mark svg, .mark .ring, .grad { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="grid" aria-hidden="true"></div>
+
+  <div class="card">
+    <div class="logo" aria-label="rumahl">
+      <svg viewBox="0 0 1237 308" fill="currentColor" color="#e8ecf4" role="img" aria-hidden="true">
+        <path d="M22 284 Q18 284 18 280 V171 C18 119 52 85 103 85 H120 Q124 85 124 89 V125 Q124 129 120 129 H107 C79 129 61 146 61 174 V280 Q61 284 57 284 Z"/>
+        <path d="M153 86 H189 Q193 86 193 90 V196 C193 227 215 246 251 246 C287 246 309 227 309 196 V90 Q309 86 313 86 H348 Q352 86 352 90 V197 C352 252 313 289 251 289 C189 289 149 252 149 197 V90 Q149 86 153 86 Z"/>
+        <path d="M380 284 Q376 284 376 280 V169 C376 117 408 81 459 81 C492 81 518 93 534 112 C550 93 575 81 608 81 C658 81 692 117 692 169 V280 Q692 284 688 284 H652 Q648 284 648 280 V168 C648 142 632 125 606 125 C577 125 555 142 555 167 V280 Q555 284 551 284 H516 Q512 284 512 280 V166 C512 142 494 125 468 125 C439 125 420 142 420 166 V280 Q420 284 416 284 Z"/>
+        <path fill-rule="evenodd" d="M825 81 C868 81 899 99 918 130 C929 148 933 166 933 190 V280 Q933 284 929 284 H893 Q889 284 889 280 V269 C874 282 855 289 831 289 C766 289 718 246 718 185 C718 125 764 81 825 81 Z M826 125 C789 125 763 150 763 185 C763 220 789 246 826 246 C863 246 889 221 889 185 C889 150 863 125 826 125 Z"/>
+        <path d="M965 18 H1001 Q1005 18 1005 22 V96 C1018 87 1034 82 1052 82 C1108 82 1147 118 1147 171 V280 Q1147 284 1143 284 H1107 Q1103 284 1103 280 V173 C1103 144 1085 127 1055 127 C1025 127 1005 145 1005 175 V280 Q1005 284 1001 284 H965 Q961 284 961 280 V22 Q961 18 965 18 Z"/>
+        <path d="M1178 18 H1214 Q1218 18 1218 22 V280 Q1218 284 1214 284 H1178 Q1174 284 1174 280 V22 Q1174 18 1178 18 Z"/>
+      </svg>
+    </div>
+
+    <div class="badge">Store &middot; Coming soon</div>
+
+    <h1>The <span class="grad">rumahl Store</span> is coming soon</h1>
+    <p class="desc">Apps and plugins for rumahl OS — reviewed for safety, privacy and quality, installable with explicit permissions. We are preparing the shelves right now.</p>
+
+    <div class="chips">
+      <span><b>Apps</b></span>
+      <span><b>Plugins</b></span>
+      <span><b>Reviewed</b></span>
+    </div>
+  </div>
+
+  <footer>&copy; 2026 rumahl. All rights reserved.</footer>
+</body>
+</html>

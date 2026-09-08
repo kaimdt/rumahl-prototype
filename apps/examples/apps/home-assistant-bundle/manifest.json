@@ -2,8 +2,8 @@
   "id": "home-assistant-bundle",
   "name": "Home Assistant Bundle",
   "version": "1.0.0",
-  "developer": "IORA Team",
-  "description": "Volle Home Assistant Installation als IORA App Bundle. Enthält HA Core, PostgreSQL und MQTT Broker in einem internen Netzwerk.",
+  "developer": "rumahl Team",
+  "description": "Volle Home Assistant Installation als rumahl App Bundle. Enthält HA Core, PostgreSQL und MQTT Broker in einem internen Netzwerk.",
   "type": "app",
   "icon": "icon.png",
   "permissions": [
@@ -108,12 +108,12 @@
     "network": {
       "driver": "bridge",
       "internal": false,
-      "name": "iora-bundle-home-assistant",
+      "name": "rumahl-bundle-home-assistant",
       "subnet": "172.28.0.0/24"
     },
     "volumes": [],
     "auto_compose": true,
-    "min_iora_version": "2.3.0"
+    "min_rumahl_version": "2.3.0"
   },
   "custom_pages": [
     {

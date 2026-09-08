@@ -1,5 +1,5 @@
 /**
- * Canonical ORA OS application model.
+ * Canonical rumahl OS application model.
  *
  * Store, launcher, app management and the runtime runner consume these types
  * instead of maintaining their own interpretations of install/runtime state.
@@ -62,7 +62,7 @@ export interface AppRuntimeTarget {
 }
 
 const RUNNING_STATES = new Set(['running', 'healthy', 'up'])
-const STARTING_STATES = new Set(['starting', 'restarting', 'created'])
+const STARTING_STATES = new Set(['starting', 'restarting', 'created', 'installing'])
 const FAILED_STATES = new Set(['failed', 'error', 'dead', 'crashed', 'unhealthy'])
 
 export function normalizeRuntimeState(status?: string | null): AppRuntimeState {

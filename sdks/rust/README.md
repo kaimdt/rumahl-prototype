@@ -1,21 +1,21 @@
-# IORA SDK for Rust
+# rumahl SDK for Rust
 
-Official Rust SDK for developing IORA apps and plugins.
+Official Rust SDK for developing rumahl apps and plugins.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Crates.io](https://img.shields.io/crates/v/iora-sdk.svg)](https://crates.io/crates/iora-sdk)
-[![Documentation](https://docs.rs/iora-sdk/badge.svg)](https://docs.rs/iora-sdk)
+[![Crates.io](https://img.shields.io/crates/v/rumahl-sdk.svg)](https://crates.io/crates/rumahl-sdk)
+[![Documentation](https://docs.rs/rumahl-sdk/badge.svg)](https://docs.rs/rumahl-sdk)
 
 ## Features
 
-- 🦀 **Type-safe** - Full Rust type safety for IORA APIs
+- 🦀 **Type-safe** - Full Rust type safety for rumahl APIs
 - 🔌 **Plugin System** - Easy plugin development with traits
 - 📦 **App Development** - Build containerized apps
 - 🎨 **Widget Support** - Create dashboard widgets
 - 🔐 **Permission Management** - Fine-grained permission control
 - 🌐 **Network Access** - Managed network access with domain whitelisting
 - ⚙️ **Settings Schema** - User-configurable settings
-- 📡 **API Client** - Full-featured HTTP client for IORA APIs
+- 📡 **API Client** - Full-featured HTTP client for rumahl APIs
 
 ## Installation
 
@@ -23,7 +23,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-iora-sdk = "0.1"
+rumahl-sdk = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -34,12 +34,12 @@ serde_json = "1.0"
 ### Using the API Client
 
 ```rust
-use iora_sdk::prelude::*;
+use rumahl_sdk::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Create a client
-    let client = IoraClient::new("http://localhost:8080")
+    let client = rumahlClient::new("http://localhost:8080")
         .with_api_key("your-api-key");
 
     // List all entities
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     // Send a notification
     client.notifications().send(NotificationPayload {
         title: "Hello".to_string(),
-        message: "IORA SDK is working!".to_string(),
+        message: "rumahl SDK is working!".to_string(),
         priority: Some("high".to_string()),
         icon: None,
     }).await?;
@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
 ### Creating a Plugin
 
 ```rust
-use iora_sdk::prelude::*;
+use rumahl_sdk::prelude::*;
 
 pub struct MyPlugin {
     id: String,
@@ -108,12 +108,12 @@ impl Plugin for MyPlugin {
 ### Building an App Manifest
 
 ```rust
-use iora_sdk::prelude::*;
+use rumahl_sdk::prelude::*;
 
-let manifest = ManifestBuilder::new("my-app", "My IORA App")
+let manifest = ManifestBuilder::new("my-app", "My rumahl App")
     .version("1.0.0")
     .developer("Your Name")
-    .description("An awesome IORA app")
+    .description("An awesome rumahl app")
     .permissions(vec![
         Permission::ReadEntities,
         Permission::ControlEntities,
@@ -174,12 +174,12 @@ std::fs::write("manifest.json", json)?;
 
 ## API Reference
 
-### IoraClient
+### rumahlClient
 
-The main client for interacting with IORA APIs.
+The main client for interacting with rumahl APIs.
 
 ```rust
-let client = IoraClient::new("http://localhost:8080")
+let client = rumahlClient::new("http://localhost:8080")
     .with_api_key("your-api-key");
 ```
 
@@ -247,7 +247,7 @@ client.settings().update("my-app-id", json!({
 All available permissions with risk levels:
 
 ```rust
-use iora_sdk::Permission;
+use rumahl_sdk::Permission;
 
 // Get permission risk level
 let risk = Permission::ControlEntities.risk_level();
@@ -308,6 +308,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Support
 
-- Documentation: https://docs.iora.dev
-- Issues: https://github.com/kaimdt/home-assistant-dashb/issues
-- Discussions: https://github.com/kaimdt/home-assistant-dashb/discussions
+- Documentation: https://docs.ora.dev
+- Issues: https://github.com/rumahl/home-assistant-dashb/issues
+- Discussions: https://github.com/rumahl/home-assistant-dashb/discussions

@@ -1,60 +1,49 @@
 /**
  * ThemeSplashScreen – Theme-aware splash/loading screen.
  *
- * Reads splash configuration from the active theme and renders:
- * - Custom splash HTML template (if provided by the theme)
- * - Or a motion.dev-powered splash animation using theme colors
- * - Support for custom logo, brand text, progress bar, background
- * - Configurable exit animations (fade, scale, slide-up, slide-down)
+ * Renders the rumahl OS boot splash in the design language of
+ * `rumahl-os-splash.html`: a near-black canvas, the white rumahl "r"
+ * mark with a breathing glow, a hairline loader and a muted label.
  *
- * Falls back to the original SplashScreen when no theme splash config exists.
+ * Reads splash configuration from the active theme and renders:
+ * - Custom splash logo image (if provided by the theme)
+ * - Configurable exit animations (fade, scale, slide-up, slide-down)
+ * - Configurable background color, brand text, tagline and duration
+ *
+ * The OS boot process can finish the splash early via
+ * `window.finishRumahlSplash()`.
  */
 
-import { motion, AnimatePresence } from 'motion/react'
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 import type { SplashConfig } from '@/contexts/ThemeContext'
+import { RumahlMark } from '@/components/RumahlMark'
 
 interface ThemeSplashScreenProps {
   onComplete: () => void
   duration?: number
 }
 
-/** Default status messages in German (if theme doesn't provide custom ones) */
-const DEFAULT_STATUS_MESSAGES = [
-  'IORA Core wird geladen...',
-  'IORA Home verbindet...',
-  'IORA Assist initialisiert...',
-  'System bereit.',
-]
+/** Splash canvas color from rumahl-os-splash.html */
+const SPLASH_BACKGROUND = '#050505'
+
+/** Brand box size from the splash (clamped between 72px and 116px) */
+const BRAND_SIZE = 'clamp(72px, 8.2vw, 116px)'
 
 /**
- * Get theme-aware gradient background based on the splash config or CSS variables.
+ * Get the splash background color based on the splash config or the
+ * default splash canvas (near-black).
  */
-function resolveBackgroundColor(
-  config: SplashConfig | null,
-  cssVars: Record<string, string>
-): string {
+function resolveBackgroundColor(config: SplashConfig | null): string {
   if (config?.background_color) return config.background_color
-  // Use theme's background color or fall back to dark
-  return cssVars['background'] || 'oklch(0.08 0.02 250)'
+  return SPLASH_BACKGROUND
 }
 
 /**
- * Resolve colors from theme CSS variables or use defaults.
- */
-function resolveThemeColors(
-  config: SplashConfig | null,
-  cssVars: Record<string, string>
-) {
-  const accent = cssVars['accent'] || 'oklch(0.65 0.20 210)'
-  const foreground = cssVars['foreground'] || 'oklch(0.92 0.01 250)'
-  const mutedFg = cssVars['muted-foreground'] || 'oklch(0.55 0.02 250)'
-  return { accent, foreground, mutedFg }
-}
-
-/**
- * Determine the exit animation variant based on config.
+ * Determine the exit animation variant based on config. The default
+ * ("fade") mirrors the splash HTML: brand glides up and blurs, the
+ * canvas fades out shortly after.
  */
 function getExitVariant(exitAnimation: string) {
   switch (exitAnimation) {
@@ -69,12 +58,13 @@ function getExitVariant(exitAnimation: string) {
       return { opacity: 0, scale: 1.02, filter: 'blur(8px)' }
     case 'fade':
     default:
-      return { opacity: 0, scale: 1.02 }
+      return { opacity: 0 }
   }
 }
 
 /**
- * Get exit transition timing based on animation type.
+ * Get exit transition timing based on animation type. The default fade
+ * waits for the brand's own exit animation before the canvas disappears.
  */
 function getExitTransition(exitAnimation: string): object {
   switch (exitAnimation) {
@@ -87,290 +77,185 @@ function getExitTransition(exitAnimation: string): object {
       return { duration: 0.7, ease: [0.16, 1, 0.3, 1] }
     case 'fade':
     default:
-      return { duration: 0.5, ease: [0.16, 1, 0.3, 1] }
+      return { duration: 0.55, delay: 0.18, ease: [0.16, 1, 0.3, 1] }
   }
 }
 
 export function ThemeSplashScreen({ onComplete, duration }: ThemeSplashScreenProps) {
-  const {
-    splashConfig,
-    activeCssVariables,
-    themeResponse,
-  } = useTheme()
+  const { splashConfig } = useTheme()
 
   const [show, setShow] = useState(true)
-  const [progress, setProgress] = useState(0)
-  const [statusIndex, setStatusIndex] = useState(0)
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
+  const showRef = useRef(show)
+  showRef.current = show
+  const reducedMotion = useReducedMotion()
 
   const config = splashConfig
-  const effectiveDuration = duration ?? config?.duration_ms ?? 2200
-  const statusMessages = DEFAULT_STATUS_MESSAGES
-  const stepInterval = useMemo(
-    () => effectiveDuration / statusMessages.length,
-    [effectiveDuration]
-  )
-  const colors = useMemo(
-    () => resolveThemeColors(config, activeCssVariables),
-    [config, activeCssVariables]
-  )
+  // Default is shorter than the standalone splash HTML (5200ms) because the
+  // web app shows the splash on every full page load; 3s lets the brand
+  // animation play out without blocking the dashboard.
+  const effectiveDuration = duration ?? config?.duration_ms ?? 3000
   const backgroundColor = useMemo(
-    () => resolveBackgroundColor(config, activeCssVariables),
-    [config, activeCssVariables]
+    () => resolveBackgroundColor(config),
+    [config]
   )
   const exitVariant = getExitVariant(config?.exit_animation || 'fade')
   const exitTransition = getExitTransition(config?.exit_animation || 'fade')
   const showProgress = config?.show_progress !== false
-  const brandText = config?.brand_text || 'IORA'
+  const brandText = config?.brand_text || 'rumahl OS'
   const tagline = config?.tagline
 
+  /**
+   * Finish the splash: trigger the exit animations, then hand control
+   * back to the app. Exposed as `window.finishRumahlSplash()` so the
+   * real OS boot process can finish early.
+   */
+  const finishSplash = useCallback(() => {
+    if (!showRef.current) return
+    showRef.current = false
+    setShow(false)
+    window.setTimeout(() => onCompleteRef.current(), 420)
+  }, [])
+
   useEffect(() => {
-    // Smooth eased progress
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(progressInterval)
-          return 100
-        }
-        const remaining = 100 - prev
-        return prev + Math.max(0.5, remaining * 0.06)
-      })
-    }, effectiveDuration / 80)
-
-    // Cycle status messages
-    const statusTimer = setInterval(() => {
-      setStatusIndex(prev => Math.min(prev + 1, statusMessages.length - 1))
-    }, stepInterval)
-
-    const timer = setTimeout(() => {
-      setProgress(100)
-      setShow(false)
-      setTimeout(() => onCompleteRef.current(), 500)
-    }, effectiveDuration)
-
+    window.finishRumahlSplash = finishSplash
     return () => {
-      clearTimeout(timer)
-      clearInterval(progressInterval)
-      clearInterval(statusTimer)
+      if (window.finishRumahlSplash === finishSplash) {
+        delete window.finishRumahlSplash
+      }
     }
-  }, [effectiveDuration, stepInterval])
+  }, [finishSplash])
+
+  useEffect(() => {
+    const timer = setTimeout(() => finishSplash(), effectiveDuration)
+    return () => clearTimeout(timer)
+  }, [effectiveDuration])
 
   return (
     <AnimatePresence>
       {show && (
         <motion.div
+          key="rumahl-splash"
           initial={{ opacity: 1 }}
           exit={exitVariant}
           transition={exitTransition}
-          className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden"
-          style={{ background: backgroundColor }}
+          className="fixed inset-0 z-[9999] grid place-items-center overflow-hidden"
+          style={{
+            background: `radial-gradient(circle at 50% 45%, rgba(255,255,255,.035), transparent 28%), ${backgroundColor}`,
+            isolation: 'isolate',
+          }}
+          aria-label="rumahl OS startet"
         >
-          {/* Ambient background gradients using theme accent */}
-          <div className="absolute inset-0 pointer-events-none">
-            <motion.div
-              className="absolute w-[600px] h-[600px] rounded-full"
-              style={{
-                background: `radial-gradient(circle, ${colors.accent}22 0%, transparent 70%)`,
-                top: '20%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-              }}
-              animate={{
-                scale: [1, 1.15, 1],
-                opacity: [0.5, 0.8, 0.5],
-              }}
-              transition={{
-                duration: 6,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
-            />
-            <motion.div
-              className="absolute w-[400px] h-[400px] rounded-full"
-              style={{
-                background: `radial-gradient(circle, ${colors.accent}15 0%, transparent 70%)`,
-                bottom: '15%',
-                right: '20%',
-              }}
-              animate={{
-                scale: [1.1, 1, 1.1],
-                opacity: [0.3, 0.6, 0.3],
-              }}
-              transition={{
-                duration: 8,
-                repeat: Infinity,
-                ease: 'easeInOut',
-                delay: 1,
-              }}
-            />
-          </div>
+          {/* Brand mark with breathing glow (splash HTML design) */}
+          <motion.div
+            className="relative"
+            style={{ width: BRAND_SIZE, aspectRatio: '1' }}
+            initial={reducedMotion ? false : { opacity: 0, y: 6, scale: 0.93, filter: 'blur(8px)' }}
+            animate={reducedMotion ? { opacity: 1 } : { opacity: 1, y: -6, scale: 1, filter: 'blur(0px)' }}
+            exit={reducedMotion ? { opacity: 0 } : {
+              opacity: 0,
+              y: -14,
+              scale: 0.985,
+              filter: 'blur(4px)',
+              transition: { duration: 0.58, ease: [0.7, 0, 0.84, 0] },
+            }}
+            transition={{ duration: 1.05, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {/* Breathing glow behind the mark */}
+            {!reducedMotion && (
+              <motion.div
+                className="absolute rounded-full"
+                style={{
+                  inset: '-42%',
+                  background: 'radial-gradient(circle, rgba(255,255,255,.09), rgba(255,255,255,0) 67%)',
+                  filter: 'blur(10px)',
+                }}
+                initial={{ opacity: 0, scale: 0.94 }}
+                animate={{ opacity: [0.12, 0.48, 0.12], scale: [0.94, 1.04, 0.94] }}
+                exit={{ opacity: 0, transition: { duration: 0.3 } }}
+                transition={{ duration: 2.8, repeat: Infinity, ease: 'easeInOut', delay: 0.7 }}
+              />
+            )}
 
-          <div className="relative text-center space-y-16">
-            {/* Logo mark – theme-aware */}
-            <motion.div
-              initial={{ scale: 0.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{
-                type: 'spring',
-                stiffness: 200,
-                damping: 20,
-                delay: 0.1,
-              }}
-              className="flex flex-col items-center"
-            >
-              {/* Logo image or orbital rings */}
-              {config?.logo_url ? (
-                <motion.img
-                  src={config.logo_url}
-                  alt={brandText}
-                  className="w-20 h-20 mb-8 object-contain"
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: 0.2, duration: 0.5 }}
+            {config?.logo_url ? (
+              <motion.img
+                src={config.logo_url}
+                alt={brandText}
+                className="relative h-full w-full object-contain"
+                initial={reducedMotion ? false : { scale: 0.9 }}
+                animate={reducedMotion ? undefined : { scale: [0.9, 1.018, 1] }}
+                transition={{ duration: 1.15, times: [0, 0.7, 1], ease: [0.16, 1, 0.3, 1] }}
+              />
+            ) : (
+              <motion.div
+                className="relative h-full w-full"
+                initial={reducedMotion ? false : { scale: 0.9 }}
+                animate={reducedMotion ? undefined : { scale: [0.9, 1.018, 1] }}
+                transition={{ duration: 1.15, times: [0, 0.7, 1], ease: [0.16, 1, 0.3, 1] }}
+              >
+                <RumahlMark
+                  className="h-full w-full text-white"
+                  style={{ filter: 'drop-shadow(0 8px 24px rgba(0,0,0,.28))' }}
                 />
-              ) : (
-                <motion.div
-                  className="relative w-24 h-24 mb-8"
-                  initial={{ rotate: 0 }}
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
-                >
-                  {/* Outer orbit */}
-                  <motion.div
-                    className="absolute inset-0 rounded-full"
-                    style={{
-                      border: `1px solid ${colors.accent}33`,
-                    }}
-                    animate={{
-                      scale: [1, 1.08, 1],
-                      opacity: [0.3, 0.6, 0.3],
-                    }}
-                    transition={{
-                      duration: 3,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                    }}
-                  />
-                  {/* Inner orbit */}
-                  <motion.div
-                    className="absolute rounded-full"
-                    style={{
-                      inset: '20%',
-                      border: `1px solid ${colors.accent}25`,
-                    }}
-                    animate={{
-                      scale: [1.05, 1, 1.05],
-                      opacity: [0.2, 0.5, 0.2],
-                    }}
-                    transition={{
-                      duration: 2.5,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                      delay: 0.3,
-                    }}
-                  />
-                  {/* Orbiting dot */}
-                  <motion.div
-                    className="absolute w-1.5 h-1.5 rounded-full"
-                    style={{
-                      background: colors.accent,
-                      top: 0,
-                      left: '50%',
-                      marginLeft: '-3px',
-                      boxShadow: `0 0 12px 2px ${colors.accent}88`,
-                    }}
-                  />
-                  {/* Center core */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <motion.div
-                      className="w-3 h-3 rounded-full"
-                      style={{
-                        background: colors.accent,
-                        boxShadow: `0 0 20px 4px ${colors.accent}66`,
-                      }}
-                      animate={{
-                        scale: [1, 1.3, 1],
-                        opacity: [0.8, 1, 0.8],
-                      }}
-                      transition={{
-                        duration: 2,
-                        repeat: Infinity,
-                        ease: 'easeInOut',
-                      }}
-                    />
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Brand text */}
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                className="space-y-2"
-              >
-                <h1
-                  className="text-[1.75rem] font-extralight tracking-[0.3em] uppercase"
-                  style={{ color: colors.foreground }}
-                >
-                  {brandText}
-                </h1>
-                {tagline && (
-                  <p
-                    className="text-[10px] font-medium tracking-[0.5em] uppercase"
-                    style={{ color: colors.mutedFg }}
-                  >
-                    {tagline}
-                  </p>
-                )}
-              </motion.div>
-            </motion.div>
-
-            {/* Progress section */}
-            {showProgress && (
-              <motion.div
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5, duration: 0.5 }}
-                className="w-72 mx-auto space-y-4"
-              >
-                {/* Progress track */}
-                <div
-                  className="h-[2px] rounded-full overflow-hidden"
-                  style={{ background: `${colors.foreground}15` }}
-                >
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{
-                      background: `linear-gradient(90deg, ${colors.accent}, ${colors.accent}cc)`,
-                      boxShadow: `0 0 12px ${colors.accent}88`,
-                    }}
-                    initial={{ width: '0%' }}
-                    animate={{ width: `${progress}%` }}
-                    transition={{ ease: 'easeOut', duration: 0.3 }}
-                  />
-                </div>
-
-                {/* Status text */}
-                <AnimatePresence mode="wait">
-                  <motion.p
-                    key={statusIndex}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 0.6, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.25 }}
-                    className="text-xs font-light tracking-wider"
-                    style={{ color: colors.mutedFg }}
-                  >
-                    {statusMessages[statusIndex]}
-                  </motion.p>
-                </AnimatePresence>
               </motion.div>
             )}
-          </div>
+          </motion.div>
+
+          {/* Status: hairline loader + muted label */}
+          <motion.div
+            className="absolute left-1/2 flex -translate-x-1/2 flex-col items-center gap-3.5"
+            style={{ bottom: 'clamp(34px, 6vh, 68px)' }}
+            initial={reducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reducedMotion ? undefined : {
+              opacity: 0,
+              y: 5,
+              transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] },
+            }}
+            transition={{ duration: 0.7, delay: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
+          >
+            {showProgress && (
+              <div
+                className="relative h-[2px] w-11 overflow-hidden rounded-full"
+                style={{ background: 'rgba(255,255,255,.12)' }}
+                aria-hidden="true"
+              >
+                {!reducedMotion && (
+                  <motion.div
+                    className="absolute h-full w-[42%] rounded-full"
+                    style={{ background: 'rgba(255,255,255,.82)' }}
+                    initial={false}
+                    animate={{ x: ['-130%', '115%', '250%'] }}
+                    transition={{ duration: 1.35, times: [0, 0.55, 1], repeat: Infinity, ease: [0.65, 0, 0.35, 1] }}
+                  />
+                )}
+              </div>
+            )}
+            <div
+              className="select-none text-[12px] font-medium tracking-[0.04em]"
+              style={{ color: 'rgba(255,255,255,.42)' }}
+            >
+              {brandText}
+            </div>
+            {(tagline) && (
+              <p
+                className="text-[11px] font-light tracking-[0.08em]"
+                style={{ color: 'rgba(255,255,255,.30)' }}
+              >
+                {tagline}
+              </p>
+            )}
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
   )
+}
+
+declare global {
+  interface Window {
+    /** Finish the rumahl OS splash early (called by the boot process). */
+    finishRumahlSplash?: () => void
+  }
 }

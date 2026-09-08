@@ -2,7 +2,7 @@
 
 ## Overview
 
-IORA Plugins can now integrate with ORA AI to:
+ORA Plugins can now integrate with ORA AI to:
 - **Call the AI** with custom prompts and context
 - **Register AI tools** that ORA can use to perform actions
 - **Stream AI responses** for real-time interactions
@@ -244,7 +244,7 @@ export const plugin: ServicePlugin = {
     name: 'Smart Automation AI',
     version: '1.0.0',
     description: 'AI-powered automation suggestions',
-    author: 'IORA Team',
+    author: 'rumahl Team',
   },
 
   initialize: async () => {
@@ -404,7 +404,7 @@ Check out these example plugins:
 ## Troubleshooting
 
 ### "Tool registration failed: 401"
-→ Check that IORA Assist backend is running and accessible
+→ Check that ORA Assist backend is running and accessible
 
 ### "AI call failed: 504"
 → AI provider might be slow or unavailable, check provider status
@@ -416,4 +416,4 @@ Check out these example plugins:
 
 For help and questions:
 - Documentation: [PLUGIN_GUIDE.md](./PLUGIN_GUIDE.md)
-- Issues: https://github.com/kaimdt/home-assistant-dashb/issues
+- Issues: https://github.com/rumahl/home-assistant-dashb/issues

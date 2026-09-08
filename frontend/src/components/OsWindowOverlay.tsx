@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { AnimatePresence, motion } from 'motion/react'
 import { useOsWindows } from '@/contexts/OsWindowContext'
 import { OsWindowFrame } from '@/components/OsWindowFrame'
 import type { OsAppDefinition } from '@/lib/osAppRegistry'
+import { DUR_BASE, EASE_OS } from '@/lib/motion'
 
 interface Props {
   getApp: (pageId: string) => OsAppDefinition | undefined
@@ -9,15 +12,25 @@ interface Props {
   renderContent: (pageId: string) => ReactNode
 }
 
+/** Soft entrance/exit motion shared by floating + split windows. */
+const windowMotion = {
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: 10 },
+  transition: { duration: DUR_BASE, ease: EASE_OS },
+}
+
 /**
  * Renders the open OS windows on top of the desktop (launcher):
  * floating windows (with snap layouts) plus the split-view pair.
  */
 export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
-  const { windows } = useOsWindows()
+  const { windows, activeWorkspaceId } = useOsWindows()
 
-  const floating = windows.filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
-  const split = windows.filter((w) => w.layout === 'split-left' || w.layout === 'split-right')
+  const activeWindows = windows.filter((w) => w.workspaceId === activeWorkspaceId)
+  const floating = activeWindows.filter((w) => w.layout !== 'split-left' && w.layout !== 'split-right' && !w.minimized)
+  const activeZ = floating.reduce((highest, win) => Math.max(highest, win.z), -1)
+  const split = activeWindows.filter((w) => w.layout === 'split-left' || w.layout === 'split-right')
   const hasSplit = split.length > 0
 
   if (floating.length === 0 && !hasSplit) return null
@@ -30,38 +43,53 @@ export function OsWindowOverlay({ getApp, getName, renderContent }: Props) {
     return <Icon size={15} weight="duotone" />
   }
 
-  return (
-    <div className="ora-os-window-layer" aria-label="Open app windows">
+  return createPortal(
+    <div className="rumahl-os-window-layer" aria-label="Open app windows" data-workspace={activeWorkspaceId}>
       {/* Split view */}
       {hasSplit && (
-        <div className="ora-os-split">
+        <div className="rumahl-os-split">
           {(['split-left', 'split-right'] as const).map((side) => {
             const win = split.find((w) => w.layout === side)
             if (!win) return null
             return (
-              <div key={side} className="ora-os-split-pane">
-                <OsWindowFrame
-                  window={win}
-                  name={win.pageId ? getName(win.pageId) : ''}
-                  icon={iconFor(win.pageId)}
-                  renderContent={renderContent}
-                />
-              </div>
+              <AnimatePresence key={side} initial={false}>
+                <motion.div
+                  key={win.pageId ?? side}
+                  className="rumahl-os-split-pane"
+                  {...windowMotion}
+                >
+                  <OsWindowFrame
+                    window={win}
+                    name={win.pageId ? getName(win.pageId) : ''}
+                    icon={iconFor(win.pageId)}
+                    renderContent={renderContent}
+                  />
+                </motion.div>
+              </AnimatePresence>
             )
           })}
         </div>
       )}
 
       {/* Floating windows */}
-      {floating.map((win) => (
-        <OsWindowFrame
-          key={win.pageId}
-          window={win}
-          name={win.pageId ? getName(win.pageId) : ''}
-          icon={iconFor(win.pageId)}
-          renderContent={renderContent}
-        />
-      ))}
-    </div>
+      <AnimatePresence>
+        {floating.map((win) => (
+          <motion.div
+            key={win.pageId}
+            className="absolute left-0 top-0"
+            {...windowMotion}
+          >
+            <OsWindowFrame
+              window={win}
+              active={win.z === activeZ}
+              name={win.pageId ? getName(win.pageId) : ''}
+              icon={iconFor(win.pageId)}
+              renderContent={renderContent}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>,
+    document.body,
   )
 }
