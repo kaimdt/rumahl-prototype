@@ -32,7 +32,7 @@ sha2 = "0.10"
 hmac = "0.12"
 
 # Network analysis
-ipnetwork = "0.20"
+ipnetwork = "0.21"
 
 # HTTP client for monitoring
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
