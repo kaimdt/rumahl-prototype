@@ -61,7 +61,7 @@ jobs:
       # ── Cache: Buildroot tarball ──────────────────────────────────
       - name: Cache Buildroot tarball
         id: cache-buildroot
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.rumahl_OS_DIR }}/buildroot-2024.02.tar.gz
           key: buildroot-2024.02-tar
@@ -76,7 +76,7 @@ jobs:
 
       # ── Cache: Buildroot source downloads ─────────────────────────
       - name: Cache Buildroot source downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.rumahl-cache/dl
@@ -88,7 +88,7 @@ jobs:
 
       # ── Cache: Cargo registry ─────────────────────────────────────
       - name: Cache Cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
