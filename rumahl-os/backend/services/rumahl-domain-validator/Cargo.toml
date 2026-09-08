@@ -33,4 +33,4 @@ url = "2.5"
 trust-dns-resolver = "0.23"
 
 # Network filtering
-ipnetwork = "0.20"
+ipnetwork = "0.21"

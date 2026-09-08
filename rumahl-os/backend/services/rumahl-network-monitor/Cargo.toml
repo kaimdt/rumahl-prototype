@@ -28,7 +28,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "migrate", "derive"] }
 
 # IP address handling
-ipnetwork = "0.20"
+ipnetwork = "0.21"
 mac_address = "1.1"
 
 # System information
