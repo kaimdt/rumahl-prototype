@@ -11,7 +11,7 @@ crossterm = { version = "0.28", features = ["event-stream"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
-notify = { version = "7" }
+notify = { version = "8" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 # HTTP bridge connectivity (cross-platform: rustls, no OpenSSL needed)

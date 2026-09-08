@@ -37,7 +37,7 @@ diffy = "0.3"
 walkdir = "2.5"
 cron = "0.12"
 toml = "0.8"
-notify = { version = "7", features = ["macos_kqueue"] }
+notify = { version = "8", features = ["macos_kqueue"] }
 tempfile = "3.10"
 bollard = "0.16"
 sha2 = "0.10"
