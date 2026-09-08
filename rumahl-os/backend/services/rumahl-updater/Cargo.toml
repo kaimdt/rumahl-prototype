@@ -19,5 +19,5 @@ sha2 = "0.10"
 hex = "0.4"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
-ed25519-dalek = { version = "2" }
+ed25519-dalek = { version = "3" }
 rumahl-shared-config = { path = "../../shared/rumahl-shared-config" }

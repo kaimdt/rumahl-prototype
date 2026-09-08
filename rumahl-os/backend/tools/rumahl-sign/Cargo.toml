@@ -10,7 +10,7 @@ name = "rumahl-sign"
 path = "src/main.rs"
 
 [dependencies]
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["std"] }
 hex = "0.4"
 anyhow = "1"
