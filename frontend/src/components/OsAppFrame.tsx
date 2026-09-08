@@ -28,7 +28,7 @@ export function OsAppFrame({
       {toolbar && <div className="rumahl-os-app-toolbar">{toolbar}</div>}
       <div className="rumahl-os-app-body">
         {sidebar && <aside className="rumahl-os-app-sidebar">{sidebar}</aside>}
-        <main className={`rumahl-os-app-content ${contentClassName}`.trim()}>{children}</main>
+        <div className={`rumahl-os-app-content ${contentClassName}`.trim()}>{children}</div>
         {detail && <aside className="rumahl-os-app-detail">{detail}</aside>}
       </div>
     </section>

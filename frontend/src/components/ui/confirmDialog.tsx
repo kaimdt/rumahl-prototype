@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { Warning } from '@phosphor-icons/react'
 
 export interface ConfirmDialogOptions {
@@ -68,7 +69,7 @@ export function ConfirmDialogHost() {
       <DialogContent className="rumahl-confirm-dialog sm:max-w-[400px]">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${options?.danger ? 'bg-red-500/15 text-red-400' : 'bg-accent/15 text-accent'}`}>
+            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${options?.danger ? 'bg-destructive/10 text-destructive' : 'bg-accent/15 text-accent'}`}>
               <Warning size={20} weight="fill" />
             </span>
             <DialogTitle>{options?.title || t('common.confirm')}</DialogTitle>
@@ -76,22 +77,20 @@ export function ConfirmDialogHost() {
           <DialogDescription className="whitespace-pre-line pt-2 text-left">{options?.message}</DialogDescription>
         </DialogHeader>
         <div className="rumahl-confirm-actions flex justify-end gap-2 pt-2">
-          <button
+          <Button
             type="button"
             onClick={() => close(false)}
-            className="min-h-10 rounded-xl bg-foreground/8 px-4 text-sm font-medium text-foreground/80 transition-colors hover:bg-foreground/12"
+            variant="secondary"
           >
             {options?.cancelLabel || t('common.cancel')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => close(true)}
-            className={`min-h-10 rounded-xl px-5 text-sm font-semibold text-white shadow-lg transition-colors ${
-              options?.danger ? 'bg-red-500 shadow-red-500/25 hover:bg-red-400' : 'bg-accent shadow-accent/25 hover:bg-accent/90'
-            }`}
+            variant={options?.danger ? "destructive" : "default"}
           >
             {options?.confirmLabel || t('common.confirm')}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

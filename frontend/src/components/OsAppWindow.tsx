@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
-import { useTranslation } from 'react-i18next'
-import { OsWindowActions } from '@/components/OsWindowActions'
+import { OsAppNavbar } from '@/components/OsAppNavbar'
 import { OsAppFrame } from '@/components/OsAppFrame'
 
 /**
@@ -21,18 +20,11 @@ export function OsAppWindow({
   noClip?: boolean
   children: ReactNode
 }) {
-  const { t } = useTranslation()
-
   return (
     <OsAppFrame
       className={`rumahl-app-frame ${noClip ? 'rumahl-app-frame-no-clip' : ''}`}
       navbar={(
-        <div className="rumahl-os-window-titlebar">
-          {icon && <span className="rumahl-os-window-app-icon">{icon}</span>}
-          <span className="rumahl-os-window-title">{title}</span>
-          <span className="flex-1" />
-          <OsWindowActions pageId={pageId} />
-        </div>
+        <OsAppNavbar pageId={pageId} title={title} icon={icon} />
       )}
       contentClassName="rumahl-os-app-content-padded"
     >

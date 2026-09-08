@@ -106,14 +106,10 @@ export function NotificationBell() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-              className="fixed w-[340px] sm:w-[380px] max-h-[70vh] rounded-2xl border border-white/15 overflow-hidden z-[80]"
+              className="rumahl-popover fixed w-[min(340px,calc(100vw-24px))] sm:w-[380px] max-h-[70vh] overflow-hidden z-[var(--layer-flyout)]"
               style={{
                 bottom: panelPos.bottom,
                 left: panelPos.left,
-                backdropFilter: 'blur(40px) saturate(1.5)',
-                WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
-                background: 'oklch(from var(--card) l c h / 0.65)',
-                boxShadow: '0 16px 50px oklch(0 0 0 / 0.3), 0 0 0 1px oklch(from var(--foreground) l c h / 0.08)',
               }}
             >
               <NotificationPanel

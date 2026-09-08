@@ -133,10 +133,10 @@ export function AppStoreTab({ token }: { token: string }) {
   return (
     <div className="rumahl-store-app flex h-full w-full flex-col">
       {/* Toolbar */}
-      <div className="rumahl-store-toolbar flex items-center justify-between border-b border-border px-4 py-2">
-        <span className="text-xs font-semibold text-fg">
+      <div className="rumahl-store-toolbar rumahl-os-app-toolbar flex items-center justify-between border-b border-border px-4 py-2">
+        <span className="text-xs font-semibold text-ui-primary">
           {t('os.apps.appStore.name', 'App Store')}
-          <span className="ml-2 text-muted-fg font-normal">store.rumahl.com</span>
+          <span className="ml-2 text-ui-secondary font-normal">store.rumahl.com</span>
         </span>
         <div className="flex items-center gap-2">
           {installing && (
@@ -163,12 +163,12 @@ export function AppStoreTab({ token }: { token: string }) {
           ref={iframeRef}
           src={STORE_URL}
           title="rumahl App Store"
-          className="h-full w-full border-0 bg-[#090a0f]"
+          className="h-full w-full border-0 bg-surface"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
           onLoad={() => setLoadError(false)}
         />
         {loadError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-bg">
+          <div className="absolute inset-0 flex items-center justify-center bg-surface">
             <p className="text-sm text-muted-fg">Store nicht erreichbar — prüfe store.rumahl.com</p>
           </div>
         )}
@@ -176,8 +176,8 @@ export function AppStoreTab({ token }: { token: string }) {
 
       {/* Install handoff dialog (browser → device): ask whether to return */}
       {handoff && !installing && (
-        <div className="fixed inset-0 z-[200] grid place-items-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="rumahl-dialog-overlay fixed inset-0 z-[200] grid place-items-center p-4">
+          <div className="rumahl-dialog w-full max-w-sm rounded-lg p-5">
             <h3 className="text-base font-bold text-fg">
               {t('apps.appStore.handoffDone', 'Installation von {{name}} gestartet', { name: handoff.name })}
             </h3>
@@ -187,7 +187,7 @@ export function AppStoreTab({ token }: { token: string }) {
             <div className="mt-5 flex gap-2">
               <button
                 onClick={() => { window.location.href = handoff.returnUrl }}
-                className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                className="rumahl-button rumahl-button-primary flex-1"
               >
                 {t('apps.appStore.backToStore', 'Zurück zum Store')}
               </button>

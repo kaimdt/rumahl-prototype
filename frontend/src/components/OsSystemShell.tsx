@@ -1,3 +1,5 @@
+import { useSurfaceAppearance } from '@/hooks/useSurfaceAppearance'
+import { useShellAppearance } from '@/hooks/useShellAppearance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { DUR_PAGE, EASE_OS, MOTION_PANEL } from '@/lib/motion'
@@ -73,6 +75,8 @@ function formatUptime(seconds: number, t: (key: string, options?: Record<string,
 }
 
 export function OsSystemShell() {
+  useShellAppearance()
+  useSurfaceAppearance()
   const { t, i18n } = useTranslation()
   const { theme, sleepMode, setSleepMode } = useTheme()
   const { resolvedMode } = useShellMode()
@@ -391,13 +395,13 @@ export function OsSystemShell() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -40, opacity: 0 }}
             transition={{ duration: DUR_PAGE, ease: EASE_OS }}
-            className="rumahl-system-bar pointer-events-none fixed inset-x-0 top-0 z-[74] flex items-center justify-between px-3"
+            className="rumahl-system-bar pointer-events-none fixed inset-x-0 top-0 z-[var(--layer-shell)] flex items-center justify-between px-3"
             style={{ height: 'var(--topbar-height, 2rem)' }}
           >
         <div className="rumahl-topbar-mix pointer-events-auto flex min-w-0 items-center gap-1 text-[11px] font-medium">
           {immersivePageId ? (
             <>
-              <button type="button" onClick={() => { setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
+              <button type="button" onClick={() => { setImmersive(null); focusWindow(immersivePageId); setCurrentPageId(immersivePageId) }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center" title={t('os.window.exitFullscreen')}><ArrowsIn size={15} weight="bold" /></button>
               <button type="button" onClick={() => { closeWindow(immersivePageId); setImmersive(null); setCurrentPageId('launcher') }} className="rumahl-topbar-action flex h-7 w-7 items-center justify-center hover:!bg-red-500/15 hover:!text-red-400" title={t('os.window.close')}><X size={15} weight="bold" /></button>
             </>
           ) : (
@@ -488,7 +492,7 @@ export function OsSystemShell() {
             <motion.button
               type="button"
               aria-label={t('common.close')}
-              className="fixed inset-0 z-[56] bg-black/20 backdrop-blur-[2px]"
+              className="fixed inset-0 z-[var(--layer-flyout-backdrop)] rumahl-dialog-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -504,7 +508,7 @@ export function OsSystemShell() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
               transition={MOTION_PANEL}
-              className="rumahl-quick-settings glass-card fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[65] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-white/15 p-4 shadow-2xl sm:right-6 sm:top-[3.5rem]"
+              className="rumahl-quick-settings fixed right-3 top-[calc(max(0.5rem,env(safe-area-inset-top))+3rem)] z-[var(--layer-flyout)] w-[min(23rem,calc(100vw-1.5rem))] overflow-hidden p-4 sm:right-6 sm:top-[3.5rem]"
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                   event.preventDefault()

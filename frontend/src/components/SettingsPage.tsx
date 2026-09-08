@@ -1,5 +1,10 @@
+import { useSurfaceAppearance } from '@/hooks/useSurfaceAppearance'
+import { ThemeColorModeControl } from './settings/ThemeColorModeControl'
+import { SurfaceAppearanceSettings } from './settings/SurfaceAppearanceSettings'
+import { ShellAppearanceSettings } from './settings/ShellAppearanceSettings'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { authFetch } from '@/lib/authHelpers'
 import {
@@ -361,7 +366,8 @@ export function SettingsPage(props: SettingsPageProps) {
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system' | 'apps'>('general')
   const { preset: uiScalePreset, setPreset: setUiScale } = useUiScale()
-  const { selectedTheme, setSelectedTheme } = useTheme()
+  const { selectedTheme, setSelectedTheme, setAutoTheme, setSleepMode } = useTheme()
+  const { settings: surfaceAppearance, save: saveSurfaceAppearance } = useSurfaceAppearance()
   // Per-user auto-lock timeout (minutes, 0 = disabled).
   const [autoLockMinutes, setAutoLockMinutes] = useLocalStorage<number>('rumahl-auto-lock-minutes', 15)
   const [screensaverStyle, setScreensaverStyle] = useLocalStorage<ScreensaverStyle>('rumahl-screensaver-style', 'clock')
@@ -488,7 +494,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="rumahl-settings-sidebar-brand-label">{t('navigation.settings')}</span>
             </div>
             <TabsList className="rumahl-settings-sidebar">
-          <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="general" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <User size={15} weight="fill" />
             </span>
@@ -497,7 +503,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabGeneralDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="appearance" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="appearance" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <Palette size={15} weight="fill" />
             </span>
@@ -506,7 +512,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabAppearanceDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="dashboard" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="dashboard" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <Layout size={15} weight="fill" />
             </span>
@@ -515,7 +521,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabDashboardDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="system" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="system" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <GearSix size={15} weight="fill" />
             </span>
@@ -524,7 +530,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <span className="hidden truncate text-[10px] text-foreground/45 xl:block">{t('settings.tabSystemDesc')}</span>
             </span>
           </TabsTrigger>
-          <TabsTrigger value="apps" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-accent/12 data-[state=active]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_26%,transparent)]">
+          <TabsTrigger value="apps" className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all duration-200 data-[state=active]:bg-selection data-[state=active]:border-accent/30">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/6 text-foreground/55 transition-colors duration-200 group-data-[state=active]:bg-accent/16 group-data-[state=active]:text-accent">
               <AppWindow size={15} weight="fill" />
             </span>
@@ -767,9 +773,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <h3>{t('settings.accentMode')}</h3>
                   <p>{t('settings.accentModeDesc')}</p>
                 </div>
-                <button type="button" className="appr-select-btn">
-                  <span>Dunkel (Automatisch)</span><span aria-hidden="true">⌄</span>
-                </button>
+                <ThemeColorModeControl />
               </div>
 
               <div className="appr-divider" />
@@ -778,25 +782,32 @@ export function SettingsPage(props: SettingsPageProps) {
               <div className="appr-setting-row appr-wallpaper-row">
                 <div>
                   <h3>{t('settings.accentColor')}</h3>
-                  <p>Wähle deine bevorzugte Akzentfarbe für Elemente und Highlights.</p>
+                  <p>{t('settings.colorPersonalization.description')}</p>
                 </div>
                 <div className="appr-swatches" aria-label={t('settings.accentColor')}>
-                  {accentColorSettings.extractedPalette.length > 0
-                    ? accentColorSettings.extractedPalette.slice(0, 7).map((color, i) => (
+                  {Array.from(new Set([...accentColorSettings.extractedPalette.slice(0, 4), '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#eab308', '#f97316', '#ef4444', '#ec4899'].map((color) => color.toLowerCase()))).map((color, i) => (
                         <button
                           key={`${color}-${i}`}
                           type="button"
                           onClick={() => accentColorSettings.selectFromPalette(color)}
-                          className={`appr-swatch ${accentColorSettings.accentColor === color ? 'active' : ''}`}
+                          className={`appr-swatch ${accentColorSettings.mode === 'static' && accentColorSettings.staticColor.toLowerCase() === color ? 'active' : ''}`}
                           style={{ ['--sw' as string]: color }}
-                          aria-label={color}
+                          aria-label={t('settings.colorPersonalization.preview', { color })}
+                          aria-pressed={accentColorSettings.mode === 'static' && accentColorSettings.staticColor.toLowerCase() === color}
                         />
-                      ))
-                    : null}
-                  <button type="button" className="appr-add-swatch" aria-label="Akzentfarbe hinzufügen">＋</button>
+                      ))}
+                  <label className="rumahl-secondary-button relative gap-2 cursor-pointer focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring">
+                    <Palette size={18} aria-hidden="true" />
+                    <span>{t('settings.colorPersonalization.custom')}</span>
+                    <input type="color" value={accentColorSettings.staticColor} onChange={(event) => { accentColorSettings.setStaticColor(event.target.value); accentColorSettings.setMode('static') }} aria-label={t('settings.colorPersonalization.custom')} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                  </label>
+                  <button type="button" className="rumahl-secondary-button" aria-pressed={accentColorSettings.mode === 'auto'} onClick={accentColorSettings.resetToAuto}>{t('settings.colorPersonalization.auto')}</button>
                 </div>
               </div>
 
+              <div className="appr-divider" />
+
+              <ApprToggle label={t('settings.colorPersonalization.tintTitle')} description={t('settings.colorPersonalization.tintDescription')} checked={surfaceAppearance.accentSurfaces} onCheckedChange={(accentSurfaces) => saveSurfaceAppearance({ ...surfaceAppearance, accentSurfaces })} />
               <div className="appr-divider" />
 
               {/* Design-Modus */}
@@ -817,12 +828,13 @@ export function SettingsPage(props: SettingsPageProps) {
                       <button
                         key={mode.id}
                         type="button"
-                        onClick={() => setSelectedTheme(mode.id)}
+                        onClick={() => { setSleepMode(false); if (mode.id === 'auto') setAutoTheme(true); setSelectedTheme(mode.id) }}
                         className={`appr-mode-card ${selected ? 'selected' : ''}`}
                       >
                         <span className={`appr-preview ${mode.cls}`} aria-hidden="true" />
                         <strong>{t(`settings.themeOptions.${mode.id}.label`)}</strong>
                         <small>{t(`settings.themeOptions.${mode.id}.description`)}</small>
+                        <span className="mt-2 block text-xs text-muted-foreground">{t(mode.id === 'auto' ? 'settings.colorSupport.switching' : mode.id === 'day' ? 'settings.colorSupport.lightOnly' : 'settings.colorSupport.darkOnly')}</span>
                       </button>
                     )
                   })}
@@ -838,7 +850,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <p>{t('settings.hintergrundDesc')}</p>
                 </div>
                 <div className="appr-wallpaper-actions">
-                  <button type="button" className="appr-soft-btn" onClick={() => navigateToPage('settings')}>{t('settings.hintergrundAnpassen')}</button>
+                  <button type="button" className="rumahl-secondary-button" onClick={() => navigateToPage('settings')}>{t('settings.hintergrundAnpassen')}</button>
                   <div className="appr-wallpaper-thumb" aria-label={t('settings.hintergrund')} />
                 </div>
               </div>
@@ -852,14 +864,11 @@ export function SettingsPage(props: SettingsPageProps) {
                 <div className="appr-setting-row" style={{ marginTop: 16 }}>
                   <div>
                     <h3>{t('settings.transparenz')}</h3>
-                    <p>Aktiviere Unschärfe und Transparenz für ein modernes Aussehen.</p>
+                    <p>{t('settings.osTransparencyHint')}</p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={glassSettings.enabled}
-                    onClick={() => glassSettings.setEnabled(!glassSettings.enabled)}
-                    className={`appr-switch ${glassSettings.enabled ? 'on' : ''}`}
+                  <Switch
+                    checked={glassSettings.enabled}
+                    onCheckedChange={glassSettings.setEnabled}
                     aria-label={t('settings.transparenz')}
                   />
                 </div>
@@ -871,12 +880,9 @@ export function SettingsPage(props: SettingsPageProps) {
                     <h3>{t('settings.animationen')}</h3>
                     <p>{t('settings.animationDesc')}</p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={!reduceMotion}
-                    onClick={() => onToggleReduceMotion(!reduceMotion)}
-                    className={`appr-switch ${!reduceMotion ? 'on' : ''}`}
+                  <Switch
+                    checked={!reduceMotion}
+                    onCheckedChange={(enabled) => onToggleReduceMotion(!enabled)}
                     aria-label={t('settings.animationen')}
                   />
                 </div>
@@ -889,12 +895,9 @@ export function SettingsPage(props: SettingsPageProps) {
                       <h2>{t('settings.zeitplan')}</h2>
                       <p style={{ marginTop: 4 }}>{t('settings.zeitplanDesc')}</p>
                     </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={selectedTheme === 'auto'}
-                      onClick={() => setSelectedTheme(selectedTheme === 'auto' ? 'night' : 'auto')}
-                      className={`appr-switch ${selectedTheme === 'auto' ? 'on' : ''}`}
+                    <Switch
+                      checked={selectedTheme === 'auto'}
+                      onCheckedChange={(enabled) => { setSleepMode(false); setAutoTheme(enabled); setSelectedTheme(enabled ? 'auto' : 'night') }}
                       aria-label={t('settings.autoTheme')}
                     />
                   </div>
@@ -943,6 +946,8 @@ export function SettingsPage(props: SettingsPageProps) {
             {/* Advanced / additional appearance settings — kept as collapsible
                 sections so every existing flow remains reachable. */}
             <div className="space-y-3.5 mt-4">
+              <ShellAppearanceSettings onEnableGlass={glassSettings.setEnabled} />
+              <SurfaceAppearanceSettings enabled={glassSettings.enabled} onEnable={glassSettings.setEnabled} />
               <SettingsSection icon={Eye} title={t('settings.glassEffects')} description={t('settings.glassEffectsDesc')}>
                 <ToggleRow
                   label={t("settings.glassEnable")}

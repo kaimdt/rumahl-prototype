@@ -171,6 +171,8 @@
       "intelligent": "Intelligent access",
       "whatToDo": "What would you like to do?",
       "commandPlaceholder": "Search for an app, device, or action",
+      "commandShortcutMac": "⌘ K",
+      "commandShortcutOther": "Ctrl K",
       "recent": "Recent",
       "clearRecent": "Clear",
       "pages": "Homescreen pages",
@@ -672,6 +674,51 @@
     }
   },
   "settings": {
+    "colorPersonalization": {
+      "description": "Choose a suggested color, a wallpaper color or your own color.",
+      "custom": "Choose custom color",
+      "auto": "From wallpaper",
+      "preview": "Choose accent color {{color}}",
+      "tintTitle": "Derive surfaces from accent color",
+      "tintDescription": "Tint windows, sidebars, menus and dialogs consistently. When off, base surfaces are neutral and follow the theme brightness; selection highlights keep the accent color."
+    },
+    "surfaceStyle": {
+      "title": "Glass system style",
+      "description": "Blurred glass for windows, the start menu, menus and dialogs. Content stays readable; the desktop bar can be styled separately.",
+      "material": "Surface style",
+      "solid": "Clear and opaque",
+      "glass": "Glass with blur",
+      "opacity": "Opacity",
+      "blur": "Blur",
+      "tint": "Glass tint",
+      "tintStrength": "Tint strength",
+      "reset": "Reset surfaces",
+      "disabled": "Glass effects are disabled or restricted by the active theme."
+    },
+    "colorSupport": {
+      "switching": "Light/dark · automatic switching",
+      "lightOnly": "Light appearance",
+      "darkOnly": "Dark appearance",
+      "themeDefined": "Defined by theme",
+      "customModes": "These color modes are provided by the active theme.",
+      "fixed": "This theme does not provide switchable color modes."
+    },
+    "shellAppearance": {
+      "title": "Personalize desktop bar",
+      "description": "Choose the material, icons and divider for the logo and status bar. Changes apply immediately and are saved on this device.",
+      "material": "Surface",
+      "solid": "Opaque",
+      "glass": "Glass",
+      "transparent": "Fully transparent",
+      "contrast": "Logo and icons",
+      "contrastHint": "Automatic follows the wallpaper on transparent bars. For busy images, choose light or dark icons.",
+      "auto": "Automatic",
+      "light": "Light",
+      "dark": "Dark",
+      "border": "Show divider",
+      "blur": "Bar blur",
+      "reset": "Reset system bar"
+    },
     "title": "Settings",
     "general": "General",
     "appearance": "Appearance",
@@ -799,6 +846,7 @@
     "deviceLockDesc": "Locks settings on this device – PIN to unlock",
     "aiDisableDesc": "Disables rumahl AI, Pi.dev Agent and all AI features",
     "glassEffectsDesc": "Transparency, blur and card radius",
+    "osTransparencyHint": "Enable blur and transparency for floating surfaces.",
     "frostedGlassDesc": "Frosted glass look for cards and menus",
     "about": "About",
     "aboutDesc": "Device, operating system and status",

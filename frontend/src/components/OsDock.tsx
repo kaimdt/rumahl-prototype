@@ -363,11 +363,11 @@ export function OsDock() {
                 initial={{ opacity: 0, y: 6, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                className="fixed z-[88] max-h-[calc(100vh-1rem)] w-48 overflow-y-auto rounded-2xl border border-foreground/12 bg-background/95 p-1.5 text-foreground shadow-2xl backdrop-blur-xl"
+                className="rumahl-menu fixed z-[var(--layer-menu)] max-h-[calc(100vh-1rem)] w-48 overflow-y-auto"
                 style={{ left: Math.min(menuPos.x, window.innerWidth - 208), top: Math.max(8, Math.min(menuPos.y + 8, window.innerHeight - 430)) }}
                 onClick={(event) => event.stopPropagation()}
               >
-                <button type="button" onClick={() => openApp(app.pageId)} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-foreground/8">
+                <button type="button" onClick={() => openApp(app.pageId)} className="rumahl-menu-item flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-selection">
                   <ArrowSquareOut size={16} className="text-foreground/60" />
                   {t('os.dock.open')}
                 </button>
@@ -446,7 +446,7 @@ export function OsDock() {
         initial={reducedMotion ? false : { y: 28, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: DUR_SLOW, ease: EASE_SOFT, delay: 0.2 }}
-        className="flex items-end gap-1.5 rounded-[1.35rem] border border-foreground/10 bg-background/55 px-2.5 py-2 shadow-xl shadow-black/20 backdrop-blur-2xl"
+        className="rumahl-dock-surface flex items-end gap-1.5 px-2.5 py-2"
         role="toolbar"
         aria-label={t('os.dock.taskbarLabel')}
         onKeyDown={(event) => {

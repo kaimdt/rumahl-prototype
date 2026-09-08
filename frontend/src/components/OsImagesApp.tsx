@@ -199,7 +199,7 @@ export function OsImagesApp() {
 
   return (
     <section
-      className="rumahl-images-app rumahl-app-frame mx-auto max-w-7xl overflow-hidden"
+      className="rumahl-images-app rumahl-app-frame overflow-hidden"
       onDragOver={(event) => {
         if (readFileDragData(event.dataTransfer)) {
           event.preventDefault()

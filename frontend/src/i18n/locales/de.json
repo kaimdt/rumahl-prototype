@@ -171,6 +171,8 @@
       "intelligent": "Intelligenter Zugriff",
       "whatToDo": "Was möchtest du tun?",
       "commandPlaceholder": "App, Gerät oder Aktion suchen",
+      "commandShortcutMac": "⌘ K",
+      "commandShortcutOther": "Strg K",
       "recent": "Zuletzt verwendet",
       "clearRecent": "Verlauf leeren",
       "pages": "Homescreen-Seiten",
@@ -672,6 +674,51 @@
     }
   },
   "settings": {
+    "colorPersonalization": {
+      "description": "Wähle eine vorgeschlagene Farbe, eine Farbe aus dem Hintergrund oder deine eigene Farbe.",
+      "custom": "Eigene Farbe wählen",
+      "auto": "Aus Hintergrund",
+      "preview": "Akzentfarbe {{color}} wählen",
+      "tintTitle": "Oberflächen aus Akzentfarbe ableiten",
+      "tintDescription": "Tönt Fenster, Seitenleisten, Menüs und Dialoge einheitlich. Ausgeschaltet sind die Grundflächen neutral und folgen der Helligkeit des Themes; Markierungen behalten die Akzentfarbe."
+    },
+    "surfaceStyle": {
+      "title": "Glas als Systemstil",
+      "description": "Glas mit Blur für Fenster, Startmenü, Menüs und Dialoge. Der Fensterinhalt bleibt klar lesbar; die Desktop-Leiste lässt sich separat gestalten.",
+      "material": "Oberflächenstil",
+      "solid": "Klar und deckend",
+      "glass": "Glas mit Blur",
+      "opacity": "Deckkraft",
+      "blur": "Unschärfe",
+      "tint": "Glasfarbe",
+      "tintStrength": "Stärke der Tönung",
+      "reset": "Oberflächen zurücksetzen",
+      "disabled": "Glaseffekte sind deaktiviert oder werden durch das Theme eingeschränkt."
+    },
+    "colorSupport": {
+      "switching": "Hell/Dunkel · automatischer Wechsel",
+      "lightOnly": "Helles Erscheinungsbild",
+      "darkOnly": "Dunkles Erscheinungsbild",
+      "themeDefined": "Vom Theme festgelegt",
+      "customModes": "Die Auswahl zeigt die vom aktiven Theme bereitgestellten Farbmodi.",
+      "fixed": "Dieses Theme stellt keinen umschaltbaren Farbmodus bereit."
+    },
+    "shellAppearance": {
+      "title": "Desktop-Leiste personalisieren",
+      "description": "Material, Symbole und Trennrand für die Leiste mit Logo und Systemstatus. Änderungen gelten sofort und werden auf diesem Gerät gespeichert.",
+      "material": "Oberfläche",
+      "solid": "Deckend",
+      "glass": "Glas",
+      "transparent": "Vollständig transparent",
+      "contrast": "Logo und Symbole",
+      "contrastHint": "Automatisch folgt bei transparenten Leisten dem Hintergrundbild. Für unruhige Bilder kannst du helle oder dunkle Symbole festlegen.",
+      "auto": "Automatisch",
+      "light": "Hell",
+      "dark": "Dunkel",
+      "border": "Trennrand anzeigen",
+      "blur": "Unschärfe der Leiste",
+      "reset": "Leiste zurücksetzen"
+    },
     "title": "Einstellungen",
     "general": "Allgemein",
     "appearance": "Erscheinungsbild",
@@ -799,6 +846,7 @@
     "deviceLockDesc": "Sperrt Einstellungen auf diesem Gerät – PIN zum Entsperren",
     "aiDisableDesc": "Schaltet rumahl AI, Pi.dev Agent und alle KI-Funktionen aus",
     "glassEffectsDesc": "Transparenz, Unschärfe und Kartenradius",
+    "osTransparencyHint": "Unschärfe und Transparenz für schwebende Oberflächen aktivieren.",
     "frostedGlassDesc": "Frosted-Glass-Optik für Karten und Menüs",
     "about": "Info",
     "aboutDesc": "Gerät, Betriebssystem und Status",

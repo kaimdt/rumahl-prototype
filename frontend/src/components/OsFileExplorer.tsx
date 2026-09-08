@@ -959,7 +959,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
 
   const explorerFrame = (
     <>
-    <section className={`rumahl-files-app ${pickerMode ? 'flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-[1.6rem] border border-white/12 bg-background/95 text-foreground shadow-2xl backdrop-blur-xl' : 'rumahl-app-frame'}`} onClick={() => { setContextEntry(null); setSurfaceMenuOpen(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
+    <section className={`rumahl-files-app ${pickerMode ? 'rumahl-dialog flex h-[min(88vh,56rem)] w-[min(74rem,96vw)] flex-col overflow-hidden rounded-t-lg' : 'rumahl-app-frame'}`} onClick={() => { setContextEntry(null); setSurfaceMenuOpen(false) }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.target === event.currentTarget && event.dataTransfer.files.length) void uploadFiles(event.dataTransfer.files) }}>
       <OsAppNavbar
         pageId="os-files"
         title={t('os.apps.files.name')}
@@ -1331,7 +1331,7 @@ export function OsFileExplorer({ pickerMode }: { pickerMode?: FilePickerConfig |
       )}
       {downloadUrlOpen && (
         <div className="fixed inset-0 z-[120] grid place-items-center bg-black/60 p-4" onMouseDown={() => setDownloadUrlOpen(false)}>
-          <div className="glass-card w-full max-w-md rounded-3xl p-6" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="rumahl-dialog w-full max-w-md rounded-lg p-5" onMouseDown={(event) => event.stopPropagation()}>
             <header className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-cyan-300">{t('os.files.downloadFromUrl')}</p>

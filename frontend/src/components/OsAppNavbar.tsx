@@ -39,26 +39,23 @@ export function OsAppNavbar({
 }) {
   return (
     <header className="rumahl-app-navbar">
-      <div className="rumahl-app-identity min-w-0 flex items-center gap-2">
-        {(iconUrl || icon) && <span className="rumahl-app-mark shrink-0">
-          {iconUrl ? (
-            <img src={iconUrl} alt="" width={18} height={18} className="object-contain" draggable={false} />
-          ) : (
-            icon
-          )}
-        </span>}
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{title}</p>
-          {description && <p className="rumahl-app-description hidden truncate text-xs text-foreground/45 sm:block">{description}</p>}
+      <div className="rumahl-app-titlebar">
+        <div className="rumahl-app-identity min-w-0 flex items-center gap-2">
+          {(iconUrl || icon) && <span className="rumahl-app-mark shrink-0">
+            {iconUrl ? <img src={iconUrl} alt="" width={18} height={18} className="object-contain" draggable={false} /> : icon}
+          </span>}
+          <div className="min-w-0">
+            <h1 className="rumahl-os-window-title truncate">{title}</h1>
+            {description && <p className="rumahl-app-description hidden truncate text-xs text-ui-secondary sm:block">{description}</p>}
+          </div>
         </div>
-      </div>
-      {leading ? <div className="flex min-w-0 items-center gap-2">{leading}</div> : <span aria-hidden="true" />}
-      {search ? <>{search}</> : <span aria-hidden="true" />}
-      <div className="flex shrink-0 items-center gap-2">
-        {trailing}
-        <span className="mx-0.5 h-6 w-px shrink-0 bg-foreground/10" aria-hidden="true" />
         <OsWindowActions pageId={pageId} />
       </div>
+      {(leading || search || trailing) && <div className="rumahl-app-tools">
+        {leading && <div className="rumahl-app-leading">{leading}</div>}
+        {search && <div className="rumahl-app-search">{search}</div>}
+        {trailing && <div className="rumahl-app-actions">{trailing}</div>}
+      </div>}
     </header>
   )
 }
