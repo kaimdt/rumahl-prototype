@@ -1,4 +1,14 @@
 # rumahl — Home Assistant Dashboard
+> [!WARNING]
+> # Status: Archived
+> This repository contains the original Rumahl prototype. It is no longer under active development and is preserved for historical and experimental reference.
+> 
+> The prototype was developed to explore Rumahl's system model, runtime, build system, deployment model, and OS integration. It was successfully deployed and operated for several months.
+> 
+> The current Rumahl project is a second-generation implementation based on the lessons learned from this prototype. It deliberately does not attempt to evolve the prototype incrementally.
+> 
+> For the current Rumahl project, see: [rumahl repository](https://github.com/rumahl/rumahl)
+
 
 [![CI](https://github.com/rumahl/ora/actions/workflows/ci.yml/badge.svg)](https://github.com/rumahl/ora/actions/workflows/ci.yml)
 [![Buildroot Release](https://github.com/rumahl/ora/actions/workflows/buildroot-release.yml/badge.svg)](https://github.com/rumahl/ora/actions/workflows/buildroot-release.yml)
